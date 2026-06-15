@@ -1,0 +1,15 @@
+<workflow feedId="SAMPLE-07-replace" sourceId="EORFULL" name="CSV replace demo">
+    <steps>
+        <step id="extract" name="Extract" exec="sql" datasource="as400" csvFile="${landingOut}/eor.csv">
+            <query>SELECT * FROM EORFULL</query>
+        </step>
+        <step id="clean" name="Clean SMS text" exec="csvreplace" source="${extract.outputFile}" delimiter=";">
+            <param name="hasHeader" value="true"/>
+            <replace from="CS informa: " to="" columns="TESTO_SMS"/>
+            <replace from="&quot;" to=""/>
+        </step>
+        <step id="check" name="Validate" exec="validate" source="${clean.outputFile}" delimiter=";" checks="noQuotes,rowCount">
+            <param name="hasHeader" value="true"/>
+        </step>
+    </steps>
+</workflow>

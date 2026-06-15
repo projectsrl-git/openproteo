@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Example workflow: preparation and delivery of the EORFULL feed to Legal Archive.
+
+  feedId  = Legal Archive feed ID: the key for directories, logs, run ids and the ${feedId} variable
+  name    = friendly name shown in the UI
+  cron    = Spring 6-field cron expression (sec min hour day month dayOfWeek).
+            Omit it for manual-only workflows.
+  baseDir = base of the feed directory layout (default: orchestrator.default-base-dir)
+
+  Builtin variables available in param/condition:
+    ${feedId} ${feedName} ${runId} ${runDate} ${runTs}
+    ${feedDir} ${landingIn} ${landingOut} ${logDir} ${stepDir} ${dir.<stepId>}
+  Scripts emit output variables by printing lines:  ##VAR name=value
+-->
+<workflow feedId="LA-EOR-001"
+          name="EORFULL to Legal Archive"
+          cron="0 30 6 * * MON-FRI"
+          baseDir="./feeds">
+
+    <description>Prepares EORFULL packages from the AS400 landing and delivers them to Legal Archive via FTPS</description>
+
+    <variables>
+        <var name="ftpsHost" value="ftps.legalarchive.example.com"/>
+        <var name="ftpsFolder" value="/inbound/EOR"/>
+        <var name="minFiles" value="1"/>
+    </variables>
+
+    <steps>
+
+        <step id="check_landing" name="Check landing IN" script="Check-LandingIn.ps1" timeoutSec="300">
+            <param name="Path" value="${landingIn}"/>
+            <param name="FeedId" value="${feedId}"/>
+            <output var="fileCount"/>
+        </step>
+
+        <!-- auto gate: if there are no files the run ends as SKIPPED -->
+        <gate id="files_present" name="Files in landing?"
+              condition="${fileCount} &gt;= ${minFiles}"
+              onTrue="prepare" onFalse="END:SKIPPED"/>
+
+        <step id="prepare" name="Prepare package" script="Prepare-Feed.ps1"
+              timeoutSec="1800" retry="1" retryDelaySec="60">
+            <param name="Source" value="${landingIn}"/>
+            <param name="WorkDir" value="${stepDir}"/>
+            <param name="Target" value="${landingOut}"/>
+            <param name="FeedId" value="${feedId}"/>
+            <param name="RunId" value="${runId}"/>
+            <output var="packageFile"/>
+            <output var="packageSizeKB"/>
+        </step>
+
+        <!-- manual gate: the run stays in WAITING_APPROVAL until an operator decides from the UI -->
+        <gate id="approval" name="Delivery approval" type="manual"
+              onTrue="send" onFalse="END:REJECTED"/>
+
+        <step id="send" name="FTPS delivery" script="Send-FTPS.ps1"
+              timeoutSec="900" retry="2" retryDelaySec="120">
+            <param name="PackageFile" value="${packageFile}"/>
+            <param name="FtpsHost" value="${ftpsHost}"/>
+            <param name="RemoteFolder" value="${ftpsFolder}"/>
+            <param name="FeedId" value="${feedId}"/>
+        </step>
+
+    </steps>
+</workflow>

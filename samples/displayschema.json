@@ -1,0 +1,5 @@
+[{"ColumnName":"NDG","DataType":"string","Nullable":true,"DisplayName":"Codice Cliente CS","DisplaySequenceNr":1,"Viewable":true},
+ {"ColumnName":"NOMINATIVO","DataType":"string","Nullable":true,"DisplayName":"Descrizione Cliente","DisplaySequenceNr":2,"Viewable":true},
+ {"ColumnName":"DATA_KYC","DataType":"date","Nullable":true,"DisplayName":"Data KYC","DisplaySequenceNr":3,"Viewable":true},
+ {"ColumnName":"ID_PROCESSO","DataType":"string","Nullable":true,"DisplayName":"ID Processo","DisplaySequenceNr":4,"Viewable":true},
+ {"ColumnName":"END_OF_RELATIONSHIP_DATE","DataType":"date","Nullable":true,"DisplayName":"Fine relazione","DisplaySequenceNr":5,"Viewable":true}]

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenProteo — Run history</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub">Run history</span>
+    <span class="spacer"></span>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap" style="max-width:1100px">
+    <h1><span class="feed-id" th:text="${wf.feedId}"></span> — Run history</h1>
+    <p class="page-sub">Every run with its step/gate/file events. Click a run to expand, "open ▷" for the live page.</p>
+
+    <div class="toolbar">
+        <a class="btn" th:href="@{'/workflow/' + ${wf.feedId}}">← Workflow</a>
+        <a class="btn" th:href="@{'/audit/' + ${wf.feedId}}">Audit log</a>
+        <button class="btn" onclick="buildTree()">↻ Refresh</button>
+        <span class="spacer"></span>
+        <span class="dim small" id="treeInfo"></span>
+    </div>
+
+    <div id="runTree" class="run-tree"><span class="dim small">loading…</span></div>
+</div>
+
+<script th:inline="javascript">
+    var CTX = (function(){ var b=document.querySelector('.brand'); var h=b?b.getAttribute('href'):'/'; return h.charAt(h.length-1)==='/'?h:h+'/'; })();
+    var FEED_ID = /*[[${wf.feedId}]]*/ 'feed';
+    function tick() { document.getElementById('clock').textContent = new Date().toLocaleString('it-IT'); }
+    tick(); setInterval(tick, 1000);
+
+    function esch(x){var d=document.createElement('div');d.textContent=(x==null?'':String(x));return d.innerHTML;}
+    var API = CTX + 'api/workflows/' + encodeURIComponent(FEED_ID) + '/';
+    function viewUrl(name){
+        var dl = API + 'download?path=' + encodeURIComponent(name);
+        return CTX + 'view?src=' + encodeURIComponent(dl) + '&name=' + encodeURIComponent(name) + '&api=' + encodeURIComponent(API) + '&path=' + encodeURIComponent(name);
+    }
+    function buildTree(){
+        fetch(CTX + 'api/audit/' + encodeURIComponent(FEED_ID) + '/entries').then(function(r){return r.json();}).then(function(j){
+            var box=document.getElementById('runTree');
+            if(!j.ok){ box.innerHTML='<span class="dim small">'+esch(j.error||'error')+'</span>'; return; }
+            var open={};
+            box.querySelectorAll('details.run-node').forEach(function(d){ if(d.open && d.getAttribute('data-rid')) open[d.getAttribute('data-rid')]=true; });
+            var runs={}, order=[], feedFiles=[];
+            (j.events||[]).forEach(function(e){
+                var rid=e.runId;
+                if(!rid){ if(/^FILE_/.test(e.event)) feedFiles.push(e); return; }
+                if(!runs[rid]){ runs[rid]={id:rid, events:[], status:'', start:e.ts, end:e.ts}; order.push(rid); }
+                runs[rid].events.push(e);
+                if(e.ts) runs[rid].end = e.ts;
+                if(e.event && e.event.indexOf('RUN_')===0){
+                    if(e.details && e.details.status) runs[rid].status=e.details.status;            // authoritative
+                    else if(e.event==='RUN_COMPLETED') runs[rid].status='SUCCESS';                   // terminal success event
+                    else if(/^RUN_(FAILED|SKIPPED|REJECTED|ABORTED)$/.test(e.event)) runs[rid].status=e.event.substring(4);
+                    else if(e.event==='RUN_RUNNING'||e.event==='RUN_QUEUED') runs[rid].status=runs[rid].status||'RUNNING';
+                }
+            });
+            order.reverse();
+            document.getElementById('treeInfo').textContent = order.length + ' run(s)';
+            var h='';
+            if(feedFiles.length){
+                h+='<details class="run-node" data-rid="_files"'+(open['_files']?' open':'')+'><summary>📁 Feed files ('+feedFiles.length+' events)</summary><div class="run-body">';
+                feedFiles.forEach(function(e){
+                    var nm=e.details&&e.details.name;
+                    h+='<div class="ev"><span class="ev-tag">'+esch(e.event)+'</span> '+esch(nm||'')+(nm?(' <a class="btn sm" target="_blank" href="'+viewUrl(nm)+'">👁 View</a>'):'')+'</div>';
+                });
+                h+='</div></details>';
+            }
+            order.forEach(function(rid){
+                var r=runs[rid];
+                var stClass = r.status||'';
+                h+='<details class="run-node" data-rid="'+esch(rid)+'"'+(open[rid]?' open':'')+'><summary><span class="chip '+esch(stClass)+'">'+esch(r.status||'?')+'</span> <span class="mono">'+esch(rid)+'</span>'+
+                   (r.start?(' <span class="dim small">'+esch(r.start)+'</span>'):'')+
+                   ' <a class="btn sm" href="'+CTX+'run/'+encodeURIComponent(FEED_ID)+'/'+encodeURIComponent(rid)+'">open ▷</a>'+
+                   ' <button class="btn sm danger" data-del-run="'+esch(rid)+'">🗑 Delete</button></summary><div class="run-body">';
+                r.events.forEach(function(e){
+                    if(e.event==='STEP_OUTPUT_VAR') return;
+                    var node=e.node?(' <span class="mono dim">['+esch(e.node)+']</span>'):'';
+                    var det='';
+                    if(e.details){ var parts=[]; for(var k in e.details){ parts.push(k+'='+e.details[k]); } if(parts.length) det=' <span class="dim small">'+esch(parts.join(', '))+'</span>'; }
+                    var fileLink='';
+                    if(e.details&&e.details.name&&/FILE_/.test(e.event)) fileLink=' <a class="btn sm" target="_blank" href="'+viewUrl(e.details.name)+'">👁</a>';
+                    h+='<div class="ev"><span class="ev-tag">'+esch(e.event)+'</span>'+node+det+fileLink+'</div>';
+                });
+                h+='</div></details>';
+            });
+            box.innerHTML = h || '<span class="dim small">No runs yet.</span>';
+            box.querySelectorAll('[data-del-run]').forEach(function(btn){
+                btn.addEventListener('click', function(ev){
+                    ev.preventDefault(); ev.stopPropagation();
+                    var rid = btn.getAttribute('data-del-run');
+                    if(!confirm('Delete run '+rid+' permanently? Its logs will be removed. This cannot be undone.')) return;
+                    fetch(CTX+'api/runs/'+encodeURIComponent(FEED_ID)+'/'+encodeURIComponent(rid)+'/delete',{method:'POST'})
+                        .then(function(r){return r.json();})
+                        .then(function(j){ if(j.ok) buildTree(); else alert(j.error||'Delete failed'); })
+                        .catch(function(e){ alert('Delete failed: '+e); });
+                });
+            });
+        }).catch(function(e){ document.getElementById('runTree').innerHTML='<span class="dim small">'+esch(String(e))+'</span>'; });
+    }
+    buildTree();
+    setInterval(buildTree, 5000);
+</script>
+</body>
+</html>

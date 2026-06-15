@@ -1,0 +1,50 @@
+OpenProteo — Legal Archive feed orchestrator (Java 8, Spring Boot 2.7, WAR on Tomcat)
+
+Web application that orchestrates and schedules the PowerShell scripts and
+built-in steps used to prepare and deliver Legal Archive feeds. Built for a
+UBS corporate environment (Credit Suisse -> UBS decommissioning). Java 8,
+Spring Boot 2.7, Thymeleaf; packaged as a plain WAR for an external Tomcat
+(no embedded server). No CDN and no database server: all state lives in
+readable JSON/JSONL files.
+
+Core
+- XML workflow engine: steps + gates (auto with condition, or manual approval),
+  variable resolution (${var}), per-feed directory provisioning, cron scheduling.
+- Single-threaded FIFO run engine with active-run lock per feed.
+- Append-only, hash-chained audit log per feed (tamper-evident JSONL).
+- Run state as pretty-printed JSON; per-step PowerShell logs on disk.
+
+UI (English; this repo's docs are in Italian)
+- Dashboard, workflow page, run page with a live pure-SVG BPMN view and
+  per-step checklist sub-nodes, run history, audit log viewer.
+- Visual workflow designer (compose steps/gates, live pipeline + XML preview,
+  server-side re-validation with the same parser used at runtime).
+- Server-side CSV viewer: byte-offset index, quote-aware aggregation,
+  searchable multi-select group-by / distinct, pivot, pinned total, export.
+- stdout/stderr/system stream filters on console and step logs.
+- Run deletion and confirmation prompts on state-changing actions.
+
+Built-in steps
+- validate: quote-aware CSV checks (colCount skipped without a dataschema).
+- csvreplace, filecopy, ifscopy, setvar, sql (DB2/AS400 via JTOpen), jar.
+- encoding: normalize text to UTF-8; single file or whole-directory batch
+  (filter, recursive, outputDir).
+- anonymize (ARX): free-text editing + column roles (Batch 2a); k-anonymity
+  pending the ARX jar on the corporate Nexus.
+- mask: deterministic, key-driven streaming masking (constant memory, ~1GB ok).
+  HMAC-SHA256 seeded RNG; same value -> same output so joins survive; one-way
+  (no re-identification). Format-preserving (numericFixed, alphanumericFixed),
+  pools (firstName/lastName/fullName cross-joined, city, address, company),
+  free-text (lorem, exact length), customerDescription (person or company by %),
+  CID in three modes (format-preserving / partial / hash). Column-to-anonType
+  mapping via per-type comma lists (the destination displayschema cannot carry
+  anonType); displayschema optional, only for DataType=date passthrough.
+  Pools bundled in the WAR under /maskdata, overridable via an external dir.
+
+Configuration
+- External application.properties under CATALINA_HOME/config with absolute paths.
+- Masking secret read from orchestrator.masking-secret (never committed).
+
+Notes
+- Spring Boot executable repackage disabled: the WAR is a plain deployable for
+  an external Tomcat (no embedded server bundled).

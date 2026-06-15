@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title th:text="'OpenProteo — run ' + ${runId}">OpenProteo</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub" th:text="${wf.name}"></span>
+    <span class="spacer"></span>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap">
+    <h1>
+        <span class="feed-id" th:text="${feedId}"></span>
+        <span class="mono small dim" th:text="${runId}"></span>
+        <span class="chip" id="runStatus">…</span>
+        <button class="btn sm danger" id="stopBtn" style="display:none;margin-left:8px" onclick="stopRun()">■ Stop</button>
+        <button class="btn sm" id="rerunBtn" style="margin-left:8px" onclick="reRun()">↻ Re-run</button>
+    </h1>
+    <p class="page-sub">
+        <span id="runMeta" class="mono small"></span>
+    </p>
+
+    <div class="toolbar">
+        <a class="btn" th:href="@{'/designer/' + ${feedId}}">✎ Edit</a>
+        <a class="btn" th:href="@{'/workflow/' + ${feedId}}">Workflow page</a>
+        <a class="btn" th:href="@{'/runs/' + ${feedId}}">⟲ Run history</a>
+        <a class="btn" th:href="@{'/audit/' + ${feedId}}">Audit log</a>
+        <button class="btn danger" onclick="deleteRun()">🗑 Delete run</button>
+        <span class="spacer"></span>
+        <a class="btn" th:href="@{/}">← Dashboard</a>
+    </div>
+
+    <div class="banner error" id="runMessage" style="display:none"></div>
+
+    <!-- gate manuale in attesa -->
+    <div class="approval" id="approvalBox">
+        <h3>◆ Approval required — <span class="gname" id="gateName"></span></h3>
+        <p class="dim small">The workflow is suspended on a manual decision gate. The decision is recorded in the audit log with user and timestamp.</p>
+        <input type="text" id="decisionNote" placeholder="Note (optional)"
+               style="width:340px;padding:6px 10px;background:#0a0e14;border:1px solid var(--line);color:var(--ink);border-radius:4px;font-family:var(--mono);font-size:12px">
+        <button class="btn ok" onclick="decide(true)">✓ Approve and continue</button>
+        <button class="btn danger" onclick="decide(false)">✕ Reject</button>
+    </div>
+
+    <h2>Workflow progress</h2>
+    <div class="panel">
+        <div class="bpmn-wrap" id="bpmnBox"><span class="dim small">loading diagram…</span></div>
+    </div>
+    <div id="checklistBox"></div>
+
+    <h2>Steps</h2>
+    <div class="panel">
+        <table>
+            <thead><tr><th>Step</th><th>Status</th><th>Started</th><th>Ended</th><th>Exit</th><th>Att.</th><th>Log</th></tr></thead>
+            <tbody id="stepRows"></tbody>
+        </table>
+    </div>
+
+    <h2>Live console <span class="mono small dim" id="consoleStep"></span>
+        <span class="stream-filter" style="float:right;font-size:12px;font-weight:400">
+            <label><input type="checkbox" id="cfOut" checked onchange="applyStreamFilter('console', this)"> stdout</label>
+            <label><input type="checkbox" id="cfErr" checked onchange="applyStreamFilter('console', this)"> stderr</label>
+            <label><input type="checkbox" id="cfSys" checked onchange="applyStreamFilter('console', this)"> system</label>
+            <button class="btn sm" id="followBtn" onclick="toggleFollow()">⏸ Pause autoscroll</button>
+        </span>
+    </h2>
+    <div class="console" id="console"><span class="dim small">waiting for an active step…</span></div>
+
+    <h2>Step log (inspect any step) <span class="mono small dim" id="logTitle"></span>
+        <span class="stream-filter" style="float:right;font-size:12px;font-weight:400">
+            <label><input type="checkbox" id="lfOut" checked onchange="applyStreamFilter('logBox', this)"> stdout</label>
+            <label><input type="checkbox" id="lfErr" checked onchange="applyStreamFilter('logBox', this)"> stderr</label>
+            <label><input type="checkbox" id="lfSys" checked onchange="applyStreamFilter('logBox', this)"> system</label>
+        </span>
+    </h2>
+    <div class="logbox" id="logBox"></div>
+
+    <h2>Run variables</h2>
+    <div class="panel"><dl class="kv" id="varBox"></dl></div>
+
+    <footer>auto-refresh every 2s while the run is active</footer>
+</div>
+
+<script th:src="@{/js/bpmn.js}"></script>
+<script th:inline="javascript">
+    var CTX = (function(){ var b=document.querySelector('.brand'); var h=b?b.getAttribute('href'):'/'; return h.charAt(h.length-1)==='/'?h:h+'/'; })();
+    var FEED_ID = /*[[${feedId}]]*/ 'feed';
+    var RUN_ID = /*[[${runId}]]*/ 'run';
+    var currentLogStep = null;
+    var pollTimer = null;
+    var consoleStep = null, consoleOffset = 0, follow = true, consoleBusy = false, consoleInit = false;
+
+    function tick() { document.getElementById('clock').textContent = new Date().toLocaleString('it-IT'); }
+    tick(); setInterval(tick, 1000);
+
+    function esc(s) {
+        var d = document.createElement('div');
+        d.textContent = (s == null ? '' : String(s));
+        return d.innerHTML;
+    }
+
+    function refresh() {
+        fetch(CTX + 'api/runs/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(RUN_ID))
+            .then(function (r) { if (!r.ok) throw new Error('run non trovato'); return r.json(); })
+            .then(render)
+            .catch(function (e) {
+                document.getElementById('runStatus').textContent = 'NOT FOUND';
+            });
+    }
+
+    function render(run) {
+        var st = document.getElementById('runStatus');
+        st.textContent = run.status;
+        st.className = 'chip ' + run.status;
+        document.getElementById('runMeta').textContent =
+            'started ' + (run.startTs || '—') + (run.endTs ? ('  ·  ended ' + run.endTs) : '') +
+            '  ·  trigger ' + run.trigger + ' (' + run.triggeredBy + ')';
+
+        var active = run.status === 'QUEUED' || run.status === 'RUNNING' || run.status === 'WAITING_APPROVAL';
+        document.getElementById('stopBtn').style.display = active ? 'inline-block' : 'none';
+        document.getElementById('rerunBtn').style.display = active ? 'none' : 'inline-block';
+
+        var msg = document.getElementById('runMessage');
+        if (run.message) { msg.style.display = 'block'; msg.textContent = run.message; }
+        else { msg.style.display = 'none'; }
+
+        // pipeline
+        run.steps.forEach(function (s) { paintNode(s.stepId, s.status, stepMeta(s)); });
+        run.steps.forEach(function (s) { if (s.checks && s.checks.length && BPMN && BPMN.setChecks) BPMN.setChecks(s.stepId, s.checks); });
+        run.gates.forEach(function (g) {
+            var status = g.result === null || g.result === undefined
+                ? (run.waitingGateId === g.gateId ? 'WAITING' : 'PENDING')
+                : (g.result ? 'TRUE' : 'FALSE');
+            var meta = g.condition ? g.condition : (g.decidedBy ? ('decided by ' + g.decidedBy) : '');
+            paintNode(g.gateId, status, meta);
+        });
+
+        // approval box
+        var box = document.getElementById('approvalBox');
+        if (run.status === 'WAITING_APPROVAL' && run.waitingGateId) {
+            var g = run.gates.filter(function (x) { return x.gateId === run.waitingGateId; })[0];
+            document.getElementById('gateName').textContent = g ? g.name : run.waitingGateId;
+            box.classList.add('visible');
+        } else {
+            box.classList.remove('visible');
+        }
+
+        // tabella step
+        var rows = '';
+        run.steps.forEach(function (s) {
+            rows += '<tr>' +
+                '<td>' + esc(s.name) + '<div class="mono small dim">' + esc(s.stepId) + '</div></td>' +
+                '<td><span class="chip ' + esc(s.status) + '">' + esc(s.status) + '</span></td>' +
+                '<td class="mono small dim">' + esc(s.startTs || '—') + '</td>' +
+                '<td class="mono small dim">' + esc(s.endTs || '—') + '</td>' +
+                '<td class="mono small">' + esc(s.exitCode === null || s.exitCode === undefined ? '—' : s.exitCode) + '</td>' +
+                '<td class="mono small">' + esc(s.attempts || 0) + '</td>' +
+                '<td><button class="btn sm" onclick="showLog(\'' + esc(s.stepId) + '\')">open</button></td>' +
+                '</tr>';
+            if (s.message) {
+                rows += '<tr><td colspan="7" class="small" style="color:var(--fail)">' + esc(s.message) + '</td></tr>';
+            }
+        });
+        document.getElementById('stepRows').innerHTML = rows;
+
+        // variabili
+        var vb = '';
+        Object.keys(run.vars || {}).forEach(function (k) {
+            vb += '<dt>${' + esc(k) + '}</dt><dd>' + esc(run.vars[k]) + '</dd>';
+        });
+        document.getElementById('varBox').innerHTML = vb;
+
+        // validate steps: checklist (sub-steps) with live progress
+        var clHtml = '';
+        run.steps.forEach(function (s) {
+            if (!s.checks || !s.checks.length) return;
+            var ok = 0, fail = 0;
+            s.checks.forEach(function (c) { if (c.status === 'PASS') ok++; else if (c.status === 'FAIL') fail++; });
+            clHtml += '<div class="panel checklist-card"><h3>' + esc(s.name) + ' — checklist ' +
+                '<span class="dim small">' + ok + '/' + s.checks.length + ' ok' + (fail ? (', ' + fail + ' failed') : '') + '</span></h3>';
+            s.checks.forEach(function (c) {
+                var ic = c.status === 'PASS' ? '✓' : c.status === 'FAIL' ? '✗' : c.status === 'RUNNING' ? '▶' : c.status === 'SKIP' ? '⊘' : '⏳';
+                clHtml += '<div class="check-row ' + esc(c.status) + '"><span class="check-ic">' + ic + '</span> <b>' + esc(c.label) + '</b>' +
+                    (c.detail ? ' <span class="dim small">— ' + esc(c.detail) + '</span>' : '') + '</div>';
+            });
+            clHtml += '</div>';
+        });
+        document.getElementById('checklistBox').innerHTML = clHtml;
+
+        if (currentLogStep) loadLog(currentLogStep);
+        updateConsole(run);
+
+        // smette di fare polling quando il run e' terminato
+        var terminal = ['SUCCESS', 'FAILED', 'SKIPPED', 'REJECTED', 'ABORTED'].indexOf(run.status) >= 0;
+        if (terminal && BPMN && (run.status === 'SUCCESS' || run.status === 'FAILED')) BPMN.setFinalOutcome(run.status);
+        if (terminal && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        if (!terminal && !pollTimer) { pollTimer = setInterval(refresh, 2000); }
+    }
+
+    function stepMeta(s) {
+        var m = [];
+        if (s.checks && s.checks.length) {
+            var ok = 0; s.checks.forEach(function (c) { if (c.status === 'PASS') ok++; });
+            m.push('checks ' + ok + '/' + s.checks.length);
+        }
+        if (s.exitCode !== null && s.exitCode !== undefined) m.push('exit ' + s.exitCode);
+        if (s.attempts > 1) m.push(s.attempts + ' attempts');
+        return m.join(' · ');
+    }
+
+    function paintNode(id, status, meta) {
+        if (BPMN) BPMN.setStatus(id, status, meta);
+        else pendingPaints.push([id, status, meta]);
+    }
+
+    function toggleFollow() {
+        follow = !follow;
+        document.getElementById('followBtn').textContent = follow ? '⏸ Pause autoscroll' : '▶ Follow output';
+        if (follow) { var c = document.getElementById('console'); c.scrollTop = c.scrollHeight; }
+    }
+
+    function updateConsole(run) {
+        var active = null;
+        run.steps.forEach(function (s) { if (s.status === 'RUNNING') active = s; });
+        if (active) {
+            if (active.stepId !== consoleStep) {
+                consoleStep = active.stepId; consoleOffset = 0; consoleInit = false;
+                var c = document.getElementById('console'); c.innerHTML = '';
+                document.getElementById('consoleStep').textContent = active.stepId;
+            }
+            pollConsole(active.stepId);
+        } else if (consoleStep) {
+            pollConsole(consoleStep); // capture the final lines after the step completes
+        }
+    }
+
+    function pollConsole(stepId) {
+        if (consoleBusy) return;
+        consoleBusy = true;
+        fetch(CTX + 'api/runs/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(RUN_ID) +
+              '/log/' + encodeURIComponent(stepId) + '/tail?offset=' + consoleOffset)
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                consoleBusy = false;
+                if (!j || !j.ok) return;
+                var c = document.getElementById('console');
+                if (j.full) { c.innerHTML = ''; renderConsole(c, j.lines); }
+                else { if (!consoleInit) { c.innerHTML = ''; consoleInit = true; } renderConsole(c, j.lines); }
+                consoleOffset = j.next || consoleOffset;
+                if (follow) c.scrollTop = c.scrollHeight;
+            })
+            .catch(function () { consoleBusy = false; });
+    }
+
+    function applyStreamFilter(targetId, cb) {
+        var box = document.getElementById(targetId);
+        var id = cb.id;
+        var stream = id.indexOf('Out') >= 0 ? 'out' : (id.indexOf('Err') >= 0 ? 'err' : 'sys');
+        if (cb.checked) box.classList.remove('hide-' + stream); else box.classList.add('hide-' + stream);
+    }
+
+    function renderConsole(c, lines) {
+        if (!lines || !lines.length) return;
+        var frag = document.createDocumentFragment();
+        lines.forEach(function (ln) {
+            var d = document.createElement('div');
+            d.className = ln.s === 'E' ? 'c-err' : (ln.s === 'S' ? 'c-sys' : 'c-out');
+            d.textContent = (ln.i !== undefined && ln.i !== null ? ('[#' + ln.i + '] ') : '') + ln.c;
+            frag.appendChild(d);
+        });
+        c.appendChild(frag);
+    }
+
+    function showLog(stepId) {
+        currentLogStep = stepId;
+        document.getElementById('logTitle').textContent = stepId;
+        loadLog(stepId);
+    }
+
+    function loadLog(stepId) {
+        fetch(CTX + 'api/runs/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(RUN_ID) +
+              '/log/' + encodeURIComponent(stepId) + '?tail=500')
+            .then(function (r) { return r.text(); })
+            .then(function (t) {
+                var box = document.getElementById('logBox');
+                var atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+                box.innerHTML = '';
+                var frag = document.createDocumentFragment();
+                (t || '').split(String.fromCharCode(10)).forEach(function (line) {
+                    var d = document.createElement('div');
+                    d.className = line.indexOf('[ERR]') >= 0 ? 'c-err' : (line.indexOf('[SYS]') >= 0 ? 'c-sys' : 'c-out');
+                    d.textContent = line;
+                    frag.appendChild(d);
+                });
+                box.appendChild(frag);
+                if (atBottom) box.scrollTop = box.scrollHeight;
+            });
+    }
+
+    function decide(approve) {
+        if (!confirm(approve ? 'Approve and continue the workflow?' : 'Reject and stop the workflow at this gate?')) return;
+        var note = document.getElementById('decisionNote').value;
+        fetch(CTX + 'api/runs/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(RUN_ID) +
+              '/decision?approve=' + approve + '&note=' + encodeURIComponent(note), { method: 'POST' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (!j.ok) alert(j.error || 'Decision not applied');
+                refresh();
+            });
+    }
+
+    function reRun() {
+        if (!confirm('Start a new run of this workflow now?')) return;
+        var btn = document.getElementById('rerunBtn');
+        btn.disabled = true;
+        fetch(CTX + 'api/workflows/' + encodeURIComponent(FEED_ID) + '/run', { method: 'POST' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (j.ok) window.location = CTX + 'run/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(j.runId);
+                else { alert(j.error || 'Re-run failed'); btn.disabled = false; }
+            })
+            .catch(function (e) { alert('Re-run failed: ' + e); btn.disabled = false; });
+    }
+
+    function deleteRun() {
+        if (!confirm('Delete this run permanently? Its logs will be removed. This cannot be undone.')) return;
+        fetch(CTX + 'api/runs/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(RUN_ID) + '/delete', { method: 'POST' })
+            .then(readJsonRun)
+            .then(function (j) {
+                if (j.ok) window.location = CTX + 'runs/' + encodeURIComponent(FEED_ID);
+                else alert(j.error || 'Delete failed');
+            })
+            .catch(function (e) { alert('Delete failed: ' + (e.message || e)); });
+    }
+    function readJsonRun(r) {
+        var ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
+        return r.text().then(function (t) {
+            if (ct.indexOf('application/json') < 0) throw new Error('HTTP ' + r.status + ' (non-JSON response)');
+            return JSON.parse(t);
+        });
+    }
+    function stopRun() {
+        if (!confirm('Stop this run? The current PowerShell step will be terminated.')) return;
+        var btn = document.getElementById('stopBtn');
+        btn.disabled = true;
+        fetch(CTX + 'api/runs/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(RUN_ID) + '/stop', { method: 'POST' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                btn.disabled = false;
+                if (!j.ok) alert(j.error || 'Stop failed');
+                refresh();
+            })
+            .catch(function (e) { btn.disabled = false; alert('Error: ' + e); });
+    }
+
+    var BPMN = null;
+    var pendingPaints = [];
+
+    fetch(CTX + 'api/workflows/' + encodeURIComponent(FEED_ID) + '/definition')
+        .then(function (r) { return r.json(); })
+        .then(function (def) {
+            BPMN = renderBpmn(document.getElementById('bpmnBox'), def);
+            pendingPaints.forEach(function (p) { BPMN.setStatus(p[0], p[1], p[2]); });
+            pendingPaints = [];
+        })
+        .catch(function () {
+            document.getElementById('bpmnBox').textContent = 'Diagram unavailable';
+        });
+
+    refresh();
+    pollTimer = setInterval(refresh, 2000);
+</script>
+</body>
+</html>

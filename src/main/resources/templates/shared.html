@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenProteo — Shared files</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub">Shared files</span>
+    <span class="spacer"></span>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap" style="max-width:1100px">
+    <h1>Shared files (application level)</h1>
+    <p class="page-sub">Files uploaded here are available to <b>every</b> workflow. Documents serve as common
+        references; executables get a unique alias usable as <span class="mono">${alias}</span> in any step.
+        Aliases are unique across the application and each feed.</p>
+
+    <div class="panel" style="padding:16px">
+        <div id="sharedFiles"></div>
+    </div>
+</div>
+
+<script th:src="@{/js/filespanel.js}"></script>
+<script>
+    var CTX = (function(){ var b=document.querySelector('.brand'); var h=b?b.getAttribute('href'):'/'; return h.charAt(h.length-1)==='/'?h:h+'/'; })();
+    function tick() { document.getElementById('clock').textContent = new Date().toLocaleString('it-IT'); }
+    tick(); setInterval(tick, 1000);
+    mountFilesPanel(document.getElementById('sharedFiles'), CTX + 'api/shared/', CTX);
+</script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+<workflow feedId="SAMPLE-06-validate" sourceId="EORFULL" name="CSV validation checklist">
+    <description>Demonstrates the CSV validation step with a selectable checklist (sub-steps).</description>
+    <variables>
+        <var name="dateFmt" value="YYYY/MM/DD"/>
+    </variables>
+    <steps>
+        <step id="validate" name="Validate EOR CSV" exec="validate"
+              source="${landingOut}/eor_${runDate}.csv" delimiter=";"
+              checks="rowCount,colCount,jsonSchema,noQuotes,colNames,notNull,businessDate,displayDates">
+            <param name="hasHeader" value="true"/>
+            <param name="expectedRows" value="${rowCount}"/>
+            <param name="dataschema" value="${feedDir}/dataschema.json"/>
+            <param name="displayschema" value="${feedDir}/displayschema.json"/>
+            <param name="businessDateColumn" value="END_OF_RELATIONSHIP_DATE"/>
+            <param name="dateFormat" value="${dateFmt}"/>
+        </step>
+        <gate id="g_ok" type="auto" condition="${checksFailed} == 0" onTrue="send" onFalse="END:REJECTED"/>
+        <step id="send" name="Send to Legal Archive" script="Send-FTPS.ps1">
+            <param name="PackageFile" value="${landingOut}/eor_${runDate}.csv"/>
+        </step>
+    </steps>
+</workflow>

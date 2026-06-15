@@ -1,0 +1,11 @@
+# Company legal suffixes.
+S.p.A.
+S.r.l.
+S.n.c.
+S.a.s.
+& C.
+Group
+Holding
+International
+Italia
+Partners

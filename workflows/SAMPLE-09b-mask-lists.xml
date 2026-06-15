@@ -1,0 +1,23 @@
+<workflow feedId="SAMPLE-09b-mask-lists" sourceId="EORFULL" name="Mask CSV — column-list mapping (no anonType in schema)">
+    <description>Map columns to anonTypes via comma-separated lists. Columns in no list pass through untouched.</description>
+    <steps>
+        <step id="mask" name="Mask EOR CSV (lists)" exec="mask" source="${landingOut}/${feedId}_${runDate}.csv" delimiter=";">
+            <param name="outFile" value="${landingOut}/${feedId}_${runDate}_masked.csv"/>
+            <param name="cidColumns" value="CID,NDG"/>
+            <param name="firstNameColumns" value="NOME"/>
+            <param name="lastNameColumns" value="COGNOME"/>
+            <param name="fullNameColumns" value="INTESTATARIO"/>
+            <param name="cityColumns" value="CITTA"/>
+            <param name="addressColumns" value="INDIRIZZO"/>
+            <param name="companyColumns" value="RAG_SOCIALE"/>
+            <param name="customerDescriptionColumns" value="DESC_CLIENTE"/>
+            <param name="numericFixedColumns" value="SALDO_RAW"/>
+            <param name="alphanumericFixedColumns" value="CODICE_INT"/>
+            <param name="freeTextColumns" value="NOTE"/>
+            <param name="dateColumns" value="DT_APERTURA"/>
+            <param name="localePercent" value="100"/>
+            <param name="cidMode" value="partial"/>
+            <param name="cidMaskPercent" value="60"/>
+        </step>
+    </steps>
+</workflow>

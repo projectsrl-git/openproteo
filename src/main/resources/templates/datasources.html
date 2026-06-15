@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenProteo — Data sources</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub">Data sources</span>
+    <span class="spacer"></span>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap" style="max-width:1100px">
+    <h1>Data sources</h1>
+    <p class="page-sub">Reusable connections referenced by id from SQL and IFS steps. The same AS400 connection
+        is used both for DB2 for i queries and for native IFS file copy. Passwords are stored in the datasources
+        JSON file — protect it with filesystem permissions.</p>
+
+    <div class="banner ok" id="okBanner" style="display:none"></div>
+    <div class="banner error" id="errBanner" style="display:none"></div>
+
+    <div class="designer-grid">
+        <div>
+            <h2>Connections</h2>
+            <div id="list"></div>
+            <div class="toolbar"><button class="btn" onclick="newDs()">＋ New connection</button></div>
+        </div>
+
+        <div class="dz-sticky">
+            <h2 id="formTitle">New connection</h2>
+            <div class="panel">
+                <div class="form-row">
+                    <div class="field"><label>Id *</label><input id="d_id" placeholder="AS400-PROD"></div>
+                    <div class="field"><label>Name</label><input id="d_name" placeholder="AS400 production"></div>
+                    <div class="field"><label>Type</label>
+                        <select id="d_type" onchange="typeChanged()">
+                            <option value="as400">as400 (DB2 for i + IFS)</option>
+                            <option value="custom">custom (JDBC)</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="as400Fields">
+                    <div class="form-row">
+                        <div class="field"><label>Host / system *</label><input id="d_host" placeholder="as400.example.com"></div>
+                        <div class="field"><label>User *</label><input id="d_user"></div>
+                        <div class="field"><label>Password</label><input id="d_password" type="password" placeholder="••••••"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="field wide"><label>JDBC properties (optional, k=v;k=v)</label>
+                            <input id="d_properties" placeholder="naming=system;libraries=MYLIB;errors=full"></div>
+                    </div>
+                </div>
+                <div id="customFields" style="display:none">
+                    <div class="form-row">
+                        <div class="field wide"><label>JDBC URL *</label><input id="d_jdbcUrl" placeholder="jdbc:db2://host:50000/DB"></div>
+                    </div>
+                    <div class="form-row">
+                        <div class="field"><label>Driver class</label><input id="d_driverClass" placeholder="com.ibm.db2.jcc.DB2Driver"></div>
+                        <div class="field"><label>User</label><input id="d_user2"></div>
+                        <div class="field"><label>Password</label><input id="d_password2" type="password"></div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="field wide"><label>Test query (optional)</label>
+                        <input id="d_testQuery" placeholder="SELECT 1 FROM SYSIBM.SYSDUMMY1"></div>
+                </div>
+                <div class="toolbar" style="padding:0 16px 14px">
+                    <button class="btn" onclick="testDs()">⚡ Test connection</button>
+                    <span class="spacer"></span>
+                    <button class="btn primary" onclick="saveDs()">💾 Save</button>
+                </div>
+                <div class="ds-test-result" id="testResult" style="padding:0 16px 14px"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    var CTX = (function(){ var b=document.querySelector('.brand'); var h=b?b.getAttribute('href'):'/'; return h.charAt(h.length-1)==='/'?h:h+'/'; })();
+    function tick() { document.getElementById('clock').textContent = new Date().toLocaleString('it-IT'); }
+    tick(); setInterval(tick, 1000);
+    function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+    function banner(ok, msg){ var b=document.getElementById(ok?'okBanner':'errBanner'); var o=document.getElementById(ok?'errBanner':'okBanner');
+        b.style.display='block'; b.textContent=msg; o.style.display='none'; }
+
+    function typeChanged(){
+        var t=document.getElementById('d_type').value;
+        document.getElementById('as400Fields').style.display = t==='as400'?'block':'none';
+        document.getElementById('customFields').style.display = t==='custom'?'block':'none';
+    }
+
+    function load(){
+        fetch(CTX + 'api/datasources').then(function(r){return r.json();}).then(function(list){
+            var h='<div class="panel"><table><thead><tr><th>Id</th><th>Type</th><th>Host / URL</th><th>User</th><th style="width:160px"></th></tr></thead><tbody>';
+            (list||[]).forEach(function(d){
+                h += '<tr><td class="mono"><span class="feed-id">'+esc(d.id)+'</span></td><td class="mono small">'+esc(d.type)+'</td>'+
+                    '<td class="mono small dim">'+esc(d.type==='custom'?d.jdbcUrl:d.host)+'</td><td class="small dim">'+esc(d.user)+'</td>'+
+                    '<td><button class="btn sm" onclick=\'edit('+JSON.stringify(d)+')\'>Edit</button> '+
+                    '<button class="btn sm danger" onclick="del(\''+esc(d.id)+'\')">Delete</button></td></tr>';
+            });
+            if(!list || !list.length) h += '<tr><td colspan="5" class="dim">No connections yet.</td></tr>';
+            h += '</tbody></table></div>';
+            document.getElementById('list').innerHTML=h;
+        });
+    }
+
+    function newDs(){
+        ['d_id','d_name','d_host','d_user','d_password','d_properties','d_jdbcUrl','d_driverClass','d_user2','d_password2','d_testQuery'].forEach(function(id){document.getElementById(id).value='';});
+        document.getElementById('d_type').value='as400'; typeChanged();
+        document.getElementById('d_id').readOnly=false; document.getElementById('d_id').style.opacity=1;
+        document.getElementById('formTitle').textContent='New connection';
+        document.getElementById('testResult').textContent='';
+    }
+
+    function edit(d){
+        document.getElementById('d_id').value=d.id; document.getElementById('d_id').readOnly=true; document.getElementById('d_id').style.opacity=0.6;
+        document.getElementById('d_name').value=d.name||'';
+        document.getElementById('d_type').value=d.type||'as400'; typeChanged();
+        document.getElementById('d_host').value=d.host||'';
+        document.getElementById('d_user').value=d.user||'';
+        document.getElementById('d_user2').value=d.user||'';
+        document.getElementById('d_password').value=d.password||'';
+        document.getElementById('d_password2').value=d.password||'';
+        document.getElementById('d_properties').value=d.properties||'';
+        document.getElementById('d_jdbcUrl').value=d.jdbcUrl||'';
+        document.getElementById('d_driverClass').value=d.driverClass||'';
+        document.getElementById('d_testQuery').value=d.testQuery||'';
+        document.getElementById('formTitle').textContent='Edit '+d.id;
+        document.getElementById('testResult').textContent='';
+    }
+
+    function collect(){
+        var t=document.getElementById('d_type').value;
+        var d={ id:document.getElementById('d_id').value.trim(), name:document.getElementById('d_name').value.trim(),
+            type:t, testQuery:document.getElementById('d_testQuery').value.trim() };
+        if(t==='as400'){
+            d.host=document.getElementById('d_host').value.trim();
+            d.user=document.getElementById('d_user').value.trim();
+            d.password=document.getElementById('d_password').value;
+            d.properties=document.getElementById('d_properties').value.trim();
+        } else {
+            d.jdbcUrl=document.getElementById('d_jdbcUrl').value.trim();
+            d.driverClass=document.getElementById('d_driverClass').value.trim();
+            d.user=document.getElementById('d_user2').value.trim();
+            d.password=document.getElementById('d_password2').value;
+        }
+        return d;
+    }
+
+    function testDs(){
+        var r=document.getElementById('testResult'); r.style.color='var(--ink-dim)'; r.textContent='Testing...';
+        fetch(CTX + 'api/datasources/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collect())})
+            .then(function(x){return x.json();}).then(function(j){
+                r.style.color = j.ok ? 'var(--ok)' : 'var(--fail)';
+                r.textContent = j.ok ? '✓ Connection OK' : ('✕ ' + (j.error||'failed'));
+            }).catch(function(e){ r.style.color='var(--fail)'; r.textContent='Error: '+e; });
+    }
+
+    function saveDs(){
+        var d=collect();
+        if(!d.id){ banner(false,'Id is required'); return; }
+        fetch(CTX + 'api/datasources',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)})
+            .then(function(x){return x.json();}).then(function(j){
+                if(j.ok){ banner(true,'Saved connection '+d.id); load(); } else { banner(false,j.error||'Save failed'); }
+            });
+    }
+
+    function del(id){
+        if(!confirm('Delete connection '+id+'?')) return;
+        fetch(CTX + 'api/datasources/'+encodeURIComponent(id)+'/delete',{method:'POST'})
+            .then(function(x){return x.json();}).then(function(){ load(); });
+    }
+
+    typeChanged(); load();
+</script>
+</body>
+</html>

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SAMPLE 01 - Built-in steps end to end.
+
+  Demonstrates: sql (DB2 for i query) -> auto gate on rowCount -> ifscopy (native
+  IFS copy from AS400 to a local dir) -> prepare (PowerShell) -> manual approval
+  gate -> send (jar). Copy this file, change feedId, and adapt to your feed.
+
+  REQUIREMENT: create a datasource with id "AS400-PROD" under /datasources
+  (type as400, host/user/password). The same connection is reused by the sql
+  and ifscopy steps.
+-->
+<workflow feedId="SAMPLE-01-sql-ifs"
+          name="Sample 01 - SQL + IFS copy + send"
+          baseDir="./feeds">
+
+    <description>Counts EOR rows for the run date, copies the matching files from the AS400 IFS, prepares a package and delivers it after manual approval</description>
+
+    <variables>
+        <var name="library" value="MYLIB"/>
+        <var name="ifsRoot" value="/QIBM/feeds/EOR"/>
+        <var name="ftpsHost" value="ftps.legalarchive.example.com"/>
+        <var name="ftpsFolder" value="/inbound/EOR"/>
+    </variables>
+
+    <steps>
+
+        <!-- sql: run a query on the AS400-PROD datasource; emits ##VAR rowCount -->
+        <step id="count_eor" name="Count EOR rows" exec="sql" datasource="AS400-PROD">
+            <query>SELECT COUNT(*) FROM ${library}.EORFULL WHERE DT_EOR = '${runDate}'</query>
+        </step>
+
+        <!-- auto gate on the query result -->
+        <gate id="has_rows" name="Rows found?"
+              condition="${rowCount} &gt; 0"
+              onTrue="copy_ifs" onFalse="END:SKIPPED"/>
+
+        <!-- ifscopy: native copy AS400 IFS -> local step dir; emits matchedFiles, filesCopied -->
+        <step id="copy_ifs" name="Copy files from IFS" exec="ifscopy" datasource="AS400-PROD"
+              ifsPath="${ifsRoot}/${runDate}" dest="${stepDir}" pattern="*.csv" overwrite="true"/>
+
+        <!-- prepare the package with a PowerShell script -->
+        <step id="prepare" name="Prepare package" script="Prepare-Feed.ps1"
+              timeoutSec="1800" retry="1" retryDelaySec="60">
+            <param name="Source" value="${dir.copy_ifs}"/>
+            <param name="WorkDir" value="${stepDir}"/>
+            <param name="Target" value="${landingOut}"/>
+            <param name="FeedId" value="${feedId}"/>
+            <param name="RunId" value="${runId}"/>
+            <output var="packageFile"/>
+        </step>
+
+        <!-- manual approval before delivery -->
+        <gate id="approval" name="Delivery approval" type="manual"
+              onTrue="send" onFalse="END:REJECTED"/>
+
+        <step id="send" name="FTPS delivery" script="Send-FTPS.ps1"
+              timeoutSec="900" retry="2" retryDelaySec="120">
+            <param name="PackageFile" value="${packageFile}"/>
+            <param name="FtpsHost" value="${ftpsHost}"/>
+            <param name="RemoteFolder" value="${ftpsFolder}"/>
+            <param name="FeedId" value="${feedId}"/>
+        </step>
+
+    </steps>
+</workflow>

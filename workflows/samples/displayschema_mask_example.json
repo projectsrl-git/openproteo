@@ -1,0 +1,16 @@
+{
+  "columns": [
+    { "name": "DT_APERTURA",  "DataType": "date",   "anonType": "date" },
+    { "name": "CID",          "DataType": "string", "anonType": "cid" },
+    { "name": "NOME",         "DataType": "string", "anonType": "firstName" },
+    { "name": "COGNOME",      "DataType": "string", "anonType": "lastName" },
+    { "name": "INTESTATARIO", "DataType": "string", "anonType": "fullName" },
+    { "name": "CITTA",        "DataType": "string", "anonType": "city" },
+    { "name": "INDIRIZZO",    "DataType": "string", "anonType": "address" },
+    { "name": "RAG_SOCIALE",  "DataType": "string", "anonType": "company" },
+    { "name": "DESC_CLIENTE", "DataType": "string", "anonType": "customerDescription" },
+    { "name": "SALDO_RAW",    "DataType": "string", "anonType": "numericFixed" },
+    { "name": "CODICE_INT",   "DataType": "string", "anonType": "alphanumericFixed" },
+    { "name": "NOTE",         "DataType": "string", "anonType": "freeText" }
+  ]
+}

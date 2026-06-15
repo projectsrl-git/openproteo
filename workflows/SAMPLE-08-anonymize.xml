@@ -1,0 +1,14 @@
+<workflow feedId="SAMPLE-08-anonymize" sourceId="EORFULL" name="Anonymize CSV — Batch 2a (free-text + roles)">
+    <description>Suppress identifiers, edit free-text (length-preserving), passthrough dates. k-anon (ARX) in Batch 2b.</description>
+    <steps>
+        <step id="anon" name="Anonymize EOR CSV" exec="anonymize" source="${landingOut}/${feedId}_${runDate}.csv" delimiter=";">
+            <param name="outFile" value="${landingOut}/${feedId}_${runDate}_anon.csv"/>
+            <param name="identifyingColumns" value="NDG,COD_CLIENTE"/>
+            <param name="freeTextColumns" value="DESCRIZIONE"/>
+            <param name="freeTextStrategy" value="lorem"/>
+            <param name="freeTextThreshold" value="50"/>
+            <param name="forcePassthroughColumns" value="DT_EOR"/>
+            <param name="k" value="5"/>
+        </step>
+    </steps>
+</workflow>

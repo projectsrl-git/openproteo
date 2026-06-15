@@ -1,0 +1,1999 @@
+# Italian municipalities (ISTAT-derived, comuni-json MIT). One per line.
+Abano Terme
+Abbadia Cerreto
+Abbadia Lariana
+Abbadia San Salvatore
+Abbasanta
+Abbateggio
+Abbiategrasso
+Abetone Cutigliano
+Abriola
+Acate
+Accadia
+Acceglio
+Accettura
+Acciano
+Accumoli
+Acerenza
+Acerno
+Acerra
+Aci Bonaccorsi
+Aci Castello
+Aci Catena
+Aci Sant'Antonio
+Acireale
+Acquafondata
+Acquaformosa
+Acquafredda
+Acqualagna
+Acquanegra Cremonese
+Acquanegra sul Chiese
+Acquapendente
+Acquappesa
+Acquaro
+Acquasanta Terme
+Acquasparta
+Acquaviva Collecroce
+Acquaviva d'Isernia
+Acquaviva delle Fonti
+Acquaviva Picena
+Acquaviva Platani
+Acquedolci
+Acqui Terme
+Acri
+Acuto
+Adelfia
+Adrano
+Adrara San Martino
+Adrara San Rocco
+Adria
+Adro
+Affi
+Affile
+Afragola
+Africo
+Agazzano
+Agerola
+Aggius
+Agira
+Agliana
+Agliano Terme
+Agliè
+Aglientu
+Agna
+Agnadello
+Agnana Calabra
+Agnone
+Agnosine
+Agordo
+Agosta
+Agra
+Agrate Brianza
+Agrate Conturbia
+Agrigento
+Agropoli
+Agugliano
+Agugliaro
+Aicurzio
+Aidomaggiore
+Aidone
+Aielli
+Aiello Calabro
+Aiello del Friuli
+Aiello del Sabato
+Aieta
+Ailano
+Ailoche
+Airasca
+Airola
+Airole
+Airuno
+Aisone
+Ala
+Alà dei Sardi
+Ala di Stura
+Alagna
+Alagna Valsesia
+Alanno
+Alano di Piave
+Alassio
+Alatri
+Alba
+Alba Adriatica
+Albagiara
+Albairate
+Albanella
+Albano di Lucania
+Albano Laziale
+Albano Sant'Alessandro
+Albano Vercellese
+Albaredo Arnaboldi
+Albaredo d'Adige
+Albaredo per San Marco
+Albareto
+Albaretto della Torre
+Albavilla
+Albenga
+Albera Ligure
+Alberobello
+Alberona
+Albese con Cassano
+Albettone
+Albi
+Albiano
+Albiano d'Ivrea
+Albiate
+Albidona
+Albignasego
+Albinea
+Albino
+Albiolo
+Albisola Superiore
+Albissola Marina
+Albizzate
+Albonese
+Albosaggia
+Albugnano
+Albuzzano
+Alcamo
+Alcara li Fusi
+Aldeno
+Aldino
+Ales
+Alessandria
+Alessandria del Carretto
+Alessandria della Rocca
+Alessano
+Alezio
+Alfano
+Alfedena
+Alfianello
+Alfiano Natta
+Alfonsine
+Alghero
+Algua
+Alì
+Alì Terme
+Alia
+Aliano
+Alice Bel Colle
+Alice Castello
+Alife
+Alimena
+Aliminusa
+Allai
+Alleghe
+Allein
+Allerona
+Alliste
+Allumiere
+Alluvioni Piovera
+Almè
+Almenno San Bartolomeo
+Almenno San Salvatore
+Almese
+Alonte
+Alpago
+Alpette
+Alpignano
+Alseno
+Alserio
+Alta Val Tidone
+Alta Valle Intelvi
+Altamura
+Altare
+Altavalle
+Altavilla Irpina
+Altavilla Milicia
+Altavilla Monferrato
+Altavilla Silentina
+Altavilla Vicentina
+Altidona
+Altilia
+Altino
+Altissimo
+Altivole
+Alto
+Alto Reno Terme
+Alto Sermenza
+Altofonte
+Altomonte
+Altopascio
+Altopiano della Vigolana
+Alviano
+Alvignano
+Alvito
+Alzano Lombardo
+Alzano Scrivia
+Alzate Brianza
+Amalfi
+Amandola
+Amantea
+Amaro
+Amaroni
+Amaseno
+Amato
+Amatrice
+Ambivere
+Amblar-Don
+Ameglia
+Amelia
+Amendolara
+Ameno
+Amorosi
+Ampezzo
+Anacapri
+Anagni
+Ancarano
+Ancona
+Andali
+Andalo
+Andalo Valtellino
+Andezeno
+Andora
+Andorno Micca
+Andrano
+Andrate
+Andreis
+Andretta
+Andria
+Andriano
+Anela
+Anfo
+Angera
+Anghiari
+Angiari
+Angolo Terme
+Angri
+Angrogna
+Anguillara Sabazia
+Anguillara Veneta
+Annicco
+Annone di Brianza
+Annone Veneto
+Anoia
+Antegnate
+Anterivo
+Antey-Saint-André
+Anticoli Corrado
+Antignano
+Antillo
+Antonimina
+Antrodoco
+Antrona Schieranco
+Anversa degli Abruzzi
+Anzano del Parco
+Anzano di Puglia
+Anzi
+Anzio
+Anzola d'Ossola
+Anzola dell'Emilia
+Aosta
+Apecchio
+Apice
+Apiro
+Apollosa
+Appiano Gentile
+Appiano sulla strada del vino
+Appignano
+Appignano del Tronto
+Aprica
+Apricale
+Apricena
+Aprigliano
+Aprilia
+Aquara
+Aquila d'Arroscia
+Aquileia
+Aquilonia
+Aquino
+Aradeo
+Aragona
+Aramengo
+Arba
+Arborea
+Arborio
+Arbus
+Arcade
+Arce
+Arcene
+Arcevia
+Archi
+Arcidosso
+Arcinazzo Romano
+Arcisate
+Arco
+Arcola
+Arcole
+Arconate
+Arcore
+Arcugnano
+Ardara
+Ardauli
+Ardea
+Ardenno
+Ardesio
+Ardore
+Arena
+Arena Po
+Arenzano
+Arese
+Arezzo
+Argegno
+Argelato
+Argenta
+Argentera
+Arguello
+Argusto
+Ari
+Ariano Irpino
+Ariano nel Polesine
+Ariccia
+Arielli
+Arienzo
+Arignano
+Aritzo
+Arizzano
+Arlena di Castro
+Arluno
+Armeno
+Armento
+Armo
+Armungia
+Arnad
+Arnara
+Arnasco
+Arnesano
+Arola
+Arona
+Arosio
+Arpaia
+Arpaise
+Arpino
+Arquà Petrarca
+Arquà Polesine
+Arquata del Tronto
+Arquata Scrivia
+Arre
+Arrone
+Arsago Seprio
+Arsiè
+Arsiero
+Arsita
+Arsoli
+Arta Terme
+Artegna
+Artena
+Artogne
+Arvier
+Arzachena
+Arzago d'Adda
+Arzana
+Arzano
+Arzergrande
+Arzignano
+Ascea
+Asciano
+Ascoli Piceno
+Ascoli Satriano
+Ascrea
+Asiago
+Asigliano Veneto
+Asigliano Vercellese
+Asola
+Asolo
+Assago
+Assemini
+Assisi
+Asso
+Assolo
+Assoro
+Asti
+Asuni
+Ateleta
+Atella
+Atena Lucana
+Atessa
+Atina
+Atrani
+Atri
+Atripalda
+Attigliano
+Attimis
+Atzara
+Augusta
+Auletta
+Aulla
+Aurano
+Aurigo
+Auronzo di Cadore
+Ausonia
+Austis
+Avegno
+Avelengo
+Avella
+Avellino
+Averara
+Aversa
+Avetrana
+Avezzano
+Aviano
+Aviatico
+Avigliana
+Avigliano
+Avigliano Umbro
+Avio
+Avise
+Avola
+Avolasca
+Ayas
+Aymavilles
+Azeglio
+Azzanello
+Azzano d'Asti
+Azzano Decimo
+Azzano Mella
+Azzano San Paolo
+Azzate
+Azzio
+Azzone
+Baceno
+Bacoli
+Badalucco
+Badesi
+Badia
+Badia Calavena
+Badia Pavese
+Badia Polesine
+Badia Tedalda
+Badolato
+Bagaladi
+Bagheria
+Bagnacavallo
+Bagnara Calabra
+Bagnara di Romagna
+Bagnaria
+Bagnaria Arsa
+Bagnasco
+Bagnatica
+Bagni di Lucca
+Bagno a Ripoli
+Bagno di Romagna
+Bagnoli del Trigno
+Bagnoli di Sopra
+Bagnoli Irpino
+Bagnolo Cremasco
+Bagnolo del Salento
+Bagnolo di Po
+Bagnolo in Piano
+Bagnolo Mella
+Bagnolo Piemonte
+Bagnolo San Vito
+Bagnone
+Bagnoregio
+Bagolino
+Baia e Latina
+Baiano
+Bairo
+Baiso
+Bajardo
+Balangero
+Baldichieri d'Asti
+Baldissero Canavese
+Baldissero d'Alba
+Baldissero Torinese
+Balestrate
+Balestrino
+Ballabio
+Ballao
+Balme
+Balmuccia
+Balocco
+Balsorano
+Balvano
+Balzola
+Banari
+Banchette
+Bannio Anzino
+Banzi
+Baone
+Baradili
+Baragiano
+Baranello
+Barano d'Ischia
+Baranzate
+Barasso
+Baratili San Pietro
+Barbania
+Barbara
+Barbarano Mossano
+Barbarano Romano
+Barbaresco
+Barbariga
+Barbata
+Barberino di Mugello
+Barberino Tavarnelle
+Barbianello
+Barbiano
+Barbona
+Barcellona Pozzo di Gotto
+Barcis
+Bard
+Bardello
+Bardi
+Bardineto
+Bardolino
+Bardonecchia
+Bareggio
+Barengo
+Baressa
+Barete
+Barga
+Bargagli
+Barge
+Barghe
+Bari
+Bari Sardo
+Bariano
+Baricella
+Barile
+Barisciano
+Barlassina
+Barletta
+Barni
+Barolo
+Barone Canavese
+Baronissi
+Barrafranca
+Barrali
+Barrea
+Barumini
+Barzago
+Barzana
+Barzanò
+Barzio
+Basaluzzo
+Bascapè
+Baschi
+Basciano
+Baselga di Pinè
+Baselice
+Basiano
+Basicò
+Basiglio
+Basiliano
+Bassano Bresciano
+Bassano del Grappa
+Bassano in Teverina
+Bassano Romano
+Bassiano
+Bassignana
+Bastia Mondovì
+Bastia Umbra
+Bastida Pancarana
+Bastiglia
+Battaglia Terme
+Battifollo
+Battipaglia
+Battuda
+Baucina
+Bauladu
+Baunei
+Baveno
+Bedero Valcuvia
+Bedizzole
+Bedollo
+Bedonia
+Bedulita
+Bee
+Beinasco
+Beinette
+Belcastro
+Belfiore
+Belforte all'Isauro
+Belforte del Chienti
+Belforte Monferrato
+Belgioioso
+Belgirate
+Bella
+Bellagio
+Bellano
+Bellante
+Bellaria-Igea Marina
+Bellegra
+Bellino
+Bellinzago Lombardo
+Bellinzago Novarese
+Bellizzi
+Bellona
+Bellosguardo
+Belluno
+Bellusco
+Belmonte Calabro
+Belmonte Castello
+Belmonte del Sannio
+Belmonte in Sabina
+Belmonte Mezzagno
+Belmonte Piceno
+Belpasso
+Belsito
+Belvedere di Spinello
+Belvedere Langhe
+Belvedere Marittimo
+Belvedere Ostrense
+Belveglio
+Belvì
+Bema
+Bene Lario
+Bene Vagienna
+Benestare
+Benetutti
+Benevello
+Benevento
+Benna
+Bentivoglio
+Berbenno
+Berbenno di Valtellina
+Berceto
+Berchidda
+Beregazzo con Figliaro
+Bereguardo
+Bergamasco
+Bergamo
+Bergantino
+Bergeggi
+Bergolo
+Berlingo
+Bernalda
+Bernareggio
+Bernate Ticino
+Bernezzo
+Bertinoro
+Bertiolo
+Bertonico
+Berzano di San Pietro
+Berzano di Tortona
+Berzo Demo
+Berzo Inferiore
+Berzo San Fermo
+Besana in Brianza
+Besano
+Besate
+Besenello
+Besenzone
+Besnate
+Besozzo
+Bessude
+Bettola
+Bettona
+Beura-Cardezza
+Bevagna
+Beverino
+Bevilacqua
+Biancavilla
+Bianchi
+Bianco
+Biandrate
+Biandronno
+Bianzano
+Bianzè
+Bianzone
+Biassono
+Bibbiano
+Bibbiena
+Bibbona
+Bibiana
+Biccari
+Bicinicco
+Bidonì
+Biella
+Bienno
+Bieno
+Bientina
+Binago
+Binasco
+Binetto
+Bioglio
+Bionaz
+Bione
+Birori
+Bisaccia
+Bisacquino
+Bisceglie
+Bisegna
+Bisenti
+Bisignano
+Bistagno
+Bisuschio
+Bitetto
+Bitonto
+Bitritto
+Bitti
+Bivona
+Bivongi
+Bizzarone
+Bleggio Superiore
+Blello
+Blera
+Blessagno
+Blevio
+Blufi
+Boara Pisani
+Bobbio
+Bobbio Pellice
+Boca
+Bocchigliero
+Boccioleto
+Bocenago
+Bodio Lomnago
+Boffalora d'Adda
+Boffalora sopra Ticino
+Bogliasco
+Bognanco
+Bogogno
+Boissano
+Bojano
+Bolano
+Bolgare
+Bollate
+Bollengo
+Bologna
+Bolognano
+Bolognetta
+Bolognola
+Bolotana
+Bolsena
+Boltiere
+Bolzano
+Bolzano Novarese
+Bolzano Vicentino
+Bomarzo
+Bomba
+Bompensiere
+Bompietro
+Bomporto
+Bonarcado
+Bonassola
+Bonate Sopra
+Bonate Sotto
+Bonavigo
+Bondeno
+Bondone
+Bonea
+Bonefro
+Bonemerse
+Bonifati
+Bonito
+Bonnanaro
+Bono
+Bonorva
+Bonvicino
+Borbona
+Borca di Cadore
+Bordano
+Bordighera
+Bordolano
+Bore
+Boretto
+Borgarello
+Borgaro Torinese
+Borgetto
+Borghetto d'Arroscia
+Borghetto di Borbera
+Borghetto di Vara
+Borghetto Lodigiano
+Borghetto Santo Spirito
+Borghi
+Borgia
+Borgiallo
+Borgio Verezzi
+Borgo a Mozzano
+Borgo Chiese
+Borgo d'Ale
+Borgo d'Anaunia
+Borgo di Terzo
+Borgo Lares
+Borgo Mantovano
+Borgo Pace
+Borgo Priolo
+Borgo San Dalmazzo
+Borgo San Giacomo
+Borgo San Giovanni
+Borgo San Lorenzo
+Borgo San Martino
+Borgo San Siro
+Borgo Ticino
+Borgo Tossignano
+Borgo Val di Taro
+Borgo Valbelluna
+Borgo Valsugana
+Borgo Velino
+Borgo Veneto
+Borgo Vercelli
+Borgo Virgilio
+Borgocarbonara
+Borgofranco d'Ivrea
+Borgolavezzaro
+Borgomale
+Borgomanero
+Borgomaro
+Borgomasino
+Borgomezzavalle
+Borgone Susa
+Borgonovo Val Tidone
+Borgoratto Alessandrino
+Borgoratto Mormorolo
+Borgoricco
+Borgorose
+Borgosatollo
+Borgosesia
+Bormida
+Bormio
+Bornasco
+Borno
+Boroneddu
+Borore
+Borrello
+Borriana
+Borso del Grappa
+Bortigali
+Bortigiadas
+Borutta
+Borzonasca
+Bosa
+Bosaro
+Boschi Sant'Anna
+Bosco Chiesanuova
+Bosco Marengo
+Bosconero
+Boscoreale
+Boscotrecase
+Bosia
+Bosio
+Bosisio Parini
+Bosnasco
+Bossico
+Bossolasco
+Botricello
+Botrugno
+Bottanuco
+Botticino
+Bottidda
+Bova
+Bova Marina
+Bovalino
+Bovegno
+Boves
+Bovezzo
+Boville Ernica
+Bovino
+Bovisio-Masciago
+Bovolenta
+Bovolone
+Bozzole
+Bozzolo
+Bra
+Bracca
+Bracciano
+Bracigliano
+Braies
+Brallo di Pregola
+Brancaleone
+Brandico
+Brandizzo
+Branzi
+Braone
+Brebbia
+Breda di Piave
+Bregano
+Breganze
+Bregnano
+Brembate
+Brembate di Sopra
+Brembio
+Breme
+Brendola
+Brenna
+Brennero
+Breno
+Brenta
+Brentino Belluno
+Brentonico
+Brenzone sul Garda
+Brescello
+Brescia
+Bresimo
+Bressana Bottarone
+Bressanone
+Bressanvido
+Bresso
+Brezzo di Bedero
+Briaglia
+Briatico
+Bricherasio
+Brienno
+Brienza
+Briga Alta
+Briga Novarese
+Brignano Gera d'Adda
+Brignano-Frascata
+Brindisi
+Brindisi Montagna
+Brinzio
+Briona
+Brione
+Briosco
+Brisighella
+Brissago-Valtravaglia
+Brissogne
+Brittoli
+Brivio
+Broccostella
+Brogliano
+Brognaturo
+Brolo
+Brondello
+Broni
+Bronte
+Bronzolo
+Brossasco
+Brosso
+Brovello-Carpugnino
+Brozolo
+Brugherio
+Brugine
+Brugnato
+Brugnera
+Bruino
+Brumano
+Brunate
+Brunello
+Brunico
+Bruno
+Brusaporto
+Brusasco
+Brusciano
+Brusimpiano
+Brusnengo
+Brusson
+Bruzolo
+Bruzzano Zeffirio
+Bubbiano
+Bubbio
+Buccheri
+Bucchianico
+Bucciano
+Buccinasco
+Buccino
+Bucine
+Buddusò
+Budoia
+Budoni
+Budrio
+Buggerru
+Buggiano
+Buglio in Monte
+Bugnara
+Buguggiate
+Buja
+Bulciago
+Bulgarograsso
+Bultei
+Bulzi
+Buonabitacolo
+Buonalbergo
+Buonconvento
+Buonvicino
+Burago di Molgora
+Burcei
+Burgio
+Burgos
+Buriasco
+Burolo
+Buronzo
+Busachi
+Busalla
+Busano
+Busca
+Buscate
+Buscemi
+Buseto Palizzolo
+Busnago
+Bussero
+Busseto
+Bussi sul Tirino
+Busso
+Bussolengo
+Bussoleno
+Busto Arsizio
+Busto Garolfo
+Butera
+Buti
+Buttapietra
+Buttigliera Alta
+Buttigliera d'Asti
+Buttrio
+Cabella Ligure
+Cabiate
+Cabras
+Caccamo
+Caccuri
+Cadegliano-Viconago
+Cadelbosco di Sopra
+Cadeo
+Caderzone Terme
+Cadoneghe
+Cadorago
+Cadrezzate con Osmate
+Caerano di San Marco
+Cafasse
+Caggiano
+Cagli
+Cagliari
+Caglio
+Cagnano Amiterno
+Cagnano Varano
+Caianello
+Caiazzo
+Caines
+Caino
+Caiolo
+Cairano
+Cairate
+Cairo Montenotte
+Caivano
+Calabritto
+Calalzo di Cadore
+Calamandrana
+Calamonaci
+Calangianus
+Calanna
+Calasca-Castiglione
+Calascibetta
+Calascio
+Calasetta
+Calatabiano
+Calatafimi-Segesta
+Calcata
+Calceranica al Lago
+Calci
+Calciano
+Calcinaia
+Calcinate
+Calcinato
+Calcio
+Calco
+Caldaro sulla strada del vino
+Caldarola
+Calderara di Reno
+Caldes
+Caldiero
+Caldogno
+Caldonazzo
+Calendasco
+Calenzano
+Calestano
+Calice al Cornoviglio
+Calice Ligure
+Calimera
+Calitri
+Calizzano
+Callabiana
+Calliano
+Calolziocorte
+Calopezzati
+Calosso
+Caloveto
+Caltabellotta
+Caltagirone
+Caltanissetta
+Caltavuturo
+Caltignaga
+Calto
+Caltrano
+Calusco d'Adda
+Caluso
+Calvagese della Riviera
+Calvanico
+Calvatone
+Calvello
+Calvene
+Calvenzano
+Calvera
+Calvi
+Calvi dell'Umbria
+Calvi Risorta
+Calvignano
+Calvignasco
+Calvisano
+Calvizzano
+Camagna Monferrato
+Camaiore
+Camandona
+Camastra
+Cambiago
+Cambiano
+Cambiasca
+Camburzano
+Camerana
+Camerano
+Camerano Casasco
+Camerata Cornello
+Camerata Nuova
+Camerata Picena
+Cameri
+Camerino
+Camerota
+Camigliano
+Camini
+Camino
+Camino al Tagliamento
+Camisano
+Camisano Vicentino
+Cammarata
+Camogli
+Campagna
+Campagna Lupia
+Campagnano di Roma
+Campagnatico
+Campagnola Cremasca
+Campagnola Emilia
+Campana
+Camparada
+Campegine
+Campello sul Clitunno
+Campertogno
+Campi Bisenzio
+Campi Salentina
+Campiglia Cervo
+Campiglia dei Berici
+Campiglia Marittima
+Campiglione Fenile
+Campione d'Italia
+Campitello di Fassa
+Campli
+Campo Calabro
+Campo di Giove
+Campo di Trens
+Campo Ligure
+Campo nell'Elba
+Campo San Martino
+Campo Tures
+Campobasso
+Campobello di Licata
+Campobello di Mazara
+Campochiaro
+Campodarsego
+Campodenno
+Campodimele
+Campodipietra
+Campodolcino
+Campodoro
+Campofelice di Fitalia
+Campofelice di Roccella
+Campofilone
+Campofiorito
+Campoformido
+Campofranco
+Campogalliano
+Campolattaro
+Campoli Appennino
+Campoli del Monte Taburno
+Campolieto
+Campolongo Maggiore
+Campolongo Tapogliano
+Campomaggiore
+Campomarino
+Campomorone
+Camponogara
+Campora
+Camporeale
+Camporgiano
+Camporosso
+Camporotondo di Fiastrone
+Camporotondo Etneo
+Camposampiero
+Camposano
+Camposanto
+Campospinoso
+Campotosto
+Camugnano
+Canal San Bovo
+Canale
+Canale d'Agordo
+Canale Monterano
+Canaro
+Canazei
+Cancellara
+Cancello ed Arnone
+Canda
+Candela
+Candelo
+Candia Canavese
+Candia Lomellina
+Candiana
+Candida
+Candidoni
+Candiolo
+Canegrate
+Canelli
+Canepina
+Caneva
+Canicattì
+Canicattini Bagni
+Canino
+Canischio
+Canistro
+Canna
+Cannalonga
+Cannara
+Cannero Riviera
+Canneto Pavese
+Canneto sull'Oglio
+Cannobio
+Cannole
+Canolo
+Canonica d'Adda
+Canosa di Puglia
+Canosa Sannita
+Canosio
+Canossa
+Cansano
+Cantagallo
+Cantalice
+Cantalupa
+Cantalupo in Sabina
+Cantalupo Ligure
+Cantalupo nel Sannio
+Cantarana
+Cantello
+Canterano
+Cantiano
+Cantoira
+Cantù
+Canzano
+Canzo
+Caorle
+Caorso
+Capaccio Paestum
+Capaci
+Capalbio
+Capannoli
+Capannori
+Capena
+Capergnanica
+Capestrano
+Capiago Intimiano
+Capistrano
+Capistrello
+Capitignano
+Capizzi
+Capizzone
+Capo d'Orlando
+Capo di Ponte
+Capodimonte
+Capodrise
+Capoliveri
+Capolona
+Caponago
+Caporciano
+Caposele
+Capoterra
+Capovalle
+Cappadocia
+Cappella Cantone
+Cappella de' Picenardi
+Cappella Maggiore
+Cappelle sul Tavo
+Capracotta
+Capraia e Limite
+Capraia Isola
+Capralba
+Capranica
+Capranica Prenestina
+Caprarica di Lecce
+Caprarola
+Caprauna
+Caprese Michelangelo
+Caprezzo
+Capri
+Capri Leone
+Capriana
+Capriano del Colle
+Capriata d'Orba
+Capriate San Gervasio
+Capriati a Volturno
+Caprie
+Capriglia Irpina
+Capriglio
+Caprile
+Caprino Bergamasco
+Caprino Veronese
+Capriolo
+Capriva del Friuli
+Capua
+Capurso
+Caraffa del Bianco
+Caraffa di Catanzaro
+Caraglio
+Caramagna Piemonte
+Caramanico Terme
+Carapelle
+Carapelle Calvisio
+Carasco
+Carassai
+Carate Brianza
+Carate Urio
+Caravaggio
+Caravate
+Caravino
+Caravonica
+Carbognano
+Carbonara al Ticino
+Carbonara di Nola
+Carbonara Scrivia
+Carbonate
+Carbone
+Carbonera
+Carbonia
+Carcare
+Carceri
+Carcoforo
+Cardano al Campo
+Cardè
+Cardedu
+Cardeto
+Cardinale
+Cardito
+Careggine
+Carema
+Carenno
+Carentino
+Careri
+Caresana
+Caresanablot
+Carezzano
+Carfizzi
+Cargeghe
+Cariati
+Carife
+Carignano
+Carimate
+Carinaro
+Carini
+Carinola
+Carisio
+Carisolo
+Carlantino
+Carlazzo
+Carlentini
+Carlino
+Carloforte
+Carlopoli
+Carmagnola
+Carmiano
+Carmignano
+Carmignano di Brenta
+Carnago
+Carnate
+Carobbio degli Angeli
+Carolei
+Carona
+Caronia
+Caronno Pertusella
+Caronno Varesino
+Carosino
+Carovigno
+Carovilli
+Carpaneto Piacentino
+Carpanzano
+Carpegna
+Carpenedolo
+Carpeneto
+Carpi
+Carpiano
+Carpignano Salentino
+Carpignano Sesia
+Carpineti
+Carpineto della Nora
+Carpineto Romano
+Carpineto Sinello
+Carpino
+Carpinone
+Carrara
+Carrè
+Carrega Ligure
+Carro
+Carrodano
+Carrosio
+Carrù
+Carsoli
+Cartigliano
+Cartignano
+Cartoceto
+Cartosio
+Cartura
+Carugate
+Carugo
+Carunchio
+Carvico
+Carzano
+Casabona
+Casacalenda
+Casacanditella
+Casagiove
+Casal Cermelli
+Casal di Principe
+Casal Velino
+Casalanguida
+Casalattico
+Casalbeltrame
+Casalbordino
+Casalbore
+Casalborgone
+Casalbuono
+Casalbuttano ed Uniti
+Casalciprano
+Casalduni
+Casale Corte Cerro
+Casale Cremasco-Vidolasco
+Casale di Scodosia
+Casale Litta
+Casale Marittimo
+Casale Monferrato
+Casale sul Sile
+Casalecchio di Reno
+Casaleggio Boiro
+Casaleggio Novara
+Casaleone
+Casaletto Ceredano
+Casaletto di Sopra
+Casaletto Lodigiano
+Casaletto Spartano
+Casaletto Vaprio
+Casalfiumanese
+Casalgrande
+Casalgrasso
+Casali del Manco
+Casalincontrada
+Casalino
+Casalmaggiore
+Casalmaiocco
+Casalmorano
+Casalmoro
+Casalnoceto
+Casalnuovo di Napoli
+Casalnuovo Monterotaro
+Casaloldo
+Casalpusterlengo
+Casalromano
+Casalserugo
+Casaluce
+Casalvecchio di Puglia
+Casalvecchio Siculo
+Casalvieri
+Casalvolone
+Casalzuigno
+Casamarciano
+Casamassima
+Casamicciola Terme
+Casandrino
+Casanova Elvo
+Casanova Lerrone
+Casanova Lonati
+Casape
+Casapesenna
+Casapinta
+Casaprota
+Casapulla
+Casarano
+Casargo
+Casarile
+Casarsa della Delizia
+Casarza Ligure
+Casasco
+Casatenovo
+Casatisma
+Casavatore
+Casazza
+Cascia
+Casciago
+Casciana Terme Lari
+Cascina
+Cascinette d'Ivrea
+Casei Gerola
+Caselette
+Casella
+Caselle in Pittari
+Caselle Landi
+Caselle Lurani
+Caselle Torinese
+Caserta
+Casier
+Casignana
+Casina
+Casirate d'Adda
+Caslino d'Erba
+Casnate con Bernate
+Casnigo
+Casola di Napoli
+Casola in Lunigiana
+Casola Valsenio
+Casole d'Elsa
+Casoli
+Casorate Primo
+Casorate Sempione
+Casorezzo
+Casoria
+Casorzo
+Casperia
+Caspoggio
+Cassacco
+Cassago Brianza
+Cassano all'Ionio
+Cassano d'Adda
+Cassano delle Murge
+Cassano Irpino
+Cassano Magnago
+Cassano Spinola
+Cassano Valcuvia
+Cassaro
+Cassiglio
+Cassina de' Pecchi
+Cassina Rizzardi
+Cassina Valsassina
+Cassinasco
+Cassine
+Cassinelle
+Cassinetta di Lugagnano
+Cassino
+Cassola
+Cassolnovo
+Castagnaro
+Castagneto Carducci
+Castagneto Po
+Castagnito
+Castagnole delle Lanze
+Castagnole Monferrato
+Castagnole Piemonte
+Castana
+Castano Primo
+Casteggio
+Castegnato
+Castegnero
+Castel Baronia
+Castel Boglione
+Castel Bolognese
+Castel Campagnano
+Castel Castagna
+Castel Condino
+Castel d'Aiano
+Castel d'Ario
+Castel d'Azzano
+Castel del Giudice
+Castel del Monte
+Castel del Piano
+Castel del Rio
+Castel di Casio
+Castel di Ieri
+Castel di Iudica
+Castel di Lama
+Castel di Lucio
+Castel di Sangro
+Castel di Sasso
+Castel di Tora
+Castel Focognano
+Castel Frentano
+Castel Gabbiano
+Castel Gandolfo
+Castel Giorgio
+Castel Goffredo
+Castel Guelfo di Bologna
+Castel Ivano
+Castel Madama
+Castel Maggiore
+Castel Mella
+Castel Morrone
+Castel Ritaldi
+Castel Rocchero
+Castel Rozzone
+Castel San Giorgio
+Castel San Giovanni
+Castel San Lorenzo
+Castel San Niccolò
+Castel San Pietro Romano
+Castel San Pietro Terme
+Castel San Vincenzo
+Castel Sant'Angelo
+Castel Sant'Elia
+Castel Viscardo
+Castel Vittorio
+Castel Volturno
+Castelbaldo
+Castelbelforte
+Castelbellino
+Castelbello-Ciardes
+Castelbianco
+Castelbottaccio
+Castelbuono
+Castelcivita
+Castelcovati
+Castelcucco
+Casteldaccia
+Casteldelci
+Casteldelfino
+Casteldidone
+Castelfidardo
+Castelfiorentino
+Castelforte
+Castelfranci
+Castelfranco di Sotto
+Castelfranco Emilia
+Castelfranco in Miscano
+Castelfranco Piandiscò
+Castelfranco Veneto
+Castelgerundo
+Castelgomberto
+Castelgrande
+Castelguglielmo
+Castelguidone
+Castell'Alfero
+Castell'Arquato
+Castell'Azzara
+Castell'Umberto
+Castellabate
+Castellafiume
+Castellalto
+Castellammare del Golfo
+Castellammare di Stabia
+Castellamonte
+Castellana Grotte
+Castellana Sicula
+Castellaneta
+Castellania Coppi
+Castellanza
+Castellar Guidobono
+Castellarano
+Castellaro
+Castellazzo Bormida
+Castellazzo Novarese
+Castelleone
+Castelleone di Suasa
+Castellero
+Castelletto Cervo
+Castelletto d'Erro
+Castelletto d'Orba
+Castelletto di Branduzzo
+Castelletto Merli
+Castelletto Molina
+Castelletto Monferrato
+Castelletto sopra Ticino
+Castelletto Stura
+Castelletto Uzzone
+Castelli
+Castelli Calepio
+Castellina in Chianti
+Castellina Marittima
+Castellinaldo d'Alba
+Castellino del Biferno
+Castellino Tanaro
+Castelliri
+Castello Cabiaglio
+Castello d'Agogna
+Castello d'Argile
+Castello del Matese
+Castello dell'Acqua
+Castello di Annone
+Castello di Brianza
+Castello di Cisterna
+Castello di Godego
+Castello Tesino
+Castello-Molina di Fiemme
+Castellucchio
+Castelluccio dei Sauri
+Castelluccio Inferiore
+Castelluccio Superiore
+Castelluccio Valmaggiore
+Castelmagno
+Castelmarte
+Castelmassa
+Castelmauro
+Castelmezzano
+Castelmola
+Castelnovetto
+Castelnovo Bariano
+Castelnovo del Friuli
+Castelnovo di Sotto
+Castelnovo ne' Monti
+Castelnuovo
+Castelnuovo Belbo
+Castelnuovo Berardenga
+Castelnuovo Bocca d'Adda
+Castelnuovo Bormida
+Castelnuovo Bozzente
+Castelnuovo Calcea
+Castelnuovo Cilento
+Castelnuovo del Garda
+Castelnuovo della Daunia
+Castelnuovo di Ceva
+Castelnuovo di Conza
+Castelnuovo di Farfa
+Castelnuovo di Garfagnana
+Castelnuovo di Porto
+Castelnuovo di Val di Cecina
+Castelnuovo Don Bosco
+Castelnuovo Magra
+Castelnuovo Nigra
+Castelnuovo Parano
+Castelnuovo Rangone
+Castelnuovo Scrivia
+Castelpagano
+Castelpetroso
+Castelpizzuto
+Castelplanio
+Castelpoto
+Castelraimondo
+Castelrotto
+Castelsantangelo sul Nera
+Castelsaraceno
+Castelsardo
+Castelseprio
+Castelsilano
+Castelspina
+Casteltermini
+Castelveccana
+Castelvecchio Calvisio
+Castelvecchio di Rocca Barbena
+Castelvecchio Subequo
+Castelvenere
+Castelverde
+Castelverrino
+Castelvetere in Val Fortore
+Castelvetere sul Calore
+Castelvetrano
+Castelvetro di Modena
+Castelvetro Piacentino
+Castelvisconti
+Castenaso
+Castenedolo
+Castiadas
+Castiglion Fibocchi
+Castiglion Fiorentino
+Castiglione a Casauria
+Castiglione Chiavarese
+Castiglione Cosentino
+Castiglione d'Adda
+Castiglione d'Orcia
+Castiglione dei Pepoli
+Castiglione del Genovesi
+Castiglione del Lago
+Castiglione della Pescaia
+Castiglione delle Stiviere
+Castiglione di Garfagnana
+Castiglione di Sicilia
+Castiglione Falletto
+Castiglione in Teverina
+Castiglione Messer Marino
+Castiglione Messer Raimondo
+Castiglione Olona
+Castiglione Tinella
+Castiglione Torinese
+Castignano
+Castilenti
+Castino
+Castione Andevenno
+Castione della Presolana
+Castions di Strada
+Castiraga Vidardo
+Casto
+Castorano
+Castrezzato
+Castri di Lecce
+Castrignano de' Greci
+Castrignano del Capo
+Castro
+Castro dei Volsci
+Castrocaro Terme e Terra del Sole
+Castrocielo
+Castrofilippo
+Castrolibero
+Castronno
+Castronovo di Sicilia
+Castronuovo di Sant'Andrea
+Castropignano
+Castroreale
+Castroregio
+Castrovillari
+Catania
+Catanzaro
+Catenanuova
+Catignano
+Cattolica
+Cattolica Eraclea
+Caulonia
+Cautano
+Cava de' Tirreni
+Cava Manara
+Cavaglià
+Cavaglietto
+Cavaglio d'Agogna
+Cavagnolo
+Cavaion Veronese
+Cavalese
+Cavallerleone
+Cavallermaggiore
+Cavallino
+Cavallino-Treporti
+Cavallirio
+Cavareno
+Cavargna
+Cavaria con Premezzo
+Cavarzere
+Cavaso del Tomba
+Cavasso Nuovo
+Cavatore
+Cavazzo Carnico
+Cave
+Cavedago
+Cavedine
+Cavenago d'Adda
+Cavenago di Brianza
+Cavernago
+Cavezzo
+Cavizzana
+Cavour
+Cavriago
+Cavriana
+Cavriglia
+Cazzago Brabbia
+Cazzago San Martino
+Cazzano di Tramigna
+Cazzano Sant'Andrea
+Ceccano
+Cecima
+Cecina
+Cedegolo
+Cedrasco
+Cefalà Diana
+Cefalù
+Ceggia
+Ceglie Messapica
+Celano
+Celenza sul Trigno
+Celenza Valfortore
+Celico
+Cella Dati
+Cella Monte
+Cellamare
+Cellara
+Cellarengo
+Cellatica
+Celle di Bulgheria
+Celle di Macra
+Celle di San Vito
+Celle Enomondo
+Celle Ligure
+Celleno
+Cellere
+Cellino Attanasio
+Cellino San Marco
+Cellio con Breia
+Cellole
+Cembra Lisignago
+Cenadi
+Cenate Sopra
+Cenate Sotto
+Cencenighe Agordino
+Cene
+Ceneselli
+Cengio
+Centallo
+Cento
+Centola
+Centrache
+Centro Valle Intelvi
+Centuripe
+Cepagatti
+Ceppaloni
+Ceppo Morelli
+Ceprano
+Cerami
+Ceranesi
+Cerano
+Cerano d'Intelvi
+Ceranova
+Ceraso
+Cercemaggiore
+Cercenasco
+Cercepiccola
+Cerchiara di Calabria
+Cerchio
+Cercino
+Cercivento
+Cercola
+Cerda
+Cerea
+Ceregnano
+Cerenzia
+Ceres
+Ceresara
+Cereseto
+Ceresole Alba
+Ceresole Reale
+Cerete
+Ceretto Lomellina
+Cergnago
+Ceriale
+Ceriana
+Ceriano Laghetto
+Cerignale
+Cerignola
+Cerisano
+Cermenate
+Cermes
+Cermignano
+Cernobbio
+Cernusco Lombardone
+Cernusco sul Naviglio
+Cerreto d'Asti
+Cerreto d'Esi
+Cerreto di Spoleto
+Cerreto Grue
+Cerreto Guidi
+Cerreto Laziale
+Cerreto Sannita
+Cerretto Langhe
+Cerrina Monferrato
+Cerrione
+Cerro al Lambro
+Cerro al Volturno
+Cerro Maggiore
+Cerro Tanaro
+Cerro Veronese
+Cersosimo
+Certaldo
+Certosa di Pavia
+Cerva
+Cervara di Roma
+Cervarese Santa Croce
+Cervaro
+Cervasca
+Cervatto
+Cerveno
+Cervere
+Cervesina
+Cerveteri
+Cervia
+Cervicati
+Cervignano d'Adda
+Cervignano del Friuli
+Cervinara
+Cervino
+Cervo
+Cerzeto
+Cesa
+Cesana Brianza
+Cesana Torinese
+Cesano Boscone
+Cesano Maderno
+Cesara
+Cesarò
+Cesate
+Cesena
+Cesenatico
+Cesinali
+Cesio
+Cesiomaggiore
+Cessalto
+Cessaniti
+Cessapalombo
+Cessole
+Cetara
+Ceto
+Cetona
+Cetraro
+Ceva
+Cevo
+Challand-Saint-Anselme
+Challand-Saint-Victor
+Chambave

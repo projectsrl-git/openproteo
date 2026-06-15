@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SAMPLE 05 - Plain file copy/move between directories (no scripts).
+
+  Demonstrates item 1 (simple copy): move files between folders using the
+  built-in filecopy step, with no PowerShell or batch involved.
+
+  filecopy modes:
+     copy  - copy matching files to dest (overwrites)
+     move  - move matching files to dest
+     list  - scan only, emit matchedCount / matchedFiles
+
+  Outputs (##VAR): matchedCount, matchedFiles, and bytesCopied (copy/move).
+-->
+<workflow feedId="SAMPLE-05-filecopy"
+          name="Sample 05 - File copy and move"
+          baseDir="./feeds">
+
+    <description>Copies CSV files from landing IN into a working dir, then moves the produced files to landing OUT</description>
+
+    <steps>
+
+        <!-- copy *.csv from landing IN into this step's working directory -->
+        <step id="stage" name="Copy CSV to work dir" exec="filecopy" mode="copy"
+              source="${landingIn}" dest="${stepDir}" pattern="*.csv"/>
+
+        <gate id="staged_ok" name="Anything copied?"
+              condition="${matchedCount} &gt; 0"
+              onTrue="publish" onFalse="END:SKIPPED"/>
+
+        <!-- move the staged files to landing OUT -->
+        <step id="publish" name="Move to landing OUT" exec="filecopy" mode="move"
+              source="${dir.stage}" dest="${landingOut}" pattern="*.csv"/>
+
+    </steps>
+</workflow>

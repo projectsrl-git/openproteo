@@ -1,0 +1,25 @@
+# Build
+target/
+*.war
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Runtime / local config (never commit secrets or environment-specific config)
+/config/
+application-local.properties
+*.log
+logs/
+
+# Feed/runtime data (should live outside the repo, under orchestrator.default-base-dir)
+feeds/

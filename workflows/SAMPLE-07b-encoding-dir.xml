@@ -1,0 +1,13 @@
+<workflow feedId="SAMPLE-07b-encoding-dir" sourceId="EORFULL" name="Normalize a whole folder to UTF-8">
+    <description>Convert every *.csv in an input folder to UTF-8 (no BOM) into an output folder.</description>
+    <steps>
+        <step id="normalize" name="Normalize folder to UTF-8" exec="encoding">
+            <param name="inputDir" value="${landingIn}"/>
+            <param name="outputDir" value="${landingOut}/utf8"/>
+            <param name="filter" value="*.csv"/>
+            <param name="recursive" value="false"/>
+            <param name="from" value="windows-1252"/>
+            <param name="bom" value="false"/>
+        </step>
+    </steps>
+</workflow>

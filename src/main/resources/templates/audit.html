@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title th:text="'OpenProteo — audit ' + ${wf.feedId}">OpenProteo</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub" th:text="'Audit · ' + ${wf.name}"></span>
+    <span class="spacer"></span>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap">
+    <h1>Audit log — <span class="feed-id" th:text="${wf.feedId}"></span></h1>
+    <p class="page-sub">
+        Append-only JSONL file with a SHA-256 hash chain: every record embeds the hash of the previous one.
+        Any modification, deletion or insertion breaks the chain.
+        Readable without the application: <span class="mono" th:text="${auditFile}"></span>
+    </p>
+
+    <div class="banner" th:classappend="${verify.valid} ? 'ok' : 'error'" id="verifyBanner">
+        <strong th:text="${verify.valid} ? '✓ CHAIN INTACT' : '✕ CHAIN BROKEN'"></strong>
+        — <span th:text="${verify.message}"></span>
+    </div>
+
+    <div class="toolbar">
+        <a class="btn" th:href="@{'/workflow/' + ${wf.feedId}}">← Workflow</a>
+        <a class="btn" th:href="@{'/runs/' + ${wf.feedId}}">⟲ Run history</a>
+        <button class="btn primary" onclick="reverify()">↻ Verify chain integrity</button>
+        <span class="spacer"></span>
+        <span class="dim small" th:text="'last ' + ${#lists.size(entries)} + ' records (most recent first)'"></span>
+    </div>
+
+    <h2>Audit records</h2>
+    <div class="panel">
+        <table>
+            <thead>
+            <tr>
+                <th style="width:60px">Seq</th>
+                <th style="width:170px">Timestamp</th>
+                <th>Event</th>
+                <th>Run / Node</th>
+                <th>User</th>
+                <th>Details</th>
+                <th style="width:90px">Hash</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="e : ${entries}">
+                <td class="mono dim" th:text="${e.seq}"></td>
+                <td class="mono small dim" th:text="${#strings.replace(e.ts,'T',' ')}"></td>
+                <td class="mono small" th:text="${e.event}"
+                    th:style="${#strings.contains(e.event,'FAILED') or #strings.contains(e.event,'ERROR') or #strings.contains(e.event,'REJECTED')} ? 'color:var(--fail)'
+                             : (${#strings.contains(e.event,'COMPLETED') or #strings.contains(e.event,'SUCCESS')} ? 'color:var(--ok)'
+                             : (${#strings.contains(e.event,'WAITING') or #strings.contains(e.event,'DECISION')} ? 'color:var(--wait)' : ''))"></td>
+                <td class="mono small dim">
+                    <div th:if="${e.runId != null}" th:text="${e.runId}"></div>
+                    <div th:if="${e.node != null}" th:text="'» ' + ${e.node}" style="color:var(--ink)"></div>
+                </td>
+                <td class="small dim" th:text="${e.user}"></td>
+                <td class="mono small dim">
+                    <div th:each="d : ${e.details}" th:text="${d.key + ' = ' + d.value}"></div>
+                </td>
+                <td class="mono small" style="color:var(--ink-faint)"
+                    th:text="${#strings.substring(e.hash,0,10)}" th:title="${e.hash}"></td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(entries)}">
+                <td colspan="7" class="dim">No events recorded for this feed.</td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <footer th:text="'manual verification: each hash = SHA-256(seq|ts|feedId|runId|node|event|user|detailsJson|prevHash)'"></footer>
+</div>
+
+<script th:inline="javascript">
+    var CTX = (function(){ var b=document.querySelector('.brand'); var h=b?b.getAttribute('href'):'/'; return h.charAt(h.length-1)==='/'?h:h+'/'; })();
+    var FEED_ID = /*[[${wf.feedId}]]*/ 'feed';
+    function tick() { document.getElementById('clock').textContent = new Date().toLocaleString('it-IT'); }
+    tick(); setInterval(tick, 1000);
+
+    function reverify() {
+        fetch(CTX + 'api/audit/' + encodeURIComponent(FEED_ID) + '/verify')
+            .then(function (r) { return r.json(); })
+            .then(function (v) {
+                var b = document.getElementById('verifyBanner');
+                b.className = 'banner ' + (v.valid ? 'ok' : 'error');
+                b.innerHTML = '<strong>' + (v.valid ? '✓ CHAIN INTACT' : '✕ CHAIN BROKEN') + '</strong> — ' +
+                    String(v.message).replace(/</g, '&lt;');
+            });
+    }
+</script>
+</body>
+</html>

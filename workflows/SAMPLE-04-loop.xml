@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SAMPLE 04 - Loop driven by a counter and a decision gate.
+
+  Demonstrates item 5: repeat a step while a condition holds. The loop is built
+  from a back-edge: the decision gate points its onTrue target back to an earlier
+  step. A setvar step maintains the counter.
+
+  Flow:
+     init  (counter = 0)
+       -> work       (does one unit of work, uses ${counter})
+       -> increment  (counter = ${counter} + 1)
+       -> loop?      gate: ${counter} < ${maxIterations}
+                       onTrue  -> work        (back-edge: loops)
+                       onFalse -> END:SUCCESS  (exit)
+
+  Safety: the engine caps the total number of node transitions per run
+  (orchestrator.max-transitions, default 500), so a mis-configured condition
+  cannot loop forever.
+
+  setvar supports ${vars} plus simple "A + B" / "A - B" integer math.
+-->
+<workflow feedId="SAMPLE-04-loop"
+          name="Sample 04 - Loop with counter"
+          baseDir="./feeds">
+
+    <description>Runs a unit of work repeatedly until a counter reaches a limit, using a decision gate back-edge</description>
+
+    <variables>
+        <var name="maxIterations" value="3"/>
+    </variables>
+
+    <steps>
+
+        <!-- initialise the counter -->
+        <step id="init" name="Init counter" exec="setvar">
+            <param name="counter" value="0"/>
+        </step>
+
+        <!-- the work to repeat; receives the current counter -->
+        <step id="work" name="Do one iteration" script="Process-Batch.ps1" timeoutSec="600">
+            <param name="Iteration" value="${counter}"/>
+            <param name="FeedId" value="${feedId}"/>
+        </step>
+
+        <!-- increment the counter -->
+        <step id="increment" name="counter = counter + 1" exec="setvar">
+            <param name="counter" value="${counter} + 1"/>
+        </step>
+
+        <!-- decision: loop back while below the limit -->
+        <gate id="loop" name="counter &lt; max?"
+              condition="${counter} &lt; ${maxIterations}"
+              onTrue="work" onFalse="END:SUCCESS"/>
+
+    </steps>
+</workflow>

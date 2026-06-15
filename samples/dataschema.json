@@ -1,0 +1,10 @@
+[{"name":"NDG","nullable":false,"type":"string"},
+ {"name":"NOMINATIVO","nullable":true,"type":"string"},
+ {"name":"DATA_KYC","nullable":false,"type":"string"},
+ {"name":"ID_PROCESSO","nullable":true,"type":"string"},
+ {"name":"DESCRIZIONE_PROCESSO","nullable":true,"type":"string"},
+ {"name":"TIPO_PROCESSO","nullable":true,"type":"string"},
+ {"name":"RISCHIO","nullable":true,"type":"string"},
+ {"name":"DOMANDA","nullable":true,"type":"string"},
+ {"name":"RISPOSTA","nullable":true,"type":"string"},
+ {"name":"END_OF_RELATIONSHIP_DATE","nullable":false,"type":"string"}]

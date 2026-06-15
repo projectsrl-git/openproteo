@@ -1,0 +1,10 @@
+<workflow feedId="SAMPLE-09-mask" sourceId="EORFULL" name="Mask CSV (deterministic streaming) — Batch 1">
+    <description>Format-preserving deterministic masking driven by displayschema anonType. Handles large files.</description>
+    <steps>
+        <step id="mask" name="Mask EOR CSV" exec="mask" source="${landingOut}/${feedId}_${runDate}.csv" delimiter=";">
+            <param name="displayschema" value="${feedDir}/displayschema.json"/>
+            <param name="outFile" value="${landingOut}/${feedId}_${runDate}_masked.csv"/>
+            <param name="unmappedColumnPolicy" value="fail"/>
+        </step>
+    </steps>
+</workflow>

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title th:text="'OpenProteo — ' + ${wf.feedId}">OpenProteo</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub" th:text="${wf.name}"></span>
+    <span class="spacer"></span>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap">
+    <h1><span class="feed-id" th:text="${wf.feedId}"></span> — <span th:text="${wf.name}"></span></h1>
+    <p class="page-sub">
+        <span th:if="${wf.sourceId}" class="mono small">source: <b th:text="${wf.sourceId}"></b> &nbsp;·&nbsp; </span>
+        <span th:text="${wf.description != null ? wf.description : 'Feed preparation and delivery workflow'}"></span>
+    </p>
+
+    <div class="toolbar">
+        <button id="runBtn" class="btn primary" th:attr="data-feed=${wf.feedId}" onclick="runNow(this.dataset.feed)">▶ Run now</button>
+        <a id="activeRunLink" class="btn" style="display:none">▷ Open active run</a>
+        <a class="btn" th:href="@{'/designer/' + ${wf.feedId}}">✎ Edit in designer</a>
+        <a class="btn" th:href="@{'/runs/' + ${wf.feedId}}">⟲ Run history</a>
+        <a class="btn" th:href="@{'/audit/' + ${wf.feedId}}">Audit log</a>
+        <span class="spacer"></span>
+        <span class="mono small dim" th:if="${wf.cron != null}" th:text="'cron: ' + ${wf.cron}"></span>
+        <span class="mono small dim" th:if="${wf.cron == null}">manual execution only</span>
+    </div>
+
+    <h2>Feed files</h2>
+    <div class="panel" style="padding:16px">
+        <p class="dim small" style="margin-top:0">Upload reference templates or JSON descriptors (dataschema / displayschema), or executable
+            scripts. Files go into <span class="mono" th:text="${layout.feedDir}"></span> and are reachable as
+            <span class="mono">${feedDir}/&lt;name&gt;</span>. An executable gets a unique <b>alias</b> usable as
+            <span class="mono">${alias}</span> in a step (e.g. <span class="mono">script="${alias}"</span>).</p>
+        <div id="feedFiles"></div>
+    </div>
+
+    <h2>Diagram</h2>
+    <div class="panel">
+        <div class="bpmn-wrap" id="bpmnBox" th:attr="data-feed=${wf.feedId}"><span class="dim small">loading diagram…</span></div>
+    </div>
+
+    <h2>Definition (<span th:text="${wf.sourceFile}"></span>)</h2>
+    <div class="panel">
+        <table>
+            <thead><tr><th style="width:40px">#</th><th>Node</th><th>Type</th><th>Script / Condition</th><th>Params / Routing</th></tr></thead>
+            <tbody>
+            <tr th:each="node, it : ${wf.nodes}">
+                <td class="mono dim" th:text="${it.count}"></td>
+                <td>
+                    <span th:text="${node.name}"></span>
+                    <div class="mono small dim" th:text="${node.id}"></div>
+                </td>
+                <td class="mono small">
+                    <span th:if="${node.kind == 'STEP'}">STEP</span>
+                    <span th:if="${node.kind == 'GATE'}"
+                          th:text="'GATE ' + ${node.type}" style="color:var(--accent)"></span>
+                </td>
+                <td class="mono small">
+                    <span th:if="${node.kind == 'STEP'}" th:text="${(node.exec != null ? '[' + node.exec + '] ' : '') + node.script}"></span>
+                    <span th:if="${node.kind == 'GATE'}" th:text="${node.condition != null ? node.condition : '(human decision)'}"></span>
+                </td>
+                <td class="mono small dim">
+                    <th:block th:if="${node.kind == 'STEP'}">
+                        <div th:each="p : ${node.params}" th:text="'-' + ${p.key} + ' ' + ${p.value}"></div>
+                        <div th:each="o : ${node.outputs}" th:text="'→ ##VAR ' + ${o}" style="color:var(--ok)"></div>
+                    </th:block>
+                    <th:block th:if="${node.kind == 'GATE'}">
+                        <div th:if="${node.onTrue != null}" th:text="'true  → ' + ${node.onTrue}"></div>
+                        <div th:if="${node.onFalse != null}" th:text="'false → ' + ${node.onFalse}"></div>
+                    </th:block>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h2>Directory layout</h2>
+    <div class="panel">
+        <div class="tree">
+            <div class="d" th:text="${layout.feedDir}"></div>
+            <div>├─ <span class="hl">00_landing_in</span>&nbsp;&nbsp;&nbsp;← raw data from AS400</div>
+            <div th:each="sd : ${stepDirs}">├─ <span class="d" th:text="${sd.value.fileName}"></span></div>
+            <div>├─ <span class="hl">99_landing_out</span>&nbsp;&nbsp;← packages ready for FTPS</div>
+            <div>├─ _logs/&nbsp;&nbsp;(hash-chained audit + per-step PowerShell logs)</div>
+            <div>└─ _runs/&nbsp;&nbsp;(JSON state of every run)</div>
+        </div>
+    </div>
+
+    <h2>Builtin variables available to steps</h2>
+    <div class="panel">
+        <dl class="kv">
+            <dt>${feedId}</dt><dd th:text="${wf.feedId}"></dd>
+            <dt>${feedName}</dt><dd th:text="${wf.name}"></dd>
+            <dt>${runId} ${runDate} ${runTs}</dt><dd>identifiers of the current run</dd>
+            <dt>${landingIn} / ${landingOut}</dt><dd>landing directories</dd>
+            <dt>${stepDir}</dt><dd>directory of the current step</dd>
+            <dt>${dir.&lt;stepId&gt;}</dt><dd>directory of a specific step (e.g. ${dir.prepare})</dd>
+        </dl>
+    </div>
+
+    <h2>Recent runs <a class="btn sm" style="margin-left:10px" th:href="@{'/runs/' + ${wf.feedId}}">full history with events ⟶</a></h2>
+    <div class="panel">
+        <table>
+            <thead><tr><th>Run ID</th><th>Started</th><th>Ended</th><th>Trigger</th><th>User</th><th>Outcome</th></tr></thead>
+            <tbody>
+            <tr th:each="r : ${runs}">
+                <td class="mono small">
+                    <a th:href="@{'/run/' + ${wf.feedId} + '/' + ${r.runId}}" th:text="${r.runId}"></a>
+                </td>
+                <td class="mono small dim" th:text="${r.startTs}"></td>
+                <td class="mono small dim" th:text="${r.endTs != null ? r.endTs : '—'}"></td>
+                <td class="mono small" th:text="${r.trigger}"></td>
+                <td class="small dim" th:text="${r.triggeredBy}"></td>
+                <td><span class="chip" th:classappend="${r.status}" th:text="${r.status}"></span></td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(runs)}"><td colspan="6" class="dim">No runs recorded.</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <footer th:text="'feed dir: ' + ${layout.feedDir}"></footer>
+</div>
+
+<script th:src="@{/js/bpmn.js}"></script>
+<script th:src="@{/js/filespanel.js}"></script>
+<script>
+    var CTX = (function(){ var b=document.querySelector('.brand'); var h=b?b.getAttribute('href'):'/'; return h.charAt(h.length-1)==='/'?h:h+'/'; })();
+    function tick() { document.getElementById('clock').textContent = new Date().toLocaleString('it-IT'); }
+    tick(); setInterval(tick, 1000);
+    (function () {
+        var box = document.getElementById('bpmnBox');
+        fetch(CTX + 'api/workflows/' + encodeURIComponent(box.getAttribute('data-feed')) + '/definition')
+            .then(function (r) { return r.json(); })
+            .then(function (def) { renderBpmn(box, def); })
+            .catch(function () { box.textContent = 'Diagram unavailable'; });
+    })();
+
+    mountFilesPanel(document.getElementById('feedFiles'), CTX + 'api/workflows/' + encodeURIComponent(document.getElementById('bpmnBox').getAttribute('data-feed')) + '/', CTX);
+
+    var RUN_FEED = document.getElementById('bpmnBox').getAttribute('data-feed');
+    var runBtn = document.getElementById('runBtn');
+    var activeLink = document.getElementById('activeRunLink');
+
+    function setRunning(running, runId) {
+        if (running) {
+            runBtn.disabled = true;
+            runBtn.textContent = '▶ Running…';
+            if (runId) { activeLink.style.display = ''; activeLink.href = CTX + 'run/' + encodeURIComponent(RUN_FEED) + '/' + encodeURIComponent(runId); }
+        } else {
+            runBtn.disabled = false;
+            runBtn.textContent = '▶ Run now';
+            activeLink.style.display = 'none';
+        }
+    }
+    function checkActive() {
+        fetch(CTX + 'api/workflows/' + encodeURIComponent(RUN_FEED) + '/active')
+            .then(function (r) { return r.json(); })
+            .then(function (j) { if (j && j.ok) setRunning(j.running, j.runId); })
+            .catch(function () {});
+    }
+    checkActive();
+    setInterval(checkActive, 3000);
+
+    function runNow(feedId) {
+        if (runBtn.disabled) return;
+        if (!confirm('Start a new run of ' + feedId + ' now?')) return;
+        runBtn.disabled = true; runBtn.textContent = '▶ Starting…';   // optimistic, prevents double-submit
+        fetch(CTX + 'api/workflows/' + encodeURIComponent(feedId) + '/run', { method: 'POST' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (j.ok) window.location = CTX + 'run/' + encodeURIComponent(feedId) + '/' + encodeURIComponent(j.runId);
+                else { alert(j.error || 'Start failed'); checkActive(); }
+            })
+            .catch(function () { checkActive(); });
+    }
+</script>
+</body>
+</html>

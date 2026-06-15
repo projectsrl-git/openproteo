@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- OpenProteo: Proteo, il dio marino mutaforma.
+       Lo stesso segnale in tre forme diverse: onda quadra, sinusoide, onda del mare. -->
+  <defs>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#58a6ff"/>
+      <stop offset="1" stop-color="#2bd4c2"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="29" fill="#0d1117" stroke="#f5a623" stroke-width="3"/>
+  <!-- forma rigida: onda quadra -->
+  <path d="M15 22 h6 v-6 h8 v6 h8 v-6 h8 v6 h4" fill="none" stroke="#8593a8"
+        stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- forma pura: sinusoide -->
+  <path d="M15 34 q4.5 -9 9 0 t9 0 t9 0 t7 0" fill="none" stroke="url(#sea)"
+        stroke-width="3" stroke-linecap="round"/>
+  <!-- forma viva: onda del mare -->
+  <path d="M15 46 q5 -11 10 -2 q3 5 7 1 q5 -10 10 -2 q3 5 7 1" fill="none" stroke="#f5a623"
+        stroke-width="3" stroke-linecap="round"/>
+</svg>

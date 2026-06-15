@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SAMPLE 03 - Parallel fan-out (for-each) with join.
+
+  Demonstrates item 4: a step that runs many parallel worker threads (one per
+  detected file), waits for all of them to finish, collects the results, then
+  moves on to the next step.
+
+  How the parallel step works:
+   - forEach   = a list variable; the engine splits it and runs the step once per
+                 item, exposing ${item} (and ${itemIndex}) to that execution.
+   - concurrency = max simultaneous workers (the rest queue).
+   - After the join the step fails if ANY item failed, and sets ##VAR
+     itemsTotal / itemsOk / itemsFailed. Per-item logs are written next to the
+     step log as <stepId>__<n>.log.
+-->
+<workflow feedId="SAMPLE-03-parallel"
+          name="Sample 03 - Parallel workers"
+          baseDir="./feeds">
+
+    <description>Scans the landing for files, processes each file in parallel, then delivers once all workers complete</description>
+
+    <variables>
+        <var name="ftpsHost" value="ftps.legalarchive.example.com"/>
+        <var name="ftpsFolder" value="/inbound/EOR"/>
+    </variables>
+
+    <steps>
+
+        <step id="scan" name="List input files" exec="filecopy" mode="list"
+              source="${landingIn}" pattern="*.csv"/>
+
+        <gate id="any_files" name="Files present?"
+              condition="${matchedCount} &gt; 0"
+              onTrue="work" onFalse="END:SKIPPED"/>
+
+        <!-- parallel fan-out: one worker per file, up to 4 at a time -->
+        <step id="work" name="Process files in parallel" script="Process-One.ps1"
+              forEach="${matchedFiles}" concurrency="4" timeoutSec="600">
+            <param name="File" value="${item}"/>
+            <param name="FeedId" value="${feedId}"/>
+        </step>
+
+        <!-- only reached after all workers have joined successfully -->
+        <step id="send" name="FTPS delivery" script="Send-FTPS.ps1"
+              timeoutSec="900" retry="2" retryDelaySec="120">
+            <param name="PackageFile" value="${landingOut}"/>
+            <param name="FtpsHost" value="${ftpsHost}"/>
+            <param name="RemoteFolder" value="${ftpsFolder}"/>
+            <param name="FeedId" value="${feedId}"/>
+        </step>
+
+    </steps>
+</workflow>

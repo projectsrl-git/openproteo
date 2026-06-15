@@ -1,0 +1,13 @@
+<workflow feedId="SAMPLE-07-encoding" sourceId="EORFULL" name="Normalize feed to UTF-8">
+    <description>Converts a legacy/BOM text file to UTF-8 without BOM before delivery.</description>
+    <steps>
+        <step id="normalize" name="Normalize to UTF-8" exec="encoding" source="${landingIn}/${feedId}_${runDate}.csv">
+            <param name="from" value="windows-1252"/>
+            <param name="bom" value="false"/>
+            <param name="outFile" value="${landingOut}/${feedId}_${runDate}_utf8.csv"/>
+        </step>
+        <step id="send" name="Send to Legal Archive" script="Send-FTPS.ps1">
+            <param name="PackageFile" value="${normalize.outputFile}"/>
+        </step>
+    </steps>
+</workflow>

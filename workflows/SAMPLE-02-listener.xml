@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SAMPLE 02 - Directory listener (polling every minute).
+
+  Demonstrates item 3: a workflow scheduled every minute that scans a directory,
+  counts the files matching a pattern, and - only if at least one is present -
+  launches a processing step receiving the detected file names.
+
+  Notes:
+   - cron "0 * * * * *" fires at second 0 of every minute.
+   - The engine runs at most one instance of a feed at a time, so a slow run
+     never overlaps the next tick.
+   - filecopy mode="list" only scans (no copy) and emits ##VAR matchedCount and
+     ##VAR matchedFiles (a ;-separated list).
+-->
+<workflow feedId="SAMPLE-02-listener"
+          name="Sample 02 - Directory listener"
+          cron="0 * * * * *"
+          baseDir="./feeds">
+
+    <description>Every minute scans the landing IN directory for *.csv and, if any are present, processes them</description>
+
+    <steps>
+
+        <!-- scan only: list *.csv in landing IN -->
+        <step id="scan" name="Scan landing IN" exec="filecopy" mode="list"
+              source="${landingIn}" pattern="*.csv"/>
+
+        <!-- if nothing matched, end quietly as SKIPPED -->
+        <gate id="any_files" name="Files present?"
+              condition="${matchedCount} &gt; 0"
+              onTrue="process" onFalse="END:SKIPPED"/>
+
+        <!-- pass the detected file names to the processing script -->
+        <step id="process" name="Process detected files" script="Process-Files.ps1"
+              timeoutSec="900">
+            <param name="Files" value="${matchedFiles}"/>
+            <param name="FeedId" value="${feedId}"/>
+            <output var="processed"/>
+        </step>
+
+    </steps>
+</workflow>

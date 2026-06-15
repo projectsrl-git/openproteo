@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenProteo — Dashboard</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub">Legal Archive · feed preparation &amp; delivery</span>
+    <span class="spacer"></span>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap">
+    <h1>Registered workflows</h1>
+    <p class="page-sub">One workflow per feed ID. Landing and step directories are provisioned automatically.</p>
+
+    <div th:each="err : ${errors}" class="banner error" th:text="${err}"></div>
+    <div th:each="ce : ${cronErrors}" class="banner warn" th:text="${ce.key + ': ' + ce.value}"></div>
+
+    <div class="toolbar">
+        <input id="wfSearch" class="search-box" type="text" placeholder="🔎 Filter by feed id, name or schedule…" oninput="filterRows()" autocomplete="off">
+        <span class="spacer"></span>
+        <a class="btn sm primary" th:href="@{/designer}">＋ New workflow</a>
+        <a class="btn sm" th:href="@{/datasources}">Data sources</a>
+        <a class="btn sm" th:href="@{/files}">Shared files</a>
+        <button class="btn sm" onclick="reload()">↻ Reload XML definitions</button>
+    </div>
+
+    <div class="panel">
+        <table>
+            <thead>
+            <tr>
+                <th>Feed ID</th>
+                <th>Source</th>
+                <th>Name</th>
+                <th>Schedule</th>
+                <th>Last run</th>
+                <th>Outcome</th>
+                <th style="width:280px">Actions</th>
+            </tr>
+            </thead>
+            <tbody id="wfRows">
+            <tr th:each="row : ${rows}" class="wf-row"
+                th:attr="data-search=${(row.wf.feedId + ' ' + (row.wf.sourceId ?: '') + ' ' + row.wf.name + ' ' + (row.wf.description ?: '') + ' ' + (row.wf.cron ?: 'manual'))}">
+                <td class="mono"><span class="feed-id" th:text="${row.wf.feedId}"></span></td>
+                <td class="mono small dim"><span th:if="${row.wf.sourceId}" th:text="${row.wf.sourceId}"></span><span th:if="${row.wf.sourceId == null}">—</span></td>
+                <td>
+                    <span th:text="${row.wf.name}"></span>
+                    <div class="dim small" th:if="${row.wf.description}" th:text="${row.wf.description}"></div>
+                </td>
+                <td class="mono small">
+                    <span th:if="${row.wf.cron != null and row.scheduled}" th:text="${row.wf.cron}"></span>
+                    <span th:if="${row.wf.cron == null}" class="dim">manual</span>
+                    <span th:if="${row.wf.cron != null and !row.scheduled}" style="color:var(--fail)">invalid cron</span>
+                </td>
+                <td class="mono small dim">
+                    <span th:if="${row.lastRun != null}" th:text="${row.lastRun.startTs}"></span>
+                    <span th:if="${row.lastRun == null}">—</span>
+                </td>
+                <td>
+                    <a th:if="${row.lastRun != null}"
+                       th:href="@{'/run/' + ${row.wf.feedId} + '/' + ${row.lastRun.runId}}">
+                        <span class="chip" th:classappend="${row.lastRun.status}"
+                              th:text="${row.lastRun.status}"></span>
+                    </a>
+                    <span th:if="${row.lastRun == null}" class="dim">never run</span>
+                </td>
+                <td>
+                    <button class="btn sm primary" th:attr="data-feed=${row.wf.feedId}" onclick="runNow(this.dataset.feed)">▶ Run</button>
+                    <a class="btn sm" th:href="@{'/workflow/' + ${row.wf.feedId}}">Details</a>
+                    <a class="btn sm" th:href="@{'/runs/' + ${row.wf.feedId}}">⟲ Runs</a>
+                    <a class="btn sm" th:href="@{'/designer/' + ${row.wf.feedId}}">Edit</a>
+                    <a class="btn sm" th:href="@{'/audit/' + ${row.wf.feedId}}">Audit</a>
+                    <button th:if="${row.lastRun != null and (row.lastRun.status.name() == 'RUNNING' or row.lastRun.status.name() == 'WAITING_APPROVAL')}"
+                            class="btn sm danger"
+                            th:attr="data-feed=${row.wf.feedId},data-run=${row.lastRun.runId}"
+                            onclick="stopRun(this.dataset.feed, this.dataset.run)">■ Stop</button>
+                </td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(rows)}">
+                <td colspan="7" class="dim">No workflows found. Create one with the designer or drop XML files into the workflows/ directory and reload.</td>
+            </tr>
+            <tr id="noMatch" style="display:none"><td colspan="7" class="dim">No workflow matches the filter.</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <footer>OPENPROTEO · run state in _runs/*.json · audit append-only hash-chained in _logs/*.jsonl</footer>
+</div>
+
+<script>
+    var CTX = (function(){ var b=document.querySelector('.brand'); var h=b?b.getAttribute('href'):'/'; return h.charAt(h.length-1)==='/'?h:h+'/'; })();
+    function tick() {
+        var d = new Date();
+        document.getElementById('clock').textContent = d.toLocaleString('it-IT');
+    }
+    tick(); setInterval(tick, 1000);
+
+    function runNow(feedId) {
+        fetch(CTX + 'api/workflows/' + encodeURIComponent(feedId) + '/run', { method: 'POST' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                if (j.ok) {
+                    window.location = CTX + 'run/' + encodeURIComponent(feedId) + '/' + encodeURIComponent(j.runId);
+                } else {
+                    alert(j.error || 'Start failed');
+                }
+            })
+            .catch(function (e) { alert('Error: ' + e); });
+    }
+
+    function stopRun(feedId, runId) {
+        if (!confirm('Stop the active run of ' + feedId + '?')) return;
+        fetch(CTX + 'api/runs/' + encodeURIComponent(feedId) + '/' + encodeURIComponent(runId) + '/stop', { method: 'POST' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) { if (!j.ok) alert(j.error || 'Stop failed'); window.location.reload(); });
+    }
+
+    function filterRows() {
+        var q = (document.getElementById('wfSearch').value || '').toLowerCase().trim();
+        var rows = document.querySelectorAll('#wfRows .wf-row');
+        var shown = 0;
+        rows.forEach(function (r) {
+            var hay = (r.getAttribute('data-search') || '').toLowerCase();
+            var match = q === '' || hay.indexOf(q) >= 0;
+            r.style.display = match ? '' : 'none';
+            if (match) shown++;
+        });
+        var none = document.getElementById('noMatch');
+        if (none) none.style.display = shown === 0 ? '' : 'none';
+    }
+
+    function reload() {
+        fetch(CTX + 'api/reload', { method: 'POST' })
+            .then(function (r) { return r.json(); })
+            .then(function () { window.location.reload(); });
+    }
+</script>
+</body>
+</html>

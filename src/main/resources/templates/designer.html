@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenProteo — Workflow Designer</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<datalist id="pathsug"></datalist>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub">Workflow Designer</span>
+    <span class="spacer"></span>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap" style="max-width:1500px">
+    <h1 id="pageTitle">New workflow</h1>
+    <p class="page-sub">Design the workflow visually: steps run PowerShell scripts, gates route the flow with
+        conditions or human approval. The XML definition is generated, validated and saved into the workflows directory.</p>
+
+    <div class="banner error" id="errBanner" style="display:none"></div>
+    <div class="banner ok" id="okBanner" style="display:none"></div>
+
+    <div class="designer-grid">
+
+        <!-- ====================== left: editor ====================== -->
+        <div>
+            <h2>Workflow</h2>
+            <div class="panel">
+                <div class="form-row">
+                    <div class="field">
+                        <label>Feed ID *</label>
+                        <input id="f_feedId" placeholder="LA-EOR-001" oninput="upd()">
+                    </div>
+                    <div class="field">
+                        <label>Friendly name</label>
+                        <input id="f_name" placeholder="EORFULL to Legal Archive" oninput="upd()">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="field">
+                        <label>Source ID (original application)</label>
+                        <input id="f_sourceId" placeholder="EORFULL" oninput="upd()">
+                    </div>
+                    <div class="field">
+                        <label>Cron (6 fields, empty = manual only)</label>
+                        <input id="f_cron" placeholder="0 30 6 * * MON-FRI" oninput="upd()">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="field">
+                        <label>Base directory (empty = default)</label>
+                        <input id="f_baseDir" placeholder="D:/feeds" oninput="upd()">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="field wide">
+                        <label>Description</label>
+                        <input id="f_description" placeholder="What this feed does" oninput="upd()">
+                    </div>
+                </div>
+                <div class="subsection">
+                    <div class="sub-label">Workflow variables (usable as ${name} in params and conditions)</div>
+                    <div id="varsBox"></div>
+                </div>
+                <div class="addline"><button onclick="addVar()">＋ add variable</button></div>
+            </div>
+
+            <h2 class="collapse-h" id="wfFilesToggle"><span class="caret">▾</span> Workflow files</h2>
+            <div id="wfFilesWrap" class="wf-files-box">
+                <div id="wfFilesPanel" style="display:none"></div>
+                <p id="wfFilesHint" class="dim small" style="display:none">Save the workflow once to enable file uploads (the feed folder is created on first save). Uploaded files — e.g. <code>dataschema.json</code>, <code>displayschema.json</code> — get an alias and can be referenced in steps as <code>${alias}</code>.</p>
+            </div>
+
+            <h2>Nodes (executed top to bottom)</h2>
+            <div id="nodesBox"></div>
+            <div class="toolbar">
+                <button class="btn" onclick="addStep()">＋ Add step</button>
+                <button class="btn" onclick="addGate()">＋ Add gate</button>
+                <span class="spacer"></span>
+                <button id="dRunBtn" class="btn primary" onclick="designerRun()" th:if="${feedId != null}">▶ Run now</button>
+                <a id="dRunLink" class="btn" style="display:none" th:if="${feedId != null}">▷ Active run</a>
+                <a class="btn" th:if="${feedId != null}" th:href="@{'/runs/' + ${feedId}}">⟲ Run history</a>
+                <a class="btn" th:if="${feedId != null}" th:href="@{'/audit/' + ${feedId}}">Audit log</a>
+                <a class="btn" th:if="${feedId != null}" th:href="@{'/workflow/' + ${feedId}}">Workflow page</a>
+                <a class="btn" th:href="@{/}">Cancel</a>
+                <button class="btn" onclick="duplicateWorkflow()" th:if="${feedId != null}">⧉ Duplicate as new</button>
+                <button class="btn primary" onclick="save()">💾 Validate &amp; save</button>
+            </div>
+        </div>
+
+        <!-- ====================== right: live preview ====================== -->
+        <div class="dz-sticky">
+            <h2>Pipeline preview</h2>
+            <div class="panel">
+                <div class="pipeline mini-pipeline" id="pipePreview"></div>
+            </div>
+            <h2>Generated XML</h2>
+            <div class="xmlbox" id="xmlPreview"></div>
+            <h2>Cheat sheet</h2>
+            <div class="panel">
+                <dl class="kv">
+                    <dt>Executors</dt><dd>.ps1 → powershell · .bat/.cmd → cmd · .jar → java -jar (or force with Executor)</dd>
+                    <dt>Builtin vars</dt><dd>${feedId} ${runId} ${runDate} ${landingIn} ${landingOut} ${stepDir} ${dir.&lt;stepId&gt;}</dd>
+                    <dt>Output vars</dt><dd>script prints:&nbsp; ##VAR name=value</dd>
+                    <dt>Condition ops</dt><dd>== != &gt;= &lt;= &gt; &lt; contains notcontains matches exists notexists</dd>
+                    <dt>Combine</dt><dd>clause &amp;&amp; clause &nbsp;or&nbsp; clause || clause (not mixed)</dd>
+                    <dt>Gate targets</dt><dd>a node id, END:SUCCESS, END:SKIPPED, END:REJECTED, END:FAILED, or (next node)</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+
+    <footer>the saved XML is re-validated with the runtime parser before being written</footer>
+</div>
+
+<script th:inline="javascript">
+    var CTX = (function(){ var b=document.querySelector('.brand'); var h=b?b.getAttribute('href'):'/'; return h.charAt(h.length-1)==='/'?h:h+'/'; })();
+    var EDIT_FEED_ID = /*[[${feedId}]]*/ null;
+    // Workflow files panel: available when editing an existing feed (folder exists)
+    (function () {
+        function mountWfFiles() {
+            var panel = document.getElementById('wfFilesPanel');
+            var hint = document.getElementById('wfFilesHint');
+            if (!panel) return;
+            if (EDIT_FEED_ID) {
+                panel.style.display = '';
+                hint.style.display = 'none';
+                if (!panel.getAttribute('data-mounted')) {
+                    mountFilesPanel(panel, CTX + 'api/workflows/' + encodeURIComponent(EDIT_FEED_ID) + '/', CTX, function (files) {
+                        FEED_DOCS = (files || [])
+                            .filter(function (f) { return f.kind !== 'script'; })
+                            .map(function (f) { return '${feedDir}/' + f.path; });
+                        refreshSuggestions();
+                    }, { rootOnly: true });
+                    panel.setAttribute('data-mounted', '1');
+                }
+            } else {
+                panel.style.display = 'none';
+                hint.style.display = '';
+            }
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { mountWfFiles(); loadFeedDocs(); });
+        else { mountWfFiles(); loadFeedDocs(); }
+        window.__mountWfFiles = mountWfFiles;   // re-mount after first save
+        var tgl = document.getElementById('wfFilesToggle');
+        if (tgl) tgl.addEventListener('click', function () {
+            var wrap = document.getElementById('wfFilesWrap');
+            var caret = tgl.querySelector('.caret');
+            var collapsed = wrap.style.display === 'none';
+            wrap.style.display = collapsed ? '' : 'none';
+            if (caret) caret.textContent = collapsed ? '▾' : '▸';
+        });
+    })();
+    var NL = String.fromCharCode(10);   // never write a literal backslash-n in source: corporate proxies mangle it
+
+    var wf = { feedId: '', sourceId: '', name: '', cron: '', baseDir: '', description: '', variables: [], nodes: [] };
+    var stepSeq = 0, gateSeq = 0;
+    var DATASOURCES = [];
+    fetch(CTX + 'api/datasources').then(readJson).then(function(d){ DATASOURCES = d || []; renderNodes(); }).catch(function(e){ console.warn('datasources load failed:', e && e.message); });
+
+    function tick() { document.getElementById('clock').textContent = new Date().toLocaleString('it-IT'); }
+    tick(); setInterval(tick, 1000);
+
+    function esc(s) {
+        var d = document.createElement('div');
+        d.textContent = (s === null || s === undefined ? '' : String(s));
+        return d.innerHTML;
+    }
+    function xesc(s) {
+        return String(s === null || s === undefined ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function attresc(s) { return esc(s).replace(/"/g, '&quot;'); }
+
+    // ---------------- header fields ----------------
+    function upd() {
+        wf.feedId = val('f_feedId');
+        wf.sourceId = val('f_sourceId');
+        wf.name = val('f_name');
+        wf.cron = val('f_cron');
+        wf.baseDir = val('f_baseDir');
+        wf.description = val('f_description');
+        preview();
+    }
+    function val(id) { return document.getElementById(id).value.trim(); }
+
+    // ---------------- variables ----------------
+    function addVar() { wf.variables.push({ name: '', value: '' }); renderVars(); }
+    function delVar(i) { wf.variables.splice(i, 1); renderVars(); preview(); }
+    function updVar(i, k, v) { wf.variables[i][k] = v; preview(); }
+
+    function renderVars() {
+        refreshSuggestions();
+        var h = '';
+        wf.variables.forEach(function (v, i) {
+            h += '<div class="kvrow">' +
+                '<input class="inline-input k" placeholder="name" value="' + attresc(v.name) + '" oninput="updVar(' + i + ',\'name\',this.value)">' +
+                '<input class="inline-input sugin" list="pathsug" placeholder="value" value="' + attresc(v.value) + '" oninput="updVar(' + i + ',\'value\',this.value)">' +
+                '<button class="ghost-btn" onclick="delVar(' + i + ')">✕</button></div>';
+        });
+        document.getElementById('varsBox').innerHTML = h;
+    }
+
+    // ---------------- nodes ----------------
+    function addStep() {
+        stepSeq++;
+        wf.nodes.push({ kind: 'STEP', id: 'step_' + stepSeq, name: 'Step ' + stepSeq, script: '', exec: 'auto',
+            timeoutSec: null, retry: null, retryDelaySec: null, params: [], outputs: [],
+            datasource: '', query: '', csvFile: '', csvSplitRows: null, csvSplitMb: null, validateChecks: [], replacements: [], ifsPath: '', source: '', dest: '', pattern: '', mode: 'copy',
+            overwrite: false, outputVar: '', delimiter: '', forEach: '', concurrency: null });
+        renderNodes(); preview();
+    }
+    function addGate() {
+        gateSeq++;
+        wf.nodes.push({ kind: 'GATE', id: 'gate_' + gateSeq, name: 'Gate ' + gateSeq, type: 'auto',
+            condition: '', onTrue: '', onFalse: '' });
+        renderNodes(); preview();
+    }
+    function delNode(i) { wf.nodes.splice(i, 1); renderNodes(); preview(); }
+    function dupNode(i) {
+        var src = wf.nodes[i];
+        var copy = JSON.parse(JSON.stringify(src));
+        var base = (copy.id || 'node') + '_copy';
+        var id = base, k = 2; var used = {}; wf.nodes.forEach(function(n){ used[n.id] = true; });
+        while (used[id]) { id = base + k; k++; }
+        copy.id = id;
+        if (copy.name) copy.name = copy.name + ' (copy)';
+        wf.nodes.splice(i + 1, 0, copy);
+        renderNodes(); preview();
+    }
+    function move(i, d) {
+        var j = i + d;
+        if (j < 0 || j >= wf.nodes.length) return;
+        var t = wf.nodes[i]; wf.nodes[i] = wf.nodes[j]; wf.nodes[j] = t;
+        renderNodes(); preview();
+    }
+    function updNode(i, f, v) {
+        var n = wf.nodes[i];
+        if (f === 'timeoutSec' || f === 'retry' || f === 'retryDelaySec' || f === 'concurrency' || f === 'csvSplitRows' || f === 'csvSplitMb') {
+            var num = parseInt(v, 10);
+            n[f] = isNaN(num) ? null : num;
+        } else {
+            n[f] = v;
+        }
+        preview();
+    }
+    /** structural changes (ids, gate type) need a full re-render of the cards */
+    function updNodeR(i, f, v) {
+        if (f === 'exec' && v === 'validate' && (!wf.nodes[i].validateChecks || !wf.nodes[i].validateChecks.length)) {
+            wf.nodes[i].validateChecks = ['rowCount','colCount','jsonSchema','noQuotes','colNames','notNull','businessDate','displayDates'];
+        }
+        updNode(i, f, v); renderNodes();
+    }
+    function nodeParam(n, name) { if (!n.params) return ''; for (var k = 0; k < n.params.length; k++) if (n.params[k].name === name) return n.params[k].value; return ''; }
+    function setNodeParam(i, name, value) {
+        var n = wf.nodes[i]; n.params = n.params || [];
+        for (var k = 0; k < n.params.length; k++) if (n.params[k].name === name) { if (value === '') n.params.splice(k, 1); else n.params[k].value = value; preview(); return; }
+        if (value !== '') n.params.push({ name: name, value: value });
+        preview();
+    }
+    function toggleCheck(i, id) {
+        var n = wf.nodes[i]; n.validateChecks = n.validateChecks || [];
+        var p = n.validateChecks.indexOf(id); if (p >= 0) n.validateChecks.splice(p, 1); else n.validateChecks.push(id);
+        renderNodes(); preview();
+    }
+    function addRepl(i) { var n = wf.nodes[i]; n.replacements = n.replacements || []; n.replacements.push({ from: '', to: '', columns: [] }); renderNodes(); }
+    function delRepl(i, ri) { wf.nodes[i].replacements.splice(ri, 1); renderNodes(); preview(); }
+    function updRepl(i, ri, f, v) { wf.nodes[i].replacements[ri][f] = v; preview(); }
+    function updReplCols(i, ri, v) { wf.nodes[i].replacements[ri].columns = v.split(',').map(function (x) { return x.trim(); }).filter(function (x) { return x; }); preview(); }
+
+    function addParam(i) { wf.nodes[i].params.push({ name: '', value: '' }); renderNodes(); }
+    function delParam(i, j) { wf.nodes[i].params.splice(j, 1); renderNodes(); preview(); }
+    function updParam(i, j, k, v) { wf.nodes[i].params[j][k] = v; preview(); }
+    function addOutput(i) { wf.nodes[i].outputs.push(''); renderNodes(); }
+    function delOutput(i, j) { wf.nodes[i].outputs.splice(j, 1); renderNodes(); preview(); }
+    function updOutput(i, j, v) { wf.nodes[i].outputs[j] = v; preview(); }
+
+    function targetSelect(i, field, current) {
+        var opts = '<option value=""' + (current ? '' : ' selected') + '>(next node)</option>';
+        wf.nodes.forEach(function (n) {
+            if (!n.id) return;
+            var sel = current === n.id ? ' selected' : '';
+            opts += '<option value="' + attresc(n.id) + '"' + sel + '>→ ' + esc(n.id) + '</option>';
+        });
+        ['END:SUCCESS', 'END:SKIPPED', 'END:REJECTED', 'END:FAILED'].forEach(function (e) {
+            var sel = current === e ? ' selected' : '';
+            opts += '<option value="' + e + '"' + sel + '>' + e + '</option>';
+        });
+        return '<select class="inline-input" onchange="updNode(' + i + ',\'' + field + '\',this.value)">' + opts + '</select>';
+    }
+
+    function isExternal(ex) { return ex === 'auto' || ex === 'powershell' || ex === 'cmd' || ex === 'jar'; }
+
+    function dsSelect(i, current) {
+        var opts = '<option value="">(select datasource)</option>';
+        DATASOURCES.forEach(function (d) {
+            opts += '<option value="' + attresc(d.id) + '"' + (current === d.id ? ' selected' : '') + '>' + esc(d.id) + ' (' + esc(d.type) + ')</option>';
+        });
+        return '<div class="field"><label>Datasource</label><select onchange="updNode(' + i + ',\'datasource\',this.value)">' + opts + '</select></div>';
+    }
+
+    function previewQuery(i) {
+        var n = wf.nodes[i];
+        var box = document.getElementById('qprev_' + i);
+        if (!n.datasource) { box.style.display = 'block'; box.textContent = 'Select a datasource first.'; return; }
+        if (!n.query) { box.style.display = 'block'; box.textContent = 'Enter a query first.'; return; }
+        box.style.display = 'block'; box.textContent = 'Running...';
+        fetch(CTX + 'api/datasources/' + encodeURIComponent(n.datasource) + '/query?maxRows=50', {
+            method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: n.query
+        }).then(readJson).then(function (j) {
+            if (!j.ok) { box.textContent = 'ERROR: ' + (j.error || 'query failed'); return; }
+            if (j.updateCount !== null && j.updateCount !== undefined && (!j.columns || !j.columns.length)) {
+                box.textContent = 'OK — update count: ' + j.updateCount; return;
+            }
+            var out = (j.columns || []).join(' | ') + NL + '----' + NL;
+            (j.rows || []).forEach(function (row) { out += row.join(' | ') + NL; });
+            out += NL + j.rowCount + ' row(s)' + (j.truncated ? ' (truncated)' : '');
+            box.textContent = out;
+        }).catch(function (e) { box.textContent = 'Error: ' + e; });
+    }
+
+    // Robust API reader: turns "Unexpected token 'T' ... is not valid JSON" (an HTML proxy/login/error
+    // page returned instead of JSON) into a clear, actionable diagnostic.
+    function readJson(r) {
+        var ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
+        return r.text().then(function (t) {
+            if (ct.indexOf('application/json') < 0) {
+                var collapse = new RegExp('[' + String.fromCharCode(13, 10, 9) + ']+', 'g');
+                var snip = (t || '').replace(collapse, ' ').replace(/\s{2,}/g, ' ').trim().slice(0, 140);
+                throw new Error('Server returned HTTP ' + r.status + ' ' + (r.statusText || '') +
+                    ' as "' + (ct || 'unknown content-type') + '", not JSON. ' +
+                    'This usually means the request was intercepted by a proxy/web-filter or the session/SSO expired ' +
+                    '(it was NOT produced by OpenProteo). First bytes received: "' + snip + '"');
+            }
+            try { return JSON.parse(t); }
+            catch (e) { throw new Error('Malformed JSON in HTTP ' + r.status + ' response: "' + (t || '').slice(0, 140) + '"'); }
+        });
+    }
+
+    var SUGGESTIONS = [];
+    var FEED_DOCS = [];        // ${feedDir}/<path> for files uploaded/created on this feed
+    function loadFeedDocs() {
+        if (!EDIT_FEED_ID) { FEED_DOCS = []; return; }
+        fetch(CTX + 'api/workflows/' + encodeURIComponent(EDIT_FEED_ID) + '/files?root=true')
+            .then(readJson)
+            .then(function (j) {
+                if (!j || !j.ok || !j.files) { FEED_DOCS = []; return; }
+                FEED_DOCS = j.files
+                    .filter(function (f) { return f.kind !== 'script'; })   // scripts are referenced via their ${alias}
+                    .map(function (f) { return '${feedDir}/' + f.path; });
+                refreshSuggestions();
+            })
+            .catch(function () { FEED_DOCS = []; });
+    }
+    function refreshSuggestions() {
+        var base = ['${feedDir}','${stepDir}','${landingIn}','${landingOut}','${logDir}','${feedId}','${sourceId}','${runId}','${runDate}','${item}','${itemIndex}','${matchedFiles}','${matchedCount}','${csvFile}','${csvFiles}'];
+        var toks = base.slice();
+        FEED_DOCS.forEach(function (d) { toks.push(d); });
+        (wf.nodes || []).forEach(function (n) { if (n.kind === 'STEP' && n.id) { toks.push('${dir.' + n.id + '}'); toks.push('${' + n.id + '.outputFile}'); } });
+        (wf.variables || []).forEach(function (v) { if (v.name) toks.push('${' + v.name + '}'); });
+        SUGGESTIONS = toks;
+        var dl = document.getElementById('pathsug');
+        if (dl) { dl.innerHTML = ''; toks.forEach(function (t) { var o = document.createElement('option'); o.value = t; dl.appendChild(o); }); }
+    }
+    function bestSuggestion(val) {
+        var idx = val.lastIndexOf('${');
+        var frag = (idx >= 0 && val.indexOf('}', idx) < 0) ? val.substring(idx) : null;
+        var prefix = frag !== null ? val.substring(0, idx) : '';
+        var search = frag !== null ? frag : val;
+        if (!search) return null;
+        for (var i = 0; i < SUGGESTIONS.length; i++) {
+            if (SUGGESTIONS[i].toLowerCase().indexOf(search.toLowerCase()) === 0 && SUGGESTIONS[i] !== search) {
+                return prefix + SUGGESTIONS[i];
+            }
+        }
+        return null;
+    }
+    document.addEventListener('keydown', function (e) {
+        var t = e.target;
+        if (!t || !t.classList || !t.classList.contains('sugin')) return;
+        if (e.key !== 'ArrowRight' && e.key !== 'Tab') return;
+        var val = t.value;
+        if (t.selectionStart !== val.length || t.selectionStart !== t.selectionEnd) return;
+        var best = bestSuggestion(val);
+        if (best && best !== val) {
+            e.preventDefault();
+            t.value = best;
+            t.dispatchEvent(new Event('input', { bubbles: true }));
+            t.setSelectionRange(t.value.length, t.value.length);
+        }
+    });
+
+    function renderNodes() {
+        refreshSuggestions();
+        var h = '';
+        wf.nodes.forEach(function (n, i) {
+            var isGate = n.kind === 'GATE';
+            h += '<div class="node-card' + (isGate ? ' gate-card' : '') + '">';
+            h += '<div class="nc-head"><span class="nc-type">' + (isGate ? '◇ GATE' : '▮ STEP') + ' ' + (i + 1) + '</span>' +
+                '<span class="spacer"></span><span class="nc-tools">' +
+                '<button onclick="move(' + i + ',-1)" title="move up">▲</button>' +
+                '<button onclick="move(' + i + ',1)" title="move down">▼</button>' +
+                '<button onclick="dupNode(' + i + ')" title="duplicate">⧉</button>' +
+                '<button class="del" onclick="delNode(' + i + ')" title="delete">✕</button></span></div>';
+
+            h += '<div class="form-row">' +
+                '<div class="field"><label>Id *</label><input value="' + attresc(n.id) + '" onchange="updNodeR(' + i + ',\'id\',this.value)"></div>' +
+                '<div class="field"><label>Name</label><input value="' + attresc(n.name) + '" oninput="updNode(' + i + ',\'name\',this.value)"></div>';
+
+            if (!isGate) {
+                var ex = n.exec || 'auto';
+                h += '<div class="field"><label>Executor</label><select onchange="updNodeR(' + i + ',\'exec\',this.value)">' +
+                    '<option value="auto"' + (ex === 'auto' ? ' selected' : '') + '>auto (by extension)</option>' +
+                    '<option value="powershell"' + (ex === 'powershell' ? ' selected' : '') + '>powershell (.ps1)</option>' +
+                    '<option value="cmd"' + (ex === 'cmd' ? ' selected' : '') + '>cmd (.bat/.cmd)</option>' +
+                    '<option value="jar"' + (ex === 'jar' ? ' selected' : '') + '>jar (java -jar)</option>' +
+                    '<option value="sql"' + (ex === 'sql' ? ' selected' : '') + '>sql (DB2/AS400 query)</option>' +
+                    '<option value="ifscopy"' + (ex === 'ifscopy' ? ' selected' : '') + '>ifscopy (AS400 IFS → local)</option>' +
+                    '<option value="filecopy"' + (ex === 'filecopy' ? ' selected' : '') + '>filecopy (copy/move/list)</option>' +
+                    '<option value="setvar"' + (ex === 'setvar' ? ' selected' : '') + '>setvar (assign variables)</option>' +
+                    '<option value="validate"' + (ex === 'validate' ? ' selected' : '') + '>validate (CSV checklist)</option>' +
+                    '<option value="csvreplace"' + (ex === 'csvreplace' ? ' selected' : '') + '>csvreplace (string substitution)</option>' +
+                    '<option value="encoding"' + (ex === 'encoding' ? ' selected' : '') + '>encoding (convert to UTF-8)</option>' +
+                    '<option value="anonymize"' + (ex === 'anonymize' ? ' selected' : '') + '>anonymize (CSV, ARX) — Batch 2a</option>' +
+                    '<option value="mask"' + (ex === 'mask' ? ' selected' : '') + '>mask (CSV streaming, deterministic)</option>' +
+                    '</select></div>';
+                h += '<div class="field wide"><label>Script / executable (relative to scripts dir or absolute)' + (isExternal(ex) ? ' *' : '') + '</label>' +
+                    '<input value="' + attresc(n.script) + '" placeholder="' + (isExternal(ex) ? 'Prepare-Feed.ps1 | tool.bat | app.jar' : '(not used for this executor)') + '" oninput="updNode(' + i + ',\'script\',this.value)"' + (isExternal(ex) ? '' : ' disabled') + '></div>' +
+                    '<div class="field"><label>Timeout sec</label><input type="number" min="1" value="' + (n.timeoutSec || '') + '" oninput="updNode(' + i + ',\'timeoutSec\',this.value)"></div>' +
+                    '<div class="field"><label>Retry</label><input type="number" min="0" value="' + (n.retry || '') + '" oninput="updNode(' + i + ',\'retry\',this.value)"></div>' +
+                    '<div class="field"><label>Retry delay sec</label><input type="number" min="1" value="' + (n.retryDelaySec || '') + '" oninput="updNode(' + i + ',\'retryDelaySec\',this.value)"></div>';
+                h += '</div>';
+
+                // ---- type-specific configuration ----
+                if (ex === 'sql') {
+                    h += '<div class="form-row">' + dsSelect(i, n.datasource) +
+                        '<div class="field"><label>Output var (joined first column, optional)</label><input value="' + attresc(n.outputVar) + '" placeholder="ndgList" oninput="updNode(' + i + ',\'outputVar\',this.value)"></div>' +
+                        '<div class="field"><label>Delimiter</label><input value="' + attresc(n.delimiter) + '" placeholder=";" oninput="updNode(' + i + ',\'delimiter\',this.value)"></div></div>';
+                    h += '<div class="form-row"><div class="field wide"><label>CSV output file (optional) — full result set streamed here (UTF-8 BOM, separator = Delimiter or ;)</label>' +
+                        '<input value="' + attresc(n.csvFile) + '" placeholder="${landingOut}/eor_${runDate}.csv" oninput="updNode(' + i + ',\'csvFile\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Split: max rows per file (0 = no split)</label><input type="number" min="0" value="' + (n.csvSplitRows || '') + '" placeholder="0" oninput="updNode(' + i + ',\'csvSplitRows\',this.value)"></div>' +
+                        '<div class="field"><label>Split: max MB per file (0 = no split)</label><input type="number" min="0" value="' + (n.csvSplitMb || '') + '" placeholder="0" oninput="updNode(' + i + ',\'csvSplitMb\',this.value)"></div>' +
+                        '<div class="field"><label></label><span class="dim small">parts named eor_001.csv, eor_002.csv… → ${csvFile} (1st), ${csvFiles}, ${csvParts}</span></div></div>';
+                    h += '<div class="subsection"><div class="sub-label">SQL query (${vars} resolved at run time)</div>' +
+                        '<textarea class="inline-input" style="width:100%;min-height:90px" placeholder="SELECT NDG FROM MYLIB.EORFULL WHERE DT_EOR = \'${runDate}\'" oninput="updNode(' + i + ',\'query\',this.value)">' + esc(n.query) + '</textarea>' +
+                        '<div style="margin-top:8px"><button class="ghost-btn" onclick="previewQuery(' + i + ')">▶ Preview query</button> ' +
+                        '<span class="dim small">outputs: ##VAR rowCount, col_&lt;NAME&gt;, firstValue' + (n.outputVar ? ', ' + esc(n.outputVar) : '') + (n.csvFile ? ', csvFile' : '') + '</span></div>' +
+                        '<div class="xmlbox" id="qprev_' + i + '" style="display:none;margin-top:8px;max-height:220px"></div></div>';
+                } else if (ex === 'ifscopy') {
+                    h += '<div class="form-row">' + dsSelect(i, n.datasource) +
+                        '<div class="field wide"><label>IFS source path (AS400) *</label><input value="' + attresc(n.ifsPath) + '" placeholder="/QIBM/feeds/EOR/${runDate}" oninput="updNode(' + i + ',\'ifsPath\',this.value)"></div></div>' +
+                        '<div class="form-row">' +
+                        '<div class="field wide"><label>Local destination dir *</label><input value="' + attresc(n.dest) + '" placeholder="${stepDir}" oninput="updNode(' + i + ',\'dest\',this.value)"></div>' +
+                        '<div class="field"><label>Pattern</label><input value="' + attresc(n.pattern) + '" placeholder="*.csv" oninput="updNode(' + i + ',\'pattern\',this.value)"></div>' +
+                        '<div class="field"><label>Overwrite</label><select onchange="updNode(' + i + ',\'overwrite\',this.value===\'true\')"><option value="false"' + (n.overwrite ? '' : ' selected') + '>no</option><option value="true"' + (n.overwrite ? ' selected' : '') + '>yes</option></select></div></div>' +
+                        '<div class="subsection dim small" style="padding-bottom:12px">outputs: ##VAR filesCopied, bytesCopied, matchedFiles</div>';
+                } else if (ex === 'filecopy') {
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Source dir *</label><input value="' + attresc(n.source) + '" placeholder="${landingIn}" oninput="updNode(' + i + ',\'source\',this.value)"></div>' +
+                        '<div class="field"><label>Mode</label><select onchange="updNodeR(' + i + ',\'mode\',this.value)">' +
+                        ['copy','move','list'].map(function(m){return '<option value="'+m+'"'+((n.mode||'copy')===m?' selected':'')+'>'+m+'</option>';}).join('') + '</select></div>' +
+                        '<div class="field"><label>Pattern</label><input value="' + attresc(n.pattern) + '" placeholder="*.csv" oninput="updNode(' + i + ',\'pattern\',this.value)"></div></div>' +
+                        ((n.mode||'copy') !== 'list' ? '<div class="form-row"><div class="field wide"><label>Destination dir *</label><input value="' + attresc(n.dest) + '" placeholder="${dir.next_step}" oninput="updNode(' + i + ',\'dest\',this.value)"></div></div>' : '') +
+                        '<div class="subsection dim small" style="padding-bottom:12px">outputs: ##VAR matchedCount, matchedFiles' + ((n.mode||'copy')!=='list' ? ', bytesCopied' : '') + ' &nbsp;(list = scan only)</div>';
+                } else if (ex === 'setvar') {
+                    h += '<div class="subsection"><div class="sub-label">Assignments — Name = expression (${vars}, plus simple A + B / A - B integer math)</div>';
+                    n.params.forEach(function (p, j) {
+                        h += '<div class="kvrow">' +
+                            '<input class="inline-input k" placeholder="counter" value="' + attresc(p.name) + '" oninput="updParam(' + i + ',' + j + ',\'name\',this.value)">' +
+                            '<input class="inline-input sugin" list="pathsug" placeholder="${counter} + 1" value="' + attresc(p.value) + '" oninput="updParam(' + i + ',' + j + ',\'value\',this.value)">' +
+                            '<button class="ghost-btn" onclick="delParam(' + i + ',' + j + ')">✕</button></div>';
+                    });
+                    h += '<button class="ghost-btn" onclick="addParam(' + i + ')">＋ assignment</button></div>';
+                } else if (ex === 'validate') {
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>CSV file to validate *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${landingOut}/eor_${runDate}.csv" oninput="updNode(' + i + ',\'source\',this.value)"></div>' +
+                        '<div class="field"><label>Delimiter</label><input value="' + attresc(n.delimiter) + '" placeholder=";" oninput="updNode(' + i + ',\'delimiter\',this.value)"></div>' +
+                        '<div class="field"><label>Has header</label><select onchange="setNodeParam(' + i + ',\'hasHeader\',this.value)">' +
+                        '<option value="true"' + (nodeParam(n,'hasHeader') !== 'false' ? ' selected' : '') + '>yes</option>' +
+                        '<option value="false"' + (nodeParam(n,'hasHeader') === 'false' ? ' selected' : '') + '>no</option></select></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Expected rows</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'expectedRows')) + '" placeholder="${rowCount}" oninput="setNodeParam(' + i + ',\'expectedRows\',this.value)"></div>' +
+                        '<div class="field"><label>Business date column</label><input value="' + attresc(nodeParam(n,'businessDateColumn')) + '" placeholder="END_OF_RELATIONSHIP_DATE" oninput="setNodeParam(' + i + ',\'businessDateColumn\',this.value)"></div>' +
+                        '<div class="field"><label>Date format</label><input value="' + attresc(nodeParam(n,'dateFormat')) + '" placeholder="YYYY/MM/DD | YYYYMMDD" oninput="setNodeParam(' + i + ',\'dateFormat\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>dataschema (uploaded JSON path or ${alias})</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'dataschema')) + '" placeholder="${dataschema_json}" oninput="setNodeParam(' + i + ',\'dataschema\',this.value)"></div>' +
+                        '<div class="field wide"><label>displayschema (optional, ${alias})</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'displayschema')) + '" placeholder="${displayschema_json}" oninput="setNodeParam(' + i + ',\'displayschema\',this.value)"></div></div>';
+                    h += '<div class="subsection"><div class="sub-label">Checks (sub-steps shown in the run with live progress)</div><div class="checklist">';
+                    var CHECK_IDS = ['rowCount', 'colCount', 'jsonSchema', 'noQuotes', 'colNames', 'notNull', 'businessDate', 'displayDates'];
+                    var CHECK_LABELS = { rowCount: 'Row count = expected', colCount: 'Column count consistent', jsonSchema: 'Schema JSON well-formed', noQuotes: 'No double quotes in fields', colNames: 'Column names match dataschema', notNull: 'Non-nullable fields valued', businessDate: 'Business date valued & formatted', displayDates: 'Display-schema dates formatted' };
+                    CHECK_IDS.forEach(function (cid) {
+                        var on = (n.validateChecks || []).indexOf(cid) >= 0;
+                        h += '<label class="agg-chip"><input type="checkbox"' + (on ? ' checked' : '') + ' onchange="toggleCheck(' + i + ',\'' + cid + '\')"><span>' + CHECK_LABELS[cid] + '</span></label>';
+                    });
+                    h += '</div><div class="dim small" style="margin-top:6px">outputs: ##VAR checksTotal, checksPassed, checksFailed — step FAILS if any check fails</div></div>';
+                } else if (ex === 'csvreplace') {
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Input CSV *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${extraction.outputFile}" oninput="updNode(' + i + ',\'source\',this.value)"></div>' +
+                        '<div class="field"><label>Delimiter</label><input value="' + attresc(n.delimiter) + '" placeholder=";" oninput="updNode(' + i + ',\'delimiter\',this.value)"></div>' +
+                        '<div class="field"><label>Has header</label><select onchange="setNodeParam(' + i + ',\'hasHeader\',this.value)">' +
+                        '<option value="true"' + (nodeParam(n,'hasHeader') !== 'false' ? ' selected' : '') + '>yes</option>' +
+                        '<option value="false"' + (nodeParam(n,'hasHeader') === 'false' ? ' selected' : '') + '>no</option></select></div></div>';
+                    h += '<div class="form-row"><div class="field wide"><label>Output file (optional — empty = &lt;name&gt;_replaced; set = path, can equal input to overwrite)</label>' +
+                        '<input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'outFile')) + '" placeholder="${landingOut}/eor_clean.csv" oninput="setNodeParam(' + i + ',\'outFile\',this.value)"></div></div>';
+                    h += '<div class="subsection"><div class="sub-label">Replacements (literal; applied in order)</div>';
+                    (n.replacements || []).forEach(function (rp, ri) {
+                        h += '<div class="form-row repl-row">' +
+                            '<div class="field"><label>From</label><input value="' + attresc(rp.from) + '" placeholder="CS informa: " oninput="updRepl(' + i + ',' + ri + ',\'from\',this.value)"></div>' +
+                            '<div class="field"><label>To</label><input value="' + attresc(rp.to) + '" placeholder="(empty = delete)" oninput="updRepl(' + i + ',' + ri + ',\'to\',this.value)"></div>' +
+                            '<div class="field wide"><label>Columns (comma; empty = all fields)</label><input value="' + attresc((rp.columns || []).join(',')) + '" placeholder="TESTO_SMS,NOTE" oninput="updReplCols(' + i + ',' + ri + ',this.value)"></div>' +
+                            '<div class="field" style="max-width:60px"><label>&nbsp;</label><button class="btn sm danger" onclick="delRepl(' + i + ',' + ri + ')">✕</button></div></div>';
+                    });
+                    h += '<button class="ghost-btn" onclick="addRepl(' + i + ')">＋ replacement</button>';
+                    h += '<div class="dim small" style="margin-top:6px">outputs: ##VAR outputFile (use as ${' + esc(n.id || 'stepId') + '.outputFile}), rowCount, replacements</div></div>';
+                } else if (ex === 'mask') {
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Input CSV *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${extraction.outputFile}" oninput="updNode(' + i + ',\'source\',this.value)"></div>' +
+                        '<div class="field"><label>Delimiter (empty = sniff)</label><input value="' + attresc(n.delimiter) + '" placeholder=";" oninput="updNode(' + i + ',\'delimiter\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Displayschema JSON (optional — only for DataType=date passthrough)</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'displayschema')) + '" placeholder="${feedDir}/displayschema.json" oninput="setNodeParam(' + i + ',\'displayschema\',this.value)"></div>' +
+                        '<div class="field wide"><label>Output file (empty = &lt;name&gt;_masked)</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'outFile')) + '" placeholder="${landingOut}/eor_masked.csv" oninput="setNodeParam(' + i + ',\'outFile\',this.value)"></div></div>';
+                    h += '<div class="subsection"><div class="sub-label">Column mapping by lists (comma-separated column names per anonType; columns in no list are left untouched)</div>';
+                    var ml = [ ['cidColumns','cid'],['dateColumns','date (passthrough)'],['numericFixedColumns','numericFixed'],['alphanumericFixedColumns','alphanumericFixed'],['firstNameColumns','firstName'],['lastNameColumns','lastName'],['fullNameColumns','fullName'],['cityColumns','city'],['addressColumns','address'],['companyColumns','company'],['customerDescriptionColumns','customerDescription'],['freeTextColumns','freeText'] ];
+                    ml.forEach(function (pair, k) {
+                        if (k % 2 === 0) h += '<div class="form-row">';
+                        h += '<div class="field wide"><label>' + pair[1] + '</label><input value="' + attresc(nodeParam(n, pair[0])) + '" placeholder="COL1,COL2" oninput="setNodeParam(' + i + ',\'' + pair[0] + '\',this.value)"></div>';
+                        if (k % 2 === 1 || k === ml.length - 1) h += '</div>';
+                    });
+                    h += '</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Unmapped columns</label><select onchange="setNodeParam(' + i + ',\'unmappedColumnPolicy\',this.value)">' +
+                        '<option value="fail"' + (nodeParam(n,'unmappedColumnPolicy') !== 'redact' && nodeParam(n,'unmappedColumnPolicy') !== 'passthrough' ? ' selected' : '') + '>fail (require every column classified)</option>' +
+                        '<option value="redact"' + (nodeParam(n,'unmappedColumnPolicy') === 'redact' ? ' selected' : '') + '>redact</option>' +
+                        '<option value="passthrough"' + (nodeParam(n,'unmappedColumnPolicy') === 'passthrough' ? ' selected' : '') + '>passthrough</option></select></div>' +
+                        '<div class="field"><label>Numeric separators</label><select onchange="setNodeParam(' + i + ',\'numericPreserveSeparators\',this.value)">' +
+                        '<option value="true"' + (nodeParam(n,'numericPreserveSeparators') !== 'false' ? ' selected' : '') + '>preserve - / .</option>' +
+                        '<option value="false"' + (nodeParam(n,'numericPreserveSeparators') === 'false' ? ' selected' : '') + '>randomize all positions</option></select></div></div>';
+                    h += '<div class="subsection"><div class="sub-label">Pools & strategies</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Italian pool %</label><input type="number" min="0" max="100" value="' + attresc(nodeParam(n,'localePercent') || '100') + '" oninput="setNodeParam(' + i + ',\'localePercent\',this.value)"></div>' +
+                        '<div class="field"><label>customerDescription: person %</label><input type="number" min="0" max="100" value="' + attresc(nodeParam(n,'personVsCompanyPercent') || '70') + '" oninput="setNodeParam(' + i + ',\'personVsCompanyPercent\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>CID mode</label><select onchange="setNodeParam(' + i + ',\'cidMode\',this.value)">' +
+                        '<option value="formatPreserving"' + (nodeParam(n,'cidMode') !== 'partial' && nodeParam(n,'cidMode') !== 'hash' ? ' selected' : '') + '>format-preserving (per-class)</option>' +
+                        '<option value="partial"' + (nodeParam(n,'cidMode') === 'partial' ? ' selected' : '') + '>partial — mask middle with -</option>' +
+                        '<option value="hash"' + (nodeParam(n,'cidMode') === 'hash' ? ' selected' : '') + '>hash (deterministic, fixed length)</option></select></div>' +
+                        '<div class="field"><label>CID partial mask %</label><input type="number" min="0" max="100" value="' + attresc(nodeParam(n,'cidMaskPercent') || '60') + '" oninput="setNodeParam(' + i + ',\'cidMaskPercent\',this.value)"></div>' +
+                        '<div class="field"><label>CID hash length</label><input type="number" min="4" value="' + attresc(nodeParam(n,'cidHashLen') || '12') + '" oninput="setNodeParam(' + i + ',\'cidHashLen\',this.value)"></div></div></div>';
+                    h += '<div class="dim small" style="margin-top:6px">Deterministic streaming masking (constant memory, ~1GB ok). Driven by displayschema <code>anonType</code>. Strategies: <code>date</code> (passthrough, priority), <code>numericFixed</code>, <code>alphanumericFixed</code>, <code>cid</code> (format-preserving / partial / hash), <code>firstName/lastName/fullName/city/address/company</code> (pools bundled in WAR; nome&times;cognome cross-joined; Italian-vs-international by %), <code>customerDescription</code> (person or company by %), <code>freeText</code> (lorem, exact length). Same value &rarr; same output (joins survive). Secret + pools in application.properties (orchestrator.masking-secret / orchestrator.mask-pools-dir). outputs: ##VAR outputFile, dataRows, columns</div>';
+                } else if (ex === 'anonymize') {
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Input CSV *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${extraction.outputFile}" oninput="updNode(' + i + ',\'source\',this.value)"></div>' +
+                        '<div class="field"><label>Delimiter (empty = sniff)</label><input value="' + attresc(n.delimiter) + '" placeholder=";" oninput="updNode(' + i + ',\'delimiter\',this.value)"></div></div>';
+                    h += '<div class="form-row"><div class="field wide"><label>Output file (empty = &lt;name&gt;_anon)</label>' +
+                        '<input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'outFile')) + '" placeholder="${landingOut}/eor_anon.csv" oninput="setNodeParam(' + i + ',\'outFile\',this.value)"></div></div>';
+                    h += '<div class="subsection"><div class="sub-label">Column roles (comma-separated names; explicit lists win over auto-detection)</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Identifying (suppressed)</label><input value="' + attresc(nodeParam(n,'identifyingColumns')) + '" placeholder="NDG,COD_CLIENTE" oninput="setNodeParam(' + i + ',\'identifyingColumns\',this.value)"></div>' +
+                        '<div class="field wide"><label>Quasi-identifying (generalised, k-anon — Batch 2b)</label><input value="' + attresc(nodeParam(n,'quasiColumns')) + '" placeholder="CAP,ETA,PROVINCIA" oninput="setNodeParam(' + i + ',\'quasiColumns\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Sensitive (l-diversity — Batch 2b)</label><input value="' + attresc(nodeParam(n,'sensitiveColumns')) + '" placeholder="STATO_SCHEDA" oninput="setNodeParam(' + i + ',\'sensitiveColumns\',this.value)"></div>' +
+                        '<div class="field wide"><label>Free-text columns (force edit; overrides auto)</label><input value="' + attresc(nodeParam(n,'freeTextColumns')) + '" placeholder="DESCRIZIONE,NOTE" oninput="setNodeParam(' + i + ',\'freeTextColumns\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Force passthrough (never touch)</label><input value="' + attresc(nodeParam(n,'forcePassthroughColumns')) + '" placeholder="DT_EOR,DATA_KYC" oninput="setNodeParam(' + i + ',\'forcePassthroughColumns\',this.value)"></div>' +
+                        '<div class="field wide"><label>Force anonymise (exclude from date passthrough)</label><input value="' + attresc(nodeParam(n,'forceAnonymizeColumns')) + '" placeholder="NDG" oninput="setNodeParam(' + i + ',\'forceAnonymizeColumns\',this.value)"></div></div></div>';
+                    h += '<div class="subsection"><div class="sub-label">Free-text editing (preserves exact character length)</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Strategy</label><select onchange="setNodeParam(' + i + ',\'freeTextStrategy\',this.value)">' +
+                        '<option value="redact"' + (nodeParam(n,'freeTextStrategy') !== 'lorem' ? ' selected' : '') + '>pattern redaction (mask CF/IBAN/email/date/phone/amount)</option>' +
+                        '<option value="lorem"' + (nodeParam(n,'freeTextStrategy') === 'lorem' ? ' selected' : '') + '>lorem-ipsum (replace whole field)</option></select></div>' +
+                        '<div class="field"><label>Auto free-text if length &gt;</label><input type="number" min="1" value="' + attresc(nodeParam(n,'freeTextThreshold') || '50') + '" oninput="setNodeParam(' + i + ',\'freeTextThreshold\',this.value)"></div>' +
+                        '<div class="field"><label>Mask char</label><input maxlength="1" value="' + attresc(nodeParam(n,'maskChar') || '\u2588') + '" oninput="setNodeParam(' + i + ',\'maskChar\',this.value)"></div>' +
+                        '<div class="field"><label>k (k-anonymity — Batch 2b)</label><input type="number" min="2" value="' + attresc(nodeParam(n,'k') || '5') + '" oninput="setNodeParam(' + i + ',\'k\',this.value)"></div></div></div>';
+                    h += '<div class="dim small" style="margin-top:6px">Batch 2a active now: identifying columns suppressed, free-text columns edited (length-preserving), date columns passed through. Quasi/sensitive generalisation via ARX (k-anonymity) arrives in Batch 2b. Pattern redaction does NOT catch free-form names — use lorem for fields that may contain names. Thresholds in application.properties (orchestrator.anonymize*/date*). outputs: ##VAR outputFile, dataRows, columns, cells, dateColumns, freeTextColumns</div>';
+                } else if (ex === 'encoding') {
+                    var encFrom = nodeParam(n, 'from');
+                    var charsets = ['', 'windows-1252', 'ISO-8859-1', 'ISO-8859-15', 'UTF-8', 'UTF-16', 'UTF-16LE', 'UTF-16BE', 'IBM500', 'Cp1140'];
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Input file *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${extraction.outputFile}" oninput="updNode(' + i + ',\'source\',this.value)"></div>' +
+                        '<div class="field"><label>Output BOM</label><select onchange="setNodeParam(' + i + ',\'bom\',this.value)">' +
+                        '<option value="false"' + (nodeParam(n,'bom') !== 'true' ? ' selected' : '') + '>UTF-8 without BOM</option>' +
+                        '<option value="true"' + (nodeParam(n,'bom') === 'true' ? ' selected' : '') + '>UTF-8 with BOM</option></select></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Source encoding (if not UTF-8)</label><select onchange="setNodeParam(' + i + ',\'from\',this.value)">';
+                    charsets.forEach(function (cs) {
+                        var lbl = cs === '' ? 'auto (try UTF-8, else assume Windows-1252)' : cs;
+                        h += '<option value="' + attresc(cs) + '"' + (encFrom === cs ? ' selected' : '') + '>' + lbl + '</option>';
+                    });
+                    h += '</select></div>' +
+                        '<div class="field wide"><label>Output file (empty = overwrite input)</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'outFile')) + '" placeholder="${landingOut}/eor_utf8.csv" oninput="setNodeParam(' + i + ',\'outFile\',this.value)"></div></div>';
+                    h += '<div class="subsection"><div class="sub-label">Directory (batch) mode — optional: convert every file from a folder into another</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Input directory (empty = single file above)</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'inputDir')) + '" placeholder="${landingIn}" oninput="setNodeParam(' + i + ',\'inputDir\',this.value)"></div>' +
+                        '<div class="field wide"><label>Output directory (required in batch)</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'outputDir')) + '" placeholder="${landingOut}" oninput="setNodeParam(' + i + ',\'outputDir\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Filter (glob/ext, comma; empty = all)</label><input value="' + attresc(nodeParam(n,'filter')) + '" placeholder="*.csv,*.txt" oninput="setNodeParam(' + i + ',\'filter\',this.value)"></div>' +
+                        '<div class="field"><label>Recurse subfolders</label><select onchange="setNodeParam(' + i + ',\'recursive\',this.value)">' +
+                        '<option value="false"' + (nodeParam(n,'recursive') !== 'true' ? ' selected' : '') + '>no</option>' +
+                        '<option value="true"' + (nodeParam(n,'recursive') === 'true' ? ' selected' : '') + '>yes</option></select></div></div></div>';
+                    h += '<div class="dim small" style="margin-top:6px">Single-file: set the input file above. Batch: set Input + Output directory (files keep their names; from/BOM apply to all). Detects valid UTF-8 (adjusting only the BOM); otherwise decodes from the source encoding. Charset auto-detection is best-effort — declare it when known. outputs: single ##VAR outputFile/sourceEncoding; batch ##VAR outputDir/filesConverted/filesFailed</div>';
+                } else {
+                    // external: params + outputs + parallel fan-out
+                    var paramHint = (ex === 'cmd' || ex === 'jar')
+                        ? 'Arguments (positional, in order; the Name is just a label)'
+                        : (ex === 'powershell' ? 'Parameters (passed as -Name \'Value\', ${vars} resolved)'
+                        : 'Parameters (.ps1: -Name \'Value\'; .bat/.jar: positional values, in order)');
+                    h += '<div class="subsection"><div class="sub-label">' + paramHint + '</div>';
+                    n.params.forEach(function (p, j) {
+                        h += '<div class="kvrow">' +
+                            '<input class="inline-input k" placeholder="Name" value="' + attresc(p.name) + '" oninput="updParam(' + i + ',' + j + ',\'name\',this.value)">' +
+                            '<input class="inline-input sugin" list="pathsug" placeholder="${landingIn} | ${item}" value="' + attresc(p.value) + '" oninput="updParam(' + i + ',' + j + ',\'value\',this.value)">' +
+                            '<button class="ghost-btn" onclick="delParam(' + i + ',' + j + ')">✕</button></div>';
+                    });
+                    h += '<button class="ghost-btn" onclick="addParam(' + i + ')">＋ param</button></div>';
+
+                    h += '<div class="subsection" style="padding-bottom:12px"><div class="sub-label">Expected output vars (script prints ##VAR name=value)</div>';
+                    n.outputs.forEach(function (o, j) {
+                        h += '<div class="kvrow">' +
+                            '<input class="inline-input" placeholder="fileCount" value="' + attresc(o) + '" oninput="updOutput(' + i + ',' + j + ',this.value)">' +
+                            '<button class="ghost-btn" onclick="delOutput(' + i + ',' + j + ')">✕</button></div>';
+                    });
+                    h += '<button class="ghost-btn" onclick="addOutput(' + i + ')">＋ output var</button></div>';
+
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Parallel for-each (optional) — list variable; runs once per item, ${item} exposed</label>' +
+                        '<input value="' + attresc(n.forEach) + '" placeholder="${matchedFiles}" oninput="updNode(' + i + ',\'forEach\',this.value)"></div>' +
+                        '<div class="field"><label>Concurrency</label><input type="number" min="1" value="' + (n.concurrency || '') + '" placeholder="4" oninput="updNode(' + i + ',\'concurrency\',this.value)"></div></div>';
+                }
+            } else {
+                h += '<div class="field"><label>Type</label><select onchange="updNodeR(' + i + ',\'type\',this.value)">' +
+                    '<option value="auto"' + (n.type !== 'manual' ? ' selected' : '') + '>auto (condition)</option>' +
+                    '<option value="manual"' + (n.type === 'manual' ? ' selected' : '') + '>manual (human approval)</option>' +
+                    '</select></div></div>';
+                if (n.type !== 'manual') {
+                    h += '<div class="form-row"><div class="field wide"><label>Condition *</label>' +
+                        '<input value="' + attresc(n.condition) + '" placeholder="${fileCount} >= ${minFiles}" oninput="updNode(' + i + ',\'condition\',this.value)"></div></div>';
+                }
+                h += '<div class="form-row">' +
+                    '<div class="field"><label>' + (n.type === 'manual' ? 'On approve' : 'On true') + '</label>' + targetSelect(i, 'onTrue', n.onTrue) + '</div>' +
+                    '<div class="field"><label>' + (n.type === 'manual' ? 'On reject' : 'On false') + '</label>' + targetSelect(i, 'onFalse', n.onFalse) + '</div>' +
+                    '</div>';
+            }
+            h += '</div>';
+        });
+        if (wf.nodes.length === 0) {
+            h = '<div class="panel"><div class="tree dim">No nodes yet. Add a step to start: a typical flow is' +
+                ' check landing → gate (files present?) → prepare → manual approval gate → send.</div></div>';
+        }
+        document.getElementById('nodesBox').innerHTML = h;
+    }
+
+    // ---------------- preview ----------------
+    function preview() {
+        // pipeline
+        var p = '';
+        wf.nodes.forEach(function (n) {
+            var isGate = n.kind === 'GATE';
+            var meta = isGate ? (n.type === 'manual' ? 'manual approval' : esc(n.condition || ''))
+                : esc(((n.exec && n.exec !== 'auto') ? '[' + n.exec + '] ' : '') + (n.script || ''));
+            p += '<div class="pnode' + (isGate ? ' gate' : '') + '">' +
+                '<div class="ntitle">' + esc(n.name || n.id || '?') + '</div>' +
+                '<div class="nid">' + esc(n.id || '') + '</div>' +
+                '<div class="nmeta">' + meta + '</div></div>';
+        });
+        document.getElementById('pipePreview').innerHTML = p || '<span class="dim small">empty workflow</span>';
+        document.getElementById('xmlPreview').textContent = buildXml();
+        document.getElementById('pageTitle').textContent =
+            (EDIT_FEED_ID ? 'Edit workflow — ' : 'New workflow') + (EDIT_FEED_ID ? wf.feedId : (wf.feedId ? ' — ' + wf.feedId : ''));
+    }
+
+    /** Client-side XML preview; the authoritative XML is regenerated server-side on save. */
+    function buildXml() {
+        var L = [];
+        var head = '<workflow feedId="' + xesc(wf.feedId) + '"';
+        if (wf.sourceId) head += ' sourceId="' + xesc(wf.sourceId) + '"';
+        if (wf.name) head += ' name="' + xesc(wf.name) + '"';
+        if (wf.cron) head += ' cron="' + xesc(wf.cron) + '"';
+        if (wf.baseDir) head += ' baseDir="' + xesc(wf.baseDir) + '"';
+        L.push('<?xml version="1.0" encoding="UTF-8"?>');
+        L.push(head + '>');
+        if (wf.description) L.push('    <description>' + xesc(wf.description) + '</description>');
+        if (wf.variables.length) {
+            L.push('    <variables>');
+            wf.variables.forEach(function (v) {
+                if (v.name) L.push('        <var name="' + xesc(v.name) + '" value="' + xesc(v.value) + '"/>');
+            });
+            L.push('    </variables>');
+        }
+        L.push('    <steps>');
+        wf.nodes.forEach(function (n) {
+            if (n.kind === 'GATE') {
+                var g = '        <gate id="' + xesc(n.id) + '" name="' + xesc(n.name) + '" type="' + xesc(n.type || 'auto') + '"';
+                if (n.type !== 'manual' && n.condition) g += ' condition="' + xesc(n.condition) + '"';
+                if (n.onTrue) g += ' onTrue="' + xesc(n.onTrue) + '"';
+                if (n.onFalse) g += ' onFalse="' + xesc(n.onFalse) + '"';
+                L.push(g + '/>');
+            } else {
+                var s = '        <step id="' + xesc(n.id) + '" name="' + xesc(n.name) + '"';
+                if (n.script) s += ' script="' + xesc(n.script) + '"';
+                if (n.exec && n.exec !== 'auto') s += ' exec="' + xesc(n.exec) + '"';
+                if (n.datasource) s += ' datasource="' + xesc(n.datasource) + '"';
+                if (n.ifsPath) s += ' ifsPath="' + xesc(n.ifsPath) + '"';
+                if (n.source) s += ' source="' + xesc(n.source) + '"';
+                if (n.dest) s += ' dest="' + xesc(n.dest) + '"';
+                if (n.pattern) s += ' pattern="' + xesc(n.pattern) + '"';
+                if (n.mode && n.mode !== 'copy' && (n.exec === 'filecopy')) s += ' mode="' + xesc(n.mode) + '"';
+                if (n.overwrite) s += ' overwrite="true"';
+                if (n.outputVar) s += ' outputVar="' + xesc(n.outputVar) + '"';
+                if (n.csvFile) s += ' csvFile="' + xesc(n.csvFile) + '"';
+                if (n.csvSplitRows) s += ' csvSplitRows="' + n.csvSplitRows + '"';
+                if (n.csvSplitMb) s += ' csvSplitMb="' + n.csvSplitMb + '"';
+                if (n.delimiter) s += ' delimiter="' + xesc(n.delimiter) + '"';
+                if (n.validateChecks && n.validateChecks.length) s += ' checks="' + n.validateChecks.join(',') + '"';
+                if (n.forEach) s += ' forEach="' + xesc(n.forEach) + '"';
+                if (n.concurrency && n.concurrency != 4) s += ' concurrency="' + n.concurrency + '"';
+                if (n.timeoutSec) s += ' timeoutSec="' + n.timeoutSec + '"';
+                if (n.retry) s += ' retry="' + n.retry + '"';
+                if (n.retry && n.retryDelaySec) s += ' retryDelaySec="' + n.retryDelaySec + '"';
+                var inner = [];
+                if (n.query) inner.push('            <query>' + xesc(n.query) + '</query>');
+                n.params.forEach(function (pp) {
+                    if (pp.name) inner.push('            <param name="' + xesc(pp.name) + '" value="' + xesc(pp.value) + '"/>');
+                });
+                n.outputs.forEach(function (o) {
+                    if (o) inner.push('            <output var="' + xesc(o) + '"/>');
+                });
+                (n.replacements || []).forEach(function (rp) {
+                    if (rp.from) inner.push('            <replace from="' + xesc(rp.from) + '" to="' + xesc(rp.to || '') + '"' + ((rp.columns && rp.columns.length) ? (' columns="' + xesc(rp.columns.join(',')) + '"') : '') + '/>');
+                });
+                if (inner.length) {
+                    L.push(s + '>');
+                    inner.forEach(function (x) { L.push(x); });
+                    L.push('        </step>');
+                } else {
+                    L.push(s + '/>');
+                }
+            }
+        });
+        L.push('    </steps>');
+        L.push('</workflow>');
+        return L.join(NL);
+    }
+
+    // ---------------- validation + save ----------------
+    function clientValidate() {
+        var errs = [];
+        if (!wf.feedId) errs.push('Feed ID is required');
+        else if (!/^[A-Za-z0-9._-]+$/.test(wf.feedId)) errs.push('Feed ID: only letters, digits, . _ - are allowed');
+        var steps = 0, ids = {};
+        wf.nodes.forEach(function (n, i) {
+            var label = (n.kind === 'GATE' ? 'Gate' : 'Step') + ' #' + (i + 1);
+            if (!n.id) errs.push(label + ': id is required');
+            else if (!/^[A-Za-z0-9._-]+$/.test(n.id)) errs.push(label + ': id may contain only letters, digits, . _ -');
+            else if (ids[n.id]) errs.push(label + ': duplicate id "' + n.id + '"');
+            ids[n.id] = true;
+            if (n.kind === 'STEP') {
+                steps++;
+                var ex = n.exec || 'auto';
+                if (isExternal(ex) && !n.script) errs.push(label + ' (' + n.id + '): script is required');
+                if (ex === 'sql' && (!n.datasource || !n.query)) errs.push(label + ' (' + n.id + '): datasource and query are required');
+                if (ex === 'ifscopy' && (!n.datasource || !n.ifsPath || !n.dest)) errs.push(label + ' (' + n.id + '): datasource, ifsPath and dest are required');
+                if (ex === 'filecopy') {
+                    if (!n.source) errs.push(label + ' (' + n.id + '): source is required');
+                    if ((n.mode || 'copy') !== 'list' && !n.dest) errs.push(label + ' (' + n.id + '): dest is required unless mode=list');
+                }
+                if (ex === 'setvar' && (!n.params || !n.params.length)) errs.push(label + ' (' + n.id + '): at least one assignment is required');
+            } else if (n.type !== 'manual' && !n.condition) {
+                errs.push(label + ' (' + n.id + '): condition is required for auto gates');
+            }
+        });
+        if (steps === 0) errs.push('The workflow must contain at least one step');
+        return errs;
+    }
+
+    function banner(ok, html) {
+        document.getElementById('okBanner').style.display = ok ? 'block' : 'none';
+        document.getElementById('errBanner').style.display = ok ? 'none' : 'block';
+        document.getElementById(ok ? 'okBanner' : 'errBanner').innerHTML = html;
+        window.scrollTo(0, 0);   // always surface the save/validation message at the top
+    }
+
+    // Run / active-run handling inside the designer (existing feed only)
+    var dRunBtn = document.getElementById('dRunBtn');
+    var dRunLink = document.getElementById('dRunLink');
+    function dSetRunning(running, runId) {
+        if (!dRunBtn) return;
+        dRunBtn.disabled = running;
+        dRunBtn.textContent = running ? '▶ Running…' : '▶ Run now';
+        if (dRunLink) {
+            if (running && runId) { dRunLink.style.display = ''; dRunLink.href = CTX + 'run/' + encodeURIComponent(EDIT_FEED_ID) + '/' + encodeURIComponent(runId); }
+            else dRunLink.style.display = 'none';
+        }
+    }
+    function dCheckActive() {
+        if (!EDIT_FEED_ID || !dRunBtn) return;
+        fetch(CTX + 'api/workflows/' + encodeURIComponent(EDIT_FEED_ID) + '/active')
+            .then(readJson).then(function (j) { if (j && j.ok) dSetRunning(j.running, j.runId); })
+            .catch(function () {});
+    }
+    function designerRun() {
+        if (!EDIT_FEED_ID || !dRunBtn || dRunBtn.disabled) return;
+        if (!confirm('Start a new run of ' + EDIT_FEED_ID + ' now?')) return;
+        dRunBtn.disabled = true; dRunBtn.textContent = '▶ Starting…';
+        fetch(CTX + 'api/workflows/' + encodeURIComponent(EDIT_FEED_ID) + '/run', { method: 'POST' })
+            .then(readJson)
+            .then(function (j) {
+                if (j.ok) window.location = CTX + 'run/' + encodeURIComponent(EDIT_FEED_ID) + '/' + encodeURIComponent(j.runId);
+                else { banner(false, 'Start failed: ' + esc(j.error || '')); dCheckActive(); }
+            })
+            .catch(function (e) { banner(false, 'Start failed: ' + esc(e.message || e)); dCheckActive(); });
+    }
+    if (dRunBtn) { dCheckActive(); setInterval(dCheckActive, 3000); }
+
+    function save(forceOverwrite) {
+        if (forceOverwrite !== true && !confirm('Validate and save this workflow? Existing definition will be overwritten and cron rescheduled.')) return;
+        var errs = clientValidate();
+        if (errs.length) {
+            banner(false, '<div class="err-list">' + errs.map(esc).join('<br>') + '</div>');
+            window.scrollTo(0, 0);
+            return;
+        }
+        var overwrite = EDIT_FEED_ID !== null || forceOverwrite === true;
+        fetch(CTX + 'api/workflows/save?overwrite=' + overwrite, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(wf)
+        }).then(function (r) { var st = r.status; return readJson(r).then(function (j) { return { st: st, j: j }; }); })
+          .then(function (res) {
+            if (res.j.ok) {
+                banner(true, 'Saved as <b>' + esc(res.j.file) + '</b> — definitions reloaded and cron rescheduled. ' +
+                    '<a href="/workflow/' + encodeURIComponent(res.j.feedId) + '">Open workflow page</a>');
+                EDIT_FEED_ID = res.j.feedId;                 // now an existing feed: enable workflow files
+                if (window.__mountWfFiles) window.__mountWfFiles();
+                window.scrollTo(0, 0);
+            } else if (res.st === 409 && res.j.exists) {
+                if (confirm('Workflow "' + wf.feedId + '" already exists. Overwrite its definition?')) save(true);
+            } else {
+                banner(false, esc(res.j.error || 'Save failed'));
+                window.scrollTo(0, 0);
+            }
+        }).catch(function (e) { banner(false, 'Error: ' + esc(e)); });
+    }
+
+    // ---------------- edit mode ----------------
+    function duplicateWorkflow() {
+        if (!confirm('Duplicate this workflow as a new draft?')) return;
+        EDIT_FEED_ID = null;
+        wf.feedId = '';
+        var fe = document.getElementById('f_feedId');
+        fe.readOnly = false; fe.style.opacity = 1; fe.value = ''; fe.focus();
+        banner(true, 'Duplicate mode: enter a new Feed ID, then Validate &amp; save.');
+        preview();
+    }
+
+    function fill(id, v) { document.getElementById(id).value = v === null || v === undefined ? '' : v; }
+
+    function load(feedId) {
+        fetch(CTX + 'api/workflows/' + encodeURIComponent(feedId) + '/definition')
+            .then(readJson)
+            .then(function (d) {
+                wf = d;
+                wf.variables = wf.variables || [];
+                wf.nodes = wf.nodes || [];
+                wf.nodes.forEach(function (n) { n.params = n.params || []; n.outputs = n.outputs || []; });
+                fill('f_feedId', wf.feedId);
+                document.getElementById('f_feedId').readOnly = true;
+                document.getElementById('f_feedId').style.opacity = 0.6;
+                fill('f_name', wf.name);
+                fill('f_sourceId', wf.sourceId);
+                fill('f_cron', wf.cron);
+                fill('f_baseDir', wf.baseDir);
+                fill('f_description', wf.description);
+                renderVars(); renderNodes(); preview();
+            })
+            .catch(function () { banner(false, 'Could not load workflow ' + esc(feedId)); });
+    }
+
+    if (EDIT_FEED_ID) {
+        load(EDIT_FEED_ID);
+    } else {
+        renderVars(); renderNodes(); preview();
+    }
+</script>
+    <script th:src="@{/js/filespanel.js}"></script>
+</body>
+</html>

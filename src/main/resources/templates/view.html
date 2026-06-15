@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenProteo — viewer</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub">File viewer</span>
+    <span class="spacer"></span>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap" style="max-width:1500px">
+    <div id="viewer" class="viewer"></div>
+</div>
+
+<script th:src="@{/js/viewer.js}"></script>
+<script>
+    function tick() { document.getElementById('clock').textContent = new Date().toLocaleString('it-IT'); }
+    tick(); setInterval(tick, 1000);
+
+    function qp(k) {
+        var m = new RegExp('[?&]' + k + '=([^&]*)').exec(window.location.search);
+        return m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : '';
+    }
+    var src = qp('src'), name = qp('name'), api = qp('api'), path = qp('path');
+    if (!src) {
+        document.getElementById('viewer').innerHTML = '<div class="banner error">Missing file reference.</div>';
+    } else {
+        document.title = 'OpenProteo — ' + (name || 'viewer');
+        initViewer({ host: document.getElementById('viewer'), src: src, name: name, api: api, path: path });
+    }
+</script>
+</body>
+</html>
