@@ -21,9 +21,66 @@
     <div th:each="err : ${errors}" class="banner error" th:text="${err}"></div>
     <div th:each="ce : ${cronErrors}" class="banner warn" th:text="${ce.key + ': ' + ce.value}"></div>
 
+    <div class="summary-grid">
+        <!-- Sources: distribution + selector -->
+        <div class="sum-card">
+            <h3>Sources <span class="dim" th:text="'· ' + ${wfTotal} + ' workflows'"></span></h3>
+            <div class="kv" data-source="" onclick="selectSource(this)">
+                <div>
+                    <div class="kv-row"><span class="kv-k">All sources</span><span class="kv-c" th:text="${wfTotal}"></span></div>
+                    <div class="bar"><div style="width:100%"></div></div>
+                </div>
+            </div>
+            <div class="kv" th:each="s : ${sourceStats}" th:attr="data-source=${s.source}" onclick="selectSource(this)">
+                <div>
+                    <div class="kv-row">
+                        <span class="kv-k mono" th:text="${s.source}"></span>
+                        <span class="kv-c"><span th:text="${s.count}"></span> · <span th:text="${s.pct} + '%'"></span></span>
+                    </div>
+                    <div class="bar"><div th:attr="style='width:' + ${s.pct} + '%'"></div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent runs: last per workflow, top 5 -->
+        <div class="sum-card">
+            <h3>Recent runs <span class="dim">· last per workflow</span></h3>
+            <div th:if="${#lists.isEmpty(recentRuns)}" class="dim small" style="padding:6px">No runs yet.</div>
+            <a class="run-item" th:each="r : ${recentRuns}"
+               th:href="@{'/run/' + ${r.feedId} + '/' + ${r.run.runId}}">
+                <div class="run-main">
+                    <span class="feed-id mono" th:text="${r.feedId}"></span>
+                    <span class="chip sm" th:classappend="${r.run.status}" th:text="${r.run.status}"></span>
+                </div>
+                <div class="run-sub dim small">
+                    <span class="mono" th:text="${r.source}"></span>
+                    <span th:text="${r.run.startTs}"></span>
+                </div>
+            </a>
+        </div>
+
+        <!-- Execution queue: live FIFO -->
+        <div class="sum-card">
+            <h3>Execution queue <span class="dim">· FIFO</span></h3>
+            <div id="queueBox"><div class="dim small" style="padding:6px">Loading…</div></div>
+        </div>
+    </div>
+
     <div class="toolbar">
-        <input id="wfSearch" class="search-box" type="text" placeholder="🔎 Filter by feed id, name or schedule…" oninput="filterRows()" autocomplete="off">
+        <input id="wfSearch" class="search-box" type="text" placeholder="🔎 Filter by feed id, name or schedule…" oninput="onSearch()" autocomplete="off">
+        <span id="srcFilterChip" class="chip" style="display:none">
+            source: <b id="srcFilterVal"></b> <span class="x" onclick="clearSource()">✕</span>
+        </span>
         <span class="spacer"></span>
+        <label class="dim small" style="margin-right:6px">Show
+            <select id="pageSize" onchange="onPageSize()">
+                <option value="5" selected>5</option>
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+            </select>
+        </label>
         <a class="btn sm primary" th:href="@{/designer}">＋ New workflow</a>
         <a class="btn sm" th:href="@{/datasources}">Data sources</a>
         <a class="btn sm" th:href="@{/files}">Shared files</a>
@@ -45,7 +102,7 @@
             </thead>
             <tbody id="wfRows">
             <tr th:each="row : ${rows}" class="wf-row"
-                th:attr="data-search=${(row.wf.feedId + ' ' + (row.wf.sourceId ?: '') + ' ' + row.wf.name + ' ' + (row.wf.description ?: '') + ' ' + (row.wf.cron ?: 'manual'))}">
+                th:attr="data-search=${(row.wf.feedId + ' ' + (row.wf.sourceId ?: '') + ' ' + row.wf.name + ' ' + (row.wf.description ?: '') + ' ' + (row.wf.cron ?: 'manual'))},data-source=${(row.wf.sourceId == null or row.wf.sourceId.trim().isEmpty()) ? '—' : row.wf.sourceId.trim()}">
                 <td class="mono"><span class="feed-id" th:text="${row.wf.feedId}"></span></td>
                 <td class="mono small dim"><span th:if="${row.wf.sourceId}" th:text="${row.wf.sourceId}"></span><span th:if="${row.wf.sourceId == null}">—</span></td>
                 <td>
@@ -89,6 +146,12 @@
         </table>
     </div>
 
+    <div class="pager">
+        <button class="btn sm" id="pgPrev" onclick="pageDelta(-1)">‹ Prev</button>
+        <span class="dim small" id="pgLabel"></span>
+        <button class="btn sm" id="pgNext" onclick="pageDelta(1)">Next ›</button>
+    </div>
+
     <footer>OPENPROTEO · run state in _runs/*.json · audit append-only hash-chained in _logs/*.jsonl</footer>
 </div>
 
@@ -120,19 +183,103 @@
             .then(function (j) { if (!j.ok) alert(j.error || 'Stop failed'); window.location.reload(); });
     }
 
-    function filterRows() {
-        var q = (document.getElementById('wfSearch').value || '').toLowerCase().trim();
-        var rows = document.querySelectorAll('#wfRows .wf-row');
-        var shown = 0;
-        rows.forEach(function (r) {
+    function filterRows() { applyView(); }   // kept for compatibility
+
+    // ---- view state: search + source filter + pagination ----
+    var pageSize = 5, curPage = 0, srcFilter = '', searchQ = '';
+
+    function matchingRows() {
+        var rows = Array.prototype.slice.call(document.querySelectorAll('#wfRows .wf-row'));
+        return rows.filter(function (r) {
             var hay = (r.getAttribute('data-search') || '').toLowerCase();
-            var match = q === '' || hay.indexOf(q) >= 0;
-            r.style.display = match ? '' : 'none';
-            if (match) shown++;
+            var src = r.getAttribute('data-source') || '';
+            var okQ = searchQ === '' || hay.indexOf(searchQ) >= 0;
+            var okS = srcFilter === '' || src === srcFilter;
+            return okQ && okS;
         });
-        var none = document.getElementById('noMatch');
-        if (none) none.style.display = shown === 0 ? '' : 'none';
     }
+
+    function applyView() {
+        var all = document.querySelectorAll('#wfRows .wf-row');
+        all.forEach(function (r) { r.style.display = 'none'; });
+        var match = matchingRows();
+        var total = match.length;
+        var pages = Math.max(1, Math.ceil(total / pageSize));
+        if (curPage >= pages) curPage = pages - 1;
+        if (curPage < 0) curPage = 0;
+        var start = curPage * pageSize, end = start + pageSize;
+        match.slice(start, end).forEach(function (r) { r.style.display = ''; });
+
+        var none = document.getElementById('noMatch');
+        if (none) none.style.display = total === 0 ? '' : 'none';
+        var lbl = document.getElementById('pgLabel');
+        if (total === 0) lbl.textContent = 'no match';
+        else lbl.textContent = (start + 1) + '–' + Math.min(end, total) + ' of ' + total + (pages > 1 ? ('  ·  page ' + (curPage + 1) + '/' + pages) : '');
+        document.getElementById('pgPrev').disabled = curPage <= 0;
+        document.getElementById('pgNext').disabled = curPage >= pages - 1;
+    }
+
+    function onSearch() { searchQ = (document.getElementById('wfSearch').value || '').toLowerCase().trim(); curPage = 0; applyView(); }
+    function onPageSize() { pageSize = parseInt(document.getElementById('pageSize').value, 10) || 5; curPage = 0; applyView(); }
+    function pageDelta(d) { curPage += d; applyView(); }
+
+    function selectSource(el) {
+        var s = el.getAttribute('data-source') || '';
+        srcFilter = s;
+        document.querySelectorAll('.summary-grid .kv').forEach(function (k) { k.classList.remove('active'); });
+        el.classList.add('active');
+        var chip = document.getElementById('srcFilterChip');
+        if (s === '') { chip.style.display = 'none'; }
+        else { chip.style.display = ''; document.getElementById('srcFilterVal').textContent = s; }
+        curPage = 0; applyView();
+    }
+    function clearSource() {
+        srcFilter = '';
+        document.getElementById('srcFilterChip').style.display = 'none';
+        document.querySelectorAll('.summary-grid .kv').forEach(function (k) { k.classList.remove('active'); });
+        var allKv = document.querySelector('.summary-grid .kv[data-source=""]');
+        if (allKv) allKv.classList.add('active');
+        curPage = 0; applyView();
+    }
+
+    // ---- live execution queue ----
+    function statusClass(s) { return s; }
+    function refreshQueue() {
+        fetch(CTX + 'api/queue')
+            .then(function (r) { return r.json(); })
+            .then(function (j) {
+                var box = document.getElementById('queueBox');
+                var items = (j && j.items) || [];
+                if (items.length === 0) {
+                    box.innerHTML = '<div class="dim small" style="padding:6px">Queue empty — nothing running.</div>';
+                    return;
+                }
+                var html = '';
+                for (var i = 0; i < items.length; i++) {
+                    var it = items[i];
+                    var running = it.status === 'RUNNING';
+                    var waiting = it.status === 'WAITING_APPROVAL';
+                    var pos = running ? '▶' : (waiting ? '⏸' : (i + 1));
+                    var href = CTX + 'run/' + encodeURIComponent(it.feedId) + '/' + encodeURIComponent(it.runId);
+                    html += '<a class="q-item' + (running ? ' running' : '') + '" href="' + href + '">' +
+                            '<span class="q-pos">' + pos + '</span>' +
+                            '<span class="q-feed mono">' + esc(it.feedId) + '</span>' +
+                            '<span class="chip sm" >' + esc(it.status) + '</span>' +
+                            '</a>';
+                }
+                box.innerHTML = html;
+            })
+            .catch(function () {});
+    }
+    function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var allKv = document.querySelector('.summary-grid .kv[data-source=""]');
+        if (allKv) allKv.classList.add('active');
+        applyView();
+        refreshQueue();
+        setInterval(refreshQueue, 4000);
+    });
 
     function reload() {
         fetch(CTX + 'api/reload', { method: 'POST' })

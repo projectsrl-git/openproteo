@@ -150,6 +150,27 @@ public class WorkflowEngine {
     /** runId del run attivo per il feed, o null se nessuno è in corso/in coda. */
     public String activeRunId(String feedId) { return runningFeeds.get(feedId); }
 
+    /** Snapshot of the FIFO execution queue: RUNNING / WAITING_APPROVAL first, then QUEUED
+        in submission order (by startTs, ms precision). Empty when nothing is active. */
+    public java.util.List<WorkflowRun> queueSnapshot() {
+        java.util.List<WorkflowRun> act = new java.util.ArrayList<WorkflowRun>();
+        for (WorkflowRun r : activeRuns.values()) {
+            if (r.status == RunStatus.RUNNING || r.status == RunStatus.QUEUED || r.status == RunStatus.WAITING_APPROVAL) {
+                act.add(r);
+            }
+        }
+        java.util.Collections.sort(act, new java.util.Comparator<WorkflowRun>() {
+            public int compare(WorkflowRun a, WorkflowRun b) {
+                int ra = rank(a.status), rb = rank(b.status);
+                if (ra != rb) return ra - rb;
+                String sa = a.startTs == null ? "" : a.startTs, sb = b.startTs == null ? "" : b.startTs;
+                int c = sa.compareTo(sb);
+                return c != 0 ? c : a.runId.compareTo(b.runId);
+            }
+            private int rank(RunStatus s) { return s == RunStatus.RUNNING ? 0 : (s == RunStatus.WAITING_APPROVAL ? 1 : 2); }
+        });
+        return act;
+    }
     public WorkflowRun activeRun(String runId) {
         return activeRuns.get(runId);
     }

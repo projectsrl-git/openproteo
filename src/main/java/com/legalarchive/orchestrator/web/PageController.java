@@ -1,6 +1,8 @@
 package com.legalarchive.orchestrator.web;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,6 +52,54 @@ public class PageController {
         model.addAttribute("rows", rows);
         model.addAttribute("errors", registry.errors());
         model.addAttribute("cronErrors", scheduler.errors());
+
+        // --- source distribution (counts + percentage) for the top summary / source selector ---
+        Map<String, Integer> srcCount = new LinkedHashMap<String, Integer>();
+        for (WorkflowDef wf : registry.all()) {
+            String s = (wf.sourceId == null || wf.sourceId.trim().isEmpty()) ? "—" : wf.sourceId.trim();
+            Integer c = srcCount.get(s);
+            srcCount.put(s, c == null ? 1 : c + 1);
+        }
+        int wfTotal = 0;
+        for (Integer c : srcCount.values()) wfTotal += c;
+        List<Map<String, Object>> sourceStats = new ArrayList<Map<String, Object>>();
+        for (Map.Entry<String, Integer> e : srcCount.entrySet()) {
+            Map<String, Object> m = new LinkedHashMap<String, Object>();
+            m.put("source", e.getKey());
+            m.put("count", e.getValue());
+            m.put("pct", wfTotal > 0 ? Math.round(e.getValue() * 1000.0 / wfTotal) / 10.0 : 0.0);
+            sourceStats.add(m);
+        }
+        Collections.sort(sourceStats, new Comparator<Map<String, Object>>() {
+            public int compare(Map<String, Object> a, Map<String, Object> b) {
+                return ((Integer) b.get("count")) - ((Integer) a.get("count"));
+            }
+        });
+        model.addAttribute("sourceStats", sourceStats);
+        model.addAttribute("wfTotal", wfTotal);
+
+        // --- last run per workflow, most-recent first, top 5 (one row per workflow) ---
+        List<Map<String, Object>> recent = new ArrayList<Map<String, Object>>();
+        for (Map<String, Object> row : rows) {
+            if (row.get("lastRun") != null) {
+                WorkflowDef wf = (WorkflowDef) row.get("wf");
+                WorkflowRun lr = (WorkflowRun) row.get("lastRun");
+                Map<String, Object> m = new LinkedHashMap<String, Object>();
+                m.put("feedId", wf.feedId);
+                m.put("name", wf.name);
+                m.put("source", (wf.sourceId == null || wf.sourceId.trim().isEmpty()) ? "—" : wf.sourceId.trim());
+                m.put("run", lr);
+                recent.add(m);
+            }
+        }
+        Collections.sort(recent, new Comparator<Map<String, Object>>() {
+            public int compare(Map<String, Object> a, Map<String, Object> b) {
+                String ta = ((WorkflowRun) a.get("run")).startTs, tb = ((WorkflowRun) b.get("run")).startTs;
+                return (tb == null ? "" : tb).compareTo(ta == null ? "" : ta);
+            }
+        });
+        if (recent.size() > 5) recent = new ArrayList<Map<String, Object>>(recent.subList(0, 5));
+        model.addAttribute("recentRuns", recent);
         return "dashboard";
     }
 

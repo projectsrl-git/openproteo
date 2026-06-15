@@ -1,50 +1,55 @@
-OpenProteo — Legal Archive feed orchestrator (Java 8, Spring Boot 2.7, WAR on Tomcat)
+dashboard: top summary, paginazione, coda FIFO live
 
-Web application that orchestrates and schedules the PowerShell scripts and
-built-in steps used to prepare and deliver Legal Archive feeds. Built for a
-UBS corporate environment (Credit Suisse -> UBS decommissioning). Java 8,
-Spring Boot 2.7, Thymeleaf; packaged as a plain WAR for an external Tomcat
-(no embedded server). No CDN and no database server: all state lives in
-readable JSON/JSONL files.
+Dashboard rivista per scalare oltre il manciata di feed: lista paginata,
+riepilogo in alto con distribuzione sorgenti / ultime esecuzioni / coda
+di esecuzione live.
 
-Core
-- XML workflow engine: steps + gates (auto with condition, or manual approval),
-  variable resolution (${var}), per-feed directory provisioning, cron scheduling.
-- Single-threaded FIFO run engine with active-run lock per feed.
-- Append-only, hash-chained audit log per feed (tamper-evident JSONL).
-- Run state as pretty-printed JSON; per-step PowerShell logs on disk.
+- Paginazione feed: selettore Show 5 (default) / 10 / 25 / 50 / 100
+  con Prev/Next e label "1-5 of 12 · page 1/3". Si combina con ricerca
+  testuale e filtro sorgente; ogni cambio resetta alla pagina 1.
+- Top summary, tre card affiancate:
+  * Sources: distribuzione per sourceId con conteggio, percentuale e
+    barra proporzionale; ogni voce è cliccabile e filtra la tabella per
+    quella sorgente (chip "source: X ✕" nel toolbar). "All sources"
+    azzera il filtro.
+  * Recent runs: ultima run per workflow, top 5 più recenti (una riga
+    per workflow anche se ne ha decine), con stato e link al run.
+  * Execution queue (FIFO): live (polling ogni 4s su /api/queue) di ciò
+    che è in esecuzione (▶) e dei prossimi in coda. Mostra "Queue
+    empty" quando non c'è nulla. Riflette il motore single-thread FIFO.
 
-UI (English; this repo's docs are in Italian)
-- Dashboard, workflow page, run page with a live pure-SVG BPMN view and
-  per-step checklist sub-nodes, run history, audit log viewer.
-- Visual workflow designer (compose steps/gates, live pipeline + XML preview,
-  server-side re-validation with the same parser used at runtime).
-- Server-side CSV viewer: byte-offset index, quote-aware aggregation,
-  searchable multi-select group-by / distinct, pivot, pinned total, export.
-- stdout/stderr/system stream filters on console and step logs.
-- Run deletion and confirmation prompts on state-changing actions.
+Backend:
+- WorkflowEngine.queueSnapshot(): RUNNING / WAITING_APPROVAL prima,
+  QUEUED dopo, ordinati per startTs (ms-precision).
+- GET /api/queue: snapshot JSON della coda di esecuzione.
+- PageController: sourceStats (con %) e recentRuns aggiunti al model.
 
-Built-in steps
-- validate: quote-aware CSV checks (colCount skipped without a dataschema).
-- csvreplace, filecopy, ifscopy, setvar, sql (DB2/AS400 via JTOpen), jar.
-- encoding: normalize text to UTF-8; single file or whole-directory batch
-  (filter, recursive, outputDir).
-- anonymize (ARX): free-text editing + column roles (Batch 2a); k-anonymity
-  pending the ARX jar on the corporate Nexus.
-- mask: deterministic, key-driven streaming masking (constant memory, ~1GB ok).
-  HMAC-SHA256 seeded RNG; same value -> same output so joins survive; one-way
-  (no re-identification). Format-preserving (numericFixed, alphanumericFixed),
-  pools (firstName/lastName/fullName cross-joined, city, address, company),
-  free-text (lorem, exact length), customerDescription (person or company by %),
-  CID in three modes (format-preserving / partial / hash). Column-to-anonType
-  mapping via per-type comma lists (the destination displayschema cannot carry
-  anonType); displayschema optional, only for DataType=date passthrough.
-  Pools bundled in the WAR under /maskdata, overridable via an external dir.
+Fix UBS visibile dopo il primo deploy in ambiente corporate:
+- Il top summary appariva con le card impilate verticalmente e con
+  colori sbagliati. Cause: (1) display:grid con repeat(auto-fit,
+  minmax()) non supportato dal browser UBS; (2) il CSS della summary
+  referenziava variabili inesistenti nel tema (--panel, --bg-hover,
+  --fg-mute, --accent blu).
+- Layout riscritto con display:flex + flex-wrap:wrap + flex:1 1 280px
+  e prefissi -webkit-; ogni var() ora referenzia solo le variabili
+  effettivamente definite in app.css (accent ambra incluso). Vincolo
+  annotato in CLAUDE.md per evitare ricadute.
 
-Configuration
-- External application.properties under CATALINA_HOME/config with absolute paths.
-- Masking secret read from orchestrator.masking-secret (never committed).
+Aggiunti per chi rilegge il repo:
+- CLAUDE.md: orientamento per AI tools in VSC con vincoli ambientali
+  permanenti (no \n/\r letterali nel JS, no [[ Thymeleaf non commentato,
+  CSS flex per UBS browser, variabili tema, deploy WAR pulito).
+- .claude/2026-06-15-dashboard-top-summary.md: riepilogo del turno.
 
-Notes
-- Spring Boot executable repackage disabled: the WAR is a plain deployable for
-  an external Tomcat (no embedded server bundled).
+Verifiche:
+- 71 classi compilate, zero warning.
+- JS dashboard validato (node --check), template Thymeleaf-safe,
+  nessun \n/\r letterale nel JS servito al browser.
+- Test end-to-end via jsdom: pageSize 5/10, ultima pagina, label,
+  filtro sorgente (kv attiva + chip), clear, search, render coda con
+  run attiva, stato coda vuota.
+
+Note di deploy:
+- Stop Tomcat, cancellare webapps/openproteo.war E la cartella esplosa
+  webapps/openproteo/, copiare il nuovo WAR, start.
+- Ctrl+F5 dopo il redeploy (app.css e dashboard.html sono cachati).

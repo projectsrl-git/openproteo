@@ -1,9 +1,14 @@
-# Build
+# --- OpenProteo .gitignore ---
+# Goal: the git-tracked tree matches the delivered source zip exactly, so that
+# GitHub "Code > Download ZIP" yields the same sources. Only build/IDE/runtime
+# artifacts (never part of the sources) are excluded.
+
+# Maven build output
 target/
 *.war
 *.class
 
-# IDE
+# IDE / editor
 .idea/
 *.iml
 .vscode/
@@ -11,15 +16,10 @@ target/
 .project
 .classpath
 
-# OS
+# OS noise
 Thumbs.db
 .DS_Store
 
-# Runtime / local config (never commit secrets or environment-specific config)
-/config/
-application-local.properties
+# Runtime logs written by the app outside the sources
 *.log
 logs/
-
-# Feed/runtime data (should live outside the repo, under orchestrator.default-base-dir)
-feeds/

@@ -125,6 +125,23 @@ Note:
 * Per il runner PowerShell vale tutto quanto detto nella sezione execution policy:
   l'esecuzione avviene dal processo Tomcat, quindi è il **suo** utente a contare.
 
+## Dashboard
+
+La home elenca i workflow registrati (uno per feed) con un **riepilogo in alto** e una
+tabella paginata.
+
+* **Paginazione**: selettore *Show* 5 (default) / 10 / 25 / 50 / 100 con Prev/Next, così la
+  lista non si appesantisce quando i feed sono molti. Funziona insieme a ricerca e filtro
+  sorgente.
+* **Riepilogo Sources**: distribuzione dei workflow per `sourceId` con conteggio, percentuale
+  e barra proporzionale (stile EOR_viewer). Ogni voce è **cliccabile** e filtra la tabella per
+  quella sorgente; "All sources" azzera il filtro.
+* **Recent runs**: ultima esecuzione per workflow, le 5 più recenti (una riga per workflow,
+  anche se ne ha decine), con stato e link al run.
+* **Execution queue (FIFO)**: evidenza live di ciò che è in esecuzione e dei prossimi in coda
+  (polling ogni 4s su `/api/queue`). La coda può essere vuota. Riflette il motore single-thread
+  FIFO: un run alla volta, gli altri attendono in ordine di arrivo.
+
 ## Workflow Designer (visuale)
 
 Dalla dashboard, **＋ New workflow** apre il designer (`/designer`); il pulsante

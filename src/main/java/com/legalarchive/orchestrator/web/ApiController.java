@@ -161,6 +161,25 @@ public class ApiController {
         return ResponseEntity.ok(out);
     }
 
+    /** FIFO execution queue snapshot for the dashboard (running + queued; may be empty). */
+    @GetMapping("/api/queue")
+    public ResponseEntity<Map<String, Object>> queue() {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        java.util.List<Map<String, Object>> items = new java.util.ArrayList<Map<String, Object>>();
+        for (com.legalarchive.orchestrator.model.run.WorkflowRun r : engine.queueSnapshot()) {
+            Map<String, Object> m = new LinkedHashMap<String, Object>();
+            m.put("feedId", r.feedId);
+            m.put("runId", r.runId);
+            m.put("name", r.workflowName);
+            m.put("status", r.status.name());
+            m.put("startTs", r.startTs);
+            items.add(m);
+        }
+        out.put("ok", true);
+        out.put("items", items);
+        return ResponseEntity.ok(out);
+    }
+
     @PostMapping("/api/workflows/{feedId}/run")
     public ResponseEntity<Map<String, Object>> run(@PathVariable String feedId, HttpServletRequest req) {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
