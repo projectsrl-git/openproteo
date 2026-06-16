@@ -13,6 +13,8 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 import com.legalarchive.orchestrator.model.def.GateDef;
+import com.legalarchive.orchestrator.model.def.LoopDef;
+import com.legalarchive.orchestrator.model.def.LoopEndDef;
 import com.legalarchive.orchestrator.model.def.StepDef;
 import com.legalarchive.orchestrator.model.def.WorkflowDef;
 
@@ -133,6 +135,22 @@ public class WorkflowXmlParser {
                         throw new IllegalArgumentException("Auto gate '" + g.id + "' has no condition");
                     }
                     addNode(wf, g, ids, xmlFile);
+                } else if ("loop".equals(tag)) {
+                    LoopDef lp = new LoopDef();
+                    lp.id = req(el, "id", xmlFile);
+                    lp.name = el.hasAttribute("name") ? el.getAttribute("name") : lp.id;
+                    lp.over = trimToNull(el.getAttribute("over"));
+                    lp.delimiter = trimToNull(el.getAttribute("delimiter"));
+                    if (el.hasAttribute("itemVar")) lp.itemVar = el.getAttribute("itemVar");
+                    if (el.hasAttribute("indexVar")) lp.indexVar = el.getAttribute("indexVar");
+                    if (el.hasAttribute("countVar")) lp.countVar = el.getAttribute("countVar");
+                    if (lp.over == null) throw new IllegalArgumentException("Loop '" + lp.id + "' is missing required attribute 'over'");
+                    addNode(wf, lp, ids, xmlFile);
+                } else if ("endloop".equals(tag)) {
+                    LoopEndDef le = new LoopEndDef();
+                    le.id = el.hasAttribute("id") ? el.getAttribute("id") : ("__endloop_" + wf.nodes.size());
+                    le.name = el.hasAttribute("name") ? el.getAttribute("name") : "end loop";
+                    addNode(wf, le, ids, xmlFile);
                 }
             }
 

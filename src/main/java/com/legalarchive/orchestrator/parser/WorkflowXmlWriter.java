@@ -67,6 +67,20 @@ public class WorkflowXmlWriter {
                         attr(g, "onTrue", n.onTrue);
                         attr(g, "onFalse", n.onFalse);
                         steps.appendChild(g);
+                    } else if ("LOOP".equalsIgnoreCase(n.kind)) {
+                        Element lp = doc.createElement("loop");
+                        attr(lp, "id", n.id);
+                        attr(lp, "name", n.name);
+                        attr(lp, "over", n.over);
+                        attr(lp, "delimiter", n.loopDelimiter);
+                        if (n.itemVar != null && !n.itemVar.trim().isEmpty()) attr(lp, "itemVar", n.itemVar);
+                        if (n.indexVar != null && !n.indexVar.trim().isEmpty()) attr(lp, "indexVar", n.indexVar);
+                        if (n.countVar != null && !n.countVar.trim().isEmpty()) attr(lp, "countVar", n.countVar);
+                        steps.appendChild(lp);
+                    } else if ("ENDLOOP".equalsIgnoreCase(n.kind)) {
+                        Element le = doc.createElement("endloop");
+                        attr(le, "id", n.id);
+                        steps.appendChild(le);
                     } else {
                         Element s = doc.createElement("step");
                         attr(s, "id", n.id);

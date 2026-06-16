@@ -18,6 +18,8 @@ import org.springframework.stereotype.Component;
 import com.legalarchive.orchestrator.audit.AuditLogger;
 import com.legalarchive.orchestrator.config.AppProperties;
 import com.legalarchive.orchestrator.model.def.GateDef;
+import com.legalarchive.orchestrator.model.def.LoopDef;
+import com.legalarchive.orchestrator.model.def.LoopEndDef;
 import com.legalarchive.orchestrator.model.def.NodeDef;
 import com.legalarchive.orchestrator.model.def.StepDef;
 import com.legalarchive.orchestrator.model.def.WorkflowDef;
@@ -298,7 +300,50 @@ public class WorkflowEngine {
                         return;
                     }
                     idx++;
-                } else {
+                } else if (node instanceof LoopDef) {
+                    LoopDef lp = (LoopDef) node;
+                    int endIdx = loopEndIndex(def, idx);
+                    if (endIdx < 0) { finish(def, layout, run, RunStatus.FAILED, "Loop '" + lp.id + "' has no matching ENDLOOP"); return; }
+                    String raw = VarResolver.resolve(lp.over, run.vars);
+                    String delim = (lp.delimiter == null || lp.delimiter.isEmpty()) ? ";" : lp.delimiter;
+                    java.util.List<String> items = splitList(raw, delim);
+                    String key = "__loop." + lp.id;
+                    if (items.isEmpty()) {
+                        auditFeed(layout, run.feedId, run.runId, lp.id, "LOOP_SKIP", "system", kv("over", s(lp.over)));
+                        idx = endIdx + 1;
+                    } else {
+                        run.vars.put(key + ".items", join(items, "\u0001"));
+                        run.vars.put(key + ".n", String.valueOf(items.size()));
+                        run.vars.put(key + ".i", "0");
+                        run.vars.put(lp.itemVar, items.get(0));
+                        run.vars.put(lp.indexVar, "0");
+                        run.vars.put(lp.countVar, String.valueOf(items.size()));
+                        store.save(layout, run);
+                        log.info("[{}] LOOP '{}' su {} item(s)", run.feedId, lp.id, items.size());
+                        auditFeed(layout, run.feedId, run.runId, lp.id, "LOOP_START", "system",
+                                kv("count", String.valueOf(items.size())));
+                        idx++;
+                    }
+                } else if (node instanceof LoopEndDef) {
+                    int startIdx = loopStartIndex(def, idx);
+                    if (startIdx < 0) { finish(def, layout, run, RunStatus.FAILED, "ENDLOOP '" + node.id + "' has no matching LOOP"); return; }
+                    LoopDef lp = (LoopDef) def.nodes.get(startIdx);
+                    String key = "__loop." + lp.id;
+                    int n = parseIntSafe(run.vars.get(key + ".n"), 0);
+                    int i = parseIntSafe(run.vars.get(key + ".i"), 0) + 1;
+                    if (i < n) {
+                        java.util.List<String> items = splitList(run.vars.get(key + ".items"), "\u0001");
+                        run.vars.put(key + ".i", String.valueOf(i));
+                        run.vars.put(lp.itemVar, i < items.size() ? items.get(i) : "");
+                        run.vars.put(lp.indexVar, String.valueOf(i));
+                        store.save(layout, run);
+                        idx = startIdx + 1;   // re-enter loop body
+                    } else {
+                        run.vars.remove(key + ".items"); run.vars.remove(key + ".n"); run.vars.remove(key + ".i");
+                        auditFeed(layout, run.feedId, run.runId, lp.id, "LOOP_END", "system", kv("count", String.valueOf(n)));
+                        idx++;
+                    }
+                } else if (node instanceof GateDef) {
                     GateDef gate = (GateDef) node;
                     if ("manual".equals(gate.type)) {
                         run.status = RunStatus.WAITING_APPROVAL;
@@ -367,6 +412,52 @@ public class WorkflowEngine {
             return null;
         }
         return def.indexOfNode(target);
+    }
+
+    /** Index of the ENDLOOP matching the LOOP at loopIdx (supports nesting), or -1. */
+    private static int loopEndIndex(WorkflowDef def, int loopIdx) {
+        int depth = 1;
+        for (int j = loopIdx + 1; j < def.nodes.size(); j++) {
+            NodeDef n = def.nodes.get(j);
+            if (n instanceof LoopDef) depth++;
+            else if (n instanceof LoopEndDef) { depth--; if (depth == 0) return j; }
+        }
+        return -1;
+    }
+
+    /** Index of the LOOP matching the ENDLOOP at endIdx (supports nesting), or -1. */
+    private static int loopStartIndex(WorkflowDef def, int endIdx) {
+        int depth = 1;
+        for (int j = endIdx - 1; j >= 0; j--) {
+            NodeDef n = def.nodes.get(j);
+            if (n instanceof LoopEndDef) depth++;
+            else if (n instanceof LoopDef) { depth--; if (depth == 0) return j; }
+        }
+        return -1;
+    }
+
+    private static java.util.List<String> splitList(String raw, String delim) {
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        if (raw == null || raw.isEmpty()) return out;
+        int from = 0, dl = delim.length();
+        while (true) {
+            int p = raw.indexOf(delim, from);
+            String tok = (p < 0) ? raw.substring(from) : raw.substring(from, p);
+            if (tok != null && !tok.trim().isEmpty()) out.add(tok.trim());
+            if (p < 0) break;
+            from = p + dl;
+        }
+        return out;
+    }
+
+    private static String join(java.util.List<String> items, String sep) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < items.size(); i++) { if (i > 0) sb.append(sep); sb.append(items.get(i)); }
+        return sb.toString();
+    }
+
+    private static int parseIntSafe(String s, int def) {
+        try { return Integer.parseInt(s.trim()); } catch (Exception e) { return def; }
     }
 
     private boolean executeStep(WorkflowDef def, FeedLayout layout, WorkflowRun run, StepDef step) {

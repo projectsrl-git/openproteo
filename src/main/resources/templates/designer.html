@@ -96,6 +96,7 @@
             <div class="toolbar">
                 <button class="btn" onclick="addStep()">＋ Add step</button>
                 <button class="btn" onclick="addGate()">＋ Add gate</button>
+                <button class="btn" onclick="addLoop()">↻ Add loop</button>
                 <button class="btn sm" onclick="collapseAllNodes()" title="collapse all step details">⊟ Collapse all</button>
                 <button class="btn sm" onclick="expandAllNodes()" title="expand all step details">⊞ Expand all</button>
                 <span class="spacer"></span>
@@ -177,7 +178,7 @@
     var NL = String.fromCharCode(10);   // never write a literal backslash-n in source: corporate proxies mangle it
 
     var wf = { feedId: '', sourceId: '', targetId: '', name: '', cron: '', baseDir: '', description: '', variables: [], nodes: [] };
-    var stepSeq = 0, gateSeq = 0;
+    var stepSeq = 0, gateSeq = 0, loopSeq = 0;
     var DATASOURCES = [];
     fetch(CTX + 'api/datasources').then(readJson).then(function(d){ DATASOURCES = d || []; renderNodes(); }).catch(function(e){ console.warn('datasources load failed:', e && e.message); });
 
@@ -238,6 +239,13 @@
         gateSeq++;
         wf.nodes.push({ kind: 'GATE', id: 'gate_' + gateSeq, name: 'Gate ' + gateSeq, type: 'auto',
             condition: '', onTrue: '', onFalse: '' });
+        renderNodes(); preview();
+    }
+    function addLoop() {
+        loopSeq++;
+        wf.nodes.push({ kind: 'LOOP', id: 'loop_' + loopSeq, name: 'Loop ' + loopSeq, over: '${csvFiles}',
+            loopDelimiter: ';', itemVar: 'item', indexVar: 'loopIndex', countVar: 'loopCount' });
+        wf.nodes.push({ kind: 'ENDLOOP', id: 'endloop_' + loopSeq, name: 'End loop ' + loopSeq });
         renderNodes(); preview();
     }
     function delNode(i) { wf.nodes.splice(i, 1); renderNodes(); preview(); }
@@ -432,13 +440,17 @@
         var h = '';
         wf.nodes.forEach(function (n, i) {
             var isGate = n.kind === 'GATE';
+            var isLoop = n.kind === 'LOOP';
+            var isEnd = n.kind === 'ENDLOOP';
             var ckey = nodeKey(n, i);
             var isColl = !!collapsedNodes[ckey];
-            h += '<div class="node-card' + (isGate ? ' gate-card' : '') + (isColl ? ' collapsed' : '') + '">';
-            h += '<div class="nc-head' + (isGate ? ' gate' : '') + '">' +
+            var cardCls = isGate ? ' gate-card' : ((isLoop || isEnd) ? ' loop-card' : '');
+            var kindLabel = isGate ? '◇ GATE' : (isLoop ? '⟳ LOOP' : (isEnd ? '⟲ END LOOP' : 'STEP'));
+            h += '<div class="node-card' + cardCls + (isColl ? ' collapsed' : '') + '">';
+            h += '<div class="nc-head' + (isGate ? ' gate' : '') + ((isLoop || isEnd) ? ' loop' : '') + '">' +
                 '<button class="nc-toggle" onclick="toggleNode(this,' + i + ')" title="collapse / expand">▾</button>' +
                 '<span class="step-badge">' + (i + 1) + '</span>' +
-                '<span class="nc-type">' + (isGate ? '◇ GATE' : 'STEP') + '</span>' +
+                '<span class="nc-type">' + kindLabel + '</span>' +
                 '<span class="nc-name">' + attresc(n.name || '') + '</span>' +
                 '<span class="spacer"></span><span class="nc-tools">' +
                 '<button onclick="move(' + i + ',-1)" title="move up">▲</button>' +
@@ -446,6 +458,32 @@
                 '<button onclick="dupNode(' + i + ')" title="duplicate">⧉</button>' +
                 '<button class="del" onclick="delNode(' + i + ')" title="delete">✕</button></span></div>';
             h += '<div class="nc-body">';
+
+            if (isEnd) {
+                h += '<div class="form-row">' +
+                    '<div class="field"><label>Id *</label><input value="' + attresc(n.id) + '" onchange="updNodeR(' + i + ',\'id\',this.value)"></div>' +
+                    '<div class="field"><label>&nbsp;</label><span class="dim small">Closes the matching LOOP block (steps in between run once per item).</span></div>' +
+                    '</div>';
+                h += '</div></div>';
+                return;
+            }
+            if (isLoop) {
+                h += '<div class="form-row">' +
+                    '<div class="field"><label>Id *</label><input value="' + attresc(n.id) + '" onchange="updNodeR(' + i + ',\'id\',this.value)"></div>' +
+                    '<div class="field"><label>Name</label><input value="' + attresc(n.name) + '" oninput="updNode(' + i + ',\'name\',this.value)"></div>' +
+                    '</div>';
+                h += '<div class="form-row">' +
+                    '<div class="field wide"><label>Over (list expression)</label><input value="' + attresc(n.over || '') + '" placeholder="${csvFiles}" oninput="updNode(' + i + ',\'over\',this.value)"></div>' +
+                    '</div>';
+                h += '<div class="form-row">' +
+                    '<div class="field"><label>Delimiter</label><input value="' + attresc(n.loopDelimiter || '') + '" placeholder=";" oninput="updNode(' + i + ',\'loopDelimiter\',this.value)"></div>' +
+                    '<div class="field"><label>Item var</label><input value="' + attresc(n.itemVar || '') + '" placeholder="item" oninput="updNode(' + i + ',\'itemVar\',this.value)"></div>' +
+                    '<div class="field"><label>Index var</label><input value="' + attresc(n.indexVar || '') + '" placeholder="loopIndex" oninput="updNode(' + i + ',\'indexVar\',this.value)"></div>' +
+                    '</div>';
+                h += '<div class="form-row"><div class="field wide"><span class="dim small">Steps between this LOOP and its ENDLOOP run once per item, in order. Use ${' + (n.itemVar || 'item') + '} (current item) and ${' + (n.indexVar || 'loopIndex') + '}.</span></div></div>';
+                h += '</div></div>';
+                return;
+            }
 
             h += '<div class="form-row">' +
                 '<div class="field"><label>Id *</label><input value="' + attresc(n.id) + '" onchange="updNodeR(' + i + ',\'id\',this.value)"></div>' +
@@ -741,6 +779,14 @@
                 if (n.onTrue) g += ' onTrue="' + xesc(n.onTrue) + '"';
                 if (n.onFalse) g += ' onFalse="' + xesc(n.onFalse) + '"';
                 L.push(g + '/>');
+            } else if (n.kind === 'LOOP') {
+                var lp = '        <loop id="' + xesc(n.id) + '" name="' + xesc(n.name) + '" over="' + xesc(n.over || '') + '"';
+                if (n.loopDelimiter) lp += ' delimiter="' + xesc(n.loopDelimiter) + '"';
+                if (n.itemVar) lp += ' itemVar="' + xesc(n.itemVar) + '"';
+                if (n.indexVar) lp += ' indexVar="' + xesc(n.indexVar) + '"';
+                L.push(lp + '/>');
+            } else if (n.kind === 'ENDLOOP') {
+                L.push('        <endloop id="' + xesc(n.id) + '"/>');
             } else {
                 var s = '        <step id="' + xesc(n.id) + '" name="' + xesc(n.name) + '"';
                 if (n.script) s += ' script="' + xesc(n.script) + '"';
@@ -795,7 +841,7 @@
         else if (!/^[A-Za-z0-9._-]+$/.test(wf.feedId)) errs.push('Feed ID: only letters, digits, . _ - are allowed');
         var steps = 0, ids = {};
         wf.nodes.forEach(function (n, i) {
-            var label = (n.kind === 'GATE' ? 'Gate' : 'Step') + ' #' + (i + 1);
+            var label = (n.kind === 'GATE' ? 'Gate' : (n.kind === 'LOOP' ? 'Loop' : (n.kind === 'ENDLOOP' ? 'End loop' : 'Step'))) + ' #' + (i + 1);
             if (!n.id) errs.push(label + ': id is required');
             else if (!/^[A-Za-z0-9._-]+$/.test(n.id)) errs.push(label + ': id may contain only letters, digits, . _ -');
             else if (ids[n.id]) errs.push(label + ': duplicate id "' + n.id + '"');
@@ -811,10 +857,21 @@
                     if ((n.mode || 'copy') !== 'list' && !n.dest) errs.push(label + ' (' + n.id + '): dest is required unless mode=list');
                 }
                 if (ex === 'setvar' && (!n.params || !n.params.length)) errs.push(label + ' (' + n.id + '): at least one assignment is required');
+            } else if (n.kind === 'LOOP') {
+                if (!n.over) errs.push(label + ' (' + n.id + '): "over" (list expression) is required');
+            } else if (n.kind === 'ENDLOOP') {
+                /* marker, no field checks */
             } else if (n.type !== 'manual' && !n.condition) {
                 errs.push(label + ' (' + n.id + '): condition is required for auto gates');
             }
         });
+        // LOOP/ENDLOOP must be balanced and properly nested
+        var depth = 0, balanced = true;
+        wf.nodes.forEach(function (n) {
+            if (n.kind === 'LOOP') depth++;
+            else if (n.kind === 'ENDLOOP') { depth--; if (depth < 0) balanced = false; }
+        });
+        if (depth !== 0 || !balanced) errs.push('LOOP / ENDLOOP are not balanced: each LOOP needs a matching ENDLOOP after it.');
         if (steps === 0) errs.push('The workflow must contain at least one step');
         return errs;
     }

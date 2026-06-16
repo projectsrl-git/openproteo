@@ -1,0 +1,16 @@
+<workflow feedId="SAMPLE-10-loop" sourceId="DEMO" name="Loop over split CSV files">
+    <description>Estrazione con split, poi per ogni file: mask + send (sequenziale).</description>
+    <steps>
+        <step id="extract" name="Extract (split)" exec="sql" datasource="AS400-PROD"
+              csvFile="${landingOut}/${feedId}_${runDate}.csv" csvSplitRows="100000" delimiter=";">
+            <param name="columnsSchema" value="${feedDir}/dataschema.json"/>
+            <query>SELECT {{columns}} FROM ${originTableName}</query>
+        </step>
+        <loop id="perFile" name="Per file" over="${csvFiles}" delimiter=";" itemVar="file" indexVar="fileIdx"/>
+        <step id="mask" name="Mask file ${fileIdx}" exec="mask" csvFile="${file}">
+            <param name="firstNameColumns" value="NOME"/>
+        </step>
+        <step id="send" name="Send ${file}" exec="powershell" script="send.ps1"/>
+        <endloop id="endPerFile"/>
+    </steps>
+</workflow>

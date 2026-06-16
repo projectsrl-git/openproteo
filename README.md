@@ -186,6 +186,30 @@ Alias, Size, Modified; secondo click inverte l'ordine).
 Nel **viewer CSV** le colonne sono **ridimensionabili**: trascina il bordo destro
 dell'intestazione di colonna per allargarla/restringerla (min 40px).
 
+## Loop sui file (blocco LOOP / ENDLOOP)
+
+Quando l'estrazione produce **più file** (split per righe/MB → `${csvFiles}` lista,
+`${csvParts}` conteggio), puoi ripetere una **catena di step** una volta per file con un
+blocco **LOOP … ENDLOOP**:
+
+```xml
+<step id="extract" exec="sql" ... csvSplitRows="100000"> ... </step>
+<loop id="perFile" over="${csvFiles}" delimiter=";" itemVar="file" indexVar="fileIdx"/>
+    <step id="mask" exec="mask" csvFile="${file}"/>
+    <step id="send" exec="powershell" script="send.ps1"/>
+<endloop id="endPerFile"/>
+```
+
+Gli step tra `LOOP` e il suo `ENDLOOP` girano **in sequenza, una volta per elemento**,
+con `${file}` (elemento corrente), `${fileIdx}` (indice 0-based) e `${loopCount}`. Lista
+vuota → blocco saltato. I blocchi si possono annidare. Nel designer: pulsante **↻ Add loop**
+(inserisce la coppia LOOP+ENDLOOP). Lo stato del loop è persistito, quindi sopravvive a una
+pausa su gate manuale dentro il blocco.
+
+Nota: il motore ha un limite di sicurezza `orchestrator.max-transitions` (default **500**)
+contro i loop infiniti dei gate; per loop su molti file alza questo valore
+(transizioni ≈ numero file × step nel blocco).
+
 ## Dashboard
 
 La home elenca i workflow registrati (uno per feed) con un **riepilogo in alto** e una

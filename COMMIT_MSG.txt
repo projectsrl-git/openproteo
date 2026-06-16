@@ -1,22 +1,43 @@
-feat: campo targetId sul workflow (+ bulk multi-valore)
+feat: loop a blocco LOOP/ENDLOOP (catena di step per file)
 
-Aggiunto l'attributo targetId al workflow (destinazione), accanto a
-sourceId, end-to-end.
+Costrutto di loop sequenziale per ripetere una CATENA di step una volta
+per ogni elemento di una lista. Caso tipico: i file multipli prodotti
+dall'estrazione con split (${csvFiles} lista, ${csvParts} conteggio).
 
-- model WorkflowDef + DTO: campo targetId.
-- parser: lettura attributo targetId dal <workflow>.
-- writer: scrittura attributo targetId.
-- engine: run.vars espone ${targetId}.
-- designer: campo Target ID accanto a Source ID (modello/save/preview/
-  load + ${targetId} nel cheat sheet).
-- bulk: mappatura mapTargetId con la stessa sintassi template degli
-  altri campi -> si possono indicare piu' destinazioni separate da
-  virgola, es. {Dest A},{Dest B} -> targetId="ARCHA,ARCHB".
+Modello/parsing/serializzazione:
+- model LoopDef/LoopEndDef (kind LOOP/ENDLOOP), marker piatti.
+- parser: <loop over=... delimiter=... itemVar=... indexVar=...> e
+  <endloop>.
+- writer + NodeDto + endpoint /definition: round-trip designer.
+
+Esecuzione (engine):
+- Il LOOP risolve over (split per delimiter, default ;) ed esegue i nodi
+  fino al suo ENDLOOP una volta per item, in sequenza, esponendo
+  ${itemVar}/${indexVar}/${countVar} (default item/loopIndex/loopCount).
+- Lista vuota -> blocco saltato. Annidamento supportato (matching per
+  profondita', helper static loopEndIndex/loopStartIndex).
+- Stato del loop persistito in run.vars: sopravvive a una pausa su gate
+  manuale dentro il blocco. Il salto di fine-blocco torna al primo nodo
+  del corpo, quindi l'inizializzazione e' una sola.
+
+Designer:
+- render nodi LOOP/ENDLOOP con badge dedicato; pulsante "Add loop"
+  (inserisce la coppia); campi over/delimiter/itemVar/indexVar; preview
+  XML; clientValidate (over richiesto + bilanciamento LOOP/ENDLOOP).
+
+Esempio: workflows/SAMPLE-10-loop.xml.
 
 Verifiche:
-- 74 classi compilate; TestTarget: {Dest A},{Dest B} ->
-  targetId="ARCHA,ARCHB".
-- designer/bulk JS validati; nessun \n/\r; Thymeleaf-safe.
+- 76 classi compilate; 15 workflow parsano.
+- TestLoop: writer <loop>/<endloop>; parser round-trip (kinds
+  STEP LOOP STEP STEP ENDLOOP, campi over/itemVar/delimiter); matching
+  annidato loopEndIndex(l1)=7 loopEndIndex(l3)=5.
+- designer JS validato; no \n/\r; Thymeleaf-safe.
 
-Aggiornati README, CLAUDE, .claude/2026-06-16-targetid-field.md.
-Redeploy WAR + Ctrl+F5.
+Non testabile in sandbox: esecuzione reale del loop in un run (richiede
+il motore con step reali). Matching/serializzazione testati.
+
+Note deploy: per loop su molti file alzare orchestrator.max-transitions
+(default 500) nell'application.properties esterno. Redeploy + Ctrl+F5.
+
+Aggiornati README, CLAUDE, .claude/2026-06-16-loop-block.md.

@@ -639,6 +639,15 @@ public class ApiController {
                     nd.params.add(new WorkflowDto.KV(p.getKey(), p.getValue()));
                 }
                 nd.outputs.addAll(st.outputs);
+            } else if (n instanceof com.legalarchive.orchestrator.model.def.LoopDef) {
+                com.legalarchive.orchestrator.model.def.LoopDef lp = (com.legalarchive.orchestrator.model.def.LoopDef) n;
+                nd.over = lp.over;
+                nd.loopDelimiter = lp.delimiter;
+                nd.itemVar = lp.itemVar;
+                nd.indexVar = lp.indexVar;
+                nd.countVar = lp.countVar;
+            } else if (n instanceof com.legalarchive.orchestrator.model.def.LoopEndDef) {
+                // marker only: kind/id/name already set
             } else {
                 GateDef g = (GateDef) n;
                 nd.type = g.type;

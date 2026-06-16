@@ -116,6 +116,11 @@ orchestrator.mask-pools-dir=       # opzionale: override dei pool senza rebuild
   `powershell`, `cmd`, `auto` — stabili.
 * `sql` — export risultato a CSV. Supporta `{{columns}}` nella query: espande la lista
   campi dal dataschema (param `columnsSchema`), `columnQuote=none|double`. Stabile.
+* **Loop a blocco**: nodi LOOP/ENDLOOP (kind omonimi). LOOP itera `over` (lista, split per
+  `delimiter`, default ;) eseguendo i nodi fino a ENDLOOP una volta per item, in sequenza,
+  con ${itemVar}/${indexVar}/${countVar} (default item/loopIndex/loopCount). Stato persistito
+  in run.vars (sopravvive a pause su gate). Matching annidato via stack. maxTransitions
+  (default 500) limita i giri totali: alzarlo per loop su molti file.
 * `encoding` — single + directory batch (filter, recursive, outputDir). Stabile.
 * `anonymize` (ARX) — Batch 2a (free-text + ruoli colonne). Batch 2b
   (k-anonymity) **in attesa del jar ARX su Nexus**.

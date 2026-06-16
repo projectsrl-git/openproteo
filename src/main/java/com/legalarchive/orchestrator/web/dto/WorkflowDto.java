@@ -27,9 +27,15 @@ public class WorkflowDto {
     }
 
     public static class NodeDto {
-        public String kind;        // STEP | GATE
+        public String kind;        // STEP | GATE | LOOP | ENDLOOP
         public String id;
         public String name;
+        // loop (kind=LOOP)
+        public String over;
+        public String loopDelimiter;
+        public String itemVar;
+        public String indexVar;
+        public String countVar;
         // step fields
         public String script;
         public String exec;        // auto | powershell | cmd | jar | sql | ifscopy | filecopy | setvar
