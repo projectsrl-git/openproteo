@@ -170,3 +170,14 @@ Ogni turno di sviluppo (= ogni "consegna" di Claude) produce:
    (riga 1 ≤ 72 char, riga 2 vuota, corpo wrap a 78);
 2. un file `.claude/YYYY-MM-DD-slug.md` con il **riepilogo della modifica**
    (cosa, perché, file toccati, follow-up). Si committano insieme alle modifiche.
+
+## Deploy & commit (deploy_openproteo.bat)
+
+* `COMMIT_MSG.txt` viaggia DENTRO lo zip (in openproteo/), così ogni pacchetto porta il
+  proprio messaggio di commit. E' versionato (committato come file).
+* Il `.bat` (esterno al repo) sincronizza lo zip nel working dir con
+  `robocopy /MIR /XD .git` (NON piu' /XF COMMIT_MSG.txt: ora il messaggio arriva dallo zip),
+  poi DOPO una build OK fa `git add -A && git commit -F COMMIT_MSG.txt && git push`
+  (best-effort: push fallito non blocca il deploy locale; nessuna modifica -> nessun commit).
+* Quindi ogni turno: genero COMMIT_MSG.txt nel repo (entra nello zip) descrivendo le
+  modifiche di quel turno.

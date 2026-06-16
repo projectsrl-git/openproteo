@@ -1,43 +1,15 @@
-feat: loop a blocco LOOP/ENDLOOP (catena di step per file)
+docs: convenzione deploy auto-commit + COMMIT_MSG nello zip
 
-Costrutto di loop sequenziale per ripetere una CATENA di step una volta
-per ogni elemento di una lista. Caso tipico: i file multipli prodotti
-dall'estrazione con split (${csvFiles} lista, ${csvParts} conteggio).
+Da ora COMMIT_MSG.txt viaggia dentro lo zip (openproteo/), versionato,
+così ogni pacchetto porta il proprio messaggio di commit.
 
-Modello/parsing/serializzazione:
-- model LoopDef/LoopEndDef (kind LOOP/ENDLOOP), marker piatti.
-- parser: <loop over=... delimiter=... itemVar=... indexVar=...> e
-  <endloop>.
-- writer + NodeDto + endpoint /definition: round-trip designer.
+Il deploy_openproteo.bat (consegnato a parte, fuori dal repo) e' stato
+aggiornato per:
+- robocopy senza /XF COMMIT_MSG.txt (il messaggio arriva dallo zip);
+- dopo una build OK: git add -A, e se ci sono modifiche
+  git commit -F COMMIT_MSG.txt + git push (best-effort, non blocca il
+  deploy locale; nessuna modifica -> nessun commit).
 
-Esecuzione (engine):
-- Il LOOP risolve over (split per delimiter, default ;) ed esegue i nodi
-  fino al suo ENDLOOP una volta per item, in sequenza, esponendo
-  ${itemVar}/${indexVar}/${countVar} (default item/loopIndex/loopCount).
-- Lista vuota -> blocco saltato. Annidamento supportato (matching per
-  profondita', helper static loopEndIndex/loopStartIndex).
-- Stato del loop persistito in run.vars: sopravvive a una pausa su gate
-  manuale dentro il blocco. Il salto di fine-blocco torna al primo nodo
-  del corpo, quindi l'inizializzazione e' una sola.
-
-Designer:
-- render nodi LOOP/ENDLOOP con badge dedicato; pulsante "Add loop"
-  (inserisce la coppia); campi over/delimiter/itemVar/indexVar; preview
-  XML; clientValidate (over richiesto + bilanciamento LOOP/ENDLOOP).
-
-Esempio: workflows/SAMPLE-10-loop.xml.
-
-Verifiche:
-- 76 classi compilate; 15 workflow parsano.
-- TestLoop: writer <loop>/<endloop>; parser round-trip (kinds
-  STEP LOOP STEP STEP ENDLOOP, campi over/itemVar/delimiter); matching
-  annidato loopEndIndex(l1)=7 loopEndIndex(l3)=5.
-- designer JS validato; no \n/\r; Thymeleaf-safe.
-
-Non testabile in sandbox: esecuzione reale del loop in un run (richiede
-il motore con step reali). Matching/serializzazione testati.
-
-Note deploy: per loop su molti file alzare orchestrator.max-transitions
-(default 500) nell'application.properties esterno. Redeploy + Ctrl+F5.
-
-Aggiornati README, CLAUDE, .claude/2026-06-16-loop-block.md.
+Qui nel repo aggiorno solo la documentazione della convenzione
+(CLAUDE.md + .claude/2026-06-16-deploy-autocommit.md) e includo
+COMMIT_MSG.txt. Il codice runtime e' invariato dal turno del loop.
