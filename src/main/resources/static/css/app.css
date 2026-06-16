@@ -422,7 +422,11 @@ footer { margin-top: 50px; color: var(--ink-faint); font-size: 11px; font-family
 .collapse-h .caret { display: inline-block; width: 14px; color: var(--accent); }
 .wf-files-box { max-width: 720px; overflow-x: auto; }
 .wf-files-box table { width: 100%; }
-.wf-files-box td.mono.small { word-break: break-all; }
+.wf-files-box td.mono.small { word-break: break-word; overflow-wrap: break-word; }
+/* keep the File (name) column from collapsing so long, space-less names like
+   tf0003441_dataschema.json don't stack one character per line */
+.wf-files-box table th:first-child,
+.wf-files-box table td:first-child { min-width: 180px; }
 
 /* searchable multi-select (aggregation column pickers) */
 .ms { position: relative; display: inline-block; min-width: 320px; max-width: 520px; margin: 2px 0 6px; vertical-align: top; }
