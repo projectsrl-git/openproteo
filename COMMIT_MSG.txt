@@ -1,52 +1,22 @@
-bulk: due CSV, mappatura nomi colonna, schema JSON inline
+feat: campo targetId sul workflow (+ bulk multi-valore)
 
-Evoluzione del motore di creazione massiva: ora carichi i CSV cosi'
-come sono (colonne extra ignorate) e due CSV contengono tutto il
-necessario.
+Aggiunto l'attributo targetId al workflow (destinazione), accanto a
+sourceId, end-to-end.
 
-Mappatura nomi colonna:
-- Per ogni campo necessario una casella indica come si chiama la
-  colonna nel CSV. Solo le colonne mappate sono consumate; le altre
-  vengono ignorate (prima ogni colonna extra diventava variabile).
-
-dataschema / displayschema inline (CSV #1):
-- Colonne opzionali col contenuto JSON inline (tra doppi apici nel
-  CSV, " raddoppiati secondo RFC4180). Se il JSON e' ben formato viene
-  scritto come feedDir/dataschema.json / feedDir/displayschema.json;
-  se non valido il workflow e' creato comunque e lo schema e' saltato
-  con avviso.
-
-Secondo CSV (tables):
-- Mappa feedId -> tableName, joinato al primo per feedId; il valore
-  diventa la variabile di workflow originTableName (nome configurabile)
-  usata dal template nella SELECT.
-
-Backend:
-- parser/BulkWorkflowGenerator riscritto: Mapping (nomi colonna),
-  joinTable (CSV#2), Item porta dataschemaJson/displayschemaJson/
-  tableName. DOM+CSV, no Jackson, unit-testabile.
-- ApiController /api/workflows/bulk: nuovi parametri (mappatura, csv2,
-  delimiter2, tableVar); valida i JSON schema con Jackson e li scrive
-  nel feedDir (registry.layout().provision()) dopo il reload.
-
-UI:
-- bulk.html: sezioni Feeds CSV / Tables CSV con le caselle di
-  mappatura e il nome variabile tabella; risultati con colonna Table.
-  JS senza \n/\r letterali, Thymeleaf-safe.
-
-Esempi:
-- samples/bulk_tables_example.csv (NEW); feeds example invariato.
+- model WorkflowDef + DTO: campo targetId.
+- parser: lettura attributo targetId dal <workflow>.
+- writer: scrittura attributo targetId.
+- engine: run.vars espone ${targetId}.
+- designer: campo Target ID accanto a Source ID (modello/save/preview/
+  load + ${targetId} nel cheat sheet).
+- bulk: mappatura mapTargetId con la stessa sintassi template degli
+  altri campi -> si possono indicare piu' destinazioni separate da
+  virgola, es. {Dest A},{Dest B} -> targetId="ARCHA,ARCHB".
 
 Verifiche:
-- 74 classi compilate.
-- TestBulk v2: nomi colonna custom, colonna spazzatura ignorata, join
-  tabelle, originTableName iniettata, dataschema JSON un-escaped dai
-  doppi apici, displayschema assente gestito, errore se manca feedId.
-- bulk.html validato (node --check), no \n/\r, Thymeleaf-safe.
+- 74 classi compilate; TestTarget: {Dest A},{Dest B} ->
+  targetId="ARCHA,ARCHB".
+- designer/bulk JS validati; nessun \n/\r; Thymeleaf-safe.
 
-Non testabile in sandbox (verifica su UBS):
-- Validazione JSON via Jackson e scrittura schema nel feedDir; la
-  logica di parsing/unescape CSV e' testata.
-
-Aggiornati CLAUDE.md e
-.claude/2026-06-15-bulk-two-csv-mapping-schemas.md.
+Aggiornati README, CLAUDE, .claude/2026-06-16-targetid-field.md.
+Redeploy WAR + Ctrl+F5.

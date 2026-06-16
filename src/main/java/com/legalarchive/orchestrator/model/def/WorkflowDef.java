@@ -15,6 +15,7 @@ public class WorkflowDef {
     /** Feed ID del Legal Archive (es. LA-EOR-001). Chiave univoca. */
     public String feedId;
     public String sourceId;
+    public String targetId;
 
     /** Nome friendly del feed (es. "EORFULL verso Legal Archive"). */
     public String name;

@@ -191,6 +191,7 @@ public class ApiController {
             @RequestParam(value = "mapFeedId", defaultValue = "feedId") String mapFeedId,
             @RequestParam(value = "mapName", defaultValue = "name") String mapName,
             @RequestParam(value = "mapSourceId", defaultValue = "sourceId") String mapSourceId,
+            @RequestParam(value = "mapTargetId", defaultValue = "targetId") String mapTargetId,
             @RequestParam(value = "mapDescription", defaultValue = "description") String mapDescription,
             @RequestParam(value = "mapDataschema", defaultValue = "dataschema") String mapDataschema,
             @RequestParam(value = "mapDisplayschema", defaultValue = "displayschema") String mapDisplayschema,
@@ -223,6 +224,7 @@ public class ApiController {
             com.legalarchive.orchestrator.parser.BulkWorkflowGenerator.Mapping map =
                     new com.legalarchive.orchestrator.parser.BulkWorkflowGenerator.Mapping();
             map.feedId = mapFeedId; map.name = mapName; map.sourceId = mapSourceId;
+            map.targetId = mapTargetId;
             map.description = mapDescription; map.dataschema = mapDataschema; map.displayschema = mapDisplayschema;
 
             Map<String, String> tableByFeed =

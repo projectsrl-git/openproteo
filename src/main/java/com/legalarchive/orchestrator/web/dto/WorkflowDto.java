@@ -11,6 +11,7 @@ public class WorkflowDto {
 
     public String feedId;
     public String sourceId;
+    public String targetId;
     public String name;
     public String cron;
     public String baseDir;

@@ -63,14 +63,16 @@
                       placeholder="feedId,name,sourceId,description,dataschema,displayschema"></textarea>
         </div>
         <div class="sub-label">Column names in your feeds CSV (map the useful columns; leave blank to skip)</div>
-        <p class="page-sub" style="margin:0 0 12px">Tip: <b>name</b>, <b>sourceId</b> and <b>description</b> accept a template —
+        <p class="page-sub" style="margin:0 0 12px">Tip: <b>name</b>, <b>sourceId</b>, <b>targetId</b> and <b>description</b> accept a template —
             use <span class="mono">{Column Name}</span> tokens (column names may contain spaces) mixed with literal text to
-            concatenate columns, e.g. <span class="mono">{Banca} - {Codice ICTO}</span>. A plain value with no braces is a
-            single column name (as before).</p>
+            concatenate columns, e.g. <span class="mono">{Banca} - {Codice ICTO}</span>. For <b>targetId</b> you can list
+            multiple destinations comma-separated, e.g. <span class="mono">{Dest A},{Dest B}</span>. A plain value with no
+            braces is a single column name (as before).</p>
         <div class="form-row">
             <div class="field"><label>feedId * (file name)</label><input id="mapFeedId" value="feedId"></div>
             <div class="field"><label>name</label><input id="mapName" value="name"></div>
             <div class="field"><label>sourceId</label><input id="mapSourceId" value="sourceId"></div>
+            <div class="field"><label>targetId (comma-separated for multiple)</label><input id="mapTargetId" value="targetId"></div>
             <div class="field"><label>description</label><input id="mapDescription" value="description"></div>
         </div>
         <div class="form-row">
@@ -158,6 +160,7 @@
             overwrite: val('overwrite'),
             delimiter: delimOf('delimiter'),
             mapFeedId: val('mapFeedId'), mapName: val('mapName'), mapSourceId: val('mapSourceId'),
+            mapTargetId: val('mapTargetId'),
             mapDescription: val('mapDescription'), mapDataschema: val('mapDataschema'), mapDisplayschema: val('mapDisplayschema'),
             csv2: val('csv2'), delimiter2: delimOf('delimiter2'),
             mapFeedId2: val('mapFeedId2'), mapTableName: val('mapTableName'), tableVar: val('tableVar')

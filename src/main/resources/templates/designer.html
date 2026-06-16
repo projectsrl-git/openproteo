@@ -58,6 +58,10 @@
                         <input id="f_sourceId" placeholder="EORFULL" oninput="upd()">
                     </div>
                     <div class="field">
+                        <label>Target ID (destination, comma-separated for multiple)</label>
+                        <input id="f_targetId" placeholder="LEGALARCHIVE" oninput="upd()">
+                    </div>
+                    <div class="field">
                         <label>Cron (6 fields, empty = manual only)</label>
                         <input id="f_cron" placeholder="0 30 6 * * MON-FRI" oninput="upd()">
                     </div>
@@ -172,7 +176,7 @@
     })();
     var NL = String.fromCharCode(10);   // never write a literal backslash-n in source: corporate proxies mangle it
 
-    var wf = { feedId: '', sourceId: '', name: '', cron: '', baseDir: '', description: '', variables: [], nodes: [] };
+    var wf = { feedId: '', sourceId: '', targetId: '', name: '', cron: '', baseDir: '', description: '', variables: [], nodes: [] };
     var stepSeq = 0, gateSeq = 0;
     var DATASOURCES = [];
     fetch(CTX + 'api/datasources').then(readJson).then(function(d){ DATASOURCES = d || []; renderNodes(); }).catch(function(e){ console.warn('datasources load failed:', e && e.message); });
@@ -195,6 +199,7 @@
     function upd() {
         wf.feedId = val('f_feedId');
         wf.sourceId = val('f_sourceId');
+        wf.targetId = val('f_targetId');
         wf.name = val('f_name');
         wf.cron = val('f_cron');
         wf.baseDir = val('f_baseDir');
@@ -372,7 +377,7 @@
             .catch(function () { FEED_DOCS = []; });
     }
     function refreshSuggestions() {
-        var base = ['${feedDir}','${stepDir}','${landingIn}','${landingOut}','${logDir}','${feedId}','${sourceId}','${runId}','${runDate}','${item}','${itemIndex}','${matchedFiles}','${matchedCount}','${csvFile}','${csvFiles}'];
+        var base = ['${feedDir}','${stepDir}','${landingIn}','${landingOut}','${logDir}','${feedId}','${sourceId}','${targetId}','${runId}','${runDate}','${item}','${itemIndex}','${matchedFiles}','${matchedCount}','${csvFile}','${csvFiles}'];
         var toks = base.slice();
         FEED_DOCS.forEach(function (d) { toks.push(d); });
         (wf.nodes || []).forEach(function (n) { if (n.kind === 'STEP' && n.id) { toks.push('${dir.' + n.id + '}'); toks.push('${' + n.id + '.outputFile}'); } });
@@ -714,6 +719,7 @@
         var L = [];
         var head = '<workflow feedId="' + xesc(wf.feedId) + '"';
         if (wf.sourceId) head += ' sourceId="' + xesc(wf.sourceId) + '"';
+        if (wf.targetId) head += ' targetId="' + xesc(wf.targetId) + '"';
         if (wf.name) head += ' name="' + xesc(wf.name) + '"';
         if (wf.cron) head += ' cron="' + xesc(wf.cron) + '"';
         if (wf.baseDir) head += ' baseDir="' + xesc(wf.baseDir) + '"';
@@ -926,6 +932,7 @@
                 document.getElementById('f_feedId').style.opacity = 0.6;
                 fill('f_name', wf.name);
                 fill('f_sourceId', wf.sourceId);
+                fill('f_targetId', wf.targetId);
                 fill('f_cron', wf.cron);
                 fill('f_baseDir', wf.baseDir);
                 fill('f_description', wf.description);

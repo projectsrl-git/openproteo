@@ -42,6 +42,7 @@ public final class BulkWorkflowGenerator {
         public String feedId = "feedId";
         public String name = "name";
         public String sourceId = "sourceId";
+        public String targetId = "targetId";
         public String description = "description";
         public String dataschema = "dataschema";
         public String displayschema = "displayschema";
@@ -103,9 +104,11 @@ public final class BulkWorkflowGenerator {
                 // (column names may contain spaces). A plain string with no { } is a single column name.
                 String nm = resolveField(map.name, header, row);
                 String src = resolveField(map.sourceId, header, row);
+                String tgt = resolveField(map.targetId, header, row);
                 String dsc = resolveField(map.description, header, row);
                 if (nm != null) root.setAttribute("name", nm);
                 if (src != null) root.setAttribute("sourceId", src);
+                if (tgt != null) root.setAttribute("targetId", tgt);
                 if (dsc != null) setChildText(doc, root, "description", dsc);
 
                 if (it.tableName != null && !it.tableName.trim().isEmpty()) {

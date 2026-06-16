@@ -29,6 +29,7 @@ public class WorkflowXmlWriter {
             attr(root, "feedId", dto.feedId);
             attr(root, "name", dto.name);
             attr(root, "sourceId", dto.sourceId);
+            attr(root, "targetId", dto.targetId);
             attr(root, "cron", dto.cron);
             attr(root, "baseDir", dto.baseDir);
 

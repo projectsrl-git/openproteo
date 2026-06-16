@@ -50,6 +50,7 @@ public class WorkflowXmlParser {
             wf.feedId = req(root, "feedId", xmlFile);
             wf.name = root.hasAttribute("name") ? root.getAttribute("name") : wf.feedId;
             wf.sourceId = trimToNull(root.getAttribute("sourceId"));
+            wf.targetId = trimToNull(root.getAttribute("targetId"));
             wf.cron = trimToNull(root.getAttribute("cron"));
             wf.baseDir = trimToNull(root.getAttribute("baseDir"));
 

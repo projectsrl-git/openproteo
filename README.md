@@ -140,7 +140,9 @@ JSON inline** (tra doppi apici nel CSV, con `"` raddoppiati secondo RFC4180). Se
 ben formato, viene scritto come `feedDir/dataschema.json` / `feedDir/displayschema.json` del
 feed; se non è valido, il workflow viene comunque creato e lo schema è saltato con avviso.
 
-I campi **`name`, `sourceId` e `description`** accettano un **template**: i token
+Il workflow ha anche un attributo **`targetId`** (destinazione), accanto a `sourceId`,
+configurabile nel designer e nel bulk; nel bulk puoi indicare **più destinazioni separate
+da virgola** (es. `{Dest A},{Dest B}`). I campi **`name`, `sourceId`, `targetId` e `description`** accettano un **template**: i token
 `{Nome Colonna}` (i nomi colonna possono contenere spazi) vengono sostituiti col valore
 della colonna, il resto è testo letterale. Così puoi **concatenare più colonne**, es.
 `{Banca} - {Codice ICTO}`. Un valore senza graffe resta un singolo nome di colonna
