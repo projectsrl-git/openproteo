@@ -786,6 +786,148 @@ public class ApiController {
     @GetMapping("/api/shared/alias-suggest")
     public Map<String, Object> aliasShared(@RequestParam("file") String file) { return aliasSuggest(null, file); }
 
+    // ======================= MASK POOL FILES =======================
+    // Catalog + view/replace for the masking value pools. Effective file =
+    // external override (orchestrator.mask-pools-dir) if present, else bundled
+    // in the WAR under /maskdata/. Endpoint shape mirrors the shared-files panel
+    // so filespanel.js can be reused unchanged.
+
+    private String poolDir() {
+        String d = props.getMaskPoolsDir();
+        if (d == null || d.trim().isEmpty()) return null;
+        return d.trim();
+    }
+
+    @GetMapping("/api/mask/pools/files")
+    public ResponseEntity<Map<String, Object>> poolList() {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        com.legalarchive.orchestrator.mask.MaskPools pools =
+                new com.legalarchive.orchestrator.mask.MaskPools(props.getMaskPoolsDir());
+        String dir = poolDir();
+        java.util.LinkedHashMap<String, Map<String, Object>> byName =
+                new java.util.LinkedHashMap<String, Map<String, Object>>();
+        for (String b : com.legalarchive.orchestrator.mask.MaskPools.BUNDLED) {
+            Map<String, Object> m = new LinkedHashMap<String, Object>();
+            boolean ext = pools.hasExternal(b);
+            m.put("path", b); m.put("name", b); m.put("kind", "document"); m.put("alias", null);
+            m.put("size", (long) pools.get(b).length);   // entry count as a size hint
+            m.put("modified", 0L);
+            m.put("source", ext ? "external" : "bundled");
+            m.put("managed", ext);
+            byName.put(b, m);
+        }
+        if (dir != null) {
+            java.io.File[] kids = new java.io.File(dir).listFiles();
+            if (kids != null) for (java.io.File f : kids) {
+                if (!f.isFile()) continue;
+                String fn = f.getName();
+                if (!fn.toLowerCase().endsWith(".txt")) continue;
+                Map<String, Object> m = byName.get(fn);
+                if (m == null) {
+                    m = new LinkedHashMap<String, Object>();
+                    m.put("path", fn); m.put("name", fn); m.put("kind", "document"); m.put("alias", null);
+                    byName.put(fn, m);
+                }
+                m.put("size", f.length());
+                m.put("modified", f.lastModified());
+                m.put("source", "external");
+                m.put("managed", Boolean.TRUE);
+            }
+        }
+        java.util.List<Map<String, Object>> files =
+                new java.util.ArrayList<Map<String, Object>>(byName.values());
+        files.sort((a, b) -> String.valueOf(a.get("name")).compareTo(String.valueOf(b.get("name"))));
+        out.put("ok", true);
+        out.put("external", dir);
+        out.put("dir", dir == null
+                ? "(solo bundled nel WAR - imposta orchestrator.mask-pools-dir per sostituirli)"
+                : dir);
+        out.put("files", files);
+        return ResponseEntity.ok(out);
+    }
+
+    @GetMapping("/api/mask/pools/download")
+    public void poolDownload(@RequestParam("path") String path,
+                             javax.servlet.http.HttpServletResponse resp) throws java.io.IOException {
+        String name = safeName(path);
+        if (name == null) { resp.setStatus(400); return; }
+        com.legalarchive.orchestrator.mask.MaskPools pools =
+                new com.legalarchive.orchestrator.mask.MaskPools(props.getMaskPoolsDir());
+        String raw = pools.readRaw(name);
+        if (raw == null) { resp.setStatus(404); return; }
+        resp.setContentType("text/plain; charset=UTF-8");
+        resp.setHeader("Content-Disposition", "inline; filename=\"" + name + "\"");
+        resp.getOutputStream().write(raw.getBytes(StandardCharsets.UTF_8));
+        resp.getOutputStream().flush();
+    }
+
+    @PostMapping("/api/mask/pools/files")
+    public ResponseEntity<Map<String, Object>> poolUpload(
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        String dir = poolDir();
+        if (dir == null) return badRequest(out,
+                "Nessuna cartella esterna configurata: imposta orchestrator.mask-pools-dir nell'application.properties per poter sostituire i pool.");
+        if (file == null || file.isEmpty()) return badRequest(out, "No file provided");
+        String name = safeName(file.getOriginalFilename());
+        if (name == null) return badRequest(out, "Invalid file name: " + file.getOriginalFilename());
+        if (!name.toLowerCase().endsWith(".txt")) name = name + ".txt";
+        try {
+            java.io.File d = new java.io.File(dir);
+            java.nio.file.Files.createDirectories(d.toPath());
+            java.io.InputStream in = file.getInputStream();
+            try {
+                java.nio.file.Files.copy(in, new java.io.File(d, name).toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } finally { in.close(); }
+            out.put("ok", true); out.put("name", name); out.put("dir", dir);
+            return ResponseEntity.ok(out);
+        } catch (Exception e) { return badRequest(out, e.getMessage()); }
+    }
+
+    @PostMapping("/api/mask/pools/files/create")
+    public ResponseEntity<Map<String, Object>> poolCreate(@RequestParam("name") String name,
+            @RequestParam(value = "content", required = false) String content) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        String dir = poolDir();
+        if (dir == null) return badRequest(out, "Nessuna cartella esterna configurata: imposta orchestrator.mask-pools-dir.");
+        String fn = safeName(name);
+        if (fn == null) return badRequest(out, "Nome file non valido");
+        if (!fn.toLowerCase().endsWith(".txt")) fn = fn + ".txt";
+        try {
+            java.io.File d = new java.io.File(dir);
+            java.nio.file.Files.createDirectories(d.toPath());
+            java.nio.file.Files.write(new java.io.File(d, fn).toPath(),
+                    (content == null ? "" : content).getBytes(StandardCharsets.UTF_8));
+            out.put("ok", true); out.put("name", fn);
+            return ResponseEntity.ok(out);
+        } catch (Exception e) { return badRequest(out, e.getMessage()); }
+    }
+
+    @PostMapping("/api/mask/pools/files/delete")
+    public ResponseEntity<Map<String, Object>> poolDelete(@RequestParam("path") String path) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        String dir = poolDir();
+        if (dir == null) return badRequest(out, "Nessuna cartella esterna configurata.");
+        String name = safeName(path);
+        if (name == null) return badRequest(out, "Nome non valido");
+        java.io.File f = new java.io.File(dir, name);
+        if (!f.isFile()) return badRequest(out,
+                "Override esterno non presente per '" + name + "' (il file bundled nel WAR resta disponibile).");
+        boolean ok = f.delete();
+        out.put("ok", ok);
+        if (!ok) out.put("error", "Impossibile eliminare il file");
+        return ResponseEntity.ok(out);
+    }
+
+    @GetMapping("/api/mask/pools/alias-suggest")
+    public Map<String, Object> poolAlias(@RequestParam("file") String file) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        out.put("ok", true);
+        out.put("alias", safeName(file));
+        return out;
+    }
+
     // ---- shared helpers (feedId == null => app scope) ----
     private java.nio.file.Path scope(String feedId) {
         if (feedId == null) return assets.sharedDir();

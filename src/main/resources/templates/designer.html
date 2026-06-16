@@ -182,6 +182,27 @@
     var DATASOURCES = [];
     fetch(CTX + 'api/datasources').then(readJson).then(function(d){ DATASOURCES = d || []; renderNodes(); }).catch(function(e){ console.warn('datasources load failed:', e && e.message); });
 
+    var MASK_POOLS = [];
+    fetch(CTX + 'api/mask/pools/files').then(readJson).then(function(d){
+        MASK_POOLS = (d && d.files ? d.files : []).map(function(f){ return f.name; });
+        renderNodes();
+    }).catch(function(e){ console.warn('mask pools load failed:', e && e.message); });
+    // Build <option> list for a pool category, filtered by file-name prefix.
+    function poolOptions(current, prefixes, def) {
+        var opts = '<option value=""' + (current ? '' : ' selected') + '>(default: ' + def + ')</option>';
+        MASK_POOLS.forEach(function (f) {
+            var ok = false;
+            for (var k = 0; k < prefixes.length; k++) { if (f.indexOf(prefixes[k]) === 0) { ok = true; break; } }
+            if (!ok) return;
+            opts += '<option value="' + attresc(f) + '"' + (current === f ? ' selected' : '') + '>' + attresc(f) + '</option>';
+        });
+        return opts;
+    }
+    function poolSel(i, key, label, prefixes, def, cur) {
+        return '<div class="field"><label>' + label + '</label><select onchange="setNodeParam(' + i + ',\'' + key + '\',this.value)">' +
+            poolOptions(cur, prefixes, def) + '</select></div>';
+    }
+
     function tick() { document.getElementById('clock').textContent = new Date().toLocaleString('it-IT'); }
     tick(); setInterval(tick, 1000);
 
@@ -620,7 +641,7 @@
                         '<option value="false"' + (nodeParam(n,'numericPreserveSeparators') === 'false' ? ' selected' : '') + '>randomize all positions</option></select></div></div>';
                     h += '<div class="subsection"><div class="sub-label">Pools & strategies</div>';
                     h += '<div class="form-row">' +
-                        '<div class="field"><label>Italian pool %</label><input type="number" min="0" max="100" value="' + attresc(nodeParam(n,'localePercent') || '100') + '" oninput="setNodeParam(' + i + ',\'localePercent\',this.value)"></div>' +
+                        '<div class="field"><label>Italian pool % (legacy)</label><input type="number" min="0" max="100" value="' + attresc(nodeParam(n,'localePercent') || '100') + '" oninput="setNodeParam(' + i + ',\'localePercent\',this.value)"></div>' +
                         '<div class="field"><label>customerDescription: person %</label><input type="number" min="0" max="100" value="' + attresc(nodeParam(n,'personVsCompanyPercent') || '70') + '" oninput="setNodeParam(' + i + ',\'personVsCompanyPercent\',this.value)"></div></div>';
                     h += '<div class="form-row">' +
                         '<div class="field"><label>CID mode</label><select onchange="setNodeParam(' + i + ',\'cidMode\',this.value)">' +
@@ -629,6 +650,18 @@
                         '<option value="hash"' + (nodeParam(n,'cidMode') === 'hash' ? ' selected' : '') + '>hash (deterministic, fixed length)</option></select></div>' +
                         '<div class="field"><label>CID partial mask %</label><input type="number" min="0" max="100" value="' + attresc(nodeParam(n,'cidMaskPercent') || '60') + '" oninput="setNodeParam(' + i + ',\'cidMaskPercent\',this.value)"></div>' +
                         '<div class="field"><label>CID hash length</label><input type="number" min="4" value="' + attresc(nodeParam(n,'cidHashLen') || '12') + '" oninput="setNodeParam(' + i + ',\'cidHashLen\',this.value)"></div></div></div>';
+                    h += '<div class="subsection"><div class="sub-label">Pool files (mix Italian / international freely)</div>';
+                    h += '<div class="form-row">' +
+                        poolSel(i, 'firstNameFile', 'First names', ['firstnames'], 'firstnames_it.txt', nodeParam(n,'firstNameFile')) +
+                        poolSel(i, 'lastNameFile', 'Surnames', ['lastnames'], 'lastnames_it.txt', nodeParam(n,'lastNameFile')) +
+                        poolSel(i, 'cityFile', 'Cities', ['cities','caps'], 'cities_it.txt', nodeParam(n,'cityFile')) +
+                        poolSel(i, 'streetFile', 'Streets', ['streets'], 'streets_it.txt', nodeParam(n,'streetFile')) + '</div>';
+                    h += '<div class="form-row">' +
+                        poolSel(i, 'companyAnimalsFile', 'Company &mdash; animals', ['company_animals'], 'company_animals_it.txt', nodeParam(n,'companyAnimalsFile')) +
+                        poolSel(i, 'companyColorsFile', 'Company &mdash; colors', ['company_colors'], 'company_colors_it.txt', nodeParam(n,'companyColorsFile')) +
+                        poolSel(i, 'companyActionsFile', 'Company &mdash; actions', ['company_actions'], 'company_actions_it.txt', nodeParam(n,'companyActionsFile')) +
+                        poolSel(i, 'companySuffixesFile', 'Company &mdash; suffixes', ['company_suffixes'], 'company_suffixes_it.txt', nodeParam(n,'companySuffixesFile')) + '</div>';
+                    h += '<div class="dim small">Each category is chosen independently &mdash; e.g. Italian animals + international colors. Empty = bundled default. View / replace these files in the <b>Pool files</b> page (topbar).</div></div>';
                     h += '<div class="dim small" style="margin-top:6px">Deterministic streaming masking (constant memory, ~1GB ok). Driven by displayschema <code>anonType</code>. Strategies: <code>date</code> (passthrough, priority), <code>numericFixed</code>, <code>alphanumericFixed</code>, <code>cid</code> (format-preserving / partial / hash), <code>firstName/lastName/fullName/city/address/company</code> (pools bundled in WAR; nome&times;cognome cross-joined; Italian-vs-international by %), <code>customerDescription</code> (person or company by %), <code>freeText</code> (lorem, exact length). Same value &rarr; same output (joins survive). Secret + pools in application.properties (orchestrator.masking-secret / orchestrator.mask-pools-dir). outputs: ##VAR outputFile, dataRows, columns</div>';
                 } else if (ex === 'anonymize') {
                     h += '<div class="form-row">' +

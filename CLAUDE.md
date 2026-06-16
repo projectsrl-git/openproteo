@@ -181,3 +181,19 @@ Ogni turno di sviluppo (= ogni "consegna" di Claude) produce:
   (best-effort: push fallito non blocca il deploy locale; nessuna modifica -> nessun commit).
 * Quindi ogni turno: genero COMMIT_MSG.txt nel repo (entra nello zip) descrivendo le
   modifiche di quel turno.
+
+## Mask pools: selezione per-file + gestione
+
+* MaskGenerators e' parametrico: campi *File (firstNameFile/lastNameFile/cityFile/streetFile/
+  companyAnimalsFile/companyColorsFile/companyActionsFile/companySuffixesFile), default _it.
+  runMask li legge dai param dello step via poolFile() (hardened a bare filename).
+* Designer step mask: 8 tendine (categoria -> file), filtrate per prefisso, combinabili
+  it/intl. Niente piu' selezione locale via properties. Catalogo da GET /api/mask/pools/files.
+* Pool files page (/pools, "pools.html", riusa filespanel.js su api/mask/pools/): list/view/
+  replace/create/delete. File effettivo = override esterno (orchestrator.mask-pools-dir) se
+  presente, altrimenti bundled in /maskdata/. Upload/replace SOLO se mask-pools-dir e' settata.
+* Endpoint: GET /api/mask/pools/files (catalogo bundled∪esterni), GET .../download?path=,
+  POST .../files (upload/replace), POST .../files/create, POST .../files/delete,
+  GET .../alias-suggest. MaskPools.BUNDLED (15 nomi), hasExternal, readRaw.
+* Dati pool: nomi/cognomi it+intl con lettere interne invertite (one-off, fake);
+  company_animals/colors/actions/suffixes in *_it e *_international.

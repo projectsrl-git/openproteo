@@ -56,4 +56,53 @@ public final class MaskPools {
     }
 
     public boolean isEmpty(String fileName) { return get(fileName).length == 0; }
+
+    /** External override directory in use (or null if only bundled pools are available). */
+    public String getExternalDir() { return externalDir; }
+
+    /** Known pool files bundled in the WAR under /maskdata/. Used to build the selection
+     *  catalog even though a classpath dir cannot be reliably listed at runtime. */
+    public static final String[] BUNDLED = {
+        "firstnames_it.txt", "firstnames_international.txt",
+        "lastnames_it.txt", "lastnames_international.txt",
+        "cities_it.txt", "caps_it.txt", "streets_it.txt",
+        "company_animals_it.txt", "company_animals_international.txt",
+        "company_colors_it.txt", "company_colors_international.txt",
+        "company_actions_it.txt", "company_actions_international.txt",
+        "company_suffixes_it.txt", "company_suffixes_international.txt"
+    };
+
+    public static boolean isBundled(String fileName) {
+        for (String b : BUNDLED) if (b.equals(fileName)) return true;
+        return false;
+    }
+
+    /** True if an external override file currently exists for this name. */
+    public boolean hasExternal(String fileName) {
+        if (externalDir == null) return false;
+        return new java.io.File(externalDir, fileName).isFile();
+    }
+
+    /** Raw content of the effective file (external override if present, else bundled),
+     *  comments included. Returns null if neither exists. */
+    public String readRaw(String fileName) {
+        InputStream is = null;
+        try {
+            if (externalDir != null) {
+                java.io.File f = new java.io.File(externalDir, fileName);
+                if (f.isFile()) is = new java.io.FileInputStream(f);
+            }
+            if (is == null) is = MaskPools.class.getResourceAsStream("/maskdata/" + fileName);
+            if (is == null) return null;
+            BufferedReader r = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            String line; boolean first = true;
+            while ((line = r.readLine()) != null) { if (!first) sb.append('\n'); sb.append(line); first = false; }
+            return sb.toString();
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (is != null) try { is.close(); } catch (Exception ignore) {}
+        }
+    }
 }

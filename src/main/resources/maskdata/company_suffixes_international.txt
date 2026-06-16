@@ -1,0 +1,11 @@
+# Company name parts - legal suffixes (international)
+Ltd
+Inc
+LLC
+GmbH
+Corp
+PLC
+Group
+Holdings
+AG
+Co.

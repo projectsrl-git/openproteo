@@ -186,6 +186,23 @@ Alias, Size, Modified; secondo click inverte l'ordine).
 Nel **viewer CSV** le colonne sono **ridimensionabili**: trascina il bordo destro
 dell'intestazione di colonna per allargarla/restringerla (min 40px).
 
+## Pool di masking: selezione file e gestione
+
+Le strategie a pool dello step `mask` (firstName, lastName, city, address, company...)
+attingono da file di valori. Per ogni categoria scegli **quale file** usare con una
+**tendina nello step mask** del designer: italiano o internazionale, **combinabili
+liberamente** (es. animali italiani + colori internazionali). Vuoto = default bundled.
+
+Categorie e parametri: `firstNameFile`, `lastNameFile`, `cityFile`, `streetFile`,
+`companyAnimalsFile`, `companyColorsFile`, `companyActionsFile`, `companySuffixesFile`.
+Niente piu' selezione it/intl via application.properties: e' tutto per-file nello step.
+
+I file sono inclusi nel WAR; impostando una **cartella esterna**
+(`orchestrator.mask-pools-dir`) puoi **visualizzarli e sostituirli** senza ricompilare,
+dalla pagina **Pool files** (topbar). Gli upload/sostituzioni vengono scritti nella
+cartella esterna e hanno priorita' sul bundled. I nomi/cognomi (it + intl) sono volutamente
+"fake": alcune lettere interne sono invertite (Marco -> Macro) per non usare valori reali.
+
 ## Loop sui file (blocco LOOP / ENDLOOP)
 
 Quando l'estrazione produce **più file** (split per righe/MB → `${csvFiles}` lista,

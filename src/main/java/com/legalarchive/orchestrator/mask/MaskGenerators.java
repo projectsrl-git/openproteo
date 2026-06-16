@@ -15,7 +15,16 @@ public final class MaskGenerators {
     private final MaskPools pools;
 
     // config
-    public int localePercentIt = 100;          // % of values drawn from the Italian pool; rest international
+    public int localePercentIt = 100;          // legacy: kept harmless; file selection below now drives locale
+    // Per-pool file names (selectable from the mask step; mix freely, e.g. IT animals + intl colors)
+    public String firstNameFile      = "firstnames_it.txt";
+    public String lastNameFile       = "lastnames_it.txt";
+    public String cityFile           = "cities_it.txt";
+    public String streetFile         = "streets_it.txt";
+    public String companyAnimalsFile = "company_animals_it.txt";
+    public String companyColorsFile  = "company_colors_it.txt";
+    public String companyActionsFile = "company_actions_it.txt";
+    public String companySuffixesFile = "company_suffixes_it.txt";
     public String cidMode = "formatPreserving"; // formatPreserving | partial | hash
     public int cidMaskPercent = 60;             // for partial: % of length masked in the MIDDLE
     public int cidHashLen = 12;                 // for hash: hex length
@@ -53,44 +62,40 @@ public final class MaskGenerators {
 
     public String firstName(String value, String group) {
         MaskEngine.Stream s = engine.stream(group, norm(value));
-        boolean it = useItalian(s);
-        String[] pool = it ? pools.get("firstnames_it.txt") : pools.get("firstnames_international.txt");
-        return pick(pool, s, value);
+        return pick(pools.get(firstNameFile), s, value);
     }
 
     public String lastName(String value, String group) {
         MaskEngine.Stream s = engine.stream(group, norm(value));
-        return pick(pools.get("lastnames_it.txt"), s, value);
+        return pick(pools.get(lastNameFile), s, value);
     }
 
     public String fullName(String value, String group) {
         MaskEngine.Stream s = engine.stream(group, norm(value));
-        boolean it = useItalian(s);
-        String[] first = it ? pools.get("firstnames_it.txt") : pools.get("firstnames_international.txt");
-        String fn = pick(first, s, "Mario");
-        String ln = pick(pools.get("lastnames_it.txt"), s, "Rossi");
+        String fn = pick(pools.get(firstNameFile), s, "Mario");
+        String ln = pick(pools.get(lastNameFile), s, "Rossi");
         return fn + " " + ln;
     }
 
     public String city(String value, String group) {
         MaskEngine.Stream s = engine.stream(group, norm(value));
-        return pick(pools.get("cities_it.txt"), s, value);
+        return pick(pools.get(cityFile), s, value);
     }
 
     /** plausible structure only (no CAP/city coherence by design): "Via <name> <number>". */
     public String address(String value, String group) {
         MaskEngine.Stream s = engine.stream(group, norm(value));
-        String street = pick(pools.get("streets_it.txt"), s, "Roma");
+        String street = pick(pools.get(streetFile), s, "Roma");
         int num = 1 + s.nextInt(250);
         return "Via " + street + " " + num;
     }
 
     public String company(String value, String group) {
         MaskEngine.Stream s = engine.stream(group, norm(value));
-        String a = pick(pools.get("company_animals.txt"), s, "Leone");
-        String c = pick(pools.get("company_colors.txt"), s, "Dorato");
-        String act = pick(pools.get("company_actions.txt"), s, "Volante");
-        String suf = pick(pools.get("company_suffixes.txt"), s, "S.r.l.");
+        String a = pick(pools.get(companyAnimalsFile), s, "Leone");
+        String c = pick(pools.get(companyColorsFile), s, "Dorato");
+        String act = pick(pools.get(companyActionsFile), s, "Volante");
+        String suf = pick(pools.get(companySuffixesFile), s, "S.r.l.");
         return a + " " + c + " " + act + " " + suf;
     }
 
@@ -99,16 +104,14 @@ public final class MaskGenerators {
         MaskEngine.Stream s = engine.stream(group, norm(value));
         boolean person = s.nextInt(100) < personVsCompanyPercent;
         if (person) {
-            boolean it = useItalian(s);
-            String[] first = it ? pools.get("firstnames_it.txt") : pools.get("firstnames_international.txt");
-            String fn = pick(first, s, "Mario");
-            String ln = pick(pools.get("lastnames_it.txt"), s, "Rossi");
+            String fn = pick(pools.get(firstNameFile), s, "Mario");
+            String ln = pick(pools.get(lastNameFile), s, "Rossi");
             return fn + " " + ln;
         } else {
-            String a = pick(pools.get("company_animals.txt"), s, "Leone");
-            String c = pick(pools.get("company_colors.txt"), s, "Dorato");
-            String act = pick(pools.get("company_actions.txt"), s, "Volante");
-            String suf = pick(pools.get("company_suffixes.txt"), s, "S.r.l.");
+            String a = pick(pools.get(companyAnimalsFile), s, "Leone");
+            String c = pick(pools.get(companyColorsFile), s, "Dorato");
+            String act = pick(pools.get(companyActionsFile), s, "Volante");
+            String suf = pick(pools.get(companySuffixesFile), s, "S.r.l.");
             return a + " " + c + " " + act + " " + suf;
         }
     }

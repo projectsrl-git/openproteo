@@ -580,6 +580,18 @@ public class InternalSteps {
     }
 
     private static long pLong(String v, long def) { try { return v == null || v.trim().isEmpty() ? def : Long.parseLong(v.trim()); } catch (Exception e) { return def; } }
+
+    /** Pool file-name selector: returns the chosen file name, or the default if blank.
+     *  Hardened to a bare file name (strips any path) to avoid traversal. */
+    private static String poolFile(String v, String def) {
+        if (v == null) return def;
+        String t = v.trim();
+        if (t.isEmpty()) return def;
+        t = t.replace('\\', '/');
+        int slash = t.lastIndexOf('/');
+        if (slash >= 0) t = t.substring(slash + 1);
+        return t.isEmpty() ? def : t;
+    }
     private static double pDouble(String v, double def) { try { return v == null || v.trim().isEmpty() ? def : Double.parseDouble(v.trim()); } catch (Exception e) { return def; } }
     private static long mb(long bytes) { return bytes / (1024L * 1024L); }
     private static java.util.Set<String> csvSet(String v) {
@@ -773,6 +785,15 @@ public class InternalSteps {
         gen.cidMaskPercent = (int) pLong(params.get("cidMaskPercent"), 60);
         gen.cidHashLen = (int) pLong(params.get("cidHashLen"), 12);
         gen.personVsCompanyPercent = (int) pLong(params.get("personVsCompanyPercent"), 70);
+        // Per-pool file selection (mix freely, e.g. IT animals + intl colors). Blank = default.
+        gen.firstNameFile      = poolFile(params.get("firstNameFile"),      gen.firstNameFile);
+        gen.lastNameFile       = poolFile(params.get("lastNameFile"),       gen.lastNameFile);
+        gen.cityFile           = poolFile(params.get("cityFile"),           gen.cityFile);
+        gen.streetFile         = poolFile(params.get("streetFile"),         gen.streetFile);
+        gen.companyAnimalsFile = poolFile(params.get("companyAnimalsFile"), gen.companyAnimalsFile);
+        gen.companyColorsFile  = poolFile(params.get("companyColorsFile"),  gen.companyColorsFile);
+        gen.companyActionsFile = poolFile(params.get("companyActionsFile"), gen.companyActionsFile);
+        gen.companySuffixesFile = poolFile(params.get("companySuffixesFile"), gen.companySuffixesFile);
         set.accept("init", new String[]{"PASS", "deterministic RNG + pools ready (HMAC-SHA256); normalize=" + normMode
                 + "; localePercentIt=" + gen.localePercentIt + "; cidMode=" + gen.cidMode});
 

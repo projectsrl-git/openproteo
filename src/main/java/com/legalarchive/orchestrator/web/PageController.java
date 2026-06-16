@@ -136,6 +136,11 @@ public class PageController {
         return "shared";
     }
 
+    @GetMapping("/pools")
+    public String poolFiles() {
+        return "pools";
+    }
+
     @GetMapping("/view")
     public String view() {
         return "view";

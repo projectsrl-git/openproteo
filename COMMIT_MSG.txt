@@ -1,15 +1,45 @@
-docs: convenzione deploy auto-commit + COMMIT_MSG nello zip
+feat: mask pools - dati fake, selezione per-file, gestione file
 
-Da ora COMMIT_MSG.txt viaggia dentro lo zip (openproteo/), versionato,
-così ogni pacchetto porta il proprio messaggio di commit.
+Quattro punti sui pool di masking:
 
-Il deploy_openproteo.bat (consegnato a parte, fuori dal repo) e' stato
-aggiornato per:
-- robocopy senza /XF COMMIT_MSG.txt (il messaggio arriva dallo zip);
-- dopo una build OK: git add -A, e se ci sono modifiche
-  git commit -F COMMIT_MSG.txt + git push (best-effort, non blocca il
-  deploy locale; nessuna modifica -> nessun commit).
+1. Nomi e cognomi (it + internazionali) resi "fake" invertendo alcune
+   lettere interne (Marco -> Macro). Generazione one-off (nessun costo a
+   runtime): firstnames_it/international, lastnames_it/international.
+2. company_animals/colors/actions/suffixes presenti sia *_it sia
+   *_international.
+3. Selezione italiano/internazionale NON piu' via application.properties
+   ma con tendine per-file nello step mask del designer: 8 categorie
+   combinabili liberamente (es. animali it + colori intl). Vuoto =
+   default bundled.
+4. File pool visualizzabili e sostituibili dalla nuova pagina Pool files
+   (/pools): list / view / replace / create / delete. File effettivo =
+   override esterno (orchestrator.mask-pools-dir) se presente, altrimenti
+   bundled nel WAR.
 
-Qui nel repo aggiorno solo la documentazione della convenzione
-(CLAUDE.md + .claude/2026-06-16-deploy-autocommit.md) e includo
-COMMIT_MSG.txt. Il codice runtime e' invariato dal turno del loop.
+Backend:
+- InternalSteps.runMask: aggiunto l'helper poolFile() mancante (il
+  refactor parametrico precedente lo invocava senza definirlo -> build
+  rotta, ora risolta). Legge i param firstNameFile/lastNameFile/cityFile/
+  streetFile/company*File.
+- MaskPools: BUNDLED[15], isBundled, hasExternal, getExternalDir, readRaw.
+- ApiController: endpoint /api/mask/pools/files (catalogo bundled∪esterni),
+  /download, /files (upload/replace), /files/create, /files/delete,
+  /alias-suggest. Stessa forma del pannello shared -> riuso filespanel.js.
+
+Frontend:
+- designer.html: 8 tendine nella sezione mask (poolOptions/poolSel),
+  catalogo via fetch; "Italian pool %" marcato legacy.
+- pools.html (NEW) su /pools, riusa filespanel.js; mostra la dir esterna
+  o avvisa di settare orchestrator.mask-pools-dir. Link nel dashboard.
+
+Verifiche:
+- 76 classi compilate.
+- TestPools: BUNDLED=15, firstnames_it=182 (primo "Giusppee"=scramble),
+  readRaw international OK, fallback null.
+- designer/pools/dashboard JS validati; no \n/\r; Thymeleaf-safe.
+
+Non testabile in sandbox: runMask reale con i file scelti, upload/replace
+su mask-pools-dir, rendering nel browser. Logica catalogo/lettura testata.
+
+Deploy: per sostituire i pool impostare orchestrator.mask-pools-dir
+(path assoluto) nell'application.properties esterno. Redeploy + Ctrl+F5.

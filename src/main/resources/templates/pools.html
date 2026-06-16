@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenProteo — Pool files</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+    <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub">Pool files</span>
+    <span class="spacer"></span>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap" style="max-width:1100px">
+    <h1>Masking pool files</h1>
+    <p class="page-sub">Value pools used by the <span class="mono">mask</span> step (first names, surnames, cities,
+        streets, company parts). Files are bundled in the WAR; an <b>external override</b> directory
+        (<span class="mono">orchestrator.mask-pools-dir</span>) lets you view and replace them without a rebuild.
+        Select which file each category uses directly in the mask step (Italian / international, mixable).</p>
+    <p class="page-sub" id="poolDirNote">&nbsp;</p>
+
+    <div class="panel" style="padding:16px">
+        <div id="poolFiles"></div>
+    </div>
+</div>
+
+<script th:src="@{/js/filespanel.js}"></script>
+<script>
+    var CTX = (function(){ var b=document.querySelector('.brand'); var h=b?b.getAttribute('href'):'/'; return h.charAt(h.length-1)==='/'?h:h+'/'; })();
+    function tick() { document.getElementById('clock').textContent = new Date().toLocaleString('it-IT'); }
+    tick(); setInterval(tick, 1000);
+    mountFilesPanel(document.getElementById('poolFiles'), CTX + 'api/mask/pools/', CTX);
+    fetch(CTX + 'api/mask/pools/files').then(function(r){return r.json();}).then(function(d){
+        var note = document.getElementById('poolDirNote');
+        if (d && d.external) { note.innerHTML = 'External override dir: <span class="mono">' + d.external + '</span> &mdash; uploads/replacements are written here.'; }
+        else { note.innerHTML = '<b>No external dir configured.</b> Set <span class="mono">orchestrator.mask-pools-dir</span> in application.properties to replace pools (currently bundled-only, read-only).'; }
+    }).catch(function(){});
+</script>
+<script th:src="@{/js/modal.js}"></script>
+<script th:src="@{/js/theme.js}"></script>
+</body>
+</html>
