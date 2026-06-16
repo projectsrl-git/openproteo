@@ -347,6 +347,34 @@ public class ApiController {
         }
     }
 
+    /** Delete a workflow definition (its XML file) and reload the registry.
+        Refuses if a run is currently active for the feed. Run history/data on disk are left intact. */
+    @PostMapping("/api/workflows/{feedId}/delete")
+    public ResponseEntity<Map<String, Object>> deleteWorkflow(@PathVariable String feedId) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        try {
+            com.legalarchive.orchestrator.model.def.WorkflowDef wf = registry.get(feedId);
+            if (wf == null) {
+                out.put("ok", false); out.put("error", "Unknown feed");
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(out);
+            }
+            if (engine.activeRunId(feedId) != null) {
+                out.put("ok", false); out.put("error", "A run is currently active for this feed");
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(out);
+            }
+            java.io.File dir = new java.io.File(props.getWorkflowsDir());
+            java.io.File f = new java.io.File(dir, new java.io.File(wf.sourceFile == null ? feedId + ".xml" : wf.sourceFile).getName());
+            boolean removed = f.exists() && f.delete();
+            registry.reload();
+            out.put("ok", removed);
+            if (!removed) out.put("error", "Workflow file not found or could not be deleted");
+            return removed ? ResponseEntity.ok(out) : ResponseEntity.status(HttpStatus.NOT_FOUND).body(out);
+        } catch (Exception e) {
+            out.put("ok", false); out.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(out);
+        }
+    }
+
     /** Stato corrente di un run (polling UI). */
     @GetMapping("/api/runs/{feedId}/{runId}")
     public ResponseEntity<WorkflowRun> runState(@PathVariable String feedId, @PathVariable String runId) {

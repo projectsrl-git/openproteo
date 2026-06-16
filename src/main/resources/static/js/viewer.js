@@ -59,18 +59,49 @@
             tT.addEventListener('click', function () { tT.classList.add('active'); tA.classList.remove('active'); paneT.style.display = ''; paneA.style.display = 'none'; });
             tA.addEventListener('click', function () { tA.classList.add('active'); tT.classList.remove('active'); paneA.style.display = ''; paneT.style.display = 'none'; });
 
-            var totalW = columns.length * COLW;
+            var colW = []; for (var ci = 0; ci < columns.length; ci++) colW.push(COLW);
+            function rowWidthPx() { var w = 0; for (var i = 0; i < colW.length; i++) w += colW[i]; return w; }
+
             var head = el('div', 'vgrid-head', paneT);
-            var hr = el('div', 'vgrid-row', head); hr.style.width = totalW + 'px';
-            for (var c = 0; c < columns.length; c++) { var hc = el('div', 'vgrid-cell head', hr); hc.style.width = COLW + 'px'; text(hc, columns[c]); }
+            var hr = el('div', 'vgrid-row', head); hr.style.width = rowWidthPx() + 'px';
+            for (var c = 0; c < columns.length; c++) {
+                var hc = el('div', 'vgrid-cell head', hr); hc.style.width = colW[c] + 'px'; text(hc, columns[c]);
+                addResizer(hc, c);
+            }
             var body = el('div', 'vwr-body vgrid', paneT);
+
+            // drag a column's right edge to resize it; widths persist across virtual re-renders
+            function addResizer(headCell, idx) {
+                var rz = el('div', 'vgrid-resizer', headCell);
+                rz.addEventListener('mousedown', function (e) {
+                    e.preventDefault(); e.stopPropagation();
+                    var startX = e.clientX, startW = colW[idx], pending = false;
+                    document.body.style.cursor = 'col-resize';
+                    function onMove(ev) {
+                        var w = startW + (ev.clientX - startX);
+                        if (w < 40) w = 40;
+                        colW[idx] = w;
+                        headCell.style.width = w + 'px';
+                        hr.style.width = rowWidthPx() + 'px';
+                        if (!pending) { pending = true; requestAnimationFrame(function () { pending = false; vl.redraw(); }); }
+                    }
+                    function onUp() {
+                        document.removeEventListener('mousemove', onMove, true);
+                        document.removeEventListener('mouseup', onUp, true);
+                        document.body.style.cursor = '';
+                        vl.redraw();
+                    }
+                    document.addEventListener('mousemove', onMove, true);
+                    document.addEventListener('mouseup', onUp, true);
+                });
+            }
 
             var vl = virtualList(body, 26, function () { return curTotal; }, function (i) {
                 var pg = Math.floor(i / PAGE);
                 var rows = cache[pg];
-                var rd = document.createElement('div'); rd.className = 'vgrid-row' + (i % 2 ? ' odd' : ''); rd.style.width = totalW + 'px';
+                var rd = document.createElement('div'); rd.className = 'vgrid-row' + (i % 2 ? ' odd' : ''); rd.style.width = rowWidthPx() + 'px';
                 var row = rows ? rows[i - pg * PAGE] : null;
-                for (var c2 = 0; c2 < columns.length; c2++) { var cell = document.createElement('div'); cell.className = 'vgrid-cell'; cell.style.width = COLW + 'px'; cell.textContent = row ? (row[c2] == null ? '' : row[c2]) : ''; rd.appendChild(cell); }
+                for (var c2 = 0; c2 < columns.length; c2++) { var cell = document.createElement('div'); cell.className = 'vgrid-cell'; cell.style.width = colW[c2] + 'px'; cell.textContent = row ? (row[c2] == null ? '' : row[c2]) : ''; rd.appendChild(cell); }
                 if (!rows) ensure(pg);
                 return rd;
             });

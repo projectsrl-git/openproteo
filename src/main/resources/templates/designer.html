@@ -5,6 +5,7 @@
     <title>OpenProteo — Workflow Designer</title>
     <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
     <link rel="stylesheet" th:href="@{/css/app.css}">
+    <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 </head>
 <body>
 <datalist id="pathsug"></datalist>
@@ -22,6 +23,18 @@
 
     <div class="banner error" id="errBanner" style="display:none"></div>
     <div class="banner ok" id="okBanner" style="display:none"></div>
+
+    <div class="toolbar top-actions" th:if="${feedId != null}">
+        <button class="btn sm primary js-drun" onclick="designerRun()">▶ Run now</button>
+        <a class="btn sm js-drunlink" style="display:none">▷ Active run</a>
+        <button class="btn sm primary" onclick="save()">💾 Validate &amp; save</button>
+        <a class="btn sm" th:href="@{'/runs/' + ${feedId}}">⟲ Run history</a>
+        <a class="btn sm" th:href="@{'/audit/' + ${feedId}}">Audit log</a>
+        <a class="btn sm" th:href="@{'/workflow/' + ${feedId}}">Workflow page</a>
+        <span class="spacer"></span>
+        <button class="btn sm" onclick="duplicateWorkflow()">⧉ Duplicate as new</button>
+        <button class="btn sm danger" onclick="deleteWorkflow()">🗑 Delete workflow</button>
+    </div>
 
     <div class="designer-grid">
 
@@ -79,14 +92,17 @@
             <div class="toolbar">
                 <button class="btn" onclick="addStep()">＋ Add step</button>
                 <button class="btn" onclick="addGate()">＋ Add gate</button>
+                <button class="btn sm" onclick="collapseAllNodes()" title="collapse all step details">⊟ Collapse all</button>
+                <button class="btn sm" onclick="expandAllNodes()" title="expand all step details">⊞ Expand all</button>
                 <span class="spacer"></span>
-                <button id="dRunBtn" class="btn primary" onclick="designerRun()" th:if="${feedId != null}">▶ Run now</button>
-                <a id="dRunLink" class="btn" style="display:none" th:if="${feedId != null}">▷ Active run</a>
+                <button id="dRunBtn" class="btn primary js-drun" onclick="designerRun()" th:if="${feedId != null}">▶ Run now</button>
+                <a id="dRunLink" class="btn js-drunlink" style="display:none" th:if="${feedId != null}">▷ Active run</a>
                 <a class="btn" th:if="${feedId != null}" th:href="@{'/runs/' + ${feedId}}">⟲ Run history</a>
                 <a class="btn" th:if="${feedId != null}" th:href="@{'/audit/' + ${feedId}}">Audit log</a>
                 <a class="btn" th:if="${feedId != null}" th:href="@{'/workflow/' + ${feedId}}">Workflow page</a>
                 <a class="btn" th:href="@{/}">Cancel</a>
                 <button class="btn" onclick="duplicateWorkflow()" th:if="${feedId != null}">⧉ Duplicate as new</button>
+                <button class="btn danger" onclick="deleteWorkflow()" th:if="${feedId != null}">🗑 Delete workflow</button>
                 <button class="btn primary" onclick="save()">💾 Validate &amp; save</button>
             </div>
         </div>
@@ -393,18 +409,38 @@
         }
     });
 
+    // ---- step detail collapse/expand ----
+    var collapsedNodes = {};
+    function nodeKey(n, i) { return (n && n.id) ? ('id:' + n.id) : ('ix:' + i); }
+    function cardOf(el) { var n = el; while (n && !(n.className && (' ' + n.className + ' ').indexOf(' node-card ') >= 0)) n = n.parentNode; return n; }
+    function toggleNode(btn, i) {
+        var key = nodeKey(wf.nodes[i], i);
+        collapsedNodes[key] = !collapsedNodes[key];
+        var card = cardOf(btn);
+        if (card) { if (collapsedNodes[key]) card.className += ' collapsed'; else card.className = card.className.replace(/\s*collapsed\b/, ''); }
+    }
+    function collapseAllNodes() { wf.nodes.forEach(function (n, i) { collapsedNodes[nodeKey(n, i)] = true; }); renderNodes(); }
+    function expandAllNodes() { collapsedNodes = {}; renderNodes(); }
+
     function renderNodes() {
         refreshSuggestions();
         var h = '';
         wf.nodes.forEach(function (n, i) {
             var isGate = n.kind === 'GATE';
-            h += '<div class="node-card' + (isGate ? ' gate-card' : '') + '">';
-            h += '<div class="nc-head"><span class="nc-type">' + (isGate ? '◇ GATE' : '▮ STEP') + ' ' + (i + 1) + '</span>' +
+            var ckey = nodeKey(n, i);
+            var isColl = !!collapsedNodes[ckey];
+            h += '<div class="node-card' + (isGate ? ' gate-card' : '') + (isColl ? ' collapsed' : '') + '">';
+            h += '<div class="nc-head' + (isGate ? ' gate' : '') + '">' +
+                '<button class="nc-toggle" onclick="toggleNode(this,' + i + ')" title="collapse / expand">▾</button>' +
+                '<span class="step-badge">' + (i + 1) + '</span>' +
+                '<span class="nc-type">' + (isGate ? '◇ GATE' : 'STEP') + '</span>' +
+                '<span class="nc-name">' + attresc(n.name || '') + '</span>' +
                 '<span class="spacer"></span><span class="nc-tools">' +
                 '<button onclick="move(' + i + ',-1)" title="move up">▲</button>' +
                 '<button onclick="move(' + i + ',1)" title="move down">▼</button>' +
                 '<button onclick="dupNode(' + i + ')" title="duplicate">⧉</button>' +
                 '<button class="del" onclick="delNode(' + i + ')" title="delete">✕</button></span></div>';
+            h += '<div class="nc-body">';
 
             h += '<div class="form-row">' +
                 '<div class="field"><label>Id *</label><input value="' + attresc(n.id) + '" onchange="updNodeR(' + i + ',\'id\',this.value)"></div>' +
@@ -644,7 +680,8 @@
                     '<div class="field"><label>' + (n.type === 'manual' ? 'On reject' : 'On false') + '</label>' + targetSelect(i, 'onFalse', n.onFalse) + '</div>' +
                     '</div>';
             }
-            h += '</div>';
+            h += '</div>';   // .nc-body
+            h += '</div>';   // .node-card
         });
         if (wf.nodes.length === 0) {
             h = '<div class="panel"><div class="tree dim">No nodes yet. Add a step to start: a typical flow is' +
@@ -787,12 +824,15 @@
     var dRunBtn = document.getElementById('dRunBtn');
     var dRunLink = document.getElementById('dRunLink');
     function dSetRunning(running, runId) {
-        if (!dRunBtn) return;
-        dRunBtn.disabled = running;
-        dRunBtn.textContent = running ? '▶ Running…' : '▶ Run now';
-        if (dRunLink) {
-            if (running && runId) { dRunLink.style.display = ''; dRunLink.href = CTX + 'run/' + encodeURIComponent(EDIT_FEED_ID) + '/' + encodeURIComponent(runId); }
-            else dRunLink.style.display = 'none';
+        var btns = document.querySelectorAll('.js-drun');
+        for (var i = 0; i < btns.length; i++) {
+            btns[i].disabled = running;
+            btns[i].textContent = running ? '▶ Running…' : '▶ Run now';
+        }
+        var links = document.querySelectorAll('.js-drunlink');
+        for (var k = 0; k < links.length; k++) {
+            if (running && runId) { links[k].style.display = ''; links[k].href = CTX + 'run/' + encodeURIComponent(EDIT_FEED_ID) + '/' + encodeURIComponent(runId); }
+            else links[k].style.display = 'none';
         }
     }
     function dCheckActive() {
@@ -803,20 +843,21 @@
     }
     function designerRun() {
         if (!EDIT_FEED_ID || !dRunBtn || dRunBtn.disabled) return;
-        if (!confirm('Start a new run of ' + EDIT_FEED_ID + ' now?')) return;
-        dRunBtn.disabled = true; dRunBtn.textContent = '▶ Starting…';
-        fetch(CTX + 'api/workflows/' + encodeURIComponent(EDIT_FEED_ID) + '/run', { method: 'POST' })
-            .then(readJson)
-            .then(function (j) {
-                if (j.ok) window.location = CTX + 'run/' + encodeURIComponent(EDIT_FEED_ID) + '/' + encodeURIComponent(j.runId);
-                else { banner(false, 'Start failed: ' + esc(j.error || '')); dCheckActive(); }
-            })
-            .catch(function (e) { banner(false, 'Start failed: ' + esc(e.message || e)); dCheckActive(); });
+        opConfirm('Start a new run of ' + EDIT_FEED_ID + ' now?', function () {
+            dRunBtn.disabled = true; dRunBtn.textContent = '▶ Starting…';
+            fetch(CTX + 'api/workflows/' + encodeURIComponent(EDIT_FEED_ID) + '/run', { method: 'POST' })
+                .then(readJson)
+                .then(function (j) {
+                    if (j.ok) window.location = CTX + 'run/' + encodeURIComponent(EDIT_FEED_ID) + '/' + encodeURIComponent(j.runId);
+                    else { banner(false, 'Start failed: ' + esc(j.error || '')); dCheckActive(); }
+                })
+                .catch(function (e) { banner(false, 'Start failed: ' + esc(e.message || e)); dCheckActive(); });
+        }, { okText:'Run' });
     }
     if (dRunBtn) { dCheckActive(); setInterval(dCheckActive, 3000); }
 
     function save(forceOverwrite) {
-        if (forceOverwrite !== true && !confirm('Validate and save this workflow? Existing definition will be overwritten and cron rescheduled.')) return;
+        if (forceOverwrite !== true) { opConfirm('Validate and save this workflow? Existing definition will be overwritten and cron rescheduled.', function(){ save(true); }, { okText:'Save' }); return; }
         var errs = clientValidate();
         if (errs.length) {
             banner(false, '<div class="err-list">' + errs.map(esc).join('<br>') + '</div>');
@@ -837,7 +878,7 @@
                 if (window.__mountWfFiles) window.__mountWfFiles();
                 window.scrollTo(0, 0);
             } else if (res.st === 409 && res.j.exists) {
-                if (confirm('Workflow "' + wf.feedId + '" already exists. Overwrite its definition?')) save(true);
+                opConfirm('Workflow "' + wf.feedId + '" already exists. Overwrite its definition?', function(){ save(true); }, { danger:true, okText:'Overwrite' });
             } else {
                 banner(false, esc(res.j.error || 'Save failed'));
                 window.scrollTo(0, 0);
@@ -847,13 +888,27 @@
 
     // ---------------- edit mode ----------------
     function duplicateWorkflow() {
-        if (!confirm('Duplicate this workflow as a new draft?')) return;
-        EDIT_FEED_ID = null;
-        wf.feedId = '';
-        var fe = document.getElementById('f_feedId');
-        fe.readOnly = false; fe.style.opacity = 1; fe.value = ''; fe.focus();
-        banner(true, 'Duplicate mode: enter a new Feed ID, then Validate &amp; save.');
-        preview();
+        opConfirm('Duplicate this workflow as a new draft?', function () {
+            EDIT_FEED_ID = null;
+            wf.feedId = '';
+            var fe = document.getElementById('f_feedId');
+            fe.readOnly = false; fe.style.opacity = 1; fe.value = ''; fe.focus();
+            banner(true, 'Duplicate mode: enter a new Feed ID, then Validate &amp; save.');
+            preview();
+        }, { okText:'Duplicate' });
+    }
+
+    function deleteWorkflow() {
+        if (!EDIT_FEED_ID) return;
+        opConfirm('Delete workflow "' + EDIT_FEED_ID + '" permanently? Its definition file will be removed (run history and data on disk are kept).', function () {
+            fetch(CTX + 'api/workflows/' + encodeURIComponent(EDIT_FEED_ID) + '/delete', { method: 'POST' })
+                .then(readJson)
+                .then(function (j) {
+                    if (j.ok) window.location = CTX;
+                    else banner(false, 'Delete failed: ' + esc(j.error || ''));
+                })
+                .catch(function (e) { banner(false, 'Delete failed: ' + esc(e.message || e)); });
+        }, { danger:true, okText:'Delete' });
     }
 
     function fill(id, v) { document.getElementById(id).value = v === null || v === undefined ? '' : v; }
@@ -886,5 +941,7 @@
     }
 </script>
     <script th:src="@{/js/filespanel.js}"></script>
+<script th:src="@{/js/modal.js}"></script>
+<script th:src="@{/js/theme.js}"></script>
 </body>
 </html>

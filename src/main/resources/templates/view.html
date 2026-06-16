@@ -5,6 +5,7 @@
     <title>OpenProteo — viewer</title>
     <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
     <link rel="stylesheet" th:href="@{/css/app.css}">
+    <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 </head>
 <body>
 <div class="topbar">
@@ -35,5 +36,7 @@
         initViewer({ host: document.getElementById('viewer'), src: src, name: name, api: api, path: path });
     }
 </script>
+<script th:src="@{/js/modal.js}"></script>
+<script th:src="@{/js/theme.js}"></script>
 </body>
 </html>

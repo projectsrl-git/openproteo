@@ -76,9 +76,6 @@ public final class BulkWorkflowGenerator {
         List<String> header = rows.get(0);
 
         int iFeed = indexOf(header, map.feedId);
-        int iName = indexOf(header, map.name);
-        int iSource = indexOf(header, map.sourceId);
-        int iDesc = indexOf(header, map.description);
         int iData = indexOf(header, map.dataschema);
         int iDisp = indexOf(header, map.displayschema);
 
@@ -102,9 +99,14 @@ public final class BulkWorkflowGenerator {
                 Document doc = parseXml(templateXml);
                 Element root = doc.getDocumentElement();
                 root.setAttribute("feedId", it.feedId);
-                if (iName >= 0 && cell(row, iName) != null) root.setAttribute("name", cell(row, iName));
-                if (iSource >= 0 && cell(row, iSource) != null) root.setAttribute("sourceId", cell(row, iSource));
-                if (iDesc >= 0 && cell(row, iDesc) != null) setChildText(doc, root, "description", cell(row, iDesc));
+                // name/sourceId/description support a template: literal text + {Column Name} tokens
+                // (column names may contain spaces). A plain string with no { } is a single column name.
+                String nm = resolveField(map.name, header, row);
+                String src = resolveField(map.sourceId, header, row);
+                String dsc = resolveField(map.description, header, row);
+                if (nm != null) root.setAttribute("name", nm);
+                if (src != null) root.setAttribute("sourceId", src);
+                if (dsc != null) setChildText(doc, root, "description", dsc);
 
                 if (it.tableName != null && !it.tableName.trim().isEmpty()) {
                     setVariable(doc, root, tableVar, it.tableName.trim());
@@ -153,6 +155,46 @@ public final class BulkWorkflowGenerator {
             if (header.get(i).trim().toLowerCase().equals(want)) return i;
         }
         return -1;
+    }
+
+    /**
+     * Resolve a mapped field value for one row.
+     * <ul>
+     *   <li>blank expression -&gt; null (field not set);</li>
+     *   <li>expression with {Column Name} tokens -&gt; template: each token is replaced by that
+     *       column's cell value (column names may contain spaces), literal text is kept verbatim,
+     *       so "{Banca} - {Codice ICTO}" concatenates two columns;</li>
+     *   <li>plain string with no braces -&gt; treated as a single column name (cell value, or null
+     *       if the column is not in the header) — backward compatible.</li>
+     * </ul>
+     */
+    static String resolveField(String expr, List<String> header, List<String> row) {
+        if (expr == null) return null;
+        String e = expr.trim();
+        if (e.isEmpty()) return null;
+        int open = e.indexOf('{');
+        if (open >= 0 && e.indexOf('}', open + 1) > open) {
+            StringBuilder out = new StringBuilder();
+            int i = 0, n = e.length();
+            while (i < n) {
+                char c = e.charAt(i);
+                if (c == '{') {
+                    int close = e.indexOf('}', i + 1);
+                    if (close < 0) { out.append(e.substring(i)); break; }
+                    String col = e.substring(i + 1, close).trim();
+                    int idx = indexOf(header, col);
+                    String v = idx >= 0 ? cell(row, idx) : null;
+                    if (v != null) out.append(v);
+                    i = close + 1;
+                } else {
+                    out.append(c);
+                    i++;
+                }
+            }
+            return out.toString();
+        }
+        int idx = indexOf(header, e);
+        return idx >= 0 ? cell(row, idx) : null;
     }
 
     // ---- DOM helpers ----

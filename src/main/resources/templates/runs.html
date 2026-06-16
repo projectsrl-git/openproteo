@@ -5,6 +5,7 @@
     <title>OpenProteo — Run history</title>
     <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
     <link rel="stylesheet" th:href="@{/css/app.css}">
+    <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 </head>
 <body>
 <div class="topbar">
@@ -95,11 +96,12 @@
                 btn.addEventListener('click', function(ev){
                     ev.preventDefault(); ev.stopPropagation();
                     var rid = btn.getAttribute('data-del-run');
-                    if(!confirm('Delete run '+rid+' permanently? Its logs will be removed. This cannot be undone.')) return;
-                    fetch(CTX+'api/runs/'+encodeURIComponent(FEED_ID)+'/'+encodeURIComponent(rid)+'/delete',{method:'POST'})
-                        .then(function(r){return r.json();})
-                        .then(function(j){ if(j.ok) buildTree(); else alert(j.error||'Delete failed'); })
-                        .catch(function(e){ alert('Delete failed: '+e); });
+                    opConfirm('Delete run '+rid+' permanently? Its logs will be removed. This cannot be undone.', function(){
+                        fetch(CTX+'api/runs/'+encodeURIComponent(FEED_ID)+'/'+encodeURIComponent(rid)+'/delete',{method:'POST'})
+                            .then(function(r){return r.json();})
+                            .then(function(j){ if(j.ok) buildTree(); else opAlert(j.error||'Delete failed'); })
+                            .catch(function(e){ opAlert('Delete failed: '+e); });
+                    }, { danger:true, okText:'Delete' });
                 });
             });
         }).catch(function(e){ document.getElementById('runTree').innerHTML='<span class="dim small">'+esch(String(e))+'</span>'; });
@@ -107,5 +109,7 @@
     buildTree();
     setInterval(buildTree, 5000);
 </script>
+<script th:src="@{/js/modal.js}"></script>
+<script th:src="@{/js/theme.js}"></script>
 </body>
 </html>

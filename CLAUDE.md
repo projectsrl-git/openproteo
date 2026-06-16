@@ -41,15 +41,19 @@ Pacchettizzata come **WAR per un Tomcat esterno**, senza embedded server.
    Evitare CSS recente: niente `grid` con `auto-fit` + `minmax()` come unico
    layout (cade in stacking verticale). Preferire **flex con wrap** e
    prefissare `-webkit-` quando serve.
-4. **CSS variables**: usare solo le variabili effettivamente definite in
+4. **Tema chiaro/scuro**: default scuro; preferenza in localStorage (`op-theme`),
+   attributo `data-theme="light"` su `<html>`. Palette chiara in `:root[data-theme="light"]`.
+   Toggle iniettato nella topbar da `static/js/theme.js` (incluso da tutte le pagine, con
+   snippet anti-flash nel <head>). Le label uppercase usano `--label` (alto contrasto).
+5. **CSS variables**: usare solo le variabili effettivamente definite in
    `app.css` (`--bg`, `--bg-raise`, `--bg-panel`, `--line`, `--line-soft`,
    `--ink`, `--ink-dim`, `--ink-faint`, `--accent` ambra `#f5a623`,
    `--accent-dim`, `--ok`, `--ok-bg`, `--run`, `--run-bg`, `--fail`).
    **Mai inventare** `--panel`, `--bg-hover`, `--fg-mute` ecc.: appaiono OK in
    un browser tollerante e si rompono altrove.
-5. **Log applicativo**: timestamp **a precisione di millisecondo**.
-6. **PII**: **MAI loggare** valori originali né mascherati di campi PII.
-7. **Deploy WAR**: a Tomcat fermo, cancellare **sia** `webapps/openproteo.war`
+6. **Log applicativo**: timestamp **a precisione di millisecondo**.
+7. **PII**: **MAI loggare** valori originali né mascherati di campi PII.
+8. **Deploy WAR**: a Tomcat fermo, cancellare **sia** `webapps/openproteo.war`
    **sia** la cartella esplosa `webapps/openproteo/` prima di ricopiare il
    WAR. Altrimenti rimane l'esploso stantio.
 
@@ -135,10 +139,20 @@ orchestrator.mask-pools-dir=       # opzionale: override dei pool senza rebuild
 * **Sample**: i `SAMPLE-*.xml` NON sono nel WAR. In locale e su UBS vanno
   copiati a mano nella `orchestrator.workflows-dir` configurata.
 
+* **Modali UI**: `static/js/modal.js` (incluso ovunque) espone `opConfirm(msg,onYes,opts)`
+  e `opAlert(msg,opts)`; sostituiscono confirm()/alert() nativi. opts: {title,okText,
+  cancelText,danger}. Mai piu' confirm()/alert() nei template.
+* **Delete workflow**: `POST /api/workflows/{feedId}/delete` cancella il file XML e fa
+  reload (rifiuta se c'e' un run attivo; storia/dati su disco restano). Bottone nel designer.
+* **Multi-selezione dashboard**: checkbox per riga + barra azioni (Run/Delete massivi);
+  loop client-side sugli endpoint per-feed. closest() NON usato (browser UBS): risalita
+  DOM manuale.
 * **Bulk create**: pagina /bulk + `POST /api/workflows/bulk`. Genera N workflow da un
   template XML + DUE CSV con nomi colonna configurabili. CSV#1 feeds: feedId (obblig.),
   name, sourceId, description, dataschema/displayschema (JSON inline -> scritti in feedDir).
   CSV#2 tables: feedId -> tableName, iniettato come variabile (default originTableName).
+  name/sourceId/description accettano template con token {Nome Colonna} (spazi ammessi
+  nel nome) per concatenare piu' colonne; senza graffe = singolo nome colonna.
   Colonne non mappate ignorate. Scrive nella workflows-dir + reload; schema JSON validati
   con Jackson e scritti nel feedDir dopo il reload. Generatore in
   parser/BulkWorkflowGenerator (DOM+CSV, no Jackson, unit-testabile).

@@ -5,6 +5,7 @@
     <title th:text="'OpenProteo — audit ' + ${wf.feedId}">OpenProteo</title>
     <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
     <link rel="stylesheet" th:href="@{/css/app.css}">
+    <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 </head>
 <body>
 <div class="topbar">
@@ -95,5 +96,7 @@
             });
     }
 </script>
+<script th:src="@{/js/modal.js}"></script>
+<script th:src="@{/js/theme.js}"></script>
 </body>
 </html>

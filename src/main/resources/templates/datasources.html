@@ -5,6 +5,7 @@
     <title>OpenProteo — Data sources</title>
     <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
     <link rel="stylesheet" th:href="@{/css/app.css}">
+    <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 </head>
 <body>
 <div class="topbar">
@@ -170,12 +171,15 @@
     }
 
     function del(id){
-        if(!confirm('Delete connection '+id+'?')) return;
-        fetch(CTX + 'api/datasources/'+encodeURIComponent(id)+'/delete',{method:'POST'})
-            .then(function(x){return x.json();}).then(function(){ load(); });
+        opConfirm('Delete connection '+id+'?', function(){
+            fetch(CTX + 'api/datasources/'+encodeURIComponent(id)+'/delete',{method:'POST'})
+                .then(function(x){return x.json();}).then(function(){ load(); });
+        }, { danger:true, okText:'Delete' });
     }
 
     typeChanged(); load();
 </script>
+<script th:src="@{/js/modal.js}"></script>
+<script th:src="@{/js/theme.js}"></script>
 </body>
 </html>

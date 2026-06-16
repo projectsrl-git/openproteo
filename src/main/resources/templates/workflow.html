@@ -5,6 +5,7 @@
     <title th:text="'OpenProteo — ' + ${wf.feedId}">OpenProteo</title>
     <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
     <link rel="stylesheet" th:href="@{/css/app.css}">
+    <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 </head>
 <body>
 <div class="topbar">
@@ -170,16 +171,19 @@
 
     function runNow(feedId) {
         if (runBtn.disabled) return;
-        if (!confirm('Start a new run of ' + feedId + ' now?')) return;
-        runBtn.disabled = true; runBtn.textContent = '▶ Starting…';   // optimistic, prevents double-submit
-        fetch(CTX + 'api/workflows/' + encodeURIComponent(feedId) + '/run', { method: 'POST' })
-            .then(function (r) { return r.json(); })
-            .then(function (j) {
-                if (j.ok) window.location = CTX + 'run/' + encodeURIComponent(feedId) + '/' + encodeURIComponent(j.runId);
-                else { alert(j.error || 'Start failed'); checkActive(); }
-            })
-            .catch(function () { checkActive(); });
+        opConfirm('Start a new run of ' + feedId + ' now?', function () {
+            runBtn.disabled = true; runBtn.textContent = '▶ Starting…';   // optimistic, prevents double-submit
+            fetch(CTX + 'api/workflows/' + encodeURIComponent(feedId) + '/run', { method: 'POST' })
+                .then(function (r) { return r.json(); })
+                .then(function (j) {
+                    if (j.ok) window.location = CTX + 'run/' + encodeURIComponent(feedId) + '/' + encodeURIComponent(j.runId);
+                    else { opAlert(j.error || 'Start failed'); checkActive(); }
+                })
+                .catch(function () { checkActive(); });
+        }, { okText:'Run' });
     }
 </script>
+<script th:src="@{/js/modal.js}"></script>
+<script th:src="@{/js/theme.js}"></script>
 </body>
 </html>

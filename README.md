@@ -140,6 +140,12 @@ JSON inline** (tra doppi apici nel CSV, con `"` raddoppiati secondo RFC4180). Se
 ben formato, viene scritto come `feedDir/dataschema.json` / `feedDir/displayschema.json` del
 feed; se non è valido, il workflow viene comunque creato e lo schema è saltato con avviso.
 
+I campi **`name`, `sourceId` e `description`** accettano un **template**: i token
+`{Nome Colonna}` (i nomi colonna possono contenere spazi) vengono sostituiti col valore
+della colonna, il resto è testo letterale. Così puoi **concatenare più colonne**, es.
+`{Banca} - {Codice ICTO}`. Un valore senza graffe resta un singolo nome di colonna
+(come prima).
+
 **CSV #2 — tables.** Mappa `feedId` → `tableName`; il valore viene iniettato come variabile
 di workflow (nome configurabile, default `originTableName`), che il template usa nella SELECT.
 
@@ -168,6 +174,15 @@ Identificatori **nudi** di default; param opzionale `columnQuote=double` per vir
 (`"NDG", "NOMINATIVO"`). Se la query non contiene `{{columns}}`, è usata tale e quale
 (retrocompatibile). La lista campi si aggiorna da sola se cambia il dataschema, senza
 rigenerare i workflow.
+
+## Lista file (workflow page e shared)
+
+Il pannello file ora ha: **ricerca per nome file** (filtro live), colonna **Modified**
+(data/ora di modifica) e **ordinamento per colonna** (click sull'intestazione: File, Type,
+Alias, Size, Modified; secondo click inverte l'ordine).
+
+Nel **viewer CSV** le colonne sono **ridimensionabili**: trascina il bordo destro
+dell'intestazione di colonna per allargarla/restringerla (min 40px).
 
 ## Dashboard
 

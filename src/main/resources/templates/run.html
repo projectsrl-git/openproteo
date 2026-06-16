@@ -5,6 +5,7 @@
     <title th:text="'OpenProteo — run ' + ${runId}">OpenProteo</title>
     <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
     <link rel="stylesheet" th:href="@{/css/app.css}">
+    <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 </head>
 <body>
 <div class="topbar">
@@ -304,39 +305,42 @@
     }
 
     function decide(approve) {
-        if (!confirm(approve ? 'Approve and continue the workflow?' : 'Reject and stop the workflow at this gate?')) return;
-        var note = document.getElementById('decisionNote').value;
-        fetch(CTX + 'api/runs/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(RUN_ID) +
-              '/decision?approve=' + approve + '&note=' + encodeURIComponent(note), { method: 'POST' })
-            .then(function (r) { return r.json(); })
-            .then(function (j) {
-                if (!j.ok) alert(j.error || 'Decision not applied');
-                refresh();
-            });
+        opConfirm(approve ? 'Approve and continue the workflow?' : 'Reject and stop the workflow at this gate?', function () {
+            var note = document.getElementById('decisionNote').value;
+            fetch(CTX + 'api/runs/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(RUN_ID) +
+                  '/decision?approve=' + approve + '&note=' + encodeURIComponent(note), { method: 'POST' })
+                .then(function (r) { return r.json(); })
+                .then(function (j) {
+                    if (!j.ok) opAlert(j.error || 'Decision not applied');
+                    refresh();
+                });
+        }, approve ? { okText:'Approve' } : { danger:true, okText:'Reject' });
     }
 
     function reRun() {
-        if (!confirm('Start a new run of this workflow now?')) return;
-        var btn = document.getElementById('rerunBtn');
-        btn.disabled = true;
-        fetch(CTX + 'api/workflows/' + encodeURIComponent(FEED_ID) + '/run', { method: 'POST' })
-            .then(function (r) { return r.json(); })
-            .then(function (j) {
-                if (j.ok) window.location = CTX + 'run/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(j.runId);
-                else { alert(j.error || 'Re-run failed'); btn.disabled = false; }
-            })
-            .catch(function (e) { alert('Re-run failed: ' + e); btn.disabled = false; });
+        opConfirm('Start a new run of this workflow now?', function () {
+            var btn = document.getElementById('rerunBtn');
+            btn.disabled = true;
+            fetch(CTX + 'api/workflows/' + encodeURIComponent(FEED_ID) + '/run', { method: 'POST' })
+                .then(function (r) { return r.json(); })
+                .then(function (j) {
+                    if (j.ok) window.location = CTX + 'run/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(j.runId);
+                    else { opAlert(j.error || 'Re-run failed'); btn.disabled = false; }
+                })
+                .catch(function (e) { opAlert('Re-run failed: ' + e); btn.disabled = false; });
+        }, { okText:'Run' });
     }
 
     function deleteRun() {
-        if (!confirm('Delete this run permanently? Its logs will be removed. This cannot be undone.')) return;
-        fetch(CTX + 'api/runs/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(RUN_ID) + '/delete', { method: 'POST' })
-            .then(readJsonRun)
-            .then(function (j) {
-                if (j.ok) window.location = CTX + 'runs/' + encodeURIComponent(FEED_ID);
-                else alert(j.error || 'Delete failed');
-            })
-            .catch(function (e) { alert('Delete failed: ' + (e.message || e)); });
+        opConfirm('Delete this run permanently? Its logs will be removed. This cannot be undone.', function () {
+            fetch(CTX + 'api/runs/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(RUN_ID) + '/delete', { method: 'POST' })
+                .then(readJsonRun)
+                .then(function (j) {
+                    if (j.ok) window.location = CTX + 'runs/' + encodeURIComponent(FEED_ID);
+                    else opAlert(j.error || 'Delete failed');
+                })
+                .catch(function (e) { opAlert('Delete failed: ' + (e.message || e)); });
+        }, { danger:true, okText:'Delete' });
     }
     function readJsonRun(r) {
         var ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
@@ -346,17 +350,18 @@
         });
     }
     function stopRun() {
-        if (!confirm('Stop this run? The current PowerShell step will be terminated.')) return;
+        opConfirm('Stop this run? The current PowerShell step will be terminated.', function () {
         var btn = document.getElementById('stopBtn');
         btn.disabled = true;
         fetch(CTX + 'api/runs/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(RUN_ID) + '/stop', { method: 'POST' })
             .then(function (r) { return r.json(); })
             .then(function (j) {
                 btn.disabled = false;
-                if (!j.ok) alert(j.error || 'Stop failed');
+                if (!j.ok) opAlert(j.error || 'Stop failed');
                 refresh();
             })
-            .catch(function (e) { btn.disabled = false; alert('Error: ' + e); });
+            .catch(function (e) { btn.disabled = false; opAlert('Error: ' + e); });
+        }, { danger:true, okText:'Stop' });
     }
 
     var BPMN = null;
@@ -376,5 +381,7 @@
     refresh();
     pollTimer = setInterval(refresh, 2000);
 </script>
+<script th:src="@{/js/modal.js}"></script>
+<script th:src="@{/js/theme.js}"></script>
 </body>
 </html>

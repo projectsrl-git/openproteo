@@ -194,47 +194,106 @@ function mountFilesPanel(container, apiBase, ctx, onChange, opts) {
         }
     }
 
+    var allFiles = [];
+    var fState = { q: '', key: 'path', dir: 1 };
+    var shellBound = false;
+
+    function fmtDate(ms) {
+        if (!ms) return '';
+        var d = new Date(ms);
+        function p(n) { return (n < 10 ? '0' : '') + n; }
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+    function sortIcon(key) { return fState.key === key ? (fState.dir > 0 ? ' \u25B2' : ' \u25BC') : ''; }
+
     function load() {
         fetch(listUrl)
             .then(function (r) { return r.json(); })
             .then(function (j) {
                 if (!j.ok) { listBox.innerHTML = '<span class="dim small">' + esc(j.error || 'error') + '</span>'; return; }
-                if (!j.files || !j.files.length) { listBox.innerHTML = '<span class="dim small">No files yet.</span>'; if (typeof onChange === 'function') onChange([]); return; }
-                var h = '<table><thead><tr><th>File</th><th style="width:90px">Type</th><th>Alias</th>' +
-                        '<th style="width:90px">Size</th><th style="width:160px"></th></tr></thead><tbody>';
-                j.files.forEach(function (f) {
-                    var dl = apiBase + 'download?path=' + encodeURIComponent(f.path);
-                    var kindLabel = f.kind === 'script' ? 'executable' : (f.kind === 'output' ? 'output' : 'document');
-                    var viewBtn = '';
-                    if (ctx && viewable(f.path)) {
-                        var vurl = ctx + 'view?src=' + encodeURIComponent(dl) + '&name=' + encodeURIComponent(f.name) + '&api=' + encodeURIComponent(apiBase) + '&path=' + encodeURIComponent(f.path);
-                        viewBtn = '<a class="btn sm" href="' + vurl + '" target="_blank">👁 View</a> ';
-                    }
-                    h += '<tr>' +
-                        '<td class="mono small">' + esc(f.path) + '</td>' +
-                        '<td class="small dim">' + kindLabel + '</td>' +
-                        '<td class="mono small">' + (f.alias ? ('${' + esc(f.alias) + '}') : '<span class="dim">—</span>') + '</td>' +
-                        '<td class="mono small dim">' + fmt(f.size) + '</td>' +
-                        '<td>' + viewBtn + '<a class="btn sm" href="' + dl + '">⬇ Download</a> ' +
-                        '<button class="btn sm danger" data-del="' + esc(f.path) + '">Delete</button></td>' +
-                        '</tr>';
-                });
-                h += '</tbody></table>';
-                listBox.innerHTML = h;
-                listBox.querySelectorAll('[data-del]').forEach(function (b) {
-                    b.addEventListener('click', function () { del(b.getAttribute('data-del')); });
-                });
-                if (typeof onChange === 'function') onChange(j.files || []);
+                allFiles = j.files || [];
+                renderFiles();
+                if (typeof onChange === 'function') onChange(allFiles);
             })
             .catch(function (e) { listBox.innerHTML = '<span class="dim small">' + esc(String(e)) + '</span>'; });
     }
 
+    function ensureShell() {
+        if (shellBound && listBox.querySelector('[data-fsearch]')) return;
+        listBox.innerHTML =
+            '<div class="file-toolbar"><input data-fsearch class="file-search-input" placeholder="Search by file name…"></div>' +
+            '<div data-fhost></div>';
+        var si = listBox.querySelector('[data-fsearch]');
+        si.value = fState.q;
+        si.addEventListener('input', function () { fState.q = si.value.toLowerCase(); renderTable(); });
+        shellBound = true;
+    }
+
+    function renderFiles() { ensureShell(); renderTable(); }
+
+    function renderTable() {
+        var host = listBox.querySelector('[data-fhost]');
+        if (!host) return;
+        if (!allFiles.length) { host.innerHTML = '<span class="dim small">No files yet.</span>'; return; }
+        var rows = allFiles.filter(function (f) {
+            if (!fState.q) return true;
+            return (String(f.path || '').toLowerCase().indexOf(fState.q) >= 0) ||
+                   (String(f.name || '').toLowerCase().indexOf(fState.q) >= 0);
+        });
+        rows.sort(function (a, b) {
+            var k = fState.key;
+            if (k === 'size' || k === 'modified') { return ((a[k] || 0) - (b[k] || 0)) * fState.dir; }
+            var va = String(a[k] == null ? '' : a[k]).toLowerCase();
+            var vb = String(b[k] == null ? '' : b[k]).toLowerCase();
+            return (va < vb ? -1 : va > vb ? 1 : 0) * fState.dir;
+        });
+        var h = '<table><thead><tr>' +
+            '<th data-sort="path" class="sortable">File' + sortIcon('path') + '</th>' +
+            '<th data-sort="kind" class="sortable" style="width:100px">Type' + sortIcon('kind') + '</th>' +
+            '<th data-sort="alias" class="sortable">Alias' + sortIcon('alias') + '</th>' +
+            '<th data-sort="size" class="sortable" style="width:90px">Size' + sortIcon('size') + '</th>' +
+            '<th data-sort="modified" class="sortable" style="width:150px">Modified' + sortIcon('modified') + '</th>' +
+            '<th style="width:160px"></th></tr></thead><tbody>';
+        rows.forEach(function (f) {
+            var dl = apiBase + 'download?path=' + encodeURIComponent(f.path);
+            var kindLabel = f.kind === 'script' ? 'executable' : (f.kind === 'output' ? 'output' : 'document');
+            var viewBtn = '';
+            if (ctx && viewable(f.path)) {
+                var vurl = ctx + 'view?src=' + encodeURIComponent(dl) + '&name=' + encodeURIComponent(f.name) + '&api=' + encodeURIComponent(apiBase) + '&path=' + encodeURIComponent(f.path);
+                viewBtn = '<a class="btn sm" href="' + vurl + '" target="_blank">\uD83D\uDC41 View</a> ';
+            }
+            h += '<tr>' +
+                '<td class="mono small">' + esc(f.path) + '</td>' +
+                '<td class="small dim">' + kindLabel + '</td>' +
+                '<td class="mono small">' + (f.alias ? ('${' + esc(f.alias) + '}') : '<span class="dim">\u2014</span>') + '</td>' +
+                '<td class="mono small dim">' + fmt(f.size) + '</td>' +
+                '<td class="mono small dim">' + esc(fmtDate(f.modified)) + '</td>' +
+                '<td>' + viewBtn + '<a class="btn sm" href="' + dl + '">\u2B07 Download</a> ' +
+                '<button class="btn sm danger" data-del="' + esc(f.path) + '">Delete</button></td>' +
+                '</tr>';
+        });
+        h += '</tbody></table>';
+        host.innerHTML = h;
+        host.querySelectorAll('[data-del]').forEach(function (b) {
+            b.addEventListener('click', function () { del(b.getAttribute('data-del')); });
+        });
+        host.querySelectorAll('[data-sort]').forEach(function (th) {
+            th.addEventListener('click', function () {
+                var k = th.getAttribute('data-sort');
+                if (fState.key === k) fState.dir = -fState.dir; else { fState.key = k; fState.dir = 1; }
+                renderTable();
+            });
+        });
+    }
+
     function del(path) {
-        if (!confirm('Delete ' + path + '?')) return;
-        var fd = new FormData(); fd.append('path', path);
-        fetch(apiBase + 'files/delete', { method: 'POST', body: fd })
-            .then(function (r) { return r.json(); })
-            .then(function () { load(); });
+        var ask = window.opConfirm || function (m, cb) { if (confirm(m)) cb(); };
+        ask('Delete ' + path + '?', function () {
+            var fd = new FormData(); fd.append('path', path);
+            fetch(apiBase + 'files/delete', { method: 'POST', body: fd })
+                .then(function (r) { return r.json(); })
+                .then(function () { load(); });
+        }, { danger: true, okText: 'Delete' });
     }
 
     refreshAliasUi();

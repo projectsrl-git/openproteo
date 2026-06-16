@@ -5,6 +5,7 @@
     <title>OpenProteo — Dashboard</title>
     <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
     <link rel="stylesheet" th:href="@{/css/app.css}">
+    <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 </head>
 <body>
 <div class="topbar">
@@ -88,10 +89,19 @@
         <button class="btn sm" onclick="reload()">↻ Reload XML definitions</button>
     </div>
 
+    <div id="bulkBar" class="bulk-bar" style="display:none">
+        <span id="bulkCount" class="mono"></span>
+        <span class="spacer"></span>
+        <button class="btn sm primary" onclick="bulkRun()">▶ Run selected</button>
+        <button class="btn sm danger" onclick="bulkDelete()">🗑 Delete selected</button>
+        <button class="btn sm" onclick="clearSel()">Clear</button>
+    </div>
+
     <div class="panel">
         <table>
             <thead>
             <tr>
+                <th class="cbcol"><input type="checkbox" id="selAll" onclick="toggleAll(this)" title="select visible"></th>
                 <th>Feed ID</th>
                 <th>Source</th>
                 <th>Name</th>
@@ -104,6 +114,7 @@
             <tbody id="wfRows">
             <tr th:each="row : ${rows}" class="wf-row"
                 th:attr="data-search=${(row.wf.feedId + ' ' + (row.wf.sourceId ?: '') + ' ' + row.wf.name + ' ' + (row.wf.description ?: '') + ' ' + (row.wf.cron ?: 'manual'))},data-source=${(row.wf.sourceId == null or row.wf.sourceId.trim().isEmpty()) ? '—' : row.wf.sourceId.trim()}">
+                <td class="cbcol"><input type="checkbox" class="rowcb" th:attr="data-feed=${row.wf.feedId}" onclick="onRowCb()"></td>
                 <td class="mono"><span class="feed-id" th:text="${row.wf.feedId}"></span></td>
                 <td class="mono small dim"><span th:if="${row.wf.sourceId}" th:text="${row.wf.sourceId}"></span><span th:if="${row.wf.sourceId == null}">—</span></td>
                 <td>
@@ -140,9 +151,9 @@
                 </td>
             </tr>
             <tr th:if="${#lists.isEmpty(rows)}">
-                <td colspan="7" class="dim">No workflows found. Create one with the designer or drop XML files into the workflows/ directory and reload.</td>
+                <td colspan="8" class="dim">No workflows found. Create one with the designer or drop XML files into the workflows/ directory and reload.</td>
             </tr>
-            <tr id="noMatch" style="display:none"><td colspan="7" class="dim">No workflow matches the filter.</td></tr>
+            <tr id="noMatch" style="display:none"><td colspan="8" class="dim">No workflow matches the filter.</td></tr>
             </tbody>
         </table>
     </div>
@@ -171,20 +182,81 @@
                 if (j.ok) {
                     window.location = CTX + 'run/' + encodeURIComponent(feedId) + '/' + encodeURIComponent(j.runId);
                 } else {
-                    alert(j.error || 'Start failed');
+                    opAlert(j.error || 'Start failed');
                 }
             })
-            .catch(function (e) { alert('Error: ' + e); });
+            .catch(function (e) { opAlert('Error: ' + e); });
     }
 
     function stopRun(feedId, runId) {
-        if (!confirm('Stop the active run of ' + feedId + '?')) return;
-        fetch(CTX + 'api/runs/' + encodeURIComponent(feedId) + '/' + encodeURIComponent(runId) + '/stop', { method: 'POST' })
-            .then(function (r) { return r.json(); })
-            .then(function (j) { if (!j.ok) alert(j.error || 'Stop failed'); window.location.reload(); });
+        opConfirm('Stop the active run of ' + feedId + '?', function () {
+            fetch(CTX + 'api/runs/' + encodeURIComponent(feedId) + '/' + encodeURIComponent(runId) + '/stop', { method: 'POST' })
+                .then(function (r) { return r.json(); })
+                .then(function (j) { if (!j.ok) opAlert(j.error || 'Stop failed'); window.location.reload(); });
+        }, { danger: true, okText: 'Stop' });
     }
 
     function filterRows() { applyView(); }   // kept for compatibility
+
+    // ---- multi-select + bulk actions ----
+    function rowCbs() { return Array.prototype.slice.call(document.querySelectorAll('#wfRows .rowcb')); }
+    function selectedFeeds() {
+        return rowCbs().filter(function (c) { return c.checked; }).map(function (c) { return c.dataset.feed; });
+    }
+    function updateBulkBar() {
+        var n = selectedFeeds().length;
+        var bar = document.getElementById('bulkBar');
+        document.getElementById('bulkCount').textContent = n + (n === 1 ? ' workflow selected' : ' workflows selected');
+        bar.style.display = n > 0 ? '' : 'none';
+    }
+    function onRowCb() { updateBulkBar(); }
+    function rowOf(el) { var n = el; while (n && !(n.className && (' ' + n.className + ' ').indexOf(' wf-row ') >= 0)) n = n.parentNode; return n; }
+    function toggleAll(master) {
+        rowCbs().forEach(function (c) {
+            var tr = rowOf(c);
+            if (tr && tr.style.display !== 'none') c.checked = master.checked;
+        });
+        updateBulkBar();
+    }
+    function clearSel() {
+        rowCbs().forEach(function (c) { c.checked = false; });
+        var sa = document.getElementById('selAll'); if (sa) sa.checked = false;
+        updateBulkBar();
+    }
+    function runSeq(feeds, urlFn, label, done) {
+        var i = 0, ok = 0, fail = 0;
+        (function next() {
+            if (i >= feeds.length) { done(ok, fail); return; }
+            var feed = feeds[i++];
+            fetch(urlFn(feed), { method: 'POST' })
+                .then(function (r) { return r.json().catch(function () { return { ok: r.ok }; }); })
+                .then(function (j) { if (j && j.ok) ok++; else fail++; })
+                .catch(function () { fail++; })
+                .then(next);
+        })();
+    }
+    function bulkRun() {
+        var feeds = selectedFeeds();
+        if (!feeds.length) return;
+        opConfirm('Start a run for ' + feeds.length + ' selected workflow(s)?', function () {
+            runSeq(feeds, function (f) { return CTX + 'api/workflows/' + encodeURIComponent(f) + '/run'; }, 'run',
+                function (ok, fail) {
+                    opAlert('Runs started: ' + ok + (fail ? ', failed/skipped: ' + fail : '') + '.');
+                    setTimeout(function () { window.location.reload(); }, 600);
+                });
+        }, { okText: 'Run all' });
+    }
+    function bulkDelete() {
+        var feeds = selectedFeeds();
+        if (!feeds.length) return;
+        opConfirm('Delete ' + feeds.length + ' selected workflow(s) permanently? Their definition files will be removed (run history and data on disk are kept).', function () {
+            runSeq(feeds, function (f) { return CTX + 'api/workflows/' + encodeURIComponent(f) + '/delete'; }, 'delete',
+                function (ok, fail) {
+                    opAlert('Deleted: ' + ok + (fail ? ', failed: ' + fail : '') + '.');
+                    setTimeout(function () { window.location.reload(); }, 600);
+                });
+        }, { danger: true, okText: 'Delete all' });
+    }
 
     // ---- view state: search + source filter + pagination ----
     var pageSize = 5, curPage = 0, srcFilter = '', searchQ = '';
@@ -288,5 +360,7 @@
             .then(function () { window.location.reload(); });
     }
 </script>
+<script th:src="@{/js/modal.js}"></script>
+<script th:src="@{/js/theme.js}"></script>
 </body>
 </html>
