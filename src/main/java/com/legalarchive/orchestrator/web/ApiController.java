@@ -180,6 +180,153 @@ public class ApiController {
         return ResponseEntity.ok(out);
     }
 
+    /** Bulk-create workflows from a template feed + CSV. Reserved CSV cols (feedId/name/sourceId/
+        description) set workflow attributes; every other column becomes a workflow variable. */
+    @PostMapping("/api/workflows/bulk")
+    public ResponseEntity<Map<String, Object>> bulkCreate(
+            @RequestParam("template") String templateFeedId,
+            @RequestParam("csv") String csv,
+            @RequestParam(value = "overwrite", defaultValue = "false") String overwriteParam,
+            @RequestParam(value = "delimiter", defaultValue = ",") String delimParam,
+            @RequestParam(value = "mapFeedId", defaultValue = "feedId") String mapFeedId,
+            @RequestParam(value = "mapName", defaultValue = "name") String mapName,
+            @RequestParam(value = "mapSourceId", defaultValue = "sourceId") String mapSourceId,
+            @RequestParam(value = "mapDescription", defaultValue = "description") String mapDescription,
+            @RequestParam(value = "mapDataschema", defaultValue = "dataschema") String mapDataschema,
+            @RequestParam(value = "mapDisplayschema", defaultValue = "displayschema") String mapDisplayschema,
+            @RequestParam(value = "csv2", defaultValue = "") String csv2,
+            @RequestParam(value = "delimiter2", defaultValue = ",") String delim2Param,
+            @RequestParam(value = "mapFeedId2", defaultValue = "feedId") String mapFeedId2,
+            @RequestParam(value = "mapTableName", defaultValue = "tableName") String mapTableName,
+            @RequestParam(value = "tableVar", defaultValue = "originTableName") String tableVar) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        try {
+            boolean overwrite = "true".equalsIgnoreCase(overwriteParam);
+            char delim = (delimParam != null && !delimParam.isEmpty()) ? delimParam.charAt(0) : ',';
+            char delim2 = (delim2Param != null && !delim2Param.isEmpty()) ? delim2Param.charAt(0) : ',';
+
+            if (templateFeedId == null || templateFeedId.trim().isEmpty()) {
+                out.put("ok", false); out.put("error", "missing 'template' feedId");
+                return ResponseEntity.badRequest().body(out);
+            }
+            if (csv == null || csv.trim().isEmpty()) {
+                out.put("ok", false); out.put("error", "missing 'csv' content");
+                return ResponseEntity.badRequest().body(out);
+            }
+            com.legalarchive.orchestrator.model.def.WorkflowDef tpl = registry.get(templateFeedId.trim());
+            if (tpl == null || tpl.sourceFile == null) {
+                out.put("ok", false); out.put("error", "template workflow not found: " + templateFeedId);
+                return ResponseEntity.badRequest().body(out);
+            }
+            String templateXml = readWorkflowFile(tpl);
+
+            com.legalarchive.orchestrator.parser.BulkWorkflowGenerator.Mapping map =
+                    new com.legalarchive.orchestrator.parser.BulkWorkflowGenerator.Mapping();
+            map.feedId = mapFeedId; map.name = mapName; map.sourceId = mapSourceId;
+            map.description = mapDescription; map.dataschema = mapDataschema; map.displayschema = mapDisplayschema;
+
+            Map<String, String> tableByFeed =
+                    com.legalarchive.orchestrator.parser.BulkWorkflowGenerator.joinTable(csv2, delim2, mapFeedId2, mapTableName);
+
+            java.io.File dir = new java.io.File(props.getWorkflowsDir());
+            java.util.List<com.legalarchive.orchestrator.parser.BulkWorkflowGenerator.Item> items =
+                    com.legalarchive.orchestrator.parser.BulkWorkflowGenerator.generate(templateXml, csv, delim, map, tableByFeed, tableVar);
+
+            int created = 0, skipped = 0, failed = 0;
+            java.util.List<Map<String, Object>> details = new java.util.ArrayList<Map<String, Object>>();
+            // collect feeds that were created with schema JSON, to write after reload (need feedDir from layout)
+            java.util.List<String[]> schemasToWrite = new java.util.ArrayList<String[]>(); // {feedId, dataschemaJson, displayschemaJson}
+
+            for (com.legalarchive.orchestrator.parser.BulkWorkflowGenerator.Item it : items) {
+                Map<String, Object> row = new LinkedHashMap<String, Object>();
+                row.put("feedId", it.feedId);
+                if (it.tableName != null) row.put("table", it.tableName);
+                if (it.error != null) {
+                    row.put("status", "error"); row.put("detail", it.error); failed++;
+                    details.add(row); continue;
+                }
+                if (it.feedId != null && it.feedId.equals(templateFeedId.trim())) {
+                    row.put("status", "skipped"); row.put("detail", "same as template feedId"); skipped++;
+                    details.add(row); continue;
+                }
+                java.io.File target = new java.io.File(dir, it.feedId + ".xml");
+                if (target.exists() && !overwrite) {
+                    row.put("status", "skipped"); row.put("detail", "file exists (enable overwrite)"); skipped++;
+                    details.add(row); continue;
+                }
+                java.io.File tmp = new java.io.File(dir, it.feedId + ".xml.tmp");
+                try {
+                    java.nio.file.Files.write(tmp.toPath(), it.xml.getBytes(StandardCharsets.UTF_8));
+                    xmlParser.parse(tmp);   // validate with the real parser
+                    java.nio.file.Files.move(tmp.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    created++;
+                    java.util.List<String> notes = new java.util.ArrayList<String>();
+                    // validate JSON schemas now (well-formedness); defer file write until after reload
+                    String dataJson = checkJson(it.dataschemaJson, "dataschema", notes);
+                    String dispJson = checkJson(it.displayschemaJson, "displayschema", notes);
+                    if (dataJson != null || dispJson != null) schemasToWrite.add(new String[]{it.feedId, dataJson, dispJson});
+                    row.put("status", "created");
+                    if (!notes.isEmpty()) row.put("detail", String.join("; ", notes));
+                } catch (Exception pe) {
+                    try { tmp.delete(); } catch (Exception ignore) {}
+                    row.put("status", "error"); row.put("detail", "generated XML invalid: " + pe.getMessage()); failed++;
+                }
+                details.add(row);
+            }
+            registry.reload();
+
+            // write schema files into each feed's directory (feedDir resolved from the reloaded layout)
+            int schemasWritten = 0;
+            for (String[] s : schemasToWrite) {
+                String feedId = s[0], dataJson = s[1], dispJson = s[2];
+                try {
+                    com.legalarchive.orchestrator.store.FeedLayout layout = registry.layout(feedId);
+                    if (layout == null) continue;
+                    layout.provision();
+                    if (dataJson != null) {
+                        java.nio.file.Files.write(layout.feedDir.resolve("dataschema.json"), dataJson.getBytes(StandardCharsets.UTF_8));
+                        schemasWritten++;
+                    }
+                    if (dispJson != null) {
+                        java.nio.file.Files.write(layout.feedDir.resolve("displayschema.json"), dispJson.getBytes(StandardCharsets.UTF_8));
+                        schemasWritten++;
+                    }
+                } catch (Exception ignore) {}
+            }
+
+            out.put("ok", true);
+            out.put("created", created);
+            out.put("skipped", skipped);
+            out.put("failed", failed);
+            out.put("schemasWritten", schemasWritten);
+            out.put("items", details);
+            return ResponseEntity.ok(out);
+        } catch (Exception e) {
+            out.put("ok", false); out.put("error", e.getMessage());
+            return ResponseEntity.status(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR).body(out);
+        }
+    }
+
+    /** Returns the JSON string if well-formed, else null and appends a note. */
+    private String checkJson(String json, String label, java.util.List<String> notes) {
+        if (json == null || json.trim().isEmpty()) return null;
+        try {
+            mapper.readTree(json);
+            return json;
+        } catch (Exception e) {
+            notes.add(label + " not written (invalid JSON)");
+            return null;
+        }
+    }
+
+    private String readWorkflowFile(com.legalarchive.orchestrator.model.def.WorkflowDef tpl) throws Exception {
+        java.io.File f = new java.io.File(tpl.sourceFile);
+        if (!f.isAbsolute() || !f.exists()) {
+            f = new java.io.File(props.getWorkflowsDir(), new java.io.File(tpl.sourceFile).getName());
+        }
+        return new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+    }
+
     @PostMapping("/api/workflows/{feedId}/run")
     public ResponseEntity<Map<String, Object>> run(@PathVariable String feedId, HttpServletRequest req) {
         Map<String, Object> out = new LinkedHashMap<String, Object>();

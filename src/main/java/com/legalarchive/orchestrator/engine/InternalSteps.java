@@ -106,7 +106,24 @@ public class InternalSteps {
                         StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
         DataSourceDef d = dataSources.get(step.datasource);
         if (d == null) { line.accept("datasource not found: " + step.datasource); res.exitCode = 2; return; }
-        String query = VarResolver.resolve(step.query, vars);
+        // {{columns}} expansion: build the SELECT column list from a (per-feed) dataschema JSON.
+        String rawQuery = step.query;
+        if (rawQuery != null && rawQuery.contains("{{columns}}")) {
+            String columnsSchema = blankToNull(VarResolver.resolve(params.get("columnsSchema"), vars));
+            if (columnsSchema == null) {
+                line.accept("sql: query uses {{columns}} but param 'columnsSchema' (path to dataschema JSON) is missing");
+                res.exitCode = 2; return;
+            }
+            java.util.List<String> names = readSchemaColumnNames(new java.io.File(columnsSchema));
+            if (names.isEmpty()) {
+                line.accept("sql: no columns found in dataschema " + columnsSchema);
+                res.exitCode = 2; return;
+            }
+            String cols = buildColumnList(names, params.get("columnQuote"));
+            rawQuery = rawQuery.replace("{{columns}}", cols);
+            line.accept("sql: expanded {{columns}} -> " + names.size() + " columns from " + columnsSchema);
+        }
+        String query = VarResolver.resolve(rawQuery, vars);
         line.accept("datasource: " + d.id + " (" + d.type + ")");
         line.accept("query: " + query);
 
@@ -1546,6 +1563,43 @@ public class InternalSteps {
     }
 
     private static String blankToNull(String s) { return (s == null || s.trim().isEmpty()) ? null : s.trim(); }
+
+    /** Build a SELECT column list from dataschema column names. quote=double wraps in "..."; default plain. */
+    static String buildColumnList(java.util.List<String> names, String quote) {
+        boolean dbl = "double".equalsIgnoreCase(quote);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < names.size(); i++) {
+            String n = names.get(i) == null ? "" : names.get(i).trim();
+            if (n.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(", ");
+            if (dbl) sb.append('"').append(n.replace("\"", "\"\"")).append('"');
+            else sb.append(n);
+        }
+        return sb.toString();
+    }
+
+    /** Read column names from a dataschema JSON: array of {name|ColumnName} or {columns:[...]} or ["A","B"]. */
+    private java.util.List<String> readSchemaColumnNames(java.io.File f) throws Exception {
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        Object root = jsonMapper.readValue(f, Object.class);
+        java.util.List<?> cols = null;
+        if (root instanceof java.util.List) cols = (java.util.List<?>) root;
+        else if (root instanceof java.util.Map) {
+            Object c = ((java.util.Map<?, ?>) root).get("columns");
+            if (c instanceof java.util.List) cols = (java.util.List<?>) c;
+        }
+        if (cols == null) return out;
+        for (Object o : cols) {
+            if (o instanceof java.util.Map) {
+                java.util.Map<?, ?> m = (java.util.Map<?, ?>) o;
+                Object nm = m.get("name"); if (nm == null) nm = m.get("ColumnName"); if (nm == null) nm = m.get("COLUMN_NAME");
+                if (nm != null) out.add(String.valueOf(nm).trim());
+            } else if (o instanceof String) {
+                out.add(((String) o).trim());
+            }
+        }
+        return out;
+    }
     private static String stripExt(String name) { int d = name.lastIndexOf('.'); return d > 0 ? name.substring(0, d) : name; }
     private static String snippet60(String v) { v = v == null ? "" : v; return v.length() > 60 ? (v.substring(0, 60) + "…") : v; }
     /** RFC-quote a field for the violation report (it may itself contain quotes/semicolons). */

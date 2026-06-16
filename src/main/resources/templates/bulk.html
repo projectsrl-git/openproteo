@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenProteo — Bulk create</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub">Bulk create</span>
+    <span class="spacer"></span>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap" style="max-width:1100px">
+    <h1>Bulk create workflows from CSV</h1>
+    <p class="page-sub">Pick a <b>template</b> workflow, paste two CSVs that carry everything, and generate many
+        workflows at once. Column names are configurable, so you can paste your CSV as-is (extra columns are
+        ignored). The <b>feeds CSV</b> sets feed metadata and may carry the dataschema/displayschema JSON inline;
+        the <b>tables CSV</b> maps each feedId to its SQL table. Existing files are skipped unless overwrite is on.</p>
+
+    <div class="banner ok" id="okBanner" style="display:none"></div>
+    <div class="banner error" id="errBanner" style="display:none"></div>
+
+    <div class="panel">
+        <div class="form-row">
+            <div class="field">
+                <label>Template workflow *</label>
+                <select id="template">
+                    <option value="" th:each="r : ${rows}" th:value="${r.feedId}"
+                            th:text="${r.feedId} + ' — ' + ${r.name}"></option>
+                </select>
+            </div>
+            <div class="field" style="max-width:160px">
+                <label>If file exists</label>
+                <select id="overwrite">
+                    <option value="false">skip</option>
+                    <option value="true">overwrite</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <h2>1 · Feeds CSV</h2>
+    <div class="panel">
+        <div class="form-row">
+            <div class="field" style="max-width:160px">
+                <label>Delimiter</label>
+                <select id="delimiter">
+                    <option value=",">, (comma)</option>
+                    <option value=";">; (semicolon)</option>
+                    <option value="\t">tab</option>
+                </select>
+            </div>
+        </div>
+        <div class="field">
+            <label>CSV (first row = header)</label>
+            <textarea id="csv" rows="8" spellcheck="false"
+                      style="width:100%;font-family:var(--mono);font-size:12px"
+                      placeholder="feedId,name,sourceId,description,dataschema,displayschema"></textarea>
+        </div>
+        <div class="sub-label">Column names in your feeds CSV (map the useful columns; leave blank to skip)</div>
+        <div class="form-row">
+            <div class="field"><label>feedId * (file name)</label><input id="mapFeedId" value="feedId"></div>
+            <div class="field"><label>name</label><input id="mapName" value="name"></div>
+            <div class="field"><label>sourceId</label><input id="mapSourceId" value="sourceId"></div>
+            <div class="field"><label>description</label><input id="mapDescription" value="description"></div>
+        </div>
+        <div class="form-row">
+            <div class="field"><label>dataschema (JSON → dataschema.json)</label><input id="mapDataschema" value="dataschema"></div>
+            <div class="field"><label>displayschema (JSON → displayschema.json)</label><input id="mapDisplayschema" value="displayschema"></div>
+        </div>
+    </div>
+
+    <h2>2 · Tables CSV (feedId → SQL table)</h2>
+    <div class="panel">
+        <div class="form-row">
+            <div class="field" style="max-width:160px">
+                <label>Delimiter</label>
+                <select id="delimiter2">
+                    <option value=",">, (comma)</option>
+                    <option value=";" selected>; (semicolon)</option>
+                    <option value="\t">tab</option>
+                </select>
+            </div>
+        </div>
+        <div class="field">
+            <label>CSV (first row = header)</label>
+            <textarea id="csv2" rows="6" spellcheck="false"
+                      style="width:100%;font-family:var(--mono);font-size:12px"
+                      placeholder="feedId;tableName"></textarea>
+        </div>
+        <div class="sub-label">Column names in your tables CSV, and which workflow variable receives the table</div>
+        <div class="form-row">
+            <div class="field"><label>feedId (join key)</label><input id="mapFeedId2" value="feedId"></div>
+            <div class="field"><label>tableName</label><input id="mapTableName" value="tableName"></div>
+            <div class="field"><label>workflow variable</label><input id="tableVar" value="originTableName"></div>
+        </div>
+    </div>
+
+    <div class="toolbar">
+        <button class="btn sm" onclick="fillExample()">Insert example</button>
+        <span class="spacer"></span>
+        <button class="btn sm primary" onclick="generate()">Generate workflows</button>
+    </div>
+
+    <div id="results" style="margin-top:16px"></div>
+</div>
+
+<script th:inline="none">
+    var CTX = document.querySelector('a.brand').getAttribute('href');
+    if (CTX.charAt(CTX.length - 1) !== '/') CTX += '/';
+    var NL = String.fromCharCode(10);
+    var TAB = String.fromCharCode(9);
+
+    function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
+    function val(id) { return document.getElementById(id).value; }
+    function delimOf(id) { var v = val(id); return v === '\\t' ? TAB : v; }
+
+    function fillExample() {
+        var ds = '{"columns":[{"name":"NDG"},{"name":"NOMINATIVO"}]}';
+        var feeds = [
+            'feedId,name,sourceId,description,dataschema',
+            'tf0001,Feed Uno,ICTO-1,Estrazione uno,"' + ds.split('"').join('""') + '"',
+            'tf0002,Feed Due,ICTO-2,Estrazione due,'
+        ];
+        document.getElementById('csv').value = feeds.join(NL) + NL;
+        var tables = ['feedId;tableName', 'tf0001;SCHEMA1.TAB_UNO', 'tf0002;SCHEMA2.TAB_DUE'];
+        document.getElementById('csv2').value = tables.join(NL) + NL;
+    }
+
+    function banner(ok, msg) {
+        var b = document.getElementById(ok ? 'okBanner' : 'errBanner');
+        var o = document.getElementById(ok ? 'errBanner' : 'okBanner');
+        o.style.display = 'none';
+        b.style.display = ''; b.textContent = msg;
+        window.scrollTo(0, 0);
+    }
+
+    function generate() {
+        var tpl = val('template');
+        if (!tpl) { banner(false, 'Select a template workflow.'); return; }
+        if (!val('csv').trim()) { banner(false, 'Paste the feeds CSV first.'); return; }
+        if (!confirm('Generate workflows from template "' + tpl + '"?')) return;
+
+        var p = {
+            template: tpl,
+            csv: val('csv'),
+            overwrite: val('overwrite'),
+            delimiter: delimOf('delimiter'),
+            mapFeedId: val('mapFeedId'), mapName: val('mapName'), mapSourceId: val('mapSourceId'),
+            mapDescription: val('mapDescription'), mapDataschema: val('mapDataschema'), mapDisplayschema: val('mapDisplayschema'),
+            csv2: val('csv2'), delimiter2: delimOf('delimiter2'),
+            mapFeedId2: val('mapFeedId2'), mapTableName: val('mapTableName'), tableVar: val('tableVar')
+        };
+        var body = Object.keys(p).map(function (k) { return k + '=' + encodeURIComponent(p[k]); }).join('&');
+
+        fetch(CTX + 'api/workflows/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body
+        }).then(function (r) { return r.json(); }).then(function (j) {
+            if (!j.ok) { banner(false, j.error || 'Generation failed.'); return; }
+            banner(true, 'Created ' + j.created + ', skipped ' + j.skipped + ', failed ' + j.failed +
+                         '. Schema files written: ' + (j.schemasWritten || 0) + '.');
+            renderResults(j.items || []);
+        }).catch(function (e) { banner(false, 'Request error: ' + e); });
+    }
+
+    function renderResults(items) {
+        if (items.length === 0) { document.getElementById('results').innerHTML = ''; return; }
+        var h = '<table class="grid"><thead><tr><th>Feed ID</th><th>Status</th><th>Table</th><th>Detail</th></tr></thead><tbody>';
+        for (var i = 0; i < items.length; i++) {
+            var it = items[i];
+            var cls = it.status === 'created' ? 'SUCCESS' : (it.status === 'error' ? 'FAILED' : 'SKIPPED');
+            h += '<tr><td class="mono">' + esc(it.feedId) + '</td>' +
+                 '<td><span class="chip sm ' + cls + '">' + esc(it.status) + '</span></td>' +
+                 '<td class="mono dim small">' + esc(it.table || '') + '</td>' +
+                 '<td class="dim small">' + esc(it.detail || '') + '</td></tr>';
+        }
+        h += '</tbody></table>';
+        document.getElementById('results').innerHTML = h;
+    }
+
+    function tick() { var c = document.getElementById('clock'); if (c) c.textContent = new Date().toLocaleTimeString(); }
+    tick(); setInterval(tick, 1000);
+</script>
+</body>
+</html>

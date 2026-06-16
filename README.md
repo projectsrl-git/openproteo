@@ -125,6 +125,50 @@ Note:
 * Per il runner PowerShell vale tutto quanto detto nella sezione execution policy:
   l'esecuzione avviene dal processo Tomcat, quindi è il **suo** utente a contare.
 
+## Creazione massiva di workflow (Bulk create)
+
+Per generare molti feed quasi-identici (es. un centinaio) senza scrivere a mano gli XML:
+pagina **Bulk create** (link in dashboard). Si sceglie un workflow **template**, si incollano
+**due CSV** che contengono tutto, e si generano gli XML nella `workflows-dir` (più reload).
+
+I **nomi delle colonne sono configurabili**: puoi incollare i CSV così come sono, anche con
+colonne in più (quelle non mappate vengono ignorate).
+
+**CSV #1 — feeds.** Campi mappabili: `feedId` (obbligatorio, anche nome file), `name`,
+`sourceId`, `description`, e — opzionali — `dataschema` / `displayschema` con il **contenuto
+JSON inline** (tra doppi apici nel CSV, con `"` raddoppiati secondo RFC4180). Se il JSON è
+ben formato, viene scritto come `feedDir/dataschema.json` / `feedDir/displayschema.json` del
+feed; se non è valido, il workflow viene comunque creato e lo schema è saltato con avviso.
+
+**CSV #2 — tables.** Mappa `feedId` → `tableName`; il valore viene iniettato come variabile
+di workflow (nome configurabile, default `originTableName`), che il template usa nella SELECT.
+
+File esistenti **saltati** salvo overwrite; il `feedId` uguale al template è saltato; ogni XML
+è **validato col parser reale** prima della scrittura (errori per riga). Endpoint:
+`POST /api/workflows/bulk`. Esempi: `workflows/_TEMPLATE-extract.xml`,
+`samples/bulk_feeds_example.csv`, `samples/bulk_tables_example.csv`.
+
+### Step `sql` — SELECT generata dal dataschema
+
+Lo step `sql` può costruire la lista campi della SELECT dal **dataschema JSON** del feed,
+così il template resta generico. Nella query usa il segnaposto `{{columns}}` e indica il
+dataschema con il param `columnsSchema`:
+
+```xml
+<step id="extract" exec="sql" datasource="AS400-PROD"
+      csvFile="${landingOut}/${feedId}_${runDate}.csv" delimiter=";">
+    <param name="columnsSchema" value="${feedDir}/dataschema.json"/>
+    <query>SELECT {{columns}} FROM ${originTableName}</query>
+</step>
+```
+
+A runtime `{{columns}}` viene espanso con i `name` del dataschema (es. `NDG, NOMINATIVO,
+DATA_KYC`), poi `${originTableName}` e le altre variabili vengono risolte normalmente.
+Identificatori **nudi** di default; param opzionale `columnQuote=double` per virgolettarli
+(`"NDG", "NOMINATIVO"`). Se la query non contiene `{{columns}}`, è usata tale e quale
+(retrocompatibile). La lista campi si aggiorna da sola se cambia il dataschema, senza
+rigenerare i workflow.
+
 ## Dashboard
 
 La home elenca i workflow registrati (uno per feed) con un **riepilogo in alto** e una

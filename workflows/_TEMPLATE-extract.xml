@@ -1,0 +1,13 @@
+<workflow feedId="_TEMPLATE-extract" sourceId="TEMPLATE" name="Extraction template (bulk source)">
+    <description>Template for bulk creation. The extraction builds SELECT &lt;columns from dataschema&gt; FROM ${originTableName}.</description>
+    <variables>
+        <var name="originTableName" value="SCHEMA.TABELLA"/>
+    </variables>
+    <steps>
+        <step id="extract" name="Extract from DB2" exec="sql" datasource="AS400-PROD"
+              csvFile="${landingOut}/${feedId}_${runDate}.csv" delimiter=";">
+            <param name="columnsSchema" value="${feedDir}/dataschema.json"/>
+            <query>SELECT {{columns}} FROM ${originTableName}</query>
+        </step>
+    </steps>
+</workflow>

@@ -1,0 +1,4 @@
+feedId,name,sourceId,description,originTableName
+tf0001,Feed Uno,ICTO-1,Estrazione clienti uno,SCHEMA1.TAB_UNO
+tf0002,Feed Due,ICTO-2,Estrazione clienti due,SCHEMA2.TAB_DUE
+tf0003,Feed Tre,ICTO-3,Estrazione clienti tre,SCHEMA3.TAB_TRE

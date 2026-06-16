@@ -141,10 +141,26 @@ public class PageController {
         return "view";
     }
 
-    @GetMapping("/designer")
-    public String designerNew(Model model) {
+    @GetMapping("/designer")    public String designerNew(Model model) {
         model.addAttribute("feedId", null);
         return "designer";
+    }
+
+    @GetMapping("/bulk")
+    public String bulk(Model model) {
+        model.addAttribute("rows", buildSimpleRows());
+        return "bulk";
+    }
+
+    private List<Map<String, Object>> buildSimpleRows() {
+        List<Map<String, Object>> list = new ArrayList<Map<String, Object>>();
+        for (WorkflowDef wf : registry.all()) {
+            Map<String, Object> m = new LinkedHashMap<String, Object>();
+            m.put("feedId", wf.feedId);
+            m.put("name", wf.name);
+            list.add(m);
+        }
+        return list;
     }
 
     @GetMapping("/designer/{feedId}")

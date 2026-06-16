@@ -110,6 +110,8 @@ orchestrator.mask-pools-dir=       # opzionale: override dei pool senza rebuild
 
 * `validate`, `csvreplace`, `setvar`, `filecopy`, `ifscopy`, `sql`, `jar`,
   `powershell`, `cmd`, `auto` — stabili.
+* `sql` — export risultato a CSV. Supporta `{{columns}}` nella query: espande la lista
+  campi dal dataschema (param `columnsSchema`), `columnQuote=none|double`. Stabile.
 * `encoding` — single + directory batch (filter, recursive, outputDir). Stabile.
 * `anonymize` (ARX) — Batch 2a (free-text + ruoli colonne). Batch 2b
   (k-anonymity) **in attesa del jar ARX su Nexus**.
@@ -132,6 +134,14 @@ orchestrator.mask-pools-dir=       # opzionale: override dei pool senza rebuild
   (e quindi `./workflows` = `CATALINA_HOME/bin/workflows`).
 * **Sample**: i `SAMPLE-*.xml` NON sono nel WAR. In locale e su UBS vanno
   copiati a mano nella `orchestrator.workflows-dir` configurata.
+
+* **Bulk create**: pagina /bulk + `POST /api/workflows/bulk`. Genera N workflow da un
+  template XML + DUE CSV con nomi colonna configurabili. CSV#1 feeds: feedId (obblig.),
+  name, sourceId, description, dataschema/displayschema (JSON inline -> scritti in feedDir).
+  CSV#2 tables: feedId -> tableName, iniettato come variabile (default originTableName).
+  Colonne non mappate ignorate. Scrive nella workflows-dir + reload; schema JSON validati
+  con Jackson e scritti nel feedDir dopo il reload. Generatore in
+  parser/BulkWorkflowGenerator (DOM+CSV, no Jackson, unit-testabile).
 
 ## Convenzioni di commit / changelog
 

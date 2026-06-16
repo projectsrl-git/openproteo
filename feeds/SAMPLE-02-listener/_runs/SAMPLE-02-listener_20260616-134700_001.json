@@ -1,12 +1,12 @@
 {
-  "runId" : "SAMPLE-02-listener_20260615-143200_006",
+  "runId" : "SAMPLE-02-listener_20260616-134700_001",
   "feedId" : "SAMPLE-02-listener",
   "workflowName" : "Sample 02 - Directory listener",
   "status" : "SKIPPED",
   "trigger" : "CRON",
   "triggeredBy" : "scheduler",
-  "startTs" : "2026-06-15 14:32:00",
-  "endTs" : "2026-06-15 14:32:00",
+  "startTs" : "2026-06-16 13:47:00",
+  "endTs" : "2026-06-16 13:47:00",
   "message" : "Ended by gate 'any_files' (END:SKIPPED)",
   "currentIndex" : 1,
   "waitingGateId" : null,
@@ -14,9 +14,9 @@
     "feedId" : "SAMPLE-02-listener",
     "sourceId" : "",
     "feedName" : "Sample 02 - Directory listener",
-    "runId" : "SAMPLE-02-listener_20260615-143200_006",
-    "runDate" : "20260615",
-    "runTs" : "20260615_143200",
+    "runId" : "SAMPLE-02-listener_20260616-134700_001",
+    "runDate" : "20260616",
+    "runTs" : "20260616_134700",
     "feedDir" : "D:\\SVILUPPO\\openproteo\\feeds\\SAMPLE-02-listener",
     "landingIn" : "D:\\SVILUPPO\\openproteo\\feeds\\SAMPLE-02-listener\\00_landing_in",
     "landingOut" : "D:\\SVILUPPO\\openproteo\\feeds\\SAMPLE-02-listener\\99_landing_out",
@@ -33,11 +33,11 @@
     "stepId" : "scan",
     "name" : "Scan landing IN",
     "status" : "SUCCESS",
-    "startTs" : "2026-06-15 14:32:00",
-    "endTs" : "2026-06-15 14:32:00",
+    "startTs" : "2026-06-16 13:47:00",
+    "endTs" : "2026-06-16 13:47:00",
     "exitCode" : 0,
     "attempts" : 1,
-    "logFile" : "runs\\SAMPLE-02-listener_20260615-143200_006\\scan.log",
+    "logFile" : "runs\\SAMPLE-02-listener_20260616-134700_001\\scan.log",
     "message" : null,
     "checks" : null
   }, {
@@ -59,6 +59,6 @@
     "condition" : "0 > 0",
     "result" : false,
     "decidedBy" : null,
-    "ts" : "2026-06-15 14:32:00"
+    "ts" : "2026-06-16 13:47:00"
   } ]
 }
