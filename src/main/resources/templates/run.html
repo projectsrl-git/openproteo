@@ -142,6 +142,16 @@
             paintNode(g.gateId, status, meta);
         });
 
+        // live loop animation: iteration N / total near the LOOP + xN badge on body blocks
+        if (BPMN && BPMN.setLoopState) {
+            LOOP_IDS.forEach(function (lid) {
+                var v = run.vars || {};
+                var iRaw = v['__loop.' + lid + '.i'], nRaw = v['__loop.' + lid + '.n'];
+                if (iRaw != null && nRaw != null) BPMN.setLoopState(lid, parseInt(iRaw, 10) + 1, parseInt(nRaw, 10));
+                else BPMN.setLoopState(lid, 0, 0);
+            });
+        }
+
         // approval box
         var box = document.getElementById('approvalBox');
         if (run.status === 'WAITING_APPROVAL' && run.waitingGateId) {
@@ -173,6 +183,7 @@
         // variabili
         var vb = '';
         Object.keys(run.vars || {}).forEach(function (k) {
+            if (k.indexOf('__') === 0) return;   // hide internal loop bookkeeping
             vb += '<dt>${' + esc(k) + '}</dt><dd>' + esc(run.vars[k]) + '</dd>';
         });
         document.getElementById('varBox').innerHTML = vb;
@@ -366,11 +377,13 @@
 
     var BPMN = null;
     var pendingPaints = [];
+    var LOOP_IDS = [];
 
     fetch(CTX + 'api/workflows/' + encodeURIComponent(FEED_ID) + '/definition')
         .then(function (r) { return r.json(); })
         .then(function (def) {
             BPMN = renderBpmn(document.getElementById('bpmnBox'), def);
+            LOOP_IDS = (def.nodes || []).filter(function (n) { return n.kind === 'LOOP'; }).map(function (n) { return n.id; });
             pendingPaints.forEach(function (p) { BPMN.setStatus(p[0], p[1], p[2]); });
             pendingPaints = [];
         })

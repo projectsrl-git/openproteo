@@ -1,30 +1,21 @@
-feat: safecopy executor, loop back-edge, light BPMN, bigger toggle
+feat(loop): live run-time animation - iteration label + xN badges
 
-safecopy executor (exec="safecopy"):
-- Copies wildcard-matched files from an input directory to an output
-  directory, writing each file as <name>.on_fly_ and renaming it to the
-  final name only after the copy completes (atomic move when possible).
-  A downstream process watching the landing zone never sees a partial
-  file. Params: source, dest, pattern, tmpSuffix (default .on_fly_).
-  Outputs matchedFiles / matchedCount / bytesCopied. Tested.
+At run time the diagram now animates the loop:
+- an "iteration N / total" label appears near the LOOP node;
+- each body block shows a "xN" badge (current pass);
+- the ENDLOOP -> LOOP back-arrow pulses and the body blocks flash when
+  the pass advances, making the jump-back and re-run visually clear.
 
-Loop visualization (run-view BPMN):
-- LOOP and ENDLOOP are matched by nesting and joined by a dashed accent
-  back-edge arched over the top from ENDLOOP to its LOOP, with an arrow
-  and a "loop" label. LOOP/ENDLOOP boxes get an accent outline.
-- Designer makes the pairing explicit: a LOOP shows "paired ENDLOOP:
-  <id>" and an ENDLOOP shows "Closes LOOP: <id>" (warns if unmatched),
-  answering how to tell which start belongs to which end.
+Implementation (UI only; no backend change):
+- bpmn.js: a loops registry is built while drawing the back-edges
+  (edge + body node ids, each body node mapped to its innermost loop).
+  New setLoopState(loopId, iter, count) draws/updates the label and the
+  per-block badges, pulses the edge and flashes the bodies on advance.
+  addCls/rmCls toggle classes without clobbering polled status classes.
+- run.html: LOOP_IDS captured from the definition; the poll reads
+  __loop.<id>.i and .n from run.vars (already in the status response)
+  and calls setLoopState (iter = i + 1, count = n), clearing when the
+  keys disappear. Internal __ vars are now hidden from the vars dump.
 
-Light theme: the BPMN blocks (node fills/strokes/arrowheads and the
-per-status tints) now render light in light mode; they were hardcoded
-dark.
-
-Designer: the collapse/expand toggle is now a larger boxed button, so it
-is no longer confused with the move/duplicate/delete buttons.
-
-Still pending (next): run-time loop animation that visually resets the
-executed blocks on each pass and shows the current iteration number.
-
-76 classes compile; bpmn.js and designer JS valid; no \n/\r;
-Thymeleaf-safe. Verify the diagram, light theme and safecopy on UBS.
+bpmn.js and run.html validated; no \n/\r; Thymeleaf-safe. Verify on UBS
+with a multi-file loop (very fast steps may advance between 2s polls).

@@ -313,6 +313,13 @@ footer { margin-top: 50px; color: var(--ink-faint); font-size: 11px; font-family
 .bp-loop-edge { stroke: var(--accent); stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; }
 .bp-loop-arrowhead { fill: var(--accent); }
 .bp-loop-label { fill: var(--accent); font: 600 10px var(--mono, Consolas, monospace); letter-spacing: .5px; }
+.bp-loop-iter { fill: var(--accent); font: 700 11px var(--mono, Consolas, monospace); letter-spacing: .5px; }
+.bp-iterbadge-bg { fill: var(--accent); }
+.bp-iterbadge-tx { fill: #0d1117; font: 700 10px var(--mono, Consolas, monospace); }
+.bp-loop-edge.pulse { animation: bpLoopPulse .9s ease-out; }
+@keyframes bpLoopPulse { 0% { stroke-width: 1.6; stroke-opacity: 1; } 45% { stroke-width: 4.5; stroke-opacity: 1; } 100% { stroke-width: 1.6; stroke-opacity: .85; } }
+.bp-node.bp-reloop .shape { animation: bpReloop .65s ease-out; }
+@keyframes bpReloop { 0% { fill-opacity: .2; } 60% { fill-opacity: .2; } 100% { fill-opacity: 1; } }
 .bp-node.bp-loopmarker .shape { stroke: var(--accent); }
 
 /* light theme: BPMN blocks must read as light too */

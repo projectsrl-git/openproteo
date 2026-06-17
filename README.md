@@ -90,7 +90,7 @@ width there.
 
 The engine has a safety limit `orchestrator.max-transitions` (default 500) against runaway
 gate loops; for a loop over many files raise it (transitions are roughly files × steps in the
-block).
+block). During a run the diagram shows the loop live: a back-arrow links ENDLOOP to its LOOP, an `iteration N / total` label appears near the LOOP, each body block carries a `xN` badge, and the arrow pulses while the executed blocks flash as the pass restarts.
 
 ## Splitting (SQL export and SPLIT step)
 

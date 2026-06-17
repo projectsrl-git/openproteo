@@ -234,3 +234,12 @@ Ogni turno di sviluppo (= ogni "consegna" di Claude) produce:
   nesting) so the pairing is explicit; warns if unmatched.
 * .nc-toggle enlarged + boxed (border/bg, 30x26) to not be confused with the move buttons.
 * Pending: run-time loop animation (turn off executed blocks per pass + live iteration counter).
+
+## Loop run-time animation
+* bpmn.js setLoopState(loopId, iter, count): "iteration N / total" label near the LOOP, a
+  xN badge on each body block (body = nodes whose innermost enclosing loop is this one),
+  back-edge pulse + body flash when the pass advances. loops registry built when drawing the
+  back-edges; addCls/rmCls preserve concurrent status changes.
+* run.html: LOOP_IDS captured from def; refresh() reads __loop.<id>.i/.n from run.vars and
+  calls setLoopState (iter = i+1, count = n); clears when absent. Internal __ vars hidden in
+  the variables dump.

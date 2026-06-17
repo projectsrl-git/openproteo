@@ -142,6 +142,8 @@ function renderBpmn(container, def) {
         s = s == null ? '' : String(s);
         return s.length > n ? s.substring(0, n - 1) + '…' : s;
     }
+    function addCls(elm, c) { var v = elm.getAttribute('class') || ''; if (v.indexOf(c) < 0) elm.setAttribute('class', v + ' ' + c); }
+    function rmCls(elm, c) { var v = elm.getAttribute('class') || ''; elm.setAttribute('class', v.replace(new RegExp('\\s*' + c + '\\b', 'g'), '')); }
 
     // ---- edges (drawn first, under the nodes) ----
     var edgeEls = {};                // fromId|label -> path element
@@ -241,11 +243,19 @@ function renderBpmn(container, def) {
     if (finalEnd) drawEnd(finalEnd);
 
     // ---- loop back-edges: ENDLOOP -> matching LOOP (by nesting), arched over the top ----
+    var loops = {};   // loopNodeId -> { edge, bodyIds:[], lastIter:0, lx, ly, labelEl, badges:{} }
     (function () {
         var stack = [], pairs = [];
         nodes.forEach(function (n, i) {
             if (n.kind === 'LOOP') stack.push(i);
             else if (n.kind === 'ENDLOOP' && stack.length) pairs.push({ loop: stack.pop(), end: i, depth: stack.length });
+        });
+        // each body STEP/GATE belongs to its innermost enclosing loop
+        var owner = {}, ostack = [];
+        nodes.forEach(function (n) {
+            if (n.kind === 'LOOP') ostack.push(n.id);
+            else if (n.kind === 'ENDLOOP') ostack.pop();
+            else if (ostack.length) owner[n.id] = ostack[ostack.length - 1];
         });
         pairs.forEach(function (pr) {
             var lx = cx[pr.loop], ex = cx[pr.end];
@@ -255,8 +265,12 @@ function renderBpmn(container, def) {
             if (peak < 8) peak = 8;
             var d = 'M ' + ex + ' ' + endTop +
                     ' C ' + ex + ' ' + peak + ' ' + lx + ' ' + peak + ' ' + lx + ' ' + loopTop;
-            el('path', { d: d, 'class': 'bp-loop-edge', 'marker-end': 'url(#bpLoopArrow)' });
+            var edge = el('path', { d: d, 'class': 'bp-loop-edge', 'marker-end': 'url(#bpLoopArrow)' });
             txt(svg, (lx + ex) / 2, peak - 4, 'bp-loop-label', '↺ loop');
+            var loopId = nodes[pr.loop].id;
+            var bodyIds = [];
+            nodes.forEach(function (n) { if (owner[n.id] === loopId) bodyIds.push(n.id); });
+            loops[loopId] = { edge: edge, bodyIds: bodyIds, lastIter: 0, lx: lx, ly: MIDY + TASK_H / 2 + 32, badges: {}, labelEl: null };
         });
     })();
 
@@ -269,6 +283,49 @@ function renderBpmn(container, def) {
             if (!finalEndEls) return;
             finalEndEls.g.setAttribute('class', 'bp-node bp-event st-' + status);
             finalEndEls.label.textContent = status;
+        },
+        // Live loop animation: show "iteration N / total" near the LOOP and a "xN" badge
+        // on each body block; pulse the back-edge and flash the body when the pass advances.
+        // Pass iter=0 (or count=0) to clear when the loop is no longer active.
+        setLoopState: function (loopId, iter, count) {
+            var lp = loops[loopId];
+            if (!lp) return;
+            var active = iter > 0 && count > 0;
+            if (active) {
+                if (!lp.labelEl) lp.labelEl = txt(svg, lp.lx, lp.ly, 'bp-loop-iter', '');
+                lp.labelEl.textContent = 'iteration ' + iter + ' / ' + count;
+                lp.labelEl.setAttribute('display', '');
+            } else if (lp.labelEl) {
+                lp.labelEl.setAttribute('display', 'none');
+            }
+            lp.bodyIds.forEach(function (bid) {
+                var ne = nodeEls[bid];
+                if (!ne || ne.cx === undefined) return;
+                var b = lp.badges[bid];
+                if (active) {
+                    if (!b) {
+                        var g = el('g', { 'class': 'bp-iterbadge' }, ne.g);
+                        var bw = 30, bx = ne.cx + ne.w / 2 - bw + 4, by = ne.top - 9;
+                        el('rect', { x: bx, y: by, width: bw, height: 17, rx: 8, 'class': 'bp-iterbadge-bg' }, g);
+                        var t = txt(g, bx + bw / 2, by + 12, 'bp-iterbadge-tx', '');
+                        b = { g: g, t: t }; lp.badges[bid] = b;
+                    }
+                    b.t.textContent = '\u00d7' + iter;
+                    b.g.setAttribute('display', '');
+                } else if (b) {
+                    b.g.setAttribute('display', 'none');
+                }
+            });
+            if (active && iter > lp.lastIter && lp.lastIter > 0) {
+                addCls(lp.edge, 'pulse');
+                setTimeout(function () { rmCls(lp.edge, 'pulse'); }, 900);
+                lp.bodyIds.forEach(function (bid) {
+                    var ne = nodeEls[bid]; if (!ne) return;
+                    addCls(ne.g, 'bp-reloop');
+                    setTimeout(function () { rmCls(ne.g, 'bp-reloop'); }, 650);
+                });
+            }
+            lp.lastIter = active ? iter : 0;
         },
         // validation checklist rendered two ways on the task:
         //  (a) compact colour segments inside the rectangle, and
