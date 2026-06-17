@@ -38,8 +38,10 @@ whose id is `validate`, third in the run order".
 A STEP runs one executor. Built-in (internal) executors:
 
 - **sql** — run a query against a DB2/AS400 datasource and stream the result set to CSV.
-  Supports `{{columns}}` expansion from a per-feed `dataschema.json` and splitting the export
-  into parts by row count and/or size (see Splitting below).
+  Write `{{columns}}` in the query and set the step's "Column list from dataschema" field to
+  the dataschema JSON path (param `columnsSchema`, e.g. `${feedDir}/dataschema.json`); at run
+  time `{{columns}}` is replaced by that schema's column names (optionally double-quoted).
+  Can also split the export into parts by row count and/or size (see Splitting below).
 - **split** — split an **existing file** into parts by rows and/or MB, using the same logic
   as the SQL export. Use it to run a LOOP only over the final steps, after validation and
   anonymization (see Splitting and Loops).

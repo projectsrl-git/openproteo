@@ -207,6 +207,17 @@
         var n = parseInt(pad, 10); if (isNaN(n) || n < 0) n = 3;
         var s = '1'; while (s.length < n) s = '0' + s; return s;
     }
+    // collapsible subsection header (content after it is hidden when collapsed)
+    function subHead(label) {
+        return '<div class="subsection sub-collapsible"><div class="sub-label sub-toggle" onclick="toggleSub(this)"><span class="sub-caret">▾</span> ' + label + '</div>';
+    }
+    function toggleSub(el) {
+        var s = el;
+        while (s && (!s.className || String(s.className).indexOf('subsection') < 0)) s = s.parentNode;
+        if (!s) return;
+        if (String(s.className).indexOf('collapsed') >= 0) s.className = s.className.replace(/\s*collapsed\b/g, '');
+        else s.className += ' collapsed';
+    }
 
     function tick() { document.getElementById('clock').textContent = new Date().toLocaleString('it-IT'); }
     tick(); setInterval(tick, 1000);
@@ -494,6 +505,7 @@
                 '<span class="step-badge">' + (i + 1) + '</span>' +
                 '<span class="nc-type">' + kindLabel + '</span>' +
                 '<span class="nc-name">' + attresc(n.name || '') + '</span>' +
+                (n.id ? '<span class="nc-id" title="step id">' + attresc(n.id) + '</span>' : '') +
                 '<span class="spacer"></span><span class="nc-tools">' +
                 '<button onclick="move(' + i + ',-1)" title="move up">▲</button>' +
                 '<button onclick="move(' + i + ',1)" title="move down">▼</button>' +
@@ -579,6 +591,12 @@
                         '<div class="field"><label>Split: max rows per file (0 = no split)</label><input type="number" min="0" value="' + (n.csvSplitRows || '') + '" placeholder="0" oninput="updNode(' + i + ',\'csvSplitRows\',this.value)"></div>' +
                         '<div class="field"><label>Split: max MB per file (0 = no split)</label><input type="number" min="0" value="' + (n.csvSplitMb || '') + '" placeholder="0" oninput="updNode(' + i + ',\'csvSplitMb\',this.value)"></div>' +
                         '<div class="field"><label></label><span class="dim small">parts named eor_001.csv, eor_002.csv… → ${csvFile} (1st), ${csvFiles}, ${csvParts}</span></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Column list from dataschema (for <code>{{columns}}</code>)</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'columnsSchema')) + '" placeholder="${feedDir}/dataschema.json | ${dataschema_json}" oninput="setNodeParam(' + i + ',\'columnsSchema\',this.value)"></div>' +
+                        '<div class="field"><label>Quote columns</label><select onchange="setNodeParam(' + i + ',\'columnQuote\',this.value)">' +
+                        '<option value=""' + (!nodeParam(n,'columnQuote') ? ' selected' : '') + '>none (PLAIN)</option>' +
+                        '<option value="double"' + (nodeParam(n,'columnQuote') === 'double' ? ' selected' : '') + '>double ("COL")</option></select></div></div>';
+                    h += '<div class="form-row"><div class="field wide"><span class="dim small">Write <code>{{columns}}</code> in the query below and it is replaced at run time by the column names read from the dataschema JSON above, e.g. <code>SELECT {{columns}} FROM ${originTableName}</code>. Leave the schema empty if you don\'t use <code>{{columns}}</code>.</span></div></div>';
                     h += '<div class="subsection"><div class="sub-label">SQL query (${vars} resolved at run time)</div>' +
                         '<textarea class="inline-input" style="width:100%;min-height:90px" placeholder="SELECT NDG FROM MYLIB.EORFULL WHERE DT_EOR = \'${runDate}\'" oninput="updNode(' + i + ',\'query\',this.value)">' + esc(n.query) + '</textarea>' +
                         '<div style="margin-top:8px"><button class="ghost-btn" onclick="previewQuery(' + i + ')">▶ Preview query</button> ' +
@@ -657,7 +675,7 @@
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Displayschema JSON (optional — only for DataType=date passthrough)</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'displayschema')) + '" placeholder="${feedDir}/displayschema.json" oninput="setNodeParam(' + i + ',\'displayschema\',this.value)"></div>' +
                         '<div class="field wide"><label>Output file (empty = &lt;name&gt;_masked)</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'outFile')) + '" placeholder="${landingOut}/eor_masked.csv" oninput="setNodeParam(' + i + ',\'outFile\',this.value)"></div></div>';
-                    h += '<div class="subsection"><div class="sub-label">Column mapping by lists (comma-separated column names per anonType; columns in no list are left untouched)</div>';
+                    h += subHead('Column mapping by lists (comma-separated column names per anonType; columns in no list are left untouched)');
                     var ml = [ ['cidColumns','cid'],['dateColumns','date (passthrough)'],['numericFixedColumns','numericFixed'],['alphanumericFixedColumns','alphanumericFixed'],['firstNameColumns','firstName'],['lastNameColumns','lastName'],['fullNameColumns','fullName'],['cityColumns','city'],['addressColumns','address'],['companyColumns','company'],['customerDescriptionColumns','customerDescription'],['freeTextColumns','freeText'] ];
                     ml.forEach(function (pair, k) {
                         if (k % 2 === 0) h += '<div class="form-row">';
@@ -673,7 +691,7 @@
                         '<div class="field"><label>Numeric separators</label><select onchange="setNodeParam(' + i + ',\'numericPreserveSeparators\',this.value)">' +
                         '<option value="true"' + (nodeParam(n,'numericPreserveSeparators') !== 'false' ? ' selected' : '') + '>preserve - / .</option>' +
                         '<option value="false"' + (nodeParam(n,'numericPreserveSeparators') === 'false' ? ' selected' : '') + '>randomize all positions</option></select></div></div>';
-                    h += '<div class="subsection"><div class="sub-label">Pools & strategies</div>';
+                    h += subHead('Pools & strategies');
                     h += '<div class="form-row">' +
                         '<div class="field"><label>Italian pool % (legacy)</label><input type="number" min="0" max="100" value="' + attresc(nodeParam(n,'localePercent') || '100') + '" oninput="setNodeParam(' + i + ',\'localePercent\',this.value)"></div>' +
                         '<div class="field"><label>customerDescription: person %</label><input type="number" min="0" max="100" value="' + attresc(nodeParam(n,'personVsCompanyPercent') || '70') + '" oninput="setNodeParam(' + i + ',\'personVsCompanyPercent\',this.value)"></div></div>';
@@ -684,7 +702,7 @@
                         '<option value="hash"' + (nodeParam(n,'cidMode') === 'hash' ? ' selected' : '') + '>hash (deterministic, fixed length)</option></select></div>' +
                         '<div class="field"><label>CID partial mask %</label><input type="number" min="0" max="100" value="' + attresc(nodeParam(n,'cidMaskPercent') || '60') + '" oninput="setNodeParam(' + i + ',\'cidMaskPercent\',this.value)"></div>' +
                         '<div class="field"><label>CID hash length</label><input type="number" min="4" value="' + attresc(nodeParam(n,'cidHashLen') || '12') + '" oninput="setNodeParam(' + i + ',\'cidHashLen\',this.value)"></div></div></div>';
-                    h += '<div class="subsection"><div class="sub-label">Pool files (mix Italian / international freely)</div>';
+                    h += subHead('Pool files (mix Italian / international freely)');
                     h += '<div class="form-row">' +
                         poolSel(i, 'firstNameFile', 'First names', ['firstnames'], 'firstnames_it.txt', nodeParam(n,'firstNameFile')) +
                         poolSel(i, 'lastNameFile', 'Surnames', ['lastnames'], 'lastnames_it.txt', nodeParam(n,'lastNameFile')) +

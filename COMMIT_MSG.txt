@@ -1,21 +1,25 @@
-feat(loop): live run-time animation - iteration label + xN badges
+feat: {{columns}} field on SQL step, mask sub-collapse, step id, light sub-steps
 
-At run time the diagram now animates the loop:
-- an "iteration N / total" label appears near the LOOP node;
-- each body block shows a "xN" badge (current pass);
-- the ENDLOOP -> LOOP back-arrow pulses and the body blocks flash when
-  the pass advances, making the jump-back and re-run visually clear.
+SQL {{columns}} (was not discoverable):
+- At run time {{columns}} in a query is replaced by the column names read
+  from the dataschema JSON given by the step param columnsSchema
+  (optionally double-quoted via columnQuote). The designer SQL step had
+  no field for columnsSchema, so it could not be wired up. Added a
+  "Column list from dataschema" field + "Quote columns" select + a hint.
 
-Implementation (UI only; no backend change):
-- bpmn.js: a loops registry is built while drawing the back-edges
-  (edge + body node ids, each body node mapped to its innermost loop).
-  New setLoopState(loopId, iter, count) draws/updates the label and the
-  per-block badges, pulses the edge and flashes the bodies on advance.
-  addCls/rmCls toggle classes without clobbering polled status classes.
-- run.html: LOOP_IDS captured from the definition; the poll reads
-  __loop.<id>.i and .n from run.vars (already in the status response)
-  and calls setLoopState (iter = i + 1, count = n), clearing when the
-  keys disappear. Internal __ vars are now hidden from the vars dump.
+Mask step partial collapse:
+- The mask subsections (Column mapping, Pools & strategies, Pool files)
+  are now collapsible to shorten the long configuration. A clickable
+  sub-label toggles the subsection; state survives field edits.
 
-bpmn.js and run.html validated; no \n/\r; Thymeleaf-safe. Verify on UBS
-with a multi-file loop (very fast steps may advance between 2s polls).
+Step id in the header:
+- The node header now shows the step id as a small mono pill next to the
+  name, so it stays visible when the step is collapsed.
+
+Light theme:
+- The verification/anonymization sub-step badges (sub-node boxes, dots,
+  pending/skip fills) now render light in light mode; they were
+  hardcoded dark.
+
+76 classes compile; designer JS valid; no \n/\r; Thymeleaf-safe. Verify
+on UBS: {{columns}} expansion, mask collapse, step id, light sub-steps.

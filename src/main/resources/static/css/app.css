@@ -441,6 +441,26 @@ footer { margin-top: 50px; color: var(--ink-faint); font-size: 11px; font-family
 .bp-subdot.ck-FAIL { fill: #ff6b6b; }
 .bp-subdot.ck-SKIP { fill: #555f70; }
 
+/* step id shown in the node header (visible when collapsed) */
+.node-card .nc-head .nc-id { font-family: var(--mono); font-size: 11px; color: var(--ink-dim);
+  background: var(--bg-panel); border: 1px solid var(--line-soft); border-radius: 4px; padding: 1px 7px; }
+
+/* collapsible subsections (e.g. inside the mask step) */
+.subsection.sub-collapsible > .sub-label.sub-toggle { cursor: pointer; -webkit-user-select: none; user-select: none; }
+.subsection.sub-collapsible .sub-caret { display: inline-block; width: 12px; color: var(--accent);
+  -webkit-transition: -webkit-transform .12s; transition: transform .12s; }
+.subsection.collapsed > *:not(.sub-label) { display: none; }
+.subsection.collapsed .sub-caret { -webkit-transform: rotate(-90deg); transform: rotate(-90deg); }
+
+/* light theme: verification / anonymization sub-step badges must read light too */
+:root[data-theme="light"] .bp-subnode { fill: #ffffff; stroke: #c9d2dd; }
+:root[data-theme="light"] .bp-subdot { stroke: #ffffff; }
+:root[data-theme="light"] .bp-check.ck-PENDING,
+:root[data-theme="light"] .bp-subdot.ck-PENDING { fill: #d4dae3; }
+:root[data-theme="light"] .bp-check.ck-SKIP,
+:root[data-theme="light"] .bp-subdot.ck-SKIP { fill: #aeb7c4; }
+:root[data-theme="light"] .bp-sublabel { fill: var(--ink); }
+
 /* designer: workflow-files section collapsible + bounded to the form column width */
 .collapse-h { cursor: pointer; user-select: none; }
 .collapse-h .caret { display: inline-block; width: 14px; color: var(--accent); }
