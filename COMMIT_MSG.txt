@@ -1,41 +1,23 @@
-feat: SPLIT executor, in-app Docs, compact designer, light-theme inputs
+feat(loop): 1-based loopIndex + configurable zero-padded loopIndexString
 
-Docs and commit messages are English-only from now on.
+- ${indexVar} (default loopIndex) is now 1-based (was 0-based).
+- New ${indexStringVar} (default loopIndexString): the 1-based index
+  left-padded with '0' to a configurable width N (indexPad, default 3),
+  e.g. 001 or 00005 - convenient for ordered output file names.
 
-SPLIT executor (exec="split"):
-- Splits an existing file into parts by row count and/or MB, reusing the
-  SQL export rotation logic: header repeated per part, parts named
-  stem_001.ext, CRLF, optional BOM, lines passed through verbatim.
-- Publishes the same variables as the SQL split (csvFiles, csvParts,
-  csvFile, rowCount), so a LOOP can iterate ${csvFiles} from either
-  source. This lets the loop run only over the final steps (after
-  validation/anonymization).
-- InternalSteps.runSplit (+ utf8Len/partName) and dispatch; engine
-  internal-executor list updated; designer executor option + params
-  branch (source, output base, rows/MB, list separator, hasHeader, bom)
-  + validation. Tested: 25 rows / 10 -> 3 parts (10,10,5), header per
-  part, naming, no-limit -> single file.
+Implementation:
+- LoopDef: + indexStringVar, + int indexPad.
+- WorkflowEngine.setLoopIndexVars(): indexVar = internal0Based + 1;
+  indexStringVar = String.format("%0Nd", ...). The internal loop counter
+  stays 0-based to index the item list.
+- Parser / writer / NodeDto / /definition: indexStringVar + indexPad
+  round-trip.
+- Designer: Index var marked 1-based; new Index string var, Pad width and
+  Count var fields; defaults in Add loop; preview XML; help shows a live
+  padded sample.
 
-In-app Docs:
-- static/USAGE.md: single comprehensive English guide (README.md is a
-  copy). New /docs page renders it with a small no-CDN markdown renderer
-  + navigable TOC; link added to the dashboard. Thymeleaf-safe.
+Tested: writer/parser round-trip (idxStr, pad 5); setLoopIndexVars
+0 -> 1/00001 and 4 -> 5/00005. 76 classes compile; designer JS OK.
 
-Designer: all steps are collapsed when opening an existing workflow
-(more compact); add/expand unchanged.
-
-Light theme: editable inputs, selects, textareas and the multiselect box
-now use a light background instead of the dark base; dark theme
-unchanged.
-
-Docs note (answer to a question): step working directories are named
-NN_<stepId> where NN is the execution order x 10 (00,10,20,...). It is
-not a version; the gap allows inserting steps and the folders sort in run
-order. The stepId remains the unique key.
-
-Not yet included (next batch): loop drawn with a back-arrow ENDLOOP->LOOP
-and run-time visualization of the jump back / iteration counter.
-
-Verify on UBS: SPLIT in a real run, designer and /docs rendering,
-light-theme look. Split and renderer logic + compilation tested. 76
-classes compile.
+Note: workflows that relied on a 0-based index will now see 1-based
+values (intended). Docs (USAGE.md/README) updated.

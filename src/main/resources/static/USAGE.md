@@ -78,9 +78,12 @@ repeat a **chain of steps** once per item with a LOOP block:
 ```
 
 The steps between LOOP and its ENDLOOP run **sequentially, once per item**, exposing
-`${file}` (current item), `${fileIdx}` (0-based index) and `${loopCount}`. An empty list skips
-the block. Blocks can be nested. In the designer use the **Add loop** button (it inserts the
-LOOP + ENDLOOP pair).
+`${file}` (current item), `${fileIdx}` (the index, **1-based**), `${loopCount}`, and a padded
+index string. The padded variable (default name `loopIndexString`) is the 1-based index
+left-padded with `0` to a configurable width N, e.g. `001`, `00005` — handy for ordered output
+file names. An empty list skips the block. Blocks can be nested. In the designer use the
+**Add loop** button (it inserts the LOOP + ENDLOOP pair) and set the index var names and pad
+width there.
 
 The engine has a safety limit `orchestrator.max-transitions` (default 500) against runaway
 gate loops; for a loop over many files raise it (transitions are roughly files × steps in the

@@ -35,6 +35,8 @@ public class WorkflowDto {
         public String loopDelimiter;
         public String itemVar;
         public String indexVar;
+        public String indexStringVar;
+        public String indexPad;
         public String countVar;
         // step fields
         public String script;

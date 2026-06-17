@@ -316,7 +316,7 @@ public class WorkflowEngine {
                         run.vars.put(key + ".n", String.valueOf(items.size()));
                         run.vars.put(key + ".i", "0");
                         run.vars.put(lp.itemVar, items.get(0));
-                        run.vars.put(lp.indexVar, "0");
+                        setLoopIndexVars(run, lp, 0);
                         run.vars.put(lp.countVar, String.valueOf(items.size()));
                         store.save(layout, run);
                         log.info("[{}] LOOP '{}' su {} item(s)", run.feedId, lp.id, items.size());
@@ -335,7 +335,7 @@ public class WorkflowEngine {
                         java.util.List<String> items = splitList(run.vars.get(key + ".items"), "\u0001");
                         run.vars.put(key + ".i", String.valueOf(i));
                         run.vars.put(lp.itemVar, i < items.size() ? items.get(i) : "");
-                        run.vars.put(lp.indexVar, String.valueOf(i));
+                        setLoopIndexVars(run, lp, i);
                         store.save(layout, run);
                         idx = startIdx + 1;   // re-enter loop body
                     } else {
@@ -412,6 +412,18 @@ public class WorkflowEngine {
             return null;
         }
         return def.indexOfNode(target);
+    }
+
+    /** Set the exposed loop index vars from the 0-based internal index:
+     *  indexVar is 1-based; indexStringVar is the 1-based index left-padded with '0'
+     *  to indexPad chars (e.g. 001). */
+    private static void setLoopIndexVars(WorkflowRun run, LoopDef lp, int zeroBased) {
+        int oneBased = zeroBased + 1;
+        if (lp.indexVar != null && !lp.indexVar.isEmpty()) run.vars.put(lp.indexVar, String.valueOf(oneBased));
+        if (lp.indexStringVar != null && !lp.indexStringVar.isEmpty()) {
+            String s = lp.indexPad > 0 ? String.format("%0" + lp.indexPad + "d", oneBased) : String.valueOf(oneBased);
+            run.vars.put(lp.indexStringVar, s);
+        }
     }
 
     /** Index of the ENDLOOP matching the LOOP at loopIdx (supports nesting), or -1. */

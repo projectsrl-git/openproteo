@@ -215,3 +215,10 @@ Ogni turno di sviluppo (= ogni "consegna" di Claude) produce:
   (override added; dark theme unchanged).
 * Step working dirs NN_<stepId>: NN = execution-order x 10 (00,10,20,...), NOT a version;
   gaps allow inserting steps; folders sort in run order.
+
+## Loop index (update)
+* ${indexVar} (default loopIndex) is now **1-based** (was 0-based).
+* New ${indexStringVar} (default loopIndexString): the 1-based index LPAD '0' to indexPad
+  chars (default 3), e.g. 001 / 00005. LoopDef.indexStringVar + indexPad; parser/writer/
+  NodeDto/definition/designer wired; engine setLoopIndexVars() computes both. Internal
+  __loop.<id>.i stays 0-based for items.get(i).

@@ -645,6 +645,8 @@ public class ApiController {
                 nd.loopDelimiter = lp.delimiter;
                 nd.itemVar = lp.itemVar;
                 nd.indexVar = lp.indexVar;
+                nd.indexStringVar = lp.indexStringVar;
+                nd.indexPad = String.valueOf(lp.indexPad);
                 nd.countVar = lp.countVar;
             } else if (n instanceof com.legalarchive.orchestrator.model.def.LoopEndDef) {
                 // marker only: kind/id/name already set

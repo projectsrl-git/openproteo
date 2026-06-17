@@ -75,6 +75,8 @@ public class WorkflowXmlWriter {
                         attr(lp, "delimiter", n.loopDelimiter);
                         if (n.itemVar != null && !n.itemVar.trim().isEmpty()) attr(lp, "itemVar", n.itemVar);
                         if (n.indexVar != null && !n.indexVar.trim().isEmpty()) attr(lp, "indexVar", n.indexVar);
+                        if (n.indexStringVar != null && !n.indexStringVar.trim().isEmpty()) attr(lp, "indexStringVar", n.indexStringVar);
+                        if (n.indexPad != null && !n.indexPad.trim().isEmpty()) attr(lp, "indexPad", n.indexPad);
                         if (n.countVar != null && !n.countVar.trim().isEmpty()) attr(lp, "countVar", n.countVar);
                         steps.appendChild(lp);
                     } else if ("ENDLOOP".equalsIgnoreCase(n.kind)) {

@@ -202,6 +202,11 @@
         return '<div class="field"><label>' + label + '</label><select onchange="setNodeParam(' + i + ',\'' + key + '\',this.value)">' +
             poolOptions(cur, prefixes, def) + '</select></div>';
     }
+    // sample of the zero-padded 1-based index, e.g. pad 3 -> "001"
+    function zpadPreview(pad) {
+        var n = parseInt(pad, 10); if (isNaN(n) || n < 0) n = 3;
+        var s = '1'; while (s.length < n) s = '0' + s; return s;
+    }
 
     function tick() { document.getElementById('clock').textContent = new Date().toLocaleString('it-IT'); }
     tick(); setInterval(tick, 1000);
@@ -265,7 +270,7 @@
     function addLoop() {
         loopSeq++;
         wf.nodes.push({ kind: 'LOOP', id: 'loop_' + loopSeq, name: 'Loop ' + loopSeq, over: '${csvFiles}',
-            loopDelimiter: ';', itemVar: 'item', indexVar: 'loopIndex', countVar: 'loopCount' });
+            loopDelimiter: ';', itemVar: 'item', indexVar: 'loopIndex', indexStringVar: 'loopIndexString', indexPad: '3', countVar: 'loopCount' });
         wf.nodes.push({ kind: 'ENDLOOP', id: 'endloop_' + loopSeq, name: 'End loop ' + loopSeq });
         renderNodes(); preview();
     }
@@ -499,9 +504,14 @@
                 h += '<div class="form-row">' +
                     '<div class="field"><label>Delimiter</label><input value="' + attresc(n.loopDelimiter || '') + '" placeholder=";" oninput="updNode(' + i + ',\'loopDelimiter\',this.value)"></div>' +
                     '<div class="field"><label>Item var</label><input value="' + attresc(n.itemVar || '') + '" placeholder="item" oninput="updNode(' + i + ',\'itemVar\',this.value)"></div>' +
-                    '<div class="field"><label>Index var</label><input value="' + attresc(n.indexVar || '') + '" placeholder="loopIndex" oninput="updNode(' + i + ',\'indexVar\',this.value)"></div>' +
+                    '<div class="field"><label>Index var (1-based)</label><input value="' + attresc(n.indexVar || '') + '" placeholder="loopIndex" oninput="updNode(' + i + ',\'indexVar\',this.value)"></div>' +
                     '</div>';
-                h += '<div class="form-row"><div class="field wide"><span class="dim small">Steps between this LOOP and its ENDLOOP run once per item, in order. Use ${' + (n.itemVar || 'item') + '} (current item) and ${' + (n.indexVar || 'loopIndex') + '}.</span></div></div>';
+                h += '<div class="form-row">' +
+                    '<div class="field"><label>Index string var (0-padded)</label><input value="' + attresc(n.indexStringVar || '') + '" placeholder="loopIndexString" oninput="updNode(' + i + ',\'indexStringVar\',this.value)"></div>' +
+                    '<div class="field"><label>Pad width (N)</label><input type="number" min="0" value="' + attresc(n.indexPad == null ? '' : n.indexPad) + '" placeholder="3" oninput="updNode(' + i + ',\'indexPad\',this.value)"></div>' +
+                    '<div class="field"><label>Count var</label><input value="' + attresc(n.countVar || '') + '" placeholder="loopCount" oninput="updNode(' + i + ',\'countVar\',this.value)"></div>' +
+                    '</div>';
+                h += '<div class="form-row"><div class="field wide"><span class="dim small">Steps between this LOOP and its ENDLOOP run once per item, in order. Use ${' + (n.itemVar || 'item') + '} (current item), ${' + (n.indexVar || 'loopIndex') + '} (1-based), ${' + (n.indexStringVar || 'loopIndexString') + '} (0-padded to ' + (n.indexPad == null || n.indexPad === '' ? 3 : n.indexPad) + ', e.g. ' + zpadPreview(n.indexPad) + ').</span></div></div>';
                 h += '</div></div>';
                 return;
             }
@@ -835,6 +845,9 @@
                 if (n.loopDelimiter) lp += ' delimiter="' + xesc(n.loopDelimiter) + '"';
                 if (n.itemVar) lp += ' itemVar="' + xesc(n.itemVar) + '"';
                 if (n.indexVar) lp += ' indexVar="' + xesc(n.indexVar) + '"';
+                if (n.indexStringVar) lp += ' indexStringVar="' + xesc(n.indexStringVar) + '"';
+                if (n.indexPad !== undefined && n.indexPad !== null && String(n.indexPad) !== '') lp += ' indexPad="' + xesc(String(n.indexPad)) + '"';
+                if (n.countVar) lp += ' countVar="' + xesc(n.countVar) + '"';
                 L.push(lp + '/>');
             } else if (n.kind === 'ENDLOOP') {
                 L.push('        <endloop id="' + xesc(n.id) + '"/>');

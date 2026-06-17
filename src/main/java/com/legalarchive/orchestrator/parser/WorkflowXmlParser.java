@@ -143,6 +143,10 @@ public class WorkflowXmlParser {
                     lp.delimiter = trimToNull(el.getAttribute("delimiter"));
                     if (el.hasAttribute("itemVar")) lp.itemVar = el.getAttribute("itemVar");
                     if (el.hasAttribute("indexVar")) lp.indexVar = el.getAttribute("indexVar");
+                    if (el.hasAttribute("indexStringVar")) lp.indexStringVar = el.getAttribute("indexStringVar");
+                    if (el.hasAttribute("indexPad")) {
+                        try { lp.indexPad = Integer.parseInt(el.getAttribute("indexPad").trim()); } catch (Exception ignore) {}
+                    }
                     if (el.hasAttribute("countVar")) lp.countVar = el.getAttribute("countVar");
                     if (lp.over == null) throw new IllegalArgumentException("Loop '" + lp.id + "' is missing required attribute 'over'");
                     addNode(wf, lp, ids, xmlFile);
