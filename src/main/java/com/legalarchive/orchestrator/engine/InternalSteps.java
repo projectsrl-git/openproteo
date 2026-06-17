@@ -89,6 +89,8 @@ public class InternalSteps {
                 runReplace(step, resolvedParams, vars, res, line);
             } else if ("split".equals(kind)) {
                 runSplit(step, resolvedParams, vars, res, line);
+            } else if ("safecopy".equals(kind)) {
+                runSafeCopy(step, resolvedParams, vars, res, line);
             } else {
                 line.accept("unknown internal step kind: " + kind);
                 res.exitCode = -996;
@@ -235,6 +237,61 @@ public class InternalSteps {
         res.outVars.put("matchedCount", String.valueOf(names.size()));
         res.outVars.put("matchedFiles", String.join(step.delimiter == null ? ";" : step.delimiter, names));
         if (!"list".equals(mode)) res.outVars.put("bytesCopied", String.valueOf(bytes));
+        for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
+        res.exitCode = 0;
+    }
+
+    // -------------------------------------------------------------- safecopy
+    /**
+     * SAFE COPY: copy files matching a wildcard from an input directory to an output
+     * directory, writing each file first as {@code <name>.on_fly_} and renaming it to the
+     * final name only once the copy is complete (atomic move when possible). This prevents
+     * downstream automation watching the landing zone from ever picking up a partial file.
+     * The temporary suffix is configurable via the {@code tmpSuffix} param (default .on_fly_).
+     */
+    private void runSafeCopy(StepDef step, Map<String, String> params, Map<String, String> vars,
+                             StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        String source = VarResolver.resolve(step.source, vars);
+        String dest = VarResolver.resolve(step.dest, vars);
+        String glob = VarResolver.resolve(step.pattern, vars);
+        if (glob == null || glob.trim().isEmpty()) glob = "*";
+        String tmpSuffix = params.get("tmpSuffix");
+        if (tmpSuffix == null || tmpSuffix.trim().isEmpty()) tmpSuffix = ".on_fly_";
+
+        if (source == null || source.trim().isEmpty()) { line.accept("safecopy: missing source directory"); res.exitCode = 2; return; }
+        if (dest == null || dest.trim().isEmpty()) { line.accept("safecopy: missing dest directory"); res.exitCode = 2; return; }
+        Path src = Paths.get(source);
+        if (!Files.isDirectory(src)) { line.accept("safecopy: source directory not found: " + source); res.exitCode = 2; return; }
+        Path outDir = Paths.get(dest);
+        Files.createDirectories(outDir);
+        line.accept("safecopy  " + source + "  pattern " + glob + "  -> " + dest + "  (temp suffix " + tmpSuffix + ")");
+
+        List<String> names = new ArrayList<String>();
+        long bytes = 0;
+        DirectoryStream<Path> ds = Files.newDirectoryStream(src, glob);
+        try {
+            for (Path f : ds) {
+                if (Files.isDirectory(f)) continue;
+                String name = f.getFileName().toString();
+                if (name.endsWith(tmpSuffix)) continue;   // never copy someone else's in-flight temp
+                Path tmp = outDir.resolve(name + tmpSuffix);
+                Path target = outDir.resolve(name);
+                Files.copy(f, tmp, StandardCopyOption.REPLACE_EXISTING);
+                try {
+                    Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE);
+                } catch (Exception atomicUnsupported) {
+                    Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+                }
+                bytes += Files.size(target);
+                names.add(name);
+                line.accept("safecopy " + name);
+            }
+        } finally {
+            ds.close();
+        }
+        res.outVars.put("matchedCount", String.valueOf(names.size()));
+        res.outVars.put("matchedFiles", String.join(step.delimiter == null ? ";" : step.delimiter, names));
+        res.outVars.put("bytesCopied", String.valueOf(bytes));
         for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
         res.exitCode = 0;
     }

@@ -222,3 +222,15 @@ Ogni turno di sviluppo (= ogni "consegna" di Claude) produce:
   chars (default 3), e.g. 001 / 00005. LoopDef.indexStringVar + indexPad; parser/writer/
   NodeDto/definition/designer wired; engine setLoopIndexVars() computes both. Internal
   __loop.<id>.i stays 0-based for items.get(i).
+
+## Batch: safecopy / loop viz / light BPMN / toggle
+* safecopy executor: wildcard copy dir->dir via <name>.on_fly_ temp + atomic rename. Params
+  source/dest/pattern + tmpSuffix (default .on_fly_). InternalSteps.runSafeCopy; engine list;
+  designer option+branch+validate. Skips files already ending in tmpSuffix.
+* bpmn.js: LOOP<->ENDLOOP matched by nesting; dashed accent back-edge arched over the top
+  (ENDLOOP->LOOP) with bpLoopArrow marker + "loop" label; LOOP/ENDLOOP nodes get bp-loopmarker.
+* Light theme: BPMN node fills/strokes overridden for light (were hardcoded dark).
+* Designer: LOOP shows "paired ENDLOOP: <id>", ENDLOOP shows "Closes LOOP: <id>" (loopPartner,
+  nesting) so the pairing is explicit; warns if unmatched.
+* .nc-toggle enlarged + boxed (border/bg, 30x26) to not be confused with the move buttons.
+* Pending: run-time loop animation (turn off executed blocks per pass + live iteration counter).

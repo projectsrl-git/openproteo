@@ -1,19 +1,30 @@
-feat: ${sharedDir} variable so a step can create shared files
+feat: safecopy executor, loop back-edge, light BPMN, bigger toggle
 
-A step can now write an app-level shared file by targeting ${sharedDir}
-(the orchestrator.shared-dir directory, the same folder managed by the
-Shared files page). The variable is seeded in the run vars from
-AssetStore.sharedDir() and is overridable by a workflow variable of the
-same name.
+safecopy executor (exec="safecopy"):
+- Copies wildcard-matched files from an input directory to an output
+  directory, writing each file as <name>.on_fly_ and renaming it to the
+  final name only after the copy completes (atomic move when possible).
+  A downstream process watching the landing zone never sees a partial
+  file. Params: source, dest, pattern, tmpSuffix (default .on_fly_).
+  Outputs matchedFiles / matchedCount / bytesCopied. Tested.
 
-Examples:
-- sql export:  csvFile = ${sharedDir}/report.csv
-- split:       output base under ${sharedDir}
-- filecopy:    dest = ${sharedDir}
+Loop visualization (run-view BPMN):
+- LOOP and ENDLOOP are matched by nesting and joined by a dashed accent
+  back-edge arched over the top from ENDLOOP to its LOOP, with an arrow
+  and a "loop" label. LOOP/ENDLOOP boxes get an accent outline.
+- Designer makes the pairing explicit: a LOOP shows "paired ENDLOOP:
+  <id>" and an ENDLOOP shows "Closes LOOP: <id>" (warns if unmatched),
+  answering how to tell which start belongs to which end.
 
-The written file then appears on the Shared files page and is available
-to every workflow. Added to the designer cheat sheet + path suggestions
-and documented in USAGE.md / README.
+Light theme: the BPMN blocks (node fills/strokes/arrowheads and the
+per-status tints) now render light in light mode; they were hardcoded
+dark.
 
-76 classes compile; designer JS OK. Verify on UBS that the step writes
-into the configured shared directory.
+Designer: the collapse/expand toggle is now a larger boxed button, so it
+is no longer confused with the move/duplicate/delete buttons.
+
+Still pending (next): run-time loop animation that visually resets the
+executed blocks on each pass and shows the current iteration number.
+
+76 classes compile; bpmn.js and designer JS valid; no \n/\r;
+Thymeleaf-safe. Verify the diagram, light theme and safecopy on UBS.

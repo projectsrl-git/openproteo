@@ -114,6 +114,17 @@ function renderBpmn(container, def) {
     mpath.setAttribute('class', 'bp-arrowhead');
     marker.appendChild(mpath);
     defs.appendChild(marker);
+    var lmarker = document.createElementNS(NS, 'marker');
+    lmarker.setAttribute('id', 'bpLoopArrow');
+    lmarker.setAttribute('viewBox', '0 0 10 10');
+    lmarker.setAttribute('refX', '9'); lmarker.setAttribute('refY', '5');
+    lmarker.setAttribute('markerWidth', '8'); lmarker.setAttribute('markerHeight', '8');
+    lmarker.setAttribute('orient', 'auto-start-reverse');
+    var lpath = document.createElementNS(NS, 'path');
+    lpath.setAttribute('d', 'M 0 0 L 10 5 L 0 10 z');
+    lpath.setAttribute('class', 'bp-loop-arrowhead');
+    lmarker.appendChild(lpath);
+    defs.appendChild(lmarker);
     svg.appendChild(defs);
 
     function el(tag, attrs, parent) {
@@ -187,7 +198,8 @@ function renderBpmn(container, def) {
     // ---- nodes ----
     var nodeEls = {};
     nodes.forEach(function (n, i) {
-        var g = el('g', { 'class': 'bp-node', id: 'bp-' + n.id });
+        var loopCls = (n.kind === 'LOOP' || n.kind === 'ENDLOOP') ? ' bp-loopmarker' : '';
+        var g = el('g', { 'class': 'bp-node' + loopCls, id: 'bp-' + n.id });
         var title = document.createElementNS(NS, 'title');
         title.textContent = n.name + ' [' + n.id + ']' + (n.condition ? '  —  ' + n.condition : '');
         g.appendChild(title);
@@ -227,6 +239,26 @@ function renderBpmn(container, def) {
     }
     endNodes.forEach(drawEnd);
     if (finalEnd) drawEnd(finalEnd);
+
+    // ---- loop back-edges: ENDLOOP -> matching LOOP (by nesting), arched over the top ----
+    (function () {
+        var stack = [], pairs = [];
+        nodes.forEach(function (n, i) {
+            if (n.kind === 'LOOP') stack.push(i);
+            else if (n.kind === 'ENDLOOP' && stack.length) pairs.push({ loop: stack.pop(), end: i, depth: stack.length });
+        });
+        pairs.forEach(function (pr) {
+            var lx = cx[pr.loop], ex = cx[pr.end];
+            var loopTop = MIDY - halfH(pr.loop);
+            var endTop = MIDY - halfH(pr.end);
+            var peak = (MIDY - TASK_H / 2 - 34) - pr.depth * 16;   // arch height (nested loops sit higher)
+            if (peak < 8) peak = 8;
+            var d = 'M ' + ex + ' ' + endTop +
+                    ' C ' + ex + ' ' + peak + ' ' + lx + ' ' + peak + ' ' + lx + ' ' + loopTop;
+            el('path', { d: d, 'class': 'bp-loop-edge', 'marker-end': 'url(#bpLoopArrow)' });
+            txt(svg, (lx + ex) / 2, peak - 4, 'bp-loop-label', '↺ loop');
+        });
+    })();
 
     container.appendChild(svg);
 

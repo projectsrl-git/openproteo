@@ -309,6 +309,23 @@ footer { margin-top: 50px; color: var(--ink-faint); font-size: 11px; font-family
 .bp-node.st-RUNNING .shape { animation: bpPulse 1.6s ease-in-out infinite; }
 @keyframes bpPulse { 0%,100% { stroke-opacity: 1; } 50% { stroke-opacity: .45; } }
 
+/* loop back-edge (ENDLOOP -> LOOP) */
+.bp-loop-edge { stroke: var(--accent); stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; }
+.bp-loop-arrowhead { fill: var(--accent); }
+.bp-loop-label { fill: var(--accent); font: 600 10px var(--mono, Consolas, monospace); letter-spacing: .5px; }
+.bp-node.bp-loopmarker .shape { stroke: var(--accent); }
+
+/* light theme: BPMN blocks must read as light too */
+:root[data-theme="light"] .bp-node .shape { fill: #ffffff; stroke: #b8c2d0; }
+:root[data-theme="light"] .bp-edge { stroke: #aab4c2; }
+:root[data-theme="light"] .bp-arrowhead { fill: #aab4c2; }
+:root[data-theme="light"] .bp-node.st-RUNNING .shape { fill: #fff3df; }
+:root[data-theme="light"] .bp-node.st-SUCCESS .shape { fill: #e6f4ea; }
+:root[data-theme="light"] .bp-node.st-FAILED .shape  { fill: #ffe9e9; }
+:root[data-theme="light"] .bp-node.st-WAITING .shape,
+:root[data-theme="light"] .bp-node.st-WAITING_APPROVAL .shape { fill: #fbf1d6; }
+:root[data-theme="light"] .bp-node.st-SKIPPED .shape { fill: #eef1f5; stroke: #c9d2dd; }
+
 .search-box { background: var(--bg-raise); border: 1px solid var(--line); color: var(--ink);
   border-radius: 6px; padding: 7px 12px; font: 13px var(--mono, Consolas, monospace); min-width: 340px; }
 .search-box:focus { outline: none; border-color: var(--accent); }
@@ -646,11 +663,12 @@ th.sortable:hover { color: var(--accent); }
 
 /* ===== Designer: collapse/expand step detail ===== */
 .nc-toggle {
-  background: none; border: none; color: var(--ink-dim); cursor: pointer;
-  font-size: 12px; line-height: 1; padding: 2px 4px; margin-right: 2px;
+  background: var(--bg-panel); border: 1px solid var(--line); color: var(--ink-dim); cursor: pointer;
+  font-size: 14px; line-height: 1; width: 30px; height: 26px; -webkit-flex: 0 0 30px; flex: 0 0 30px;
+  border-radius: 5px; margin-right: 9px;
   -webkit-transition: -webkit-transform .12s; transition: transform .12s;
 }
-.nc-toggle:hover { color: var(--accent); }
+.nc-toggle:hover { color: var(--accent); border-color: var(--accent); background: var(--bg-raise); }
 .node-card.collapsed .nc-toggle { -webkit-transform: rotate(-90deg); transform: rotate(-90deg); }
 .node-card.collapsed .nc-body { display: none; }
 .node-card.collapsed .nc-head { margin-bottom: 0; border-bottom-style: dashed; }
