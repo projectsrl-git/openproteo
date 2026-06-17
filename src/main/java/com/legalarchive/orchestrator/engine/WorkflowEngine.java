@@ -237,6 +237,7 @@ public class WorkflowEngine {
         run.vars.put("runDate", now.format(DateTimeFormatter.ofPattern("yyyyMMdd")));
         run.vars.put("runTs", now.format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
         run.vars.putAll(layout.dirVars());
+        run.vars.put("sharedDir", assets.sharedDir().toString());   // app-level shared files dir
         run.vars.putAll(def.variables);
         run.vars.putAll(assets.scriptVars(def.feedId)); // alias degli script caricati (app + feed)
 

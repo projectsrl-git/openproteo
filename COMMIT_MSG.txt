@@ -1,23 +1,19 @@
-feat(loop): 1-based loopIndex + configurable zero-padded loopIndexString
+feat: ${sharedDir} variable so a step can create shared files
 
-- ${indexVar} (default loopIndex) is now 1-based (was 0-based).
-- New ${indexStringVar} (default loopIndexString): the 1-based index
-  left-padded with '0' to a configurable width N (indexPad, default 3),
-  e.g. 001 or 00005 - convenient for ordered output file names.
+A step can now write an app-level shared file by targeting ${sharedDir}
+(the orchestrator.shared-dir directory, the same folder managed by the
+Shared files page). The variable is seeded in the run vars from
+AssetStore.sharedDir() and is overridable by a workflow variable of the
+same name.
 
-Implementation:
-- LoopDef: + indexStringVar, + int indexPad.
-- WorkflowEngine.setLoopIndexVars(): indexVar = internal0Based + 1;
-  indexStringVar = String.format("%0Nd", ...). The internal loop counter
-  stays 0-based to index the item list.
-- Parser / writer / NodeDto / /definition: indexStringVar + indexPad
-  round-trip.
-- Designer: Index var marked 1-based; new Index string var, Pad width and
-  Count var fields; defaults in Add loop; preview XML; help shows a live
-  padded sample.
+Examples:
+- sql export:  csvFile = ${sharedDir}/report.csv
+- split:       output base under ${sharedDir}
+- filecopy:    dest = ${sharedDir}
 
-Tested: writer/parser round-trip (idxStr, pad 5); setLoopIndexVars
-0 -> 1/00001 and 4 -> 5/00005. 76 classes compile; designer JS OK.
+The written file then appears on the Shared files page and is available
+to every workflow. Added to the designer cheat sheet + path suggestions
+and documented in USAGE.md / README.
 
-Note: workflows that relied on a 0-based index will now see 1-based
-values (intended). Docs (USAGE.md/README) updated.
+76 classes compile; designer JS OK. Verify on UBS that the step writes
+into the configured shared directory.

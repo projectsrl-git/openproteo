@@ -129,6 +129,11 @@ Each workflow has a **Workflow files** panel (documents and executables, the lat
 unique `${alias}`). **Shared files** are available to every workflow. **Pool files** manage the
 masking pools. All panels support upload, create, view, download and delete.
 
+A step can also **write a shared file** by targeting `${sharedDir}` — e.g. a `sql` export
+with `csvFile=${sharedDir}/report.csv`, a `split` output base, or a `filecopy` dest under
+`${sharedDir}`. The file then appears on the Shared files page and is available to every
+workflow.
+
 ## Deployment and configuration
 
 The application is a WAR deployed on an external Tomcat. Environment-specific and secret

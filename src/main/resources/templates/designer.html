@@ -124,7 +124,7 @@
             <div class="panel">
                 <dl class="kv">
                     <dt>Executors</dt><dd>.ps1 → powershell · .bat/.cmd → cmd · .jar → java -jar (or force with Executor)</dd>
-                    <dt>Builtin vars</dt><dd>${feedId} ${runId} ${runDate} ${landingIn} ${landingOut} ${stepDir} ${dir.&lt;stepId&gt;}</dd>
+                    <dt>Builtin vars</dt><dd>${feedId} ${runId} ${runDate} ${landingIn} ${landingOut} ${stepDir} ${sharedDir} ${dir.&lt;stepId&gt;}</dd>
                     <dt>Output vars</dt><dd>script prints:&nbsp; ##VAR name=value</dd>
                     <dt>Condition ops</dt><dd>== != &gt;= &lt;= &gt; &lt; contains notcontains matches exists notexists</dd>
                     <dt>Combine</dt><dd>clause &amp;&amp; clause &nbsp;or&nbsp; clause || clause (not mixed)</dd>
@@ -411,7 +411,7 @@
             .catch(function () { FEED_DOCS = []; });
     }
     function refreshSuggestions() {
-        var base = ['${feedDir}','${stepDir}','${landingIn}','${landingOut}','${logDir}','${feedId}','${sourceId}','${targetId}','${runId}','${runDate}','${item}','${itemIndex}','${matchedFiles}','${matchedCount}','${csvFile}','${csvFiles}'];
+        var base = ['${feedDir}','${stepDir}','${landingIn}','${landingOut}','${sharedDir}','${logDir}','${feedId}','${sourceId}','${targetId}','${runId}','${runDate}','${item}','${itemIndex}','${matchedFiles}','${matchedCount}','${csvFile}','${csvFiles}'];
         var toks = base.slice();
         FEED_DOCS.forEach(function (d) { toks.push(d); });
         (wf.nodes || []).forEach(function (n) { if (n.kind === 'STEP' && n.id) { toks.push('${dir.' + n.id + '}'); toks.push('${' + n.id + '.outputFile}'); } });
