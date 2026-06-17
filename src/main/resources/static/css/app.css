@@ -544,6 +544,19 @@ footer { margin-top: 50px; color: var(--ink-faint); font-size: 11px; font-family
 }
 :root[data-theme="light"] body { background: var(--bg); color: var(--ink); }
 
+/* light theme: editable fields, textareas and selects must read as light,
+   not keep the dark base background */
+:root[data-theme="light"] .field input,
+:root[data-theme="light"] .field select,
+:root[data-theme="light"] .field textarea,
+:root[data-theme="light"] .inline-input,
+:root[data-theme="light"] .ms-box {
+  background: #ffffff; color: var(--ink); border-color: var(--line);
+}
+:root[data-theme="light"] .field input::placeholder,
+:root[data-theme="light"] .field textarea::placeholder { color: var(--ink-faint); }
+:root[data-theme="light"] .ms-input { color: var(--ink); }
+
 /* theme toggle button in the topbar */
 .theme-toggle {
   background: none; border: 1px solid var(--line); color: var(--ink-dim);

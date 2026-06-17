@@ -526,6 +526,7 @@
                     '<option value="encoding"' + (ex === 'encoding' ? ' selected' : '') + '>encoding (convert to UTF-8)</option>' +
                     '<option value="anonymize"' + (ex === 'anonymize' ? ' selected' : '') + '>anonymize (CSV, ARX) — Batch 2a</option>' +
                     '<option value="mask"' + (ex === 'mask' ? ' selected' : '') + '>mask (CSV streaming, deterministic)</option>' +
+                    '<option value="split"' + (ex === 'split' ? ' selected' : '') + '>split (file → parts by rows/MB)</option>' +
                     '</select></div>';
                 h += '<div class="field wide"><label>Script / executable (relative to scripts dir or absolute)' + (isExternal(ex) ? ' *' : '') + '</label>' +
                     '<input value="' + attresc(n.script) + '" placeholder="' + (isExternal(ex) ? 'Prepare-Feed.ps1 | tool.bat | app.jar' : '(not used for this executor)') + '" oninput="updNode(' + i + ',\'script\',this.value)"' + (isExternal(ex) ? '' : ' disabled') + '></div>' +
@@ -663,6 +664,23 @@
                         poolSel(i, 'companySuffixesFile', 'Company &mdash; suffixes', ['company_suffixes'], 'company_suffixes_it.txt', nodeParam(n,'companySuffixesFile')) + '</div>';
                     h += '<div class="dim small">Each category is chosen independently &mdash; e.g. Italian animals + international colors. Empty = bundled default. View / replace these files in the <b>Pool files</b> page (topbar).</div></div>';
                     h += '<div class="dim small" style="margin-top:6px">Deterministic streaming masking (constant memory, ~1GB ok). Driven by displayschema <code>anonType</code>. Strategies: <code>date</code> (passthrough, priority), <code>numericFixed</code>, <code>alphanumericFixed</code>, <code>cid</code> (format-preserving / partial / hash), <code>firstName/lastName/fullName/city/address/company</code> (pools bundled in WAR; nome&times;cognome cross-joined; Italian-vs-international by %), <code>customerDescription</code> (person or company by %), <code>freeText</code> (lorem, exact length). Same value &rarr; same output (joins survive). Secret + pools in application.properties (orchestrator.masking-secret / orchestrator.mask-pools-dir). outputs: ##VAR outputFile, dataRows, columns</div>';
+                } else if (ex === 'split') {
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Input file *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${anonymize.outputFile} | ${landingOut}/data.csv" oninput="updNode(' + i + ',\'source\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Output base (empty = split input in place; parts become &lt;stem&gt;_001.&lt;ext&gt;)</label><input class="sugin" list="pathsug" value="' + attresc(n.csvFile) + '" placeholder="${landingOut}/part.csv" oninput="updNode(' + i + ',\'csvFile\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Split: max rows per file (0 = no split)</label><input type="number" min="0" value="' + (n.csvSplitRows || '') + '" placeholder="0" oninput="updNode(' + i + ',\'csvSplitRows\',this.value)"></div>' +
+                        '<div class="field"><label>Split: max MB per file (0 = no split)</label><input type="number" min="0" value="' + (n.csvSplitMb || '') + '" placeholder="0" oninput="updNode(' + i + ',\'csvSplitMb\',this.value)"></div>' +
+                        '<div class="field"><label>List separator (${csvFiles})</label><input maxlength="3" value="' + attresc(n.delimiter || '') + '" placeholder=";" oninput="updNode(' + i + ',\'delimiter\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Has header</label><select onchange="setNodeParam(' + i + ',\'hasHeader\',this.value)">' +
+                        '<option value="true"' + (nodeParam(n,'hasHeader') !== 'false' ? ' selected' : '') + '>yes (repeat header per part)</option>' +
+                        '<option value="false"' + (nodeParam(n,'hasHeader') === 'false' ? ' selected' : '') + '>no</option></select></div>' +
+                        '<div class="field"><label>Write BOM</label><select onchange="setNodeParam(' + i + ',\'bom\',this.value)">' +
+                        '<option value="true"' + (nodeParam(n,'bom') !== 'false' ? ' selected' : '') + '>yes</option>' +
+                        '<option value="false"' + (nodeParam(n,'bom') === 'false' ? ' selected' : '') + '>no</option></select></div></div>';
+                    h += '<div class="dim small" style="margin-top:6px">Splits an existing file by rows and/or MB using the SAME logic as the SQL export (header repeated per part, parts named <code>stem_001.ext</code>, CRLF, optional BOM). Lines pass through verbatim. Outputs <code>${csvFiles}</code> (delimited list), <code>${csvParts}</code>, <code>${csvFile}</code> (first) &mdash; feed a LOOP with <code>${csvFiles}</code> to iterate only the final steps after validation/anonymization.</div>';
                 } else if (ex === 'anonymize') {
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Input CSV *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${extraction.outputFile}" oninput="updNode(' + i + ',\'source\',this.value)"></div>' +
@@ -890,6 +908,7 @@
                     if ((n.mode || 'copy') !== 'list' && !n.dest) errs.push(label + ' (' + n.id + '): dest is required unless mode=list');
                 }
                 if (ex === 'setvar' && (!n.params || !n.params.length)) errs.push(label + ' (' + n.id + '): at least one assignment is required');
+                if (ex === 'split' && !n.source) errs.push(label + ' (' + n.id + '): input file (source) is required');
             } else if (n.kind === 'LOOP') {
                 if (!n.over) errs.push(label + ' (' + n.id + '): "over" (list expression) is required');
             } else if (n.kind === 'ENDLOOP') {
@@ -1017,6 +1036,9 @@
                 wf.variables = wf.variables || [];
                 wf.nodes = wf.nodes || [];
                 wf.nodes.forEach(function (n) { n.params = n.params || []; n.outputs = n.outputs || []; });
+                // open compact: all steps collapsed initially
+                collapsedNodes = {};
+                wf.nodes.forEach(function (n, i) { collapsedNodes[nodeKey(n, i)] = true; });
                 fill('f_feedId', wf.feedId);
                 document.getElementById('f_feedId').readOnly = true;
                 document.getElementById('f_feedId').style.opacity = 0.6;

@@ -1,14 +1,41 @@
-fix(ui): nome file non piu' spezzato un carattere per riga
+feat: SPLIT executor, in-app Docs, compact designer, light-theme inputs
 
-Nel pannello WORKFLOW FILES del designer i nomi senza spazi (es.
-tf0003441_dataschema.json) si impilavano verticalmente, un carattere per
-riga: la regola .wf-files-box td.mono.small usava word-break: break-all e
-la colonna File collassava.
+Docs and commit messages are English-only from now on.
 
-- word-break: break-all -> break-word (+ overflow-wrap: break-word):
-  niente piu' rottura per singolo carattere.
-- min-width 180px sulla prima colonna (File) di .wf-files-box: la colonna
-  non collassa; i nomi stanno su una riga (o al massimo due), leggibili.
+SPLIT executor (exec="split"):
+- Splits an existing file into parts by row count and/or MB, reusing the
+  SQL export rotation logic: header repeated per part, parts named
+  stem_001.ext, CRLF, optional BOM, lines passed through verbatim.
+- Publishes the same variables as the SQL split (csvFiles, csvParts,
+  csvFile, rowCount), so a LOOP can iterate ${csvFiles} from either
+  source. This lets the loop run only over the final steps (after
+  validation/anonymization).
+- InternalSteps.runSplit (+ utf8Len/partName) and dispatch; engine
+  internal-executor list updated; designer executor option + params
+  branch (source, output base, rows/MB, list separator, hasHeader, bom)
+  + validation. Tested: 25 rows / 10 -> 3 parts (10,10,5), header per
+  part, naming, no-limit -> single file.
 
-Solo CSS (app.css), scope .wf-files-box (designer/workflow). Le pagine
-Shared files e Pool files non usano quel wrapper e non sono interessate.
+In-app Docs:
+- static/USAGE.md: single comprehensive English guide (README.md is a
+  copy). New /docs page renders it with a small no-CDN markdown renderer
+  + navigable TOC; link added to the dashboard. Thymeleaf-safe.
+
+Designer: all steps are collapsed when opening an existing workflow
+(more compact); add/expand unchanged.
+
+Light theme: editable inputs, selects, textareas and the multiselect box
+now use a light background instead of the dark base; dark theme
+unchanged.
+
+Docs note (answer to a question): step working directories are named
+NN_<stepId> where NN is the execution order x 10 (00,10,20,...). It is
+not a version; the gap allows inserting steps and the folders sort in run
+order. The stepId remains the unique key.
+
+Not yet included (next batch): loop drawn with a back-arrow ENDLOOP->LOOP
+and run-time visualization of the jump back / iteration counter.
+
+Verify on UBS: SPLIT in a real run, designer and /docs rendering,
+light-theme look. Split and renderer logic + compilation tested. 76
+classes compile.

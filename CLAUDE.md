@@ -197,3 +197,21 @@ Ogni turno di sviluppo (= ogni "consegna" di Claude) produce:
   GET .../alias-suggest. MaskPools.BUNDLED (15 nomi), hasExternal, readRaw.
 * Dati pool: nomi/cognomi it+intl con lettere interne invertite (one-off, fake);
   company_animals/colors/actions/suffixes in *_it e *_international.
+
+## This batch (split / docs / UI)
+
+* Docs & commit messages are English-only from now on.
+* SPLIT executor (exec="split"): splits an existing file into parts by rows/MB reusing the SQL
+  export logic (header per part, stem_NNN.ext, CRLF, optional BOM, verbatim lines). Outputs
+  csvFiles/csvParts/csvFile/rowCount, like SQL split -> a LOOP can iterate ${csvFiles} from
+  either source. Fields: source (input), csvFile (output base), csvSplitRows/csvSplitMb,
+  delimiter (list sep), params hasHeader/bom. Registered in InternalSteps dispatch + engine
+  internal-executor list. Designer: executor option + branch + clientValidate(source).
+* In-app docs: static/USAGE.md (single English source, == README.md) rendered by docs.html
+  (/docs route) with a tiny no-CDN markdown renderer + TOC. Link in dashboard nav. The link
+  regex uses char classes to avoid a literal [( (Thymeleaf-safe).
+* Designer: all steps collapsed on open (load() seeds collapsedNodes for every node).
+* Light theme: editable inputs/selects/textareas + .ms-box now get a light background
+  (override added; dark theme unchanged).
+* Step working dirs NN_<stepId>: NN = execution-order x 10 (00,10,20,...), NOT a version;
+  gaps allow inserting steps; folders sort in run order.

@@ -141,6 +141,11 @@ public class PageController {
         return "pools";
     }
 
+    @GetMapping("/docs")
+    public String docs() {
+        return "docs";
+    }
+
     @GetMapping("/view")
     public String view() {
         return "view";

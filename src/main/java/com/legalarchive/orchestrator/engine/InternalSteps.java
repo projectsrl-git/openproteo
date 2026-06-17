@@ -87,6 +87,8 @@ public class InternalSteps {
                 runMask(step, resolvedParams, vars, res, line, se, onProgress);
             } else if ("csvreplace".equals(kind)) {
                 runReplace(step, resolvedParams, vars, res, line);
+            } else if ("split".equals(kind)) {
+                runSplit(step, resolvedParams, vars, res, line);
             } else {
                 line.accept("unknown internal step kind: " + kind);
                 res.exitCode = -996;
@@ -577,6 +579,113 @@ public class InternalSteps {
         ob.append('"');
         for (int i = 0; i < v.length(); i++) { char c = v.charAt(i); if (c == '"') ob.append('"'); ob.append(c); }
         ob.append('"');
+    }
+
+    // ----------------------------------------------------------------- split
+    /**
+     * SPLIT executor: split an existing file into parts by row count and/or byte size,
+     * reusing the SAME rotation semantics as the SQL CSV export (header repeated per part,
+     * parts named stem_001.ext, optional BOM, CRLF). Lines are passed through verbatim
+     * (no re-quoting), so already-masked/validated content is preserved. Exposes the same
+     * variables as the SQL split: rowCount, csvParts, csvFile (first), csvFiles (joined),
+     * so a LOOP can iterate ${csvFiles} regardless of where the split happened.
+     */
+    private void runSplit(StepDef step, Map<String, String> params, Map<String, String> vars,
+                          StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        String inPath = VarResolver.resolve(step.source, vars);
+        if (inPath == null || inPath.trim().isEmpty()) { line.accept("split: missing input file (set 'source')"); res.exitCode = 2; return; }
+        java.io.File in = new java.io.File(inPath.trim());
+        if (!in.isFile()) { line.accept("split: input file not found: " + in.getAbsolutePath()); res.exitCode = 2; return; }
+
+        String outBase = VarResolver.resolve(step.csvFile, vars);
+        java.io.File base = (outBase != null && !outBase.trim().isEmpty()) ? new java.io.File(outBase.trim()) : in;
+        if (base.getParentFile() != null) base.getParentFile().mkdirs();
+
+        long maxRows = step.csvSplitRows > 0 ? step.csvSplitRows : 0;
+        long maxBytes = step.csvSplitMb > 0 ? (long) step.csvSplitMb * 1024L * 1024L : 0;
+        boolean split = maxRows > 0 || maxBytes > 0;
+        boolean hasHeader = !"false".equalsIgnoreCase(params.get("hasHeader"));
+        boolean bom = !"false".equalsIgnoreCase(params.get("bom"));
+        String sep = (step.delimiter == null || step.delimiter.isEmpty()) ? ";" : step.delimiter;
+
+        line.accept("split: input " + in.getAbsolutePath());
+        if (split) line.accept("split: " + (maxRows > 0 ? (maxRows + " rows/part") : "")
+                + (maxBytes > 0 ? ((maxRows > 0 ? " or " : "") + step.csvSplitMb + " MB/part") : ""));
+        else line.accept("split: no row/byte limit set -> single output file");
+
+        java.util.List<String> files = new java.util.ArrayList<String>();
+        long dataRows = 0;
+        java.io.BufferedReader r = null;
+        java.io.Writer w = null;
+        try {
+            r = new java.io.BufferedReader(new java.io.InputStreamReader(
+                    new java.io.FileInputStream(in), StandardCharsets.UTF_8), 1 << 16);
+            String headerLine = null;
+            if (hasHeader) {
+                headerLine = r.readLine();
+                if (headerLine != null && !headerLine.isEmpty() && headerLine.charAt(0) == '\uFEFF') headerLine = headerLine.substring(1);
+            }
+            long headerBytes = headerLine == null ? 0 : (utf8Len(headerLine) + 2);
+
+            int part = 0;
+            long rowsInPart = 0, bytesInPart = 0;
+            String ln;
+            while ((ln = r.readLine()) != null) {
+                if (dataRows == 0 && !hasHeader && !ln.isEmpty() && ln.charAt(0) == '\uFEFF') ln = ln.substring(1);
+                long rb = utf8Len(ln) + 2;
+                boolean rollover = (w == null) || (split && rowsInPart > 0 && (
+                        (maxRows > 0 && rowsInPart >= maxRows) ||
+                        (maxBytes > 0 && bytesInPart + rb > maxBytes)));
+                if (rollover) {
+                    if (w != null) { w.close(); w = null; }
+                    part++;
+                    java.io.File f = split ? partName(base, part) : base;
+                    if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                    w = new java.io.BufferedWriter(new java.io.OutputStreamWriter(
+                            new java.io.FileOutputStream(f), StandardCharsets.UTF_8), 1 << 16);
+                    if (bom) w.write('\uFEFF');
+                    if (headerLine != null) { w.write(headerLine); w.write("\r\n"); }
+                    files.add(f.getAbsolutePath());
+                    rowsInPart = 0;
+                    bytesInPart = (headerLine != null ? headerBytes : 0) + (bom ? 1 : 0);
+                }
+                w.write(ln); w.write("\r\n");
+                rowsInPart++; bytesInPart += rb; dataRows++;
+            }
+            if (w == null) {   // empty input (no data rows): still emit a first file with header
+                java.io.File f = split ? partName(base, 1) : base;
+                if (f.getParentFile() != null) f.getParentFile().mkdirs();
+                w = new java.io.BufferedWriter(new java.io.OutputStreamWriter(
+                        new java.io.FileOutputStream(f), StandardCharsets.UTF_8), 1 << 16);
+                if (bom) w.write('\uFEFF');
+                if (headerLine != null) { w.write(headerLine); w.write("\r\n"); }
+                files.add(f.getAbsolutePath());
+            }
+            w.flush();
+        } finally {
+            if (w != null) try { w.close(); } catch (Exception ignore) {}
+            if (r != null) try { r.close(); } catch (Exception ignore) {}
+        }
+
+        res.outVars.put("rowCount", String.valueOf(dataRows));
+        res.outVars.put("csvParts", String.valueOf(files.size()));
+        res.outVars.put("csvFile", files.isEmpty() ? base.getAbsolutePath() : files.get(0));
+        res.outVars.put("csvFiles", String.join(sep, files));
+        if (files.size() > 1) line.accept("split " + dataRows + " row(s) into " + files.size() + " part(s)");
+        else line.accept("split: " + dataRows + " row(s) -> " + res.outVars.get("csvFile"));
+        for (String f : files) line.accept("  " + f);
+        for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
+        res.exitCode = 0;
+    }
+
+    private static long utf8Len(String s) { return s.getBytes(StandardCharsets.UTF_8).length; }
+
+    private static java.io.File partName(java.io.File base, int n) {
+        String name = base.getName();
+        int dot = name.lastIndexOf('.');
+        String stem = dot > 0 ? name.substring(0, dot) : name;
+        String ext = dot > 0 ? name.substring(dot) : "";
+        return new java.io.File(base.getParentFile(), stem + "_" + String.format("%03d", n) + ext);
     }
 
     private static long pLong(String v, long def) { try { return v == null || v.trim().isEmpty() ? def : Long.parseLong(v.trim()); } catch (Exception e) { return def; } }
