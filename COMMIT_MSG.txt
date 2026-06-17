@@ -1,25 +1,12 @@
-feat: {{columns}} field on SQL step, mask sub-collapse, step id, light sub-steps
+feat: ${stepId} and ${stepName} variables for the current step
 
-SQL {{columns}} (was not discoverable):
-- At run time {{columns}} in a query is replaced by the column names read
-  from the dataschema JSON given by the step param columnsSchema
-  (optionally double-quoted via columnQuote). The designer SQL step had
-  no field for columnsSchema, so it could not be wired up. Added a
-  "Column list from dataschema" field + "Quote columns" select + a hint.
+The engine now seeds ${stepId} (the current step's id) and ${stepName}
+(its name) just before each step runs, next to ${stepDir}. They are
+overwritten per step, like stepDir, so inside a step they always refer
+to that step. Handy for building values or paths that reference the
+current step generically.
 
-Mask step partial collapse:
-- The mask subsections (Column mapping, Pools & strategies, Pool files)
-  are now collapsible to shorten the long configuration. A clickable
-  sub-label toggles the subsection; state survives field edits.
+Added to the designer cheat sheet and path suggestions, and documented
+in USAGE.md / README.
 
-Step id in the header:
-- The node header now shows the step id as a small mono pill next to the
-  name, so it stays visible when the step is collapsed.
-
-Light theme:
-- The verification/anonymization sub-step badges (sub-node boxes, dots,
-  pending/skip fills) now render light in light mode; they were
-  hardcoded dark.
-
-76 classes compile; designer JS valid; no \n/\r; Thymeleaf-safe. Verify
-on UBS: {{columns}} expansion, mask collapse, step id, light sub-steps.
+76 classes compile; designer JS valid.

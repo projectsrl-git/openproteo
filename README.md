@@ -21,8 +21,9 @@ them once per item of a list).
 
 Variables are referenced as `${name}`. The engine seeds `feedId`, `sourceId`, `targetId`,
 `feedName`, `runId`, `runDate`, layout paths (e.g. `feedDir`, `landingIn`, `landingOut`,
-`stepDir`), plus every workflow variable you declare. A step can publish output variables
-(printed in the log as `##VAR name=value`) that later steps can read.
+`stepDir`), `sharedDir` (the shared-files directory), `stepId` and `stepName` (the id and name
+of the step currently running), plus every workflow variable you declare. A step can publish
+output variables (printed in the log as `##VAR name=value`) that later steps can read.
 
 ## Step working directories: why `10_`, `20_`, ...
 

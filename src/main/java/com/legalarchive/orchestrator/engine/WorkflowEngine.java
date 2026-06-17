@@ -478,6 +478,8 @@ public class WorkflowEngine {
         se.status = StepStatus.RUNNING;
         se.startTs = now();
         run.vars.put("stepDir", layout.stepDirs.get(step.id).toString());
+        run.vars.put("stepId", step.id);                                  // current step id
+        run.vars.put("stepName", step.name == null ? step.id : step.name); // current step name
         store.save(layout, run);
 
         String internalKind = internalKind(step.exec);
