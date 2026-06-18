@@ -726,9 +726,9 @@
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Dest directory *</label><input class="sugin" list="pathsug" value="' + attresc(n.dest) + '" placeholder="${sharedDir} | D:/landing/out" oninput="updNode(' + i + ',\'dest\',this.value)"></div></div>';
                     h += '<div class="form-row">' +
-                        '<div class="field"><label>Wildcard pattern</label><input value="' + attresc(n.pattern) + '" placeholder="*.csv" oninput="updNode(' + i + ',\'pattern\',this.value)"></div>' +
+                        '<div class="field"><label>Wildcard pattern(s)</label><input value="' + attresc(n.pattern) + '" placeholder="*.csv | *.md5, *.tar" oninput="updNode(' + i + ',\'pattern\',this.value)"></div>' +
                         '<div class="field"><label>Temp suffix</label><input value="' + attresc(nodeParam(n,'tmpSuffix')) + '" placeholder=".on_fly_" oninput="setNodeParam(' + i + ',\'tmpSuffix\',this.value)"></div></div>';
-                    h += '<div class="dim small" style="margin-top:6px">Copies matching files from the source directory to the dest directory. Each file is written as <code>&lt;name&gt;.on_fly_</code> and renamed (atomic move when possible) to the final name only after the copy completes, so a downstream process watching the landing zone never sees a partial file. Outputs <code>${matchedFiles}</code>, <code>${matchedCount}</code>, <code>${bytesCopied}</code>.</div>';
+                    h += '<div class="dim small" style="margin-top:6px">Copies matching files from the source directory to the dest directory (several patterns can be separated by commas, e.g. <code>*.md5, *.tar</code>). Each file is written as <code>&lt;name&gt;.on_fly_</code> and renamed (atomic move when possible) to the final name only after the copy completes, so a downstream process watching the landing zone never sees a partial file. Outputs <code>${matchedFiles}</code>, <code>${matchedCount}</code>, <code>${bytesCopied}</code>.</div>';
                 } else if (ex === 'dequote') {
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Input CSV *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${extraction.outputFile}" oninput="updNode(' + i + ',\'source\',this.value)"></div>' +

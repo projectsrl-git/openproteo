@@ -1,16 +1,17 @@
-feat(vars): nested / indirect ${var} resolution (factory pattern)
+fix(safecopy): support multiple comma-separated wildcard patterns
 
-Variable resolution is now iterative and innermost-first, so a variable
-can build the name of another variable. With targetId=T1,
-${TargetDestination.${targetId}} resolves the inner ${targetId} first
-(-> T1) and then ${TargetDestination.T1} to that variable's value.
+safecopy received the wildcard field as a single glob, so a value like
+"*.md5, *.tar" only matched one pattern at run time. The pattern is now
+split on comma/semicolon and each glob is streamed, with results
+de-duplicated by file name. Designer placeholder/hint and USAGE updated.
+Tested: "*.md5, *.tar" copies the .md5 and .tar files and skips others.
 
-- Regex matches the innermost ${...} (a name cannot contain $ { }).
-- The pass repeats up to a depth cap and stops once the string is stable,
-  so a self-referential value (a -> ${a}) is left as-is with no infinite
-  loop. Unknown names still resolve to the empty string.
-- Single-level behavior is unchanged; this applies everywhere resolve()
-  is used, including gate conditions.
+Note (no code change): the "HTTP 400 as text/html / Bad Request" seen on
+Validate & save is not an OpenProteo validation error - save() posts JSON
+and the client flags any non-JSON reply. A terse HTML 400 is the
+corporate proxy/WAF rejecting the POST body (or an expired SSO session).
+Isolate by re-logging in and by saving with individual fields/steps
+removed to find the token the filter blocks; capture the blocked-request
+id from the browser Network tab.
 
-Tested: factory pattern, indirection chain, unknown, self-reference,
-missing inner. 76 classes compile. Documented in USAGE / README.
+76 classes compile; designer JS valid; no \n/\r; Thymeleaf-safe.

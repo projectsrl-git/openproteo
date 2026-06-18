@@ -85,7 +85,7 @@ A STEP runs one executor. Built-in (internal) executors:
 - **dequote** — read an input CSV and write an output CSV with double quotes (escaped or not)
   stripped from the chosen text columns; re-quotes a field only when it still contains the
   delimiter or a newline (or never, with quoteIfNeeded=false).
-- **safecopy** — copy files matching a wildcard from one directory to another, writing each
+- **safecopy** — copy files matching one or more wildcards (comma-separated, e.g. `*.md5, *.tar`) from one directory to another, writing each
   file as `<name>.on_fly_` and renaming it to the final name only after the copy completes
   (atomic move when possible). Prevents a downstream watcher from picking up a partial file.
 - **ifscopy** — copy from an AS400 IFS path to local.

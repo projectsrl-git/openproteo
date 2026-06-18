@@ -257,6 +257,10 @@ public class InternalSteps {
         String dest = VarResolver.resolve(step.dest, vars);
         String glob = VarResolver.resolve(step.pattern, vars);
         if (glob == null || glob.trim().isEmpty()) glob = "*";
+        // allow several patterns separated by comma or semicolon, e.g. "*.md5, *.tar"
+        java.util.List<String> globs = new ArrayList<String>();
+        for (String g : glob.split("[,;]")) { String t = g.trim(); if (!t.isEmpty()) globs.add(t); }
+        if (globs.isEmpty()) globs.add("*");
         String tmpSuffix = params.get("tmpSuffix");
         if (tmpSuffix == null || tmpSuffix.trim().isEmpty()) tmpSuffix = ".on_fly_";
 
@@ -266,30 +270,34 @@ public class InternalSteps {
         if (!Files.isDirectory(src)) { line.accept("safecopy: source directory not found: " + source); res.exitCode = 2; return; }
         Path outDir = Paths.get(dest);
         Files.createDirectories(outDir);
-        line.accept("safecopy  " + source + "  pattern " + glob + "  -> " + dest + "  (temp suffix " + tmpSuffix + ")");
+        line.accept("safecopy  " + source + "  patterns " + globs + "  -> " + dest + "  (temp suffix " + tmpSuffix + ")");
 
+        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<String>();   // dedup across patterns
         List<String> names = new ArrayList<String>();
         long bytes = 0;
-        DirectoryStream<Path> ds = Files.newDirectoryStream(src, glob);
-        try {
-            for (Path f : ds) {
-                if (Files.isDirectory(f)) continue;
-                String name = f.getFileName().toString();
-                if (name.endsWith(tmpSuffix)) continue;   // never copy someone else's in-flight temp
-                Path tmp = outDir.resolve(name + tmpSuffix);
-                Path target = outDir.resolve(name);
-                Files.copy(f, tmp, StandardCopyOption.REPLACE_EXISTING);
-                try {
-                    Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE);
-                } catch (Exception atomicUnsupported) {
-                    Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+        for (String oneGlob : globs) {
+            DirectoryStream<Path> ds = Files.newDirectoryStream(src, oneGlob);
+            try {
+                for (Path f : ds) {
+                    if (Files.isDirectory(f)) continue;
+                    String name = f.getFileName().toString();
+                    if (name.endsWith(tmpSuffix)) continue;   // never copy someone else's in-flight temp
+                    if (!seen.add(name)) continue;            // already copied via another pattern
+                    Path tmp = outDir.resolve(name + tmpSuffix);
+                    Path target = outDir.resolve(name);
+                    Files.copy(f, tmp, StandardCopyOption.REPLACE_EXISTING);
+                    try {
+                        Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE);
+                    } catch (Exception atomicUnsupported) {
+                        Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                    bytes += Files.size(target);
+                    names.add(name);
+                    line.accept("safecopy " + name);
                 }
-                bytes += Files.size(target);
-                names.add(name);
-                line.accept("safecopy " + name);
+            } finally {
+                ds.close();
             }
-        } finally {
-            ds.close();
         }
         res.outVars.put("matchedCount", String.valueOf(names.size()));
         res.outVars.put("matchedFiles", String.join(step.delimiter == null ? ";" : step.delimiter, names));
