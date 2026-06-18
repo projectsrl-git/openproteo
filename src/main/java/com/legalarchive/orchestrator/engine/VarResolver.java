@@ -16,20 +16,39 @@ import java.util.regex.Pattern;
  */
 public final class VarResolver {
 
-    private static final Pattern VAR = Pattern.compile("\\$\\{([^}]+)\\}");
+    // innermost ${name}: the name itself may not contain $ { } so nested refs resolve inside-out
+    private static final Pattern VAR = Pattern.compile("\\$\\{([^${}]+)\\}");
+    private static final int MAX_DEPTH = 12;
 
     private VarResolver() {}
 
+    /**
+     * Resolves ${name} placeholders. Resolution is iterative and innermost-first, so a variable
+     * can be used to build the name of another variable (indirection / "factory" pattern):
+     * with targetId=T1, ${TargetDestination.${targetId}} first becomes ${TargetDestination.T1}
+     * and is then resolved to that variable's value. Unknown names resolve to the empty string.
+     * A self-referential value (e.g. a -> ${a}) is left as-is once it stops changing; the depth
+     * cap is a final safety net.
+     */
     public static String resolve(String input, Map<String, String> vars) {
         if (input == null) return null;
-        Matcher m = VAR.matcher(input);
-        StringBuffer sb = new StringBuffer();
-        while (m.find()) {
-            String val = vars.get(m.group(1));
-            m.appendReplacement(sb, Matcher.quoteReplacement(val != null ? val : ""));
+        String s = input;
+        for (int depth = 0; depth < MAX_DEPTH; depth++) {
+            Matcher m = VAR.matcher(s);
+            StringBuffer sb = new StringBuffer();
+            boolean any = false;
+            while (m.find()) {
+                any = true;
+                String val = vars.get(m.group(1));
+                m.appendReplacement(sb, Matcher.quoteReplacement(val != null ? val : ""));
+            }
+            if (!any) break;            // nothing left to resolve
+            m.appendTail(sb);
+            String next = sb.toString();
+            if (next.equals(s)) break;  // stable (e.g. self-reference) -> stop
+            s = next;
         }
-        m.appendTail(sb);
-        return sb.toString();
+        return s;
     }
 
     /** Valuta la condizione gia' risolta (senza ${}). */

@@ -19,7 +19,7 @@ There are four node kinds: **STEP** (does work via an executor), **GATE** (route
 a condition or waits for human approval), **LOOP** and **ENDLOOP** (repeat the steps between
 them once per item of a list).
 
-Variables are referenced as `${name}`. The engine seeds `feedId`, `sourceId`, `targetId`,
+Variables are referenced as `${name}`. Resolution is iterative and innermost-first, so a variable can build the **name** of another variable (indirection / factory pattern): with `targetId=T1`, `${TargetDestination.${targetId}}` first becomes `${TargetDestination.T1}` and is then resolved to that variable's value. Unknown names resolve to the empty string. The engine seeds `feedId`, `sourceId`, `targetId`,
 `feedName`, `runId`, `runDate`, layout paths (e.g. `feedDir`, `landingIn`, `landingOut`,
 `stepDir`), `sharedDir` (the shared-files directory), `stepId` and `stepName` (the id and name
 of the step currently running), plus every workflow variable you declare. A step can publish

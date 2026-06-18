@@ -1,24 +1,16 @@
-feat: dequote CSV executor + document ##VAR output from scripts
+feat(vars): nested / indirect ${var} resolution (factory pattern)
 
-dequote executor (exec="dequote"):
-- Reads an input CSV and writes an output CSV with double quotes removed
-  from the chosen text columns. CSV wrapping quotes and escaped "" are
-  parsed away first, then any remaining " is stripped from the targeted
-  columns. A field is re-quoted on output only when it still contains the
-  delimiter or a newline (or never, with quoteIfNeeded=false).
-- Params: source, outFile (default <name>_dequoted), delimiter
-  (empty = sniff), hasHeader (default true), columns (names or 1-based
-  indexes; empty = all), bom, quoteIfNeeded. Outputs outputFile,
-  dataRows, columns, cells, quotesRemoved. UTF-8 / CRLF output.
-- Engine internal-executor list + dispatch; designer option, form and
-  validation. Tested (escaped/unescaped quotes, delimiter-containing
-  field, selective columns, never-quote mode).
+Variable resolution is now iterative and innermost-first, so a variable
+can build the name of another variable. With targetId=T1,
+${TargetDestination.${targetId}} resolves the inner ${targetId} first
+(-> T1) and then ${TargetDestination.T1} to that variable's value.
 
-Docs:
-- New USAGE/README subsection "Publishing output variables from a script
-  (##VAR)": print `##VAR name=value` to stdout; the engine exposes it as
-  ${name} and ${<stepId>.name}, and ##VAR outputFile=... also sets the
-  canonical ${<stepId>.outputFile}. PowerShell example with Write-Output
-  / [Console]::Out.WriteLine; same for .bat and .sh.
+- Regex matches the innermost ${...} (a name cannot contain $ { }).
+- The pass repeats up to a depth cap and stops once the string is stable,
+  so a self-referential value (a -> ${a}) is left as-is with no infinite
+  loop. Unknown names still resolve to the empty string.
+- Single-level behavior is unchanged; this applies everywhere resolve()
+  is used, including gate conditions.
 
-76 classes compile; designer JS valid; no \n/\r; Thymeleaf-safe.
+Tested: factory pattern, indirection chain, unknown, self-reference,
+missing inner. 76 classes compile. Documented in USAGE / README.
