@@ -209,14 +209,17 @@
     }
     // collapsible subsection header (content after it is hidden when collapsed)
     function subHead(label) {
-        return '<div class="subsection sub-collapsible"><div class="sub-label sub-toggle" onclick="toggleSub(this)"><span class="sub-caret">▾</span> ' + label + '</div>';
+        return '<div class="subsection sub-collapsible"><div class="sub-label sub-toggle" onclick="toggleSub(this)"><span class="sub-caret">\u2212</span> ' + label + '</div>';
     }
     function toggleSub(el) {
         var s = el;
         while (s && (!s.className || String(s.className).indexOf('subsection') < 0)) s = s.parentNode;
         if (!s) return;
-        if (String(s.className).indexOf('collapsed') >= 0) s.className = s.className.replace(/\s*collapsed\b/g, '');
-        else s.className += ' collapsed';
+        var collapsed;
+        if (String(s.className).indexOf('collapsed') >= 0) { s.className = s.className.replace(/\s*collapsed\b/g, ''); collapsed = false; }
+        else { s.className += ' collapsed'; collapsed = true; }
+        var car = el.getElementsByTagName('span')[0];
+        if (car) car.textContent = collapsed ? '+' : '\u2212';
     }
 
     function tick() { document.getElementById('clock').textContent = new Date().toLocaleString('it-IT'); }
@@ -484,6 +487,7 @@
         collapsedNodes[key] = !collapsedNodes[key];
         var card = cardOf(btn);
         if (card) { if (collapsedNodes[key]) card.className += ' collapsed'; else card.className = card.className.replace(/\s*collapsed\b/, ''); }
+        btn.textContent = collapsedNodes[key] ? '+' : '\u2212';
     }
     function collapseAllNodes() { wf.nodes.forEach(function (n, i) { collapsedNodes[nodeKey(n, i)] = true; }); renderNodes(); }
     function expandAllNodes() { collapsedNodes = {}; renderNodes(); }
@@ -501,14 +505,14 @@
             var kindLabel = isGate ? '◇ GATE' : (isLoop ? '⟳ LOOP' : (isEnd ? '⟲ END LOOP' : 'STEP'));
             h += '<div class="node-card' + cardCls + (isColl ? ' collapsed' : '') + '">';
             h += '<div class="nc-head' + (isGate ? ' gate' : '') + ((isLoop || isEnd) ? ' loop' : '') + '">' +
-                '<button class="nc-toggle" onclick="toggleNode(this,' + i + ')" title="collapse / expand">▾</button>' +
+                '<button class="nc-toggle" onclick="toggleNode(this,' + i + ')" title="collapse / expand">' + (isColl ? '+' : '\u2212') + '</button>' +
                 '<span class="step-badge">' + (i + 1) + '</span>' +
                 '<span class="nc-type">' + kindLabel + '</span>' +
                 '<span class="nc-name">' + attresc(n.name || '') + '</span>' +
                 (n.id ? '<span class="nc-id" title="step id">' + attresc(n.id) + '</span>' : '') +
                 '<span class="spacer"></span><span class="nc-tools">' +
-                '<button onclick="move(' + i + ',-1)" title="move up">▲</button>' +
-                '<button onclick="move(' + i + ',1)" title="move down">▼</button>' +
+                '<button class="mv" onclick="move(' + i + ',-1)" title="move up">\u2191</button>' +
+                '<button class="mv" onclick="move(' + i + ',1)" title="move down">\u2193</button>' +
                 '<button onclick="dupNode(' + i + ')" title="duplicate">⧉</button>' +
                 '<button class="del" onclick="delNode(' + i + ')" title="delete">✕</button></span></div>';
             h += '<div class="nc-body">';
@@ -747,7 +751,7 @@
                         '<div class="field"><label>Delimiter (empty = sniff)</label><input value="' + attresc(n.delimiter) + '" placeholder=";" oninput="updNode(' + i + ',\'delimiter\',this.value)"></div></div>';
                     h += '<div class="form-row"><div class="field wide"><label>Output file (empty = &lt;name&gt;_anon)</label>' +
                         '<input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'outFile')) + '" placeholder="${landingOut}/eor_anon.csv" oninput="setNodeParam(' + i + ',\'outFile\',this.value)"></div></div>';
-                    h += '<div class="subsection"><div class="sub-label">Column roles (comma-separated names; explicit lists win over auto-detection)</div>';
+                    h += subHead('Column roles (comma-separated names; explicit lists win over auto-detection)');
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Identifying (suppressed)</label><input value="' + attresc(nodeParam(n,'identifyingColumns')) + '" placeholder="NDG,COD_CLIENTE" oninput="setNodeParam(' + i + ',\'identifyingColumns\',this.value)"></div>' +
                         '<div class="field wide"><label>Quasi-identifying (generalised, k-anon — Batch 2b)</label><input value="' + attresc(nodeParam(n,'quasiColumns')) + '" placeholder="CAP,ETA,PROVINCIA" oninput="setNodeParam(' + i + ',\'quasiColumns\',this.value)"></div></div>';
@@ -757,7 +761,7 @@
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Force passthrough (never touch)</label><input value="' + attresc(nodeParam(n,'forcePassthroughColumns')) + '" placeholder="DT_EOR,DATA_KYC" oninput="setNodeParam(' + i + ',\'forcePassthroughColumns\',this.value)"></div>' +
                         '<div class="field wide"><label>Force anonymise (exclude from date passthrough)</label><input value="' + attresc(nodeParam(n,'forceAnonymizeColumns')) + '" placeholder="NDG" oninput="setNodeParam(' + i + ',\'forceAnonymizeColumns\',this.value)"></div></div></div>';
-                    h += '<div class="subsection"><div class="sub-label">Free-text editing (preserves exact character length)</div>';
+                    h += subHead('Free-text editing (preserves exact character length)');
                     h += '<div class="form-row">' +
                         '<div class="field"><label>Strategy</label><select onchange="setNodeParam(' + i + ',\'freeTextStrategy\',this.value)">' +
                         '<option value="redact"' + (nodeParam(n,'freeTextStrategy') !== 'lorem' ? ' selected' : '') + '>pattern redaction (mask CF/IBAN/email/date/phone/amount)</option>' +

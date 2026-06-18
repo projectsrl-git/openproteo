@@ -447,10 +447,10 @@ footer { margin-top: 50px; color: var(--ink-faint); font-size: 11px; font-family
 
 /* collapsible subsections (e.g. inside the mask step) */
 .subsection.sub-collapsible > .sub-label.sub-toggle { cursor: pointer; -webkit-user-select: none; user-select: none; }
-.subsection.sub-collapsible .sub-caret { display: inline-block; width: 12px; color: var(--accent);
-  -webkit-transition: -webkit-transform .12s; transition: transform .12s; }
+.subsection.sub-collapsible .sub-caret { display: inline-block; width: 16px; height: 16px; line-height: 15px;
+  text-align: center; color: var(--accent); font-weight: 700; font-size: 14px; border: 1px solid var(--line);
+  border-radius: 4px; margin-right: 4px; }
 .subsection.collapsed > *:not(.sub-label) { display: none; }
-.subsection.collapsed .sub-caret { -webkit-transform: rotate(-90deg); transform: rotate(-90deg); }
 
 /* light theme: verification / anonymization sub-step badges must read light too */
 :root[data-theme="light"] .bp-subnode { fill: #ffffff; stroke: #c9d2dd; }
@@ -690,12 +690,10 @@ th.sortable:hover { color: var(--accent); }
 
 /* ===== Designer: collapse/expand step detail ===== */
 .nc-toggle {
-  background: var(--bg-panel); border: 1px solid var(--line); color: var(--ink-dim); cursor: pointer;
-  font-size: 14px; line-height: 1; width: 30px; height: 26px; -webkit-flex: 0 0 30px; flex: 0 0 30px;
+  background: var(--bg-panel); border: 1px solid var(--line); color: var(--accent); cursor: pointer;
+  font-size: 18px; font-weight: 700; line-height: 1; width: 30px; height: 26px; -webkit-flex: 0 0 30px; flex: 0 0 30px;
   border-radius: 5px; margin-right: 9px;
-  -webkit-transition: -webkit-transform .12s; transition: transform .12s;
 }
-.nc-toggle:hover { color: var(--accent); border-color: var(--accent); background: var(--bg-raise); }
-.node-card.collapsed .nc-toggle { -webkit-transform: rotate(-90deg); transform: rotate(-90deg); }
+.nc-toggle:hover { border-color: var(--accent); background: var(--bg-raise); }
 .node-card.collapsed .nc-body { display: none; }
 .node-card.collapsed .nc-head { margin-bottom: 0; border-bottom-style: dashed; }
