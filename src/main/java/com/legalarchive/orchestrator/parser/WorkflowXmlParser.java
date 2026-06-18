@@ -76,12 +76,12 @@ public class WorkflowXmlParser {
                     s.name = el.hasAttribute("name") ? el.getAttribute("name") : s.id;
                     s.exec = trimToNull(el.getAttribute("exec"));
                     if (s.exec != null && !java.util.Arrays.asList(
-                            "auto", "powershell", "cmd", "jar", "sql", "ifscopy", "filecopy", "setvar", "validate", "csvreplace", "encoding", "anonymize", "mask")
+                            "auto", "powershell", "cmd", "jar", "sql", "ifscopy", "filecopy", "setvar", "validate", "csvreplace", "encoding", "anonymize", "mask", "split", "safecopy", "dequote")
                             .contains(s.exec.toLowerCase())) {
-                        throw new IllegalArgumentException("Step '" + s.id + "': exec must be auto, powershell, cmd, jar, sql, ifscopy, filecopy, setvar, validate, csvreplace, encoding, anonymize or mask");
+                        throw new IllegalArgumentException("Step '" + s.id + "': exec must be auto, powershell, cmd, jar, sql, ifscopy, filecopy, setvar, validate, csvreplace, encoding, anonymize, mask, split, safecopy or dequote");
                     }
                     String ik = s.exec == null ? null : s.exec.toLowerCase();
-                    boolean internal = "sql".equals(ik) || "ifscopy".equals(ik) || "filecopy".equals(ik) || "setvar".equals(ik) || "validate".equals(ik) || "csvreplace".equals(ik) || "encoding".equals(ik) || "anonymize".equals(ik) || "mask".equals(ik);
+                    boolean internal = "sql".equals(ik) || "ifscopy".equals(ik) || "filecopy".equals(ik) || "setvar".equals(ik) || "validate".equals(ik) || "csvreplace".equals(ik) || "encoding".equals(ik) || "anonymize".equals(ik) || "mask".equals(ik) || "split".equals(ik) || "safecopy".equals(ik) || "dequote".equals(ik);
                     // script is required only for external (process) steps
                     s.script = internal ? trimToNull(el.getAttribute("script")) : req(el, "script", xmlFile);
                     // built-in step attributes

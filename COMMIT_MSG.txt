@@ -1,17 +1,17 @@
-fix(safecopy): support multiple comma-separated wildcard patterns
+fix: save HTTP 400 for split/safecopy/dequote (parser exec whitelist)
 
-safecopy received the wildcard field as a single glob, so a value like
-"*.md5, *.tar" only matched one pattern at run time. The pattern is now
-split on comma/semicolon and each glob is streamed, with results
-de-duplicated by file name. Designer placeholder/hint and USAGE updated.
-Tested: "*.md5, *.tar" copies the .md5 and .tar files and skips others.
+Saving a workflow re-validates it by writing the generated XML and
+re-parsing it with WorkflowXmlParser. The parser's allowed-exec
+whitelist - and the "internal" set that decides whether a script
+attribute is required - had not been updated for the recently added
+executors split, safecopy and dequote. Parsing a workflow that used
+exec="safecopy" therefore threw, and save returned HTTP 400 (the
+corporate proxy then replaced the error body with its own HTML page,
+hence the misleading "intercepted by a proxy" message in the client).
 
-Note (no code change): the "HTTP 400 as text/html / Bad Request" seen on
-Validate & save is not an OpenProteo validation error - save() posts JSON
-and the client flags any non-JSON reply. A terse HTML 400 is the
-corporate proxy/WAF rejecting the POST body (or an expired SSO session).
-Isolate by re-logging in and by saving with individual fields/steps
-removed to find the token the filter blocks; capture the blocked-request
-id from the browser Network tab.
+Added split, safecopy and dequote to both the exec whitelist and the
+internal-executor set in WorkflowXmlParser. The engine and the designer
+already supported these execs; only the save-time parser was stale.
 
-76 classes compile; designer JS valid; no \n/\r; Thymeleaf-safe.
+Verified: a workflow with safecopy (pattern "*.md5, *.tar"), dequote and
+split now parses successfully. 76 classes compile.
