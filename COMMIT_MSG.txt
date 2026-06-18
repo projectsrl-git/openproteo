@@ -1,17 +1,24 @@
-ui(designer): clearer collapse (+/-) vs move (arrows) icons
+feat: dequote CSV executor + document ##VAR output from scripts
 
-The collapse/expand control used a small ▾ that looked identical to the
-step move buttons (▲ / ▼), which was confusing. (The mask step collapse
-itself has no bug - the div balance checks out; the caret was just hard
-to spot.)
+dequote executor (exec="dequote"):
+- Reads an input CSV and writes an output CSV with double quotes removed
+  from the chosen text columns. CSV wrapping quotes and escaped "" are
+  parsed away first, then any remaining " is stripped from the targeted
+  columns. A field is re-quoted on output only when it still contains the
+  delimiter or a newline (or never, with quoteIfNeeded=false).
+- Params: source, outFile (default <name>_dequoted), delimiter
+  (empty = sniff), hasHeader (default true), columns (names or 1-based
+  indexes; empty = all), bom, quoteIfNeeded. Outputs outputFile,
+  dataRows, columns, cells, quotesRemoved. UTF-8 / CRLF output.
+- Engine internal-executor list + dispatch; designer option, form and
+  validation. Tested (escaped/unescaped quotes, delimiter-containing
+  field, selective columns, never-quote mode).
 
-Changes:
-- Step-card collapse toggle: bold +/- glyph (- when open, + when
-  collapsed), larger and accent-colored.
-- Subsection carets (mask and anonymize steps): boxed +/- instead of the
-  tiny ▾.
-- Move buttons: ▲/▼ replaced with ↑/↓ so "move" is unmistakable and
-  distinct from the +/- collapse controls.
+Docs:
+- New USAGE/README subsection "Publishing output variables from a script
+  (##VAR)": print `##VAR name=value` to stdout; the engine exposes it as
+  ${name} and ${<stepId>.name}, and ##VAR outputFile=... also sets the
+  canonical ${<stepId>.outputFile}. PowerShell example with Write-Output
+  / [Console]::Out.WriteLine; same for .bat and .sh.
 
-The "Workflow files" section header keeps its own caret (separate
-control). designer JS valid; no \n/\r; Thymeleaf-safe; no Java change.
+76 classes compile; designer JS valid; no \n/\r; Thymeleaf-safe.

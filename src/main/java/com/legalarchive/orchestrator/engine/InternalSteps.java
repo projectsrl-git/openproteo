@@ -91,6 +91,8 @@ public class InternalSteps {
                 runSplit(step, resolvedParams, vars, res, line);
             } else if ("safecopy".equals(kind)) {
                 runSafeCopy(step, resolvedParams, vars, res, line);
+            } else if ("dequote".equals(kind)) {
+                runDequote(step, resolvedParams, vars, res, line);
             } else {
                 line.accept("unknown internal step kind: " + kind);
                 res.exitCode = -996;
@@ -292,6 +294,110 @@ public class InternalSteps {
         res.outVars.put("matchedCount", String.valueOf(names.size()));
         res.outVars.put("matchedFiles", String.join(step.delimiter == null ? ";" : step.delimiter, names));
         res.outVars.put("bytesCopied", String.valueOf(bytes));
+        for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
+        res.exitCode = 0;
+    }
+
+    // -------------------------------------------------------------- dequote
+    /**
+     * DEQUOTE: read an input CSV and write an output CSV with double quotes removed from the
+     * targeted text columns. Wrapping CSV quotes and escaped {@code ""} are first parsed away
+     * (RFC-4180), then any remaining literal {@code "} characters are stripped from the chosen
+     * columns. Output fields are re-quoted only when structurally required (they contain the
+     * delimiter or a newline); set quoteIfNeeded=false to never quote.
+     * Params: source (in), outFile (out, default &lt;name&gt;_dequoted), delimiter (empty=sniff),
+     * hasHeader (default true), columns (comma-separated names or 1-based indexes; empty=all),
+     * bom (default false), quoteIfNeeded (default true).
+     */
+    private void runDequote(StepDef step, Map<String, String> params, Map<String, String> vars,
+                            StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        String inPath = VarResolver.resolve(step.source, vars);
+        if (inPath == null || inPath.trim().isEmpty()) { line.accept("dequote: missing input file (source)"); res.exitCode = 2; return; }
+        java.io.File in = new java.io.File(inPath);
+        if (!in.isFile()) { line.accept("dequote: input file not found: " + inPath); res.exitCode = 2; return; }
+
+        char delim = (step.delimiter != null && !step.delimiter.isEmpty()) ? step.delimiter.charAt(0) : sniffDelimiter(in);
+        String hh = params.get("hasHeader");      boolean hasHeader = (hh == null) || !hh.equalsIgnoreCase("false");
+        String bm = params.get("bom");            boolean bom = (bm != null) && bm.equalsIgnoreCase("true");
+        String qn = params.get("quoteIfNeeded");  boolean quoteIfNeeded = (qn == null) || !qn.equalsIgnoreCase("false");
+
+        String outParam = blankToNull(VarResolver.resolve(params.get("outFile"), vars));
+        java.io.File out;
+        if (outParam != null) out = new java.io.File(outParam);
+        else {
+            String nm = in.getName();
+            String ext = nm.lastIndexOf('.') > 0 ? nm.substring(nm.lastIndexOf('.')) : ".csv";
+            out = new java.io.File(in.getParentFile(), stripExt(nm) + "_dequoted" + ext);
+        }
+        if (out.getParentFile() != null) out.getParentFile().mkdirs();
+
+        java.util.Set<String> targets = new java.util.HashSet<String>();
+        String colsParam = blankToNull(VarResolver.resolve(params.get("columns"), vars));
+        if (colsParam != null) for (String t : colsParam.split(",")) { String x = t.trim(); if (!x.isEmpty()) targets.add(x); }
+
+        long dataRows = 0, cells = 0, removed = 0; int columns = 0;
+        boolean[] targeted = null;
+        java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(in), "UTF-8"));
+        java.io.BufferedWriter w = new java.io.BufferedWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(out), "UTF-8"));
+        try {
+            if (bom) w.write('\uFEFF');
+            String first = r.readLine();
+            if (first == null) { line.accept("dequote: empty input"); res.exitCode = 2; return; }
+            if (first.length() > 0 && first.charAt(0) == '\uFEFF') first = first.substring(1);
+
+            if (hasHeader) {
+                java.util.List<String> hf = parseCsv(first, delim);
+                columns = hf.size();
+                targeted = new boolean[columns];
+                StringBuilder hb = new StringBuilder();
+                for (int i = 0; i < columns; i++) {
+                    String nm = hf.get(i);
+                    targeted[i] = targets.isEmpty() || targets.contains(nm) || targets.contains(String.valueOf(i + 1));
+                    if (i > 0) hb.append(delim);
+                    String v = nm.replace("\"", "");                 // header names always cleaned
+                    hb.append(quoteIfNeeded ? rfcField(v, delim) : v);
+                }
+                w.write(hb.toString()); w.write("\r\n");
+            }
+
+            String ln = hasHeader ? r.readLine() : first;
+            while (ln != null) {
+                java.util.List<String> f = parseCsv(ln, delim);
+                if (columns == 0) columns = f.size();
+                if (targeted == null || targeted.length < f.size()) {
+                    boolean[] nt = new boolean[f.size()];
+                    for (int i = 0; i < nt.length; i++) nt[i] = (targeted != null && i < targeted.length) ? targeted[i]
+                            : (targets.isEmpty() || targets.contains(String.valueOf(i + 1)));
+                    targeted = nt;
+                }
+                StringBuilder lb = new StringBuilder();
+                for (int i = 0; i < f.size(); i++) {
+                    if (i > 0) lb.append(delim);
+                    String v = f.get(i);
+                    boolean tgt = i < targeted.length ? targeted[i] : targets.isEmpty();
+                    if (tgt && v.indexOf('"') >= 0) {
+                        int before = v.length();
+                        v = v.replace("\"", "");
+                        removed += (before - v.length());
+                    }
+                    cells++;
+                    lb.append(quoteIfNeeded ? rfcField(v, delim) : v);
+                }
+                w.write(lb.toString()); w.write("\r\n");
+                dataRows++;
+                ln = r.readLine();
+            }
+        } finally {
+            r.close();
+            w.close();
+        }
+        res.outVars.put("outputFile", out.getAbsolutePath());
+        res.outVars.put("dataRows", String.valueOf(dataRows));
+        res.outVars.put("columns", String.valueOf(columns));
+        res.outVars.put("cells", String.valueOf(cells));
+        res.outVars.put("quotesRemoved", String.valueOf(removed));
+        line.accept("dequote " + in.getName() + " -> " + out.getName() + "  rows=" + dataRows
+                + " cols=" + columns + " quotesRemoved=" + removed + " delim='" + delim + "'");
         for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
         res.exitCode = 0;
     }
@@ -1793,6 +1899,13 @@ public class InternalSteps {
     private static String repField(String v) {
         if (v == null) return "";
         if (v.indexOf(';') >= 0 || v.indexOf('"') >= 0) return '"' + v.replace("\"", "\"\"") + '"';
+        return v;
+    }
+    /** RFC-4180 output quoting: quote only when the value contains the delimiter, a quote or a newline. */
+    private static String rfcField(String v, char delim) {
+        if (v == null) return "";
+        if (v.indexOf('"') >= 0 || v.indexOf(delim) >= 0 || v.indexOf('\n') >= 0 || v.indexOf('\r') >= 0)
+            return '"' + v.replace("\"", "\"\"") + '"';
         return v;
     }
     private static String join(java.util.List<String> l, int max) {

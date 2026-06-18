@@ -569,6 +569,7 @@
                     '<option value="ifscopy"' + (ex === 'ifscopy' ? ' selected' : '') + '>ifscopy (AS400 IFS → local)</option>' +
                     '<option value="filecopy"' + (ex === 'filecopy' ? ' selected' : '') + '>filecopy (copy/move/list)</option>' +
                     '<option value="safecopy"' + (ex === 'safecopy' ? ' selected' : '') + '>safecopy (wildcard copy via .on_fly_ temp)</option>' +
+                    '<option value="dequote"' + (ex === 'dequote' ? ' selected' : '') + '>dequote (CSV — strip double quotes from text columns)</option>' +
                     '<option value="setvar"' + (ex === 'setvar' ? ' selected' : '') + '>setvar (assign variables)</option>' +
                     '<option value="validate"' + (ex === 'validate' ? ' selected' : '') + '>validate (CSV checklist)</option>' +
                     '<option value="csvreplace"' + (ex === 'csvreplace' ? ' selected' : '') + '>csvreplace (string substitution)</option>' +
@@ -728,6 +729,25 @@
                         '<div class="field"><label>Wildcard pattern</label><input value="' + attresc(n.pattern) + '" placeholder="*.csv" oninput="updNode(' + i + ',\'pattern\',this.value)"></div>' +
                         '<div class="field"><label>Temp suffix</label><input value="' + attresc(nodeParam(n,'tmpSuffix')) + '" placeholder=".on_fly_" oninput="setNodeParam(' + i + ',\'tmpSuffix\',this.value)"></div></div>';
                     h += '<div class="dim small" style="margin-top:6px">Copies matching files from the source directory to the dest directory. Each file is written as <code>&lt;name&gt;.on_fly_</code> and renamed (atomic move when possible) to the final name only after the copy completes, so a downstream process watching the landing zone never sees a partial file. Outputs <code>${matchedFiles}</code>, <code>${matchedCount}</code>, <code>${bytesCopied}</code>.</div>';
+                } else if (ex === 'dequote') {
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Input CSV *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${extraction.outputFile}" oninput="updNode(' + i + ',\'source\',this.value)"></div>' +
+                        '<div class="field"><label>Delimiter (empty = sniff)</label><input value="' + attresc(n.delimiter) + '" placeholder=";" oninput="updNode(' + i + ',\'delimiter\',this.value)"></div></div>';
+                    h += '<div class="form-row"><div class="field wide"><label>Output file (empty = &lt;name&gt;_dequoted)</label>' +
+                        '<input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'outFile')) + '" placeholder="${landingOut}/eor_dequoted.csv" oninput="setNodeParam(' + i + ',\'outFile\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Columns (names or 1-based indexes; empty = all)</label><input value="' + attresc(nodeParam(n,'columns')) + '" placeholder="DESCRIZIONE,NOTE | empty = all" oninput="setNodeParam(' + i + ',\'columns\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Has header</label><select onchange="setNodeParam(' + i + ',\'hasHeader\',this.value)">' +
+                        '<option value="true"' + (nodeParam(n,'hasHeader') !== 'false' ? ' selected' : '') + '>yes</option>' +
+                        '<option value="false"' + (nodeParam(n,'hasHeader') === 'false' ? ' selected' : '') + '>no</option></select></div>' +
+                        '<div class="field"><label>Output quoting</label><select onchange="setNodeParam(' + i + ',\'quoteIfNeeded\',this.value)">' +
+                        '<option value="true"' + (nodeParam(n,'quoteIfNeeded') !== 'false' ? ' selected' : '') + '>quote only if needed (safe)</option>' +
+                        '<option value="false"' + (nodeParam(n,'quoteIfNeeded') === 'false' ? ' selected' : '') + '>never quote</option></select></div>' +
+                        '<div class="field"><label>Write BOM</label><select onchange="setNodeParam(' + i + ',\'bom\',this.value)">' +
+                        '<option value="false"' + (nodeParam(n,'bom') !== 'true' ? ' selected' : '') + '>no</option>' +
+                        '<option value="true"' + (nodeParam(n,'bom') === 'true' ? ' selected' : '') + '>yes (UTF-8 BOM)</option></select></div></div>';
+                    h += '<div class="dim small" style="margin-top:6px">Removes double quotes from the chosen text columns: CSV wrapping quotes and escaped <code>&quot;&quot;</code> are parsed away, then any remaining <code>&quot;</code> is stripped. Output is re-quoted only when a field still contains the delimiter or a newline (set quoting to &quot;never quote&quot; to force a quote-free file, at the risk of breaking columns that contain the delimiter). Output is UTF-8, CRLF. Outputs <code>${outputFile}</code>, <code>${dataRows}</code>, <code>${columns}</code>, <code>${quotesRemoved}</code>.</div>';
                 } else if (ex === 'split') {
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Input file *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${anonymize.outputFile} | ${landingOut}/data.csv" oninput="updNode(' + i + ',\'source\',this.value)"></div></div>';
@@ -977,6 +997,7 @@
                 if (ex === 'setvar' && (!n.params || !n.params.length)) errs.push(label + ' (' + n.id + '): at least one assignment is required');
                 if (ex === 'split' && !n.source) errs.push(label + ' (' + n.id + '): input file (source) is required');
                 if (ex === 'safecopy' && (!n.source || !n.dest)) errs.push(label + ' (' + n.id + '): source and dest directories are required');
+                if (ex === 'dequote' && !n.source) errs.push(label + ' (' + n.id + '): input CSV (source) is required');
             } else if (n.kind === 'LOOP') {
                 if (!n.over) errs.push(label + ' (' + n.id + '): "over" (list expression) is required');
             } else if (n.kind === 'ENDLOOP') {

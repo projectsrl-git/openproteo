@@ -25,6 +25,37 @@ Variables are referenced as `${name}`. The engine seeds `feedId`, `sourceId`, `t
 of the step currently running), plus every workflow variable you declare. A step can publish
 output variables (printed in the log as `##VAR name=value`) that later steps can read.
 
+### Publishing output variables from a script (`##VAR`)
+
+A script publishes a variable by printing a line to **stdout** in the form:
+
+```
+##VAR name=value
+```
+
+The marker is `##VAR ` (two hashes, `VAR`, one space). The engine splits on the **first** `=`,
+so the value may itself contain `=`; the name and the value are trimmed. Each captured variable
+is exposed to the following steps in two forms: globally as `${name}` (last writer wins) and
+namespaced as `${<stepId>.name}` (preferred, collision-free). If a step emits
+`##VAR outputFile=...`, that path also becomes the canonical `${<stepId>.outputFile}` handle.
+
+PowerShell (`.ps1`):
+
+```powershell
+$out = Join-Path $env:TEMP 'eor_clean.csv'
+# ... produce the file ...
+Write-Output "##VAR outputFile=$out"       # -> ${<stepId>.outputFile} and ${outputFile}
+Write-Output "##VAR rowCount=$($rows)"      # -> ${<stepId>.rowCount}
+```
+
+`Write-Output` writes to the success/stdout stream, which is what the engine captures; if in
+doubt use `[Console]::Out.WriteLine("##VAR outputFile=$out")`, which is the most robust. Do not
+wrap the value in extra quotes unless you want them literally. The same works for `.bat`
+(`echo ##VAR name=value`) and `.sh` (`echo "##VAR name=value"`).
+
+Example: a step with id `extract` that prints `##VAR outputFile=D:/landing/out/eor.csv` lets a
+later step read it as `${extract.outputFile}`.
+
 ## Step working directories: why `10_`, `20_`, ...
 
 Each step gets its own working directory under the feed folder, named `NN_<stepId>` where
@@ -51,6 +82,9 @@ A STEP runs one executor. Built-in (internal) executors:
   from selectable pool files (see Masking pools).
 - **encoding** — convert a file (or a whole directory) to UTF-8.
 - **filecopy** — copy / move / list files.
+- **dequote** — read an input CSV and write an output CSV with double quotes (escaped or not)
+  stripped from the chosen text columns; re-quotes a field only when it still contains the
+  delimiter or a newline (or never, with quoteIfNeeded=false).
 - **safecopy** — copy files matching a wildcard from one directory to another, writing each
   file as `<name>.on_fly_` and renaming it to the final name only after the copy completes
   (atomic move when possible). Prevents a downstream watcher from picking up a partial file.
