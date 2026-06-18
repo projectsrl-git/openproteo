@@ -484,6 +484,14 @@ footer { margin-top: 50px; color: var(--ink-faint); font-size: 11px; font-family
 :root[data-theme="light"] .wf-files-box td,
 :root[data-theme="light"] .wf-files-box th { background: transparent; color: var(--ink); }
 
+/* light theme: keep button text readable on hover (dark hover fills are for dark theme only) */
+:root[data-theme="light"] .btn:hover { background: #e9eef5; border-color: var(--accent-dim); color: var(--ink); }
+:root[data-theme="light"] .btn.primary:hover { background: #fbf1d6; color: #8a5a00; }
+:root[data-theme="light"] .btn.ok:hover { background: var(--ok-bg); color: var(--ok); }
+:root[data-theme="light"] .nc-tools button:hover,
+:root[data-theme="light"] .addline button:hover,
+:root[data-theme="light"] .ghost-btn:hover { background: #e9eef5; color: var(--ink); }
+
 /* designer: workflow-files section collapsible + bounded to the form column width */
 .collapse-h { cursor: pointer; user-select: none; }
 .collapse-h .caret { display: inline-block; width: 14px; color: var(--accent); }

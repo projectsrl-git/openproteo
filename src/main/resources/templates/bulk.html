@@ -31,7 +31,7 @@
                 <label>Template workflow *</label>
                 <select id="template">
                     <option value="" th:each="r : ${rows}" th:value="${r.feedId}"
-                            th:text="${r.feedId} + ' — ' + ${r.name}"></option>
+                            th:text="${r.label}"></option>
                 </select>
             </div>
             <div class="field" style="max-width:160px">
@@ -60,7 +60,7 @@
             <label>CSV (first row = header)</label>
             <textarea id="csv" rows="8" spellcheck="false"
                       style="width:100%;font-family:var(--mono);font-size:12px"
-                      placeholder="feedId,name,sourceId,description,dataschema,displayschema"></textarea>
+                      placeholder="feedId,name,sourceId,targetId,description,recordBusinessDate,recordBusinessDateFormat,dataschema,displayschema"></textarea>
         </div>
         <div class="sub-label">Column names in your feeds CSV (map the useful columns; leave blank to skip)</div>
         <p class="page-sub" style="margin:0 0 12px">Tip: <b>name</b>, <b>sourceId</b>, <b>targetId</b> and <b>description</b> accept a template —
@@ -74,6 +74,8 @@
             <div class="field"><label>sourceId</label><input id="mapSourceId" value="sourceId"></div>
             <div class="field"><label>targetId (comma-separated for multiple)</label><input id="mapTargetId" value="targetId"></div>
             <div class="field"><label>description</label><input id="mapDescription" value="description"></div>
+            <div class="field"><label>recordBusinessDate</label><input id="mapRecordBusinessDate" value="recordBusinessDate"></div>
+            <div class="field"><label>recordBusinessDateFormat</label><input id="mapRecordBusinessDateFormat" value="recordBusinessDateFormat"></div>
         </div>
         <div class="form-row">
             <div class="field"><label>dataschema (JSON → dataschema.json)</label><input id="mapDataschema" value="dataschema"></div>
@@ -129,7 +131,7 @@
     function fillExample() {
         var ds = '{"columns":[{"name":"NDG"},{"name":"NOMINATIVO"}]}';
         var feeds = [
-            'feedId,name,sourceId,description,dataschema',
+            'feedId,name,sourceId,targetId,description,recordBusinessDate,recordBusinessDateFormat,dataschema',
             'tf0001,Feed Uno,ICTO-1,Estrazione uno,"' + ds.split('"').join('""') + '"',
             'tf0002,Feed Due,ICTO-2,Estrazione due,'
         ];
@@ -162,6 +164,7 @@
             mapFeedId: val('mapFeedId'), mapName: val('mapName'), mapSourceId: val('mapSourceId'),
             mapTargetId: val('mapTargetId'),
             mapDescription: val('mapDescription'), mapDataschema: val('mapDataschema'), mapDisplayschema: val('mapDisplayschema'),
+            mapRecordBusinessDate: val('mapRecordBusinessDate'), mapRecordBusinessDateFormat: val('mapRecordBusinessDateFormat'),
             csv2: val('csv2'), delimiter2: delimOf('delimiter2'),
             mapFeedId2: val('mapFeedId2'), mapTableName: val('mapTableName'), tableVar: val('tableVar')
         };

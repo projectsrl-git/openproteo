@@ -1,35 +1,23 @@
-feat: PROD flag + anonymize passthrough, Clear History, XML editing; fix targetId
+feat(bulk/ui): bulk recordBusinessDate fields, dashboard target column,
+JSON/XML format button, light hover fix, sourceId in template list
 
-Fix:
-- The designer's /definition DTO omitted targetId (only sourceId was
-  set), so editing a workflow reloaded an empty Target ID and saved it
-  blank. Added targetId (and the new production flag) to that DTO.
+Bulk create:
+- Two new FEED CSV mapped columns, recordBusinessDate and
+  recordBusinessDateFormat, injected into each generated workflow as
+  variables (${recordBusinessDate} / ${recordBusinessDateFormat}).
+- The template-workflow dropdown now shows each template's sourceId.
 
-Production environment flag:
-- New per-workflow "Production environment" switch (default off),
-  round-tripped as production="true" in the XML (Def/DTO/parser/writer).
-- When on, every anonymize/mask step runs as passthrough (input copied
-  unchanged to the step output, no masking) via a run var __prod the
-  engine seeds; a single step can also set passthrough=true on its own.
-- Clear History is disabled for production workflows.
+Dashboard:
+- New Target column next to Source; targetId is also searchable.
 
-Clear History:
-- POST /api/admin/clear-history deletes every entry under the feeds base
-  directory and recreates it empty (all run history/data). Refuses while
-  a run is active. Designer button with a double irreversible confirm.
-
-Edit generated XML:
-- POST /api/workflows/save-xml validates pasted/edited XML by parsing it,
-  writes it and reloads. The designer can open the generated XML in an
-  editor, validate & save it, and the page reloads on the saved feed -
-  handy for cloning a workflow with small edits.
+Viewer / editor:
+- A Format button pretty-prints JSON and XML for inline/unformatted
+  files, both in the file viewer's edit mode and in the designer's
+  direct-XML editor. Type is chosen by file extension, then content.
 
 Light theme:
-- Fixed remaining dark areas (generated-XML box, textareas, the files
-  drop area and the workflow-files table) under the light theme.
+- Fixed button hover: the dark hover fills were hardcoded for the dark
+  theme and made button text unreadable on hover under the light theme.
 
-Note: the masking name dictionaries are present and use scrambled
-letters; inverted names only appear for columns mapped to
-firstName/lastName/fullName.
-
-77 classes compile; designer JS valid; no \n/\r; Thymeleaf-safe.
+77 classes compile; all touched JS validates; no \n/\r literals in JS;
+Thymeleaf-safe.

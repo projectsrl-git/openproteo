@@ -132,6 +132,7 @@
             <div id="xmlEditWrap" style="display:none">
                 <textarea id="xmlEdit" class="xmlbox xml-editor" spellcheck="false" wrap="off"></textarea>
                 <div class="addline" style="margin-top:6px">
+                    <button class="btn sm" onclick="formatXmlEditor()" title="pretty-print the XML in the editor">⤓ Format</button>
                     <button class="btn sm" onclick="loadXmlFromGenerated()" title="copy the generated XML above into the editor">⤓ Load generated</button>
                     <button class="btn sm primary" onclick="saveXmlDirect()" title="validate and save this XML, then refresh">💾 Validate &amp; save XML</button>
                     <span class="dim small">Paste/edit a full workflow, then save: it is validated and, on success, the page reloads on the saved feed. Useful to clone a workflow by changing a few details.</span>
@@ -1147,6 +1148,29 @@
         if (open && !document.getElementById('xmlEdit').value.trim()) loadXmlFromGenerated();
     }
     function loadXmlFromGenerated() { document.getElementById('xmlEdit').value = buildXml(); }
+    function formatXmlEditor() {
+        var ta = document.getElementById('xmlEdit'); var s = ta.value;
+        var NL = String.fromCharCode(10);
+        var doc; try { doc = new DOMParser().parseFromString(s, 'application/xml'); } catch (e) { banner(false, 'Cannot format: invalid XML'); window.scrollTo(0, 0); return; }
+        if (!doc || !doc.documentElement || doc.getElementsByTagName('parsererror').length || doc.documentElement.nodeName === 'parsererror') { banner(false, 'Cannot format: invalid XML'); window.scrollTo(0, 0); return; }
+        function ea(v) { return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
+        function et(v) { return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+        function ser(node, d) {
+            var pad = ''; for (var i = 0; i < d; i++) pad += '  ';
+            if (node.nodeType === 3) { var t = node.nodeValue.replace(/^\s+|\s+$/g, ''); return t ? pad + et(t) + NL : ''; }
+            if (node.nodeType === 8) return pad + '<!--' + node.nodeValue + '-->' + NL;
+            if (node.nodeType !== 1) return '';
+            var tag = node.nodeName, at = '';
+            for (var a = 0; a < node.attributes.length; a++) { var x = node.attributes[a]; at += ' ' + x.name + '="' + ea(x.value) + '"'; }
+            var kids = node.childNodes, ek = 0, tb = '';
+            for (var k = 0; k < kids.length; k++) { if (kids[k].nodeType === 1) ek++; else if (kids[k].nodeType === 3) tb += kids[k].nodeValue; }
+            if (kids.length === 0) return pad + '<' + tag + at + '/>' + NL;
+            if (ek === 0) return pad + '<' + tag + at + '>' + et(tb.replace(/^\s+|\s+$/g, '')) + '</' + tag + '>' + NL;
+            var inner = ''; for (var c = 0; c < kids.length; c++) inner += ser(kids[c], d + 1);
+            return pad + '<' + tag + at + '>' + NL + inner + pad + '</' + tag + '>' + NL;
+        }
+        ta.value = ('<?xml version="1.0" encoding="UTF-8"?>' + NL + ser(doc.documentElement, 0)).replace(/\s+$/, '');
+    }
     function saveXmlDirect() {
         var xml = document.getElementById('xmlEdit').value;
         if (!xml.trim()) { banner(false, 'The XML editor is empty.'); window.scrollTo(0, 0); return; }

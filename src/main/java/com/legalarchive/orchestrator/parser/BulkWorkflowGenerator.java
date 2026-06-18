@@ -44,6 +44,8 @@ public final class BulkWorkflowGenerator {
         public String sourceId = "sourceId";
         public String targetId = "targetId";
         public String description = "description";
+        public String recordBusinessDate = "recordBusinessDate";
+        public String recordBusinessDateFormat = "recordBusinessDateFormat";
         public String dataschema = "dataschema";
         public String displayschema = "displayschema";
     }
@@ -110,6 +112,13 @@ public final class BulkWorkflowGenerator {
                 if (src != null) root.setAttribute("sourceId", src);
                 if (tgt != null) root.setAttribute("targetId", tgt);
                 if (dsc != null) setChildText(doc, root, "description", dsc);
+
+                // recordBusinessDate / recordBusinessDateFormat: injected as workflow variables
+                // (usable as ${recordBusinessDate} / ${recordBusinessDateFormat} in steps)
+                String rbd = resolveField(map.recordBusinessDate, header, row);
+                String rbf = resolveField(map.recordBusinessDateFormat, header, row);
+                if (rbd != null && !rbd.trim().isEmpty()) setVariable(doc, root, "recordBusinessDate", rbd.trim());
+                if (rbf != null && !rbf.trim().isEmpty()) setVariable(doc, root, "recordBusinessDateFormat", rbf.trim());
 
                 if (it.tableName != null && !it.tableName.trim().isEmpty()) {
                     setVariable(doc, root, tableVar, it.tableName.trim());

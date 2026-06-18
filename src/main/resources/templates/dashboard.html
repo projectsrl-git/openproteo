@@ -106,6 +106,7 @@
                 <th class="cbcol"><input type="checkbox" id="selAll" onclick="toggleAll(this)" title="select visible"></th>
                 <th>Feed ID</th>
                 <th>Source</th>
+                <th>Target</th>
                 <th>Name</th>
                 <th>Schedule</th>
                 <th>Last run</th>
@@ -115,10 +116,11 @@
             </thead>
             <tbody id="wfRows">
             <tr th:each="row : ${rows}" class="wf-row"
-                th:attr="data-search=${(row.wf.feedId + ' ' + (row.wf.sourceId ?: '') + ' ' + row.wf.name + ' ' + (row.wf.description ?: '') + ' ' + (row.wf.cron ?: 'manual'))},data-source=${(row.wf.sourceId == null or row.wf.sourceId.trim().isEmpty()) ? '—' : row.wf.sourceId.trim()}">
+                th:attr="data-search=${(row.wf.feedId + ' ' + (row.wf.sourceId ?: '') + ' ' + (row.wf.targetId ?: '') + ' ' + row.wf.name + ' ' + (row.wf.description ?: '') + ' ' + (row.wf.cron ?: 'manual'))},data-source=${(row.wf.sourceId == null or row.wf.sourceId.trim().isEmpty()) ? '—' : row.wf.sourceId.trim()}">
                 <td class="cbcol"><input type="checkbox" class="rowcb" th:attr="data-feed=${row.wf.feedId}" onclick="onRowCb()"></td>
                 <td class="mono"><span class="feed-id" th:text="${row.wf.feedId}"></span></td>
                 <td class="mono small dim"><span th:if="${row.wf.sourceId}" th:text="${row.wf.sourceId}"></span><span th:if="${row.wf.sourceId == null}">—</span></td>
+                <td class="mono small dim"><span th:if="${row.wf.targetId}" th:text="${row.wf.targetId}"></span><span th:if="${row.wf.targetId == null}">—</span></td>
                 <td>
                     <span th:text="${row.wf.name}"></span>
                     <div class="dim small" th:if="${row.wf.description}" th:text="${row.wf.description}"></div>
@@ -153,9 +155,9 @@
                 </td>
             </tr>
             <tr th:if="${#lists.isEmpty(rows)}">
-                <td colspan="8" class="dim">No workflows found. Create one with the designer or drop XML files into the workflows/ directory and reload.</td>
+                <td colspan="9" class="dim">No workflows found. Create one with the designer or drop XML files into the workflows/ directory and reload.</td>
             </tr>
-            <tr id="noMatch" style="display:none"><td colspan="8" class="dim">No workflow matches the filter.</td></tr>
+            <tr id="noMatch" style="display:none"><td colspan="9" class="dim">No workflow matches the filter.</td></tr>
             </tbody>
         </table>
     </div>

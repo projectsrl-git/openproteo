@@ -413,6 +413,70 @@
         function field(s) { s = (s == null ? '' : String(s)); if (s.indexOf(';') >= 0 || s.indexOf('"') >= 0 || s.charCodeAt(0) === CR || s.indexOf(LF) >= 0) return '"' + s.replace(/"/g, '""') + '"'; return s; }
     }
 
+    // ---- pretty-printing for JSON / XML (inline or unformatted files) ----
+    function formatJsonStr(s) {
+        var obj = JSON.parse(s);
+        return JSON.stringify(obj, null, 2);
+    }
+    function formatXmlStr(s) {
+        var NL = String.fromCharCode(10);
+        var doc;
+        try { doc = new DOMParser().parseFromString(s, 'application/xml'); }
+        catch (e) { return null; }
+        if (!doc || !doc.documentElement) return null;
+        if (doc.getElementsByTagName('parsererror').length || doc.documentElement.nodeName === 'parsererror') return null;
+        function escAttr(v) { return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
+        function escText(v) { return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+        function ser(node, depth) {
+            var pad = ''; for (var i = 0; i < depth; i++) pad += '  ';
+            if (node.nodeType === 3) {
+                var t = node.nodeValue.replace(/^\s+|\s+$/g, '');
+                return t ? pad + escText(t) + NL : '';
+            }
+            if (node.nodeType === 8) return pad + '<!--' + node.nodeValue + '-->' + NL;
+            if (node.nodeType !== 1) return '';
+            var tag = node.nodeName, attrs = '';
+            for (var a = 0; a < node.attributes.length; a++) {
+                var at = node.attributes[a]; attrs += ' ' + at.name + '="' + escAttr(at.value) + '"';
+            }
+            var kids = node.childNodes, elemKids = 0, textBuf = '';
+            for (var k = 0; k < kids.length; k++) {
+                if (kids[k].nodeType === 1) elemKids++;
+                else if (kids[k].nodeType === 3) textBuf += kids[k].nodeValue;
+            }
+            if (kids.length === 0) return pad + '<' + tag + attrs + '/>' + NL;
+            if (elemKids === 0) {
+                return pad + '<' + tag + attrs + '>' + escText(textBuf.replace(/^\s+|\s+$/g, '')) + '</' + tag + '>' + NL;
+            }
+            var inner = '';
+            for (var c = 0; c < kids.length; c++) inner += ser(kids[c], depth + 1);
+            return pad + '<' + tag + attrs + '>' + NL + inner + pad + '</' + tag + '>' + NL;
+        }
+        var head = '<?xml version="1.0" encoding="UTF-8"?>' + NL;
+        return (head + ser(doc.documentElement, 0)).replace(/\s+$/, '');
+    }
+    /** Returns {ok, text, kind} or {ok:false, error}. Picks JSON/XML by extension, then by content. */
+    function prettyFormat(content, fileName) {
+        var nm = (fileName || '').toLowerCase();
+        var tryJson = nm.indexOf('.json') >= 0;
+        var tryXml = nm.indexOf('.xml') >= 0;
+        if (!tryJson && !tryXml) {
+            var t = content.replace(/^\s+/, '');
+            if (t.charAt(0) === '{' || t.charAt(0) === '[') tryJson = true;
+            else if (t.charAt(0) === '<') tryXml = true;
+        }
+        if (tryJson) {
+            try { return { ok: true, text: formatJsonStr(content), kind: 'JSON' }; }
+            catch (e) { return { ok: false, error: 'invalid JSON (' + (e.message || e) + ')' }; }
+        }
+        if (tryXml) {
+            var x = formatXmlStr(content);
+            if (x) return { ok: true, text: x, kind: 'XML' };
+            return { ok: false, error: 'invalid XML' };
+        }
+        return { ok: false, error: 'not JSON or XML' };
+    }
+
     function renderTextServer(host, api, path, name, src, meta) {
         var PAGE = 500, totalLines = 0, cache = {}, inflight = {}, gutterW = 6;
         var tools = el('div', 'vwr-tools', host);
@@ -442,9 +506,16 @@
                 body.style.display = 'none';
                 var ed = el('div', 'file-editor', host);
                 var ta = el('textarea', 'file-editor-area', ed); ta.value = content;
+                var fmtBtn = el('button', 'btn sm', ed); text(fmtBtn, '⤓ Format'); fmtBtn.style.marginRight = '6px';
+                fmtBtn.title = 'pretty-print JSON / XML (for inline or unformatted files)';
                 var save = el('button', 'btn sm primary', ed); text(save, '💾 Save');
                 var cancel = el('button', 'btn sm', ed); text(cancel, 'Cancel'); cancel.style.marginLeft = '6px';
                 editBtn.disabled = true; info.textContent = '';
+                fmtBtn.addEventListener('click', function () {
+                    var r = prettyFormat(ta.value, name);
+                    if (r.ok) { ta.value = r.text; info.textContent = 'formatted as ' + r.kind; }
+                    else { info.textContent = 'cannot format: ' + r.error; }
+                });
                 cancel.addEventListener('click', function () { ed.remove(); body.style.display = ''; editBtn.disabled = false; });
                 save.addEventListener('click', function () {
                     var fd = new FormData(); fd.append('path', path); fd.append('content', ta.value);

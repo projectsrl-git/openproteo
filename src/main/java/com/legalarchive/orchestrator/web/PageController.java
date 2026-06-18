@@ -168,6 +168,9 @@ public class PageController {
             Map<String, Object> m = new LinkedHashMap<String, Object>();
             m.put("feedId", wf.feedId);
             m.put("name", wf.name);
+            String src = (wf.sourceId == null || wf.sourceId.trim().isEmpty()) ? "" : wf.sourceId.trim();
+            m.put("sourceId", src);
+            m.put("label", wf.feedId + " — " + (wf.name == null ? "" : wf.name) + (src.isEmpty() ? "" : "  [src: " + src + "]"));
             list.add(m);
         }
         return list;

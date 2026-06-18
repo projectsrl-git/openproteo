@@ -193,6 +193,8 @@ public class ApiController {
             @RequestParam(value = "mapSourceId", defaultValue = "sourceId") String mapSourceId,
             @RequestParam(value = "mapTargetId", defaultValue = "targetId") String mapTargetId,
             @RequestParam(value = "mapDescription", defaultValue = "description") String mapDescription,
+            @RequestParam(value = "mapRecordBusinessDate", defaultValue = "recordBusinessDate") String mapRecordBusinessDate,
+            @RequestParam(value = "mapRecordBusinessDateFormat", defaultValue = "recordBusinessDateFormat") String mapRecordBusinessDateFormat,
             @RequestParam(value = "mapDataschema", defaultValue = "dataschema") String mapDataschema,
             @RequestParam(value = "mapDisplayschema", defaultValue = "displayschema") String mapDisplayschema,
             @RequestParam(value = "csv2", defaultValue = "") String csv2,
@@ -226,6 +228,7 @@ public class ApiController {
             map.feedId = mapFeedId; map.name = mapName; map.sourceId = mapSourceId;
             map.targetId = mapTargetId;
             map.description = mapDescription; map.dataschema = mapDataschema; map.displayschema = mapDisplayschema;
+            map.recordBusinessDate = mapRecordBusinessDate; map.recordBusinessDateFormat = mapRecordBusinessDateFormat;
 
             Map<String, String> tableByFeed =
                     com.legalarchive.orchestrator.parser.BulkWorkflowGenerator.joinTable(csv2, delim2, mapFeedId2, mapTableName);
