@@ -71,6 +71,11 @@
                         <label>Base directory (empty = default)</label>
                         <input id="f_baseDir" placeholder="D:/feeds" oninput="upd()">
                     </div>
+                    <div class="field">
+                        <label>Production environment</label>
+                        <label class="prod-switch"><input type="checkbox" id="f_production" onchange="upd()"><span class="prod-track"></span><span id="prodLabel" class="prod-text">No</span></label>
+                        <div class="dim small" id="prodHint" style="display:none;margin-top:4px">PROD: anonymize/mask steps run as <b>passthrough</b> (no masking) and Clear History is disabled.</div>
+                    </div>
                 </div>
                 <div class="form-row">
                     <div class="field wide">
@@ -108,6 +113,7 @@
                 <a class="btn" th:href="@{/}">Cancel</a>
                 <button class="btn" onclick="duplicateWorkflow()" th:if="${feedId != null}">⧉ Duplicate as new</button>
                 <button class="btn danger" onclick="deleteWorkflow()" th:if="${feedId != null}">🗑 Delete workflow</button>
+                <button class="btn danger js-clearhist" onclick="clearHistory()" title="delete all run history/data under the feeds directory">🧹 Clear History</button>
                 <button class="btn primary" onclick="save()">💾 Validate &amp; save</button>
             </div>
         </div>
@@ -120,6 +126,17 @@
             </div>
             <h2>Generated XML</h2>
             <div class="xmlbox" id="xmlPreview"></div>
+            <div class="addline" style="margin:6px 0">
+                <button class="btn sm" onclick="toggleXmlEdit()" id="xmlEditToggle">✎ Edit XML directly</button>
+            </div>
+            <div id="xmlEditWrap" style="display:none">
+                <textarea id="xmlEdit" class="xmlbox xml-editor" spellcheck="false" wrap="off"></textarea>
+                <div class="addline" style="margin-top:6px">
+                    <button class="btn sm" onclick="loadXmlFromGenerated()" title="copy the generated XML above into the editor">⤓ Load generated</button>
+                    <button class="btn sm primary" onclick="saveXmlDirect()" title="validate and save this XML, then refresh">💾 Validate &amp; save XML</button>
+                    <span class="dim small">Paste/edit a full workflow, then save: it is validated and, on success, the page reloads on the saved feed. Useful to clone a workflow by changing a few details.</span>
+                </div>
+            </div>
             <h2>Cheat sheet</h2>
             <div class="panel">
                 <dl class="kv">
@@ -177,7 +194,7 @@
     })();
     var NL = String.fromCharCode(10);   // never write a literal backslash-n in source: corporate proxies mangle it
 
-    var wf = { feedId: '', sourceId: '', targetId: '', name: '', cron: '', baseDir: '', description: '', variables: [], nodes: [] };
+    var wf = { feedId: '', sourceId: '', targetId: '', production: false, name: '', cron: '', baseDir: '', description: '', variables: [], nodes: [] };
     var stepSeq = 0, gateSeq = 0, loopSeq = 0;
     var DATASOURCES = [];
     fetch(CTX + 'api/datasources').then(readJson).then(function(d){ DATASOURCES = d || []; renderNodes(); }).catch(function(e){ console.warn('datasources load failed:', e && e.message); });
@@ -245,7 +262,19 @@
         wf.cron = val('f_cron');
         wf.baseDir = val('f_baseDir');
         wf.description = val('f_description');
+        var prodEl = document.getElementById('f_production');
+        wf.production = !!(prodEl && prodEl.checked);
+        applyProdState();
         preview();
+    }
+    function applyProdState() {
+        var lbl = document.getElementById('prodLabel'); if (lbl) lbl.textContent = wf.production ? 'Yes (PROD)' : 'No';
+        var hint = document.getElementById('prodHint'); if (hint) hint.style.display = wf.production ? 'block' : 'none';
+        var btns = document.getElementsByClassName('js-clearhist');
+        for (var k = 0; k < btns.length; k++) {
+            btns[k].disabled = wf.production;
+            btns[k].title = wf.production ? 'Disabled: this workflow is flagged Production' : 'delete all run history/data under the feeds directory';
+        }
     }
     function val(id) { return document.getElementById(id).value.trim(); }
 
@@ -893,6 +922,7 @@
         var head = '<workflow feedId="' + xesc(wf.feedId) + '"';
         if (wf.sourceId) head += ' sourceId="' + xesc(wf.sourceId) + '"';
         if (wf.targetId) head += ' targetId="' + xesc(wf.targetId) + '"';
+        if (wf.production) head += ' production="true"';
         if (wf.name) head += ' name="' + xesc(wf.name) + '"';
         if (wf.cron) head += ' cron="' + xesc(wf.cron) + '"';
         if (wf.baseDir) head += ' baseDir="' + xesc(wf.baseDir) + '"';
@@ -1090,6 +1120,52 @@
         }).catch(function (e) { banner(false, 'Error: ' + esc(e)); });
     }
 
+    // ---------------- clear history ----------------
+    function clearHistory() {
+        if (wf.production) { banner(false, 'Clear History is disabled while this workflow is flagged Production.'); window.scrollTo(0, 0); return; }
+        opConfirm('IRREVERSIBLE: this deletes ALL run history and data for EVERY workflow — every directory under the feeds base folder is removed and recreated empty. This cannot be undone. Are you absolutely sure?',
+            function () {
+                opConfirm('Final confirmation: permanently wipe all run history and feed data now?', function () {
+                    fetch(CTX + 'api/admin/clear-history', { method: 'POST' })
+                        .then(readJson)
+                        .then(function (j) {
+                            if (j.ok) banner(true, 'Run history cleared — ' + j.removed + ' item(s) removed under <b>' + esc(j.base) + '</b>.');
+                            else banner(false, esc(j.error || 'Clear history failed'));
+                            window.scrollTo(0, 0);
+                        })
+                        .catch(function (e) { banner(false, 'Error: ' + esc(e)); window.scrollTo(0, 0); });
+                }, { danger: true, okText: 'Wipe everything' });
+            }, { danger: true, okText: 'Continue' });
+    }
+
+    // ---------------- direct XML editing ----------------
+    function toggleXmlEdit() {
+        var wrap = document.getElementById('xmlEditWrap');
+        var open = wrap.style.display === 'none';
+        wrap.style.display = open ? 'block' : 'none';
+        document.getElementById('xmlEditToggle').textContent = open ? '✕ Close XML editor' : '✎ Edit XML directly';
+        if (open && !document.getElementById('xmlEdit').value.trim()) loadXmlFromGenerated();
+    }
+    function loadXmlFromGenerated() { document.getElementById('xmlEdit').value = buildXml(); }
+    function saveXmlDirect() {
+        var xml = document.getElementById('xmlEdit').value;
+        if (!xml.trim()) { banner(false, 'The XML editor is empty.'); window.scrollTo(0, 0); return; }
+        opConfirm('Validate and save this XML? The matching workflow will be created/overwritten and reloaded.', function () {
+            fetch(CTX + 'api/workflows/save-xml?overwrite=true', {
+                method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: xml
+            }).then(function (r) { var st = r.status; return readJson(r).then(function (j) { return { st: st, j: j }; }); })
+              .then(function (res) {
+                if (res.j.ok) {
+                    banner(true, 'Saved as <b>' + esc(res.j.file) + '</b> — reloading…');
+                    window.location = CTX + 'designer/' + encodeURIComponent(res.j.feedId);
+                } else {
+                    banner(false, esc(res.j.error || 'Save failed'));
+                    window.scrollTo(0, 0);
+                }
+              }).catch(function (e) { banner(false, 'Error: ' + esc(e)); window.scrollTo(0, 0); });
+        }, { okText: 'Save XML' });
+    }
+
     // ---------------- edit mode ----------------
     function duplicateWorkflow() {
         opConfirm('Duplicate this workflow as a new draft?', function () {
@@ -1137,6 +1213,8 @@
                 fill('f_cron', wf.cron);
                 fill('f_baseDir', wf.baseDir);
                 fill('f_description', wf.description);
+                var prodEl = document.getElementById('f_production'); if (prodEl) prodEl.checked = !!wf.production;
+                applyProdState();
                 renderVars(); renderNodes(); preview();
             })
             .catch(function () { banner(false, 'Could not load workflow ' + esc(feedId)); });

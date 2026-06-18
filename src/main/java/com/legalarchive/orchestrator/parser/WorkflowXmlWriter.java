@@ -30,6 +30,7 @@ public class WorkflowXmlWriter {
             attr(root, "name", dto.name);
             attr(root, "sourceId", dto.sourceId);
             attr(root, "targetId", dto.targetId);
+            if (dto.production) root.setAttribute("production", "true");
             attr(root, "cron", dto.cron);
             attr(root, "baseDir", dto.baseDir);
 

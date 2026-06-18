@@ -16,6 +16,7 @@ public class WorkflowDef {
     public String feedId;
     public String sourceId;
     public String targetId;
+    public boolean production;   // PROD environment flag: forces anonymize/mask to passthrough
 
     /** Nome friendly del feed (es. "EORFULL verso Legal Archive"). */
     public String name;

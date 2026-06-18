@@ -53,6 +53,7 @@ public class WorkflowXmlParser {
             wf.name = root.hasAttribute("name") ? root.getAttribute("name") : wf.feedId;
             wf.sourceId = trimToNull(root.getAttribute("sourceId"));
             wf.targetId = trimToNull(root.getAttribute("targetId"));
+            wf.production = "true".equalsIgnoreCase(root.getAttribute("production"));
             wf.cron = trimToNull(root.getAttribute("cron"));
             wf.baseDir = trimToNull(root.getAttribute("baseDir"));
 

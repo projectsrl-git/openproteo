@@ -454,6 +454,15 @@ public class InternalSteps {
     private void runAnonymize(StepDef step, Map<String, String> params, Map<String, String> vars,
                               StepExecutor.Result res, java.util.function.Consumer<String> line,
                               com.legalarchive.orchestrator.model.run.StepExec se, Runnable onProgress) throws Exception {
+        if (passthroughRequested(params, vars)) {
+            String inP = VarResolver.resolve(step.source, vars);
+            java.io.File inF = (inP == null || inP.trim().isEmpty()) ? null : new java.io.File(inP);
+            String outP = blankToNull(VarResolver.resolve(params.get("outFile"), vars));
+            java.io.File outF = outP != null ? new java.io.File(outP)
+                    : (inF != null && inF.getParentFile() != null ? new java.io.File(inF.getParentFile(), stripExt(inF.getName()) + "_anon" + ext(inF.getName())) : null);
+            maskPassthrough(inF, outF, res, line, "true".equalsIgnoreCase(vars.get("__prod")) ? "PROD environment" : "step flag");
+            return;
+        }
         final java.util.List<com.legalarchive.orchestrator.model.run.CheckResult> checks = new ArrayList<com.legalarchive.orchestrator.model.run.CheckResult>();
         String[][] subs = {
                 {"preflight", "Preflight (rows/columns/cells/delimiter/encoding)"},
@@ -914,6 +923,15 @@ public class InternalSteps {
     private void runMask(StepDef step, Map<String, String> params, Map<String, String> vars,
                          StepExecutor.Result res, java.util.function.Consumer<String> line,
                          com.legalarchive.orchestrator.model.run.StepExec se, Runnable onProgress) throws Exception {
+        if (passthroughRequested(params, vars)) {
+            String inP = VarResolver.resolve(step.source, vars);
+            java.io.File inF = (inP == null || inP.trim().isEmpty()) ? null : new java.io.File(inP);
+            String outP = blankToNull(VarResolver.resolve(params.get("outFile"), vars));
+            java.io.File outF = outP != null ? new java.io.File(outP)
+                    : (inF != null && inF.getParentFile() != null ? new java.io.File(inF.getParentFile(), stripExt(inF.getName()) + "_masked" + ext(inF.getName())) : null);
+            maskPassthrough(inF, outF, res, line, "true".equalsIgnoreCase(vars.get("__prod")) ? "PROD environment" : "step flag");
+            return;
+        }
         final java.util.List<com.legalarchive.orchestrator.model.run.CheckResult> checks = new ArrayList<com.legalarchive.orchestrator.model.run.CheckResult>();
         String[][] subs = {
                 {"schema", "Load & validate displayschema (every column classified)"},
@@ -1915,6 +1933,31 @@ public class InternalSteps {
         if (v.indexOf('"') >= 0 || v.indexOf(delim) >= 0 || v.indexOf('\n') >= 0 || v.indexOf('\r') >= 0)
             return '"' + v.replace("\"", "\"\"") + '"';
         return v;
+    }
+
+    /** True when an anonymize/mask step must NOT transform data: explicit step param passthrough=true,
+     *  or the whole workflow runs in the PROD environment (run var __prod=true). */
+    private static boolean passthroughRequested(Map<String, String> params, Map<String, String> vars) {
+        String p = params.get("passthrough");
+        boolean stepFlag = p != null && ("true".equalsIgnoreCase(p) || "passthrough".equalsIgnoreCase(p) || "1".equals(p.trim()));
+        boolean prod = "true".equalsIgnoreCase(vars.get("__prod"));
+        return stepFlag || prod;
+    }
+
+    /** Passthrough copy: the input file is copied verbatim to the step's output path so the next
+     *  step receives it unchanged. Returns true (the caller must then return). */
+    private boolean maskPassthrough(java.io.File in, java.io.File out, StepExecutor.Result res,
+                                    java.util.function.Consumer<String> line, String why) throws Exception {
+        if (out == null) { line.accept("passthrough: cannot determine output file (set the output file / outFile)"); res.exitCode = 2; return true; }
+        if (in == null || !in.isFile()) { line.accept("passthrough: input file not found: " + (in == null ? "" : in.getPath())); res.exitCode = 2; return true; }
+        if (out.getParentFile() != null) out.getParentFile().mkdirs();
+        Files.copy(in.toPath(), out.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        res.outVars.put("outputFile", out.getAbsolutePath());
+        res.outVars.put("passthrough", "true");
+        line.accept("PASSTHROUGH (" + why + "): copied " + in.getName() + " -> " + out.getAbsolutePath() + " unchanged (no anonymisation/masking applied)");
+        line.accept("##VAR outputFile=" + out.getAbsolutePath());
+        res.exitCode = 0;
+        return true;
     }
     private static String join(java.util.List<String> l, int max) {
         StringBuilder sb = new StringBuilder();

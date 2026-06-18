@@ -461,6 +461,29 @@ footer { margin-top: 50px; color: var(--ink-faint); font-size: 11px; font-family
 :root[data-theme="light"] .bp-subdot.ck-SKIP { fill: #aeb7c4; }
 :root[data-theme="light"] .bp-sublabel { fill: var(--ink); }
 
+/* production switch */
+.prod-switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; -webkit-user-select: none; user-select: none; }
+.prod-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.prod-switch .prod-track { width: 42px; height: 22px; border-radius: 12px; background: var(--line); position: relative; -webkit-transition: background .15s; transition: background .15s; -webkit-flex: 0 0 42px; flex: 0 0 42px; }
+.prod-switch .prod-track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--ink); -webkit-transition: left .15s; transition: left .15s; }
+.prod-switch input:checked + .prod-track { background: var(--accent); }
+.prod-switch input:checked + .prod-track::after { left: 22px; background: #0d1117; }
+.prod-switch .prod-text { font-size: 13px; color: var(--ink-dim); }
+
+/* direct XML editor */
+.xml-editor { width: 100%; min-height: 240px; resize: vertical; white-space: pre; }
+
+/* light theme: code box, XML editor and the files drop area must read light too */
+:root[data-theme="light"] .xmlbox { background: #f4f6f9; color: #243042; border-color: #cfd8e3; }
+:root[data-theme="light"] textarea,
+:root[data-theme="light"] .file-editor-area,
+:root[data-theme="light"] .xml-editor { background: #ffffff; color: #243042; border-color: #cfd8e3; }
+:root[data-theme="light"] .dropzone { background: #f4f6f9; border-color: #cfd8e3; color: var(--ink); }
+:root[data-theme="light"] .wf-files-box,
+:root[data-theme="light"] .wf-files-box table,
+:root[data-theme="light"] .wf-files-box td,
+:root[data-theme="light"] .wf-files-box th { background: transparent; color: var(--ink); }
+
 /* designer: workflow-files section collapsible + bounded to the form column width */
 .collapse-h { cursor: pointer; user-select: none; }
 .collapse-h .caret { display: inline-block; width: 14px; color: var(--accent); }

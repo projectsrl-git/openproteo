@@ -232,6 +232,7 @@ public class WorkflowEngine {
         run.vars.put("feedId", def.feedId);
         run.vars.put("sourceId", def.sourceId == null ? "" : def.sourceId);
         run.vars.put("targetId", def.targetId == null ? "" : def.targetId);
+        run.vars.put("__prod", def.production ? "true" : "false");
         run.vars.put("feedName", def.name);
         run.vars.put("runId", run.runId);
         run.vars.put("runDate", now.format(DateTimeFormatter.ofPattern("yyyyMMdd")));

@@ -584,6 +584,99 @@ public class ApiController {
         return out;
     }
 
+    /**
+     * DESTRUCTIVE: wipe all run history / data by deleting every entry under the feeds base
+     * directory and recreating it empty. Refuses if any run is active. The UI guards this with a
+     * very explicit irreversible confirmation and disables it for PROD workflows.
+     */
+    @PostMapping("/api/admin/clear-history")
+    public ResponseEntity<Map<String, Object>> clearHistory() {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        // safety: never wipe while something is running
+        for (WorkflowDef def : registry.all()) {
+            if (engine.activeRunId(def.feedId) != null) {
+                return badRequest(out, "A run is currently active (" + def.feedId + "). Wait for it to finish before clearing history.");
+            }
+        }
+        java.io.File base = new java.io.File(props.getDefaultBaseDir());
+        int removed = 0;
+        try {
+            if (base.isDirectory()) {
+                java.io.File[] children = base.listFiles();
+                if (children != null) {
+                    for (java.io.File c : children) { deleteRecursively(c); removed++; }
+                }
+            }
+            if (!base.isDirectory() && !base.mkdirs()) {
+                return badRequest(out, "Could not recreate the feeds base directory: " + base.getAbsolutePath());
+            }
+        } catch (Exception e) {
+            return badRequest(out, "Clear history failed: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+        }
+        out.put("ok", true);
+        out.put("base", base.getAbsolutePath());
+        out.put("removed", removed);
+        return ResponseEntity.ok(out);
+    }
+
+    private static void deleteRecursively(java.io.File f) throws java.io.IOException {
+        if (f == null) return;
+        java.nio.file.Path root = f.toPath();
+        if (!java.nio.file.Files.exists(root)) return;
+        java.nio.file.Files.walkFileTree(root, new java.nio.file.SimpleFileVisitor<java.nio.file.Path>() {
+            public java.nio.file.FileVisitResult visitFile(java.nio.file.Path p, java.nio.file.attribute.BasicFileAttributes a) throws java.io.IOException {
+                java.nio.file.Files.delete(p); return java.nio.file.FileVisitResult.CONTINUE;
+            }
+            public java.nio.file.FileVisitResult postVisitDirectory(java.nio.file.Path d, java.io.IOException e) throws java.io.IOException {
+                java.nio.file.Files.delete(d); return java.nio.file.FileVisitResult.CONTINUE;
+            }
+        });
+    }
+
+    /**
+     * Save a workflow from raw XML pasted/edited in the designer. The XML is validated by parsing
+     * it with the runtime parser; on success it is written and the registry/scheduler reloaded.
+     */
+    @PostMapping("/api/workflows/save-xml")
+    public ResponseEntity<Map<String, Object>> saveXml(@RequestBody String xml,
+                                                       @RequestParam(defaultValue = "false") boolean overwrite,
+                                                       HttpServletRequest req) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        if (xml == null || xml.trim().isEmpty()) return badRequest(out, "Empty XML");
+        java.io.File dir = new java.io.File(props.getWorkflowsDir());
+        if (!dir.isDirectory() && !dir.mkdirs()) return badRequest(out, "Workflows directory cannot be created: " + dir.getAbsolutePath());
+        String feedId;
+        Path tmp = null;
+        try {
+            tmp = Files.createTempFile(dir.toPath(), "_validate_", ".tmp");
+            Files.write(tmp, xml.getBytes(StandardCharsets.UTF_8));
+            WorkflowDef parsed = xmlParser.parse(tmp.toFile());
+            feedId = parsed.feedId;
+            if (feedId == null || !feedId.matches("[A-Za-z0-9._-]+")) return badRequest(out, "Invalid or missing feedId in the XML");
+        } catch (Exception e) {
+            return badRequest(out, "Validation failed: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+        } finally {
+            if (tmp != null) try { Files.deleteIfExists(tmp); } catch (Exception ignore) {}
+        }
+        WorkflowDef existing = registry.get(feedId);
+        String fileName = existing != null && existing.sourceFile != null ? existing.sourceFile : feedId + ".xml";
+        Path target = dir.toPath().resolve(fileName);
+        try {
+            if ((existing != null || Files.exists(target)) && !overwrite) {
+                out.put("ok", false); out.put("exists", true);
+                out.put("error", "Workflow '" + feedId + "' already exists. Confirm overwrite.");
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(out);
+            }
+            Files.write(target, xml.getBytes(StandardCharsets.UTF_8));
+            registry.reload();
+            scheduler.reschedule();
+        } catch (Exception e) {
+            return badRequest(out, "Save failed: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+        }
+        out.put("ok", true); out.put("feedId", feedId); out.put("file", fileName);
+        return ResponseEntity.ok(out);
+    }
+
     /** Designer: current definition of a workflow as JSON. */
     @GetMapping("/api/workflows/{feedId}/definition")
     public ResponseEntity<WorkflowDto> definition(@PathVariable String feedId) {
@@ -592,6 +685,8 @@ public class ApiController {
         WorkflowDto dto = new WorkflowDto();
         dto.feedId = def.feedId;
         dto.sourceId = def.sourceId;
+        dto.targetId = def.targetId;
+        dto.production = def.production;
         dto.name = def.name;
         dto.cron = def.cron;
         dto.baseDir = def.baseDir;

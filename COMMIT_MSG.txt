@@ -1,17 +1,35 @@
-fix: save HTTP 400 for split/safecopy/dequote (parser exec whitelist)
+feat: PROD flag + anonymize passthrough, Clear History, XML editing; fix targetId
 
-Saving a workflow re-validates it by writing the generated XML and
-re-parsing it with WorkflowXmlParser. The parser's allowed-exec
-whitelist - and the "internal" set that decides whether a script
-attribute is required - had not been updated for the recently added
-executors split, safecopy and dequote. Parsing a workflow that used
-exec="safecopy" therefore threw, and save returned HTTP 400 (the
-corporate proxy then replaced the error body with its own HTML page,
-hence the misleading "intercepted by a proxy" message in the client).
+Fix:
+- The designer's /definition DTO omitted targetId (only sourceId was
+  set), so editing a workflow reloaded an empty Target ID and saved it
+  blank. Added targetId (and the new production flag) to that DTO.
 
-Added split, safecopy and dequote to both the exec whitelist and the
-internal-executor set in WorkflowXmlParser. The engine and the designer
-already supported these execs; only the save-time parser was stale.
+Production environment flag:
+- New per-workflow "Production environment" switch (default off),
+  round-tripped as production="true" in the XML (Def/DTO/parser/writer).
+- When on, every anonymize/mask step runs as passthrough (input copied
+  unchanged to the step output, no masking) via a run var __prod the
+  engine seeds; a single step can also set passthrough=true on its own.
+- Clear History is disabled for production workflows.
 
-Verified: a workflow with safecopy (pattern "*.md5, *.tar"), dequote and
-split now parses successfully. 76 classes compile.
+Clear History:
+- POST /api/admin/clear-history deletes every entry under the feeds base
+  directory and recreates it empty (all run history/data). Refuses while
+  a run is active. Designer button with a double irreversible confirm.
+
+Edit generated XML:
+- POST /api/workflows/save-xml validates pasted/edited XML by parsing it,
+  writes it and reloads. The designer can open the generated XML in an
+  editor, validate & save it, and the page reloads on the saved feed -
+  handy for cloning a workflow with small edits.
+
+Light theme:
+- Fixed remaining dark areas (generated-XML box, textareas, the files
+  drop area and the workflow-files table) under the light theme.
+
+Note: the masking name dictionaries are present and use scrambled
+letters; inverted names only appear for columns mapped to
+firstName/lastName/fullName.
+
+77 classes compile; designer JS valid; no \n/\r; Thymeleaf-safe.

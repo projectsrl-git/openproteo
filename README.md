@@ -25,6 +25,27 @@ Variables are referenced as `${name}`. Resolution is iterative and innermost-fir
 of the step currently running), plus every workflow variable you declare. A step can publish
 output variables (printed in the log as `##VAR name=value`) that later steps can read.
 
+### Production environment flag
+
+A workflow has a **Production environment** switch (default off). When ON, the workflow XML
+carries `production="true"` and **every anonymize/mask step runs as passthrough**: the input file
+is copied unchanged to the step output so downstream steps still get a file, but no masking is
+applied. The **Clear History** button is also disabled for production workflows. A single step
+can also be forced to passthrough with a `passthrough=true` param regardless of the flag.
+
+### Clear History
+
+The designer has a **Clear History** button that deletes every entry under the feeds base
+directory and recreates it empty (all run history and data for all workflows). It is
+irreversible (double confirmation), refuses to run while a run is active, and is disabled for
+production workflows.
+
+### Editing the generated XML
+
+Under *Generated XML* the designer can open a direct XML editor: paste/edit a full workflow,
+then *Validate & save XML* — it is parsed/validated and, on success, the page reloads on the
+saved feed. Handy to clone a workflow by changing a few details.
+
 ### Publishing output variables from a script (`##VAR`)
 
 A script publishes a variable by printing a line to **stdout** in the form:
