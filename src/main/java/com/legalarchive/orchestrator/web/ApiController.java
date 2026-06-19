@@ -145,6 +145,86 @@ public class ApiController {
         }
     }
 
+    public static class CsvSqlPreviewReq {
+        public java.util.List<WorkflowDto.NodeDto.CsvInputDto> inputs;
+        public String query;
+        public String delimiter;
+    }
+
+    /**
+     * Fast preview for the csvsql step: stages the first 1000 rows of each input into an in-memory H2
+     * DB and runs the user query capped at 50 rows. Joins/aggregates are therefore approximate.
+     */
+    @PostMapping("/api/workflows/{feedId}/csvsql/preview")
+    public ResponseEntity<Map<String, Object>> csvsqlPreview(@PathVariable String feedId,
+                                                             @RequestBody CsvSqlPreviewReq body) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        WorkflowDef def = registry.get(feedId);
+        if (def == null) return badRequest(out, "Unknown workflow: " + feedId);
+        if (body == null || body.inputs == null || body.inputs.isEmpty()) return badRequest(out, "At least one input is required");
+        if (body.query == null || body.query.trim().isEmpty()) return badRequest(out, "Query is required");
+
+        // best-effort variable map for this feed (no step outputs at preview time)
+        Map<String, String> vars = new LinkedHashMap<String, String>();
+        vars.putAll(globalVars.all());
+        vars.put("feedId", def.feedId);
+        vars.put("sourceId", def.sourceId == null ? "" : def.sourceId);
+        vars.put("targetId", def.targetId == null ? "" : def.targetId);
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        vars.put("runDate", now.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd")));
+        vars.put("runTs", now.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
+        FeedLayout layout = registry.layout(feedId);
+        if (layout != null) { try { layout.provision(); } catch (Exception ignore) {} vars.putAll(layout.dirVars()); }
+        try { vars.put("sharedDir", assets.sharedDir().toString()); } catch (Exception ignore) {}
+        if (def.variables != null) vars.putAll(def.variables);
+
+        char delim = (body.delimiter != null && !body.delimiter.isEmpty()) ? body.delimiter.charAt(0) : ';';
+        try { Class.forName("org.h2.Driver"); }
+        catch (ClassNotFoundException e) { return badRequest(out, "H2 driver not on classpath — add com.h2database:h2 (see h2/README_H2.md)"); }
+
+        java.sql.Connection conn = null;
+        try {
+            conn = java.sql.DriverManager.getConnection("jdbc:h2:mem:prev_" + System.nanoTime(), "sa", "");
+            String csvOpts = "fieldSeparator=" + delim + " charset=UTF-8";
+            java.util.Set<String> seen = new java.util.HashSet<String>();
+            for (WorkflowDto.NodeDto.CsvInputDto ci : body.inputs) {
+                String table = ci.table == null ? "" : ci.table.trim();
+                String csv = com.legalarchive.orchestrator.engine.VarResolver.resolve(ci.csv, vars);
+                if (table.isEmpty() || csv == null || csv.trim().isEmpty()) return badRequest(out, "Every input needs both csv and table");
+                if (!table.matches("[A-Za-z_][A-Za-z0-9_]*")) return badRequest(out, "Invalid table name '" + table + "'");
+                if (!seen.add(table.toUpperCase(java.util.Locale.ROOT))) return badRequest(out, "Duplicate table name '" + table + "'");
+                if (!new java.io.File(csv).isFile()) return badRequest(out, "Input file not found: " + csv);
+                java.sql.PreparedStatement ps = conn.prepareStatement(
+                        "CREATE TABLE " + table + " AS SELECT * FROM CSVREAD(?, NULL, ?) FETCH FIRST 1000 ROWS ONLY");
+                ps.setString(1, csv); ps.setString(2, csvOpts);
+                ps.executeUpdate(); ps.close();
+            }
+            String q = com.legalarchive.orchestrator.engine.VarResolver.resolve(body.query, vars);
+            java.sql.Statement st = conn.createStatement();
+            java.sql.ResultSet rs = st.executeQuery("SELECT * FROM (" + q + ") LIMIT 50");
+            java.sql.ResultSetMetaData md = rs.getMetaData();
+            int cols = md.getColumnCount();
+            java.util.List<String> columns = new java.util.ArrayList<String>();
+            for (int i = 1; i <= cols; i++) columns.add(md.getColumnLabel(i));
+            java.util.List<java.util.List<String>> rows = new java.util.ArrayList<java.util.List<String>>();
+            while (rs.next()) {
+                java.util.List<String> r = new java.util.ArrayList<String>();
+                for (int i = 1; i <= cols; i++) { Object v = rs.getObject(i); r.add(v == null ? "" : v.toString()); }
+                rows.add(r);
+            }
+            st.close();
+            out.put("ok", true);
+            out.put("columns", columns);
+            out.put("rows", rows);
+            out.put("note", "preview on the first 1000 rows of each input — joins/aggregates are approximate");
+            return ResponseEntity.ok(out);
+        } catch (Exception e) {
+            return badRequest(out, e.getMessage() == null ? e.toString() : e.getMessage());
+        } finally {
+            if (conn != null) try { conn.close(); } catch (Exception ignore) {}
+        }
+    }
+
     private DataSourceDef mask(DataSourceDef d) {
         DataSourceDef c = new DataSourceDef();
         c.id = d.id; c.name = d.name; c.type = d.type; c.host = d.host; c.user = d.user;
@@ -742,6 +822,14 @@ public class ApiController {
                         WorkflowDto.NodeDto.ReplacementDto rd = new WorkflowDto.NodeDto.ReplacementDto();
                         rd.from = rp.from; rd.to = rp.to; rd.columns = rp.columns;
                         nd.replacements.add(rd);
+                    }
+                }
+                if (st.inputs != null && !st.inputs.isEmpty()) {
+                    nd.inputs = new java.util.ArrayList<WorkflowDto.NodeDto.CsvInputDto>();
+                    for (com.legalarchive.orchestrator.model.def.CsvInput ci : st.inputs) {
+                        WorkflowDto.NodeDto.CsvInputDto cd = new WorkflowDto.NodeDto.CsvInputDto();
+                        cd.csv = ci.csv; cd.table = ci.table;
+                        nd.inputs.add(cd);
                     }
                 }
                 nd.delimiter = st.delimiter;

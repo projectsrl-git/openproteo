@@ -313,7 +313,7 @@
         stepSeq++;
         wf.nodes.push({ kind: 'STEP', id: 'step_' + stepSeq, name: 'Step ' + stepSeq, script: '', exec: 'auto',
             timeoutSec: null, retry: null, retryDelaySec: null, params: [], outputs: [],
-            datasource: '', query: '', csvFile: '', csvSplitRows: null, csvSplitMb: null, validateChecks: [], replacements: [], ifsPath: '', source: '', dest: '', pattern: '', mode: 'copy',
+            datasource: '', query: '', csvFile: '', csvSplitRows: null, csvSplitMb: null, validateChecks: [], replacements: [], inputs: [], ifsPath: '', source: '', dest: '', pattern: '', mode: 'copy',
             overwrite: false, outputVar: '', delimiter: '', forEach: '', concurrency: null });
         renderNodes(); preview();
     }
@@ -381,6 +381,9 @@
     function delRepl(i, ri) { wf.nodes[i].replacements.splice(ri, 1); renderNodes(); preview(); }
     function updRepl(i, ri, f, v) { wf.nodes[i].replacements[ri][f] = v; preview(); }
     function updReplCols(i, ri, v) { wf.nodes[i].replacements[ri].columns = v.split(',').map(function (x) { return x.trim(); }).filter(function (x) { return x; }); preview(); }
+    function addInput(i) { var n = wf.nodes[i]; n.inputs = n.inputs || []; n.inputs.push({ csv: '', table: '' }); renderNodes(); }
+    function delInput(i, ii) { wf.nodes[i].inputs.splice(ii, 1); renderNodes(); preview(); }
+    function updInput(i, ii, f, v) { wf.nodes[i].inputs[ii][f] = v; preview(); }
 
     function addParam(i) { wf.nodes[i].params.push({ name: '', value: '' }); renderNodes(); }
     function delParam(i, j) { wf.nodes[i].params.splice(j, 1); renderNodes(); preview(); }
@@ -429,6 +432,27 @@
             var out = (j.columns || []).join(' | ') + NL + '----' + NL;
             (j.rows || []).forEach(function (row) { out += row.join(' | ') + NL; });
             out += NL + j.rowCount + ' row(s)' + (j.truncated ? ' (truncated)' : '');
+            box.textContent = out;
+        }).catch(function (e) { box.textContent = 'Error: ' + e; });
+    }
+
+    function previewCsvSql(i) {
+        var n = wf.nodes[i];
+        var box = document.getElementById('qprev_' + i);
+        box.style.display = 'block';
+        if (!n.inputs || !n.inputs.length) { box.textContent = 'Add at least one input CSV first.'; return; }
+        if (!n.query) { box.textContent = 'Enter a query first.'; return; }
+        var fid = (typeof EDIT_FEED_ID !== 'undefined' && EDIT_FEED_ID) ? EDIT_FEED_ID : wf.feedId;
+        if (!fid) { box.textContent = 'Save the workflow first (preview resolves ${vars} against the saved feed).'; return; }
+        box.textContent = 'Running...';
+        var payload = { inputs: n.inputs.map(function (ci) { return { csv: ci.csv, table: ci.table }; }), query: n.query, delimiter: n.delimiter || ';' };
+        fetch(CTX + 'api/workflows/' + encodeURIComponent(fid) + '/csvsql/preview', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        }).then(readJson).then(function (j) {
+            if (!j.ok) { box.textContent = 'ERROR: ' + (j.error || 'preview failed'); return; }
+            var out = (j.columns || []).join(' | ') + NL + '----' + NL;
+            (j.rows || []).forEach(function (row) { out += row.join(' | ') + NL; });
+            out += NL + (j.rows ? j.rows.length : 0) + ' row(s). ' + (j.note || '');
             box.textContent = out;
         }).catch(function (e) { box.textContent = 'Error: ' + e; });
     }
@@ -619,6 +643,7 @@
                     '<option value="anonymize"' + (ex === 'anonymize' ? ' selected' : '') + '>anonymize (CSV, ARX) — Batch 2a</option>' +
                     '<option value="mask"' + (ex === 'mask' ? ' selected' : '') + '>mask (CSV streaming, deterministic)</option>' +
                     '<option value="split"' + (ex === 'split' ? ' selected' : '') + '>split (file → parts by rows/MB)</option>' +
+                    '<option value="csvsql"' + (ex === 'csvsql' ? ' selected' : '') + '>csvsql (H2 SQL/joins across CSVs)</option>' +
                     '</select></div>';
                 h += '<div class="field wide"><label>Script / executable (relative to scripts dir or absolute)' + (isExternal(ex) ? ' *' : '') + '</label>' +
                     '<input value="' + attresc(n.script) + '" placeholder="' + (isExternal(ex) ? 'Prepare-Feed.ps1 | tool.bat | app.jar' : '(not used for this executor)') + '" oninput="updNode(' + i + ',\'script\',this.value)"' + (isExternal(ex) ? '' : ' disabled') + '></div>' +
@@ -649,6 +674,28 @@
                         '<div style="margin-top:8px"><button class="ghost-btn" onclick="previewQuery(' + i + ')">▶ Preview query</button> ' +
                         '<span class="dim small">outputs: ##VAR rowCount, col_&lt;NAME&gt;, firstValue' + (n.outputVar ? ', ' + esc(n.outputVar) : '') + (n.csvFile ? ', csvFile' : '') + '</span></div>' +
                         '<div class="xmlbox" id="qprev_' + i + '" style="display:none;margin-top:8px;max-height:220px"></div></div>';
+                } else if (ex === 'csvsql') {
+                    h += '<div class="subsection"><div class="sub-label">Input CSVs → table aliases (the query uses these names)</div>';
+                    (n.inputs || []).forEach(function (ci, ii) {
+                        h += '<div class="form-row">' +
+                            '<div class="field wide"><label>CSV file *</label><input class="sugin" list="pathsug" value="' + attresc(ci.csv) + '" placeholder="${extract.outputFile} | ${landingOut}/conti.csv" oninput="updInput(' + i + ',' + ii + ',\'csv\',this.value)"></div>' +
+                            '<div class="field"><label>Table name *</label><input value="' + attresc(ci.table) + '" placeholder="anagrafica" oninput="updInput(' + i + ',' + ii + ',\'table\',this.value)"></div>' +
+                            '<div class="field" style="max-width:60px"><label>&nbsp;</label><button class="btn sm danger" onclick="delInput(' + i + ',' + ii + ')">✕</button></div></div>';
+                    });
+                    h += '<button class="ghost-btn" onclick="addInput(' + i + ')">＋ CSV</button></div>';
+                    h += '<div class="form-row"><div class="field wide"><label>CSV output file * — full result streamed here (no BOM)</label>' +
+                        '<input class="sugin" list="pathsug" value="' + attresc(n.csvFile) + '" placeholder="${landingOut}/report_${runDate}.csv" oninput="updNode(' + i + ',\'csvFile\',this.value)"></div>' +
+                        '<div class="field"><label>Delimiter</label><input value="' + attresc(n.delimiter) + '" placeholder=";" oninput="updNode(' + i + ',\'delimiter\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Split: max rows per file (0 = no split)</label><input type="number" min="0" value="' + (n.csvSplitRows || '') + '" placeholder="0" oninput="updNode(' + i + ',\'csvSplitRows\',this.value)"></div>' +
+                        '<div class="field"><label>Split: max MB per file (0 = no split)</label><input type="number" min="0" value="' + (n.csvSplitMb || '') + '" placeholder="0" oninput="updNode(' + i + ',\'csvSplitMb\',this.value)"></div>' +
+                        '<div class="field"><label></label><span class="dim small">→ ${csvFile} (1st), ${csvFiles}, ${csvParts}</span></div></div>';
+                    h += '<div class="subsection"><div class="sub-label">SQL query over the table names (${vars} resolved at run time)</div>' +
+                        '<textarea class="inline-input" style="width:100%;min-height:110px" placeholder="SELECT a.NDG, COUNT(*) AS N FROM anagrafica a JOIN conti c ON a.NDG = c.NDG GROUP BY a.NDG" oninput="updNode(' + i + ',\'query\',this.value)">' + esc(n.query) + '</textarea>' +
+                        '<div style="margin-top:8px"><button class="ghost-btn" onclick="previewCsvSql(' + i + ')">▶ Preview</button> ' +
+                        '<span class="dim small">outputs: ##VAR rowCount, csvFile, csvFiles, csvParts</span></div>' +
+                        '<div class="xmlbox" id="qprev_' + i + '" style="display:none;margin-top:8px;max-height:220px"></div></div>';
+                    h += '<div class="dim small" style="margin-top:6px">All columns are VARCHAR — cast inside the query for math, e.g. CAST(col AS DECIMAL(18,2)) or PARSEDATETIME(col,' + String.fromCharCode(39) + 'yyyyMMdd' + String.fromCharCode(39) + '). yyyyMMdd dates compare correctly as strings.</div>';
                 } else if (ex === 'ifscopy') {
                     h += '<div class="form-row">' + dsSelect(i, n.datasource) +
                         '<div class="field wide"><label>IFS source path (AS400) *</label><input value="' + attresc(n.ifsPath) + '" placeholder="/QIBM/feeds/EOR/${runDate}" oninput="updNode(' + i + ',\'ifsPath\',this.value)"></div></div>' +
@@ -1003,6 +1050,9 @@
                 (n.replacements || []).forEach(function (rp) {
                     if (rp.from) inner.push('            <replace from="' + xesc(rp.from) + '" to="' + xesc(rp.to || '') + '"' + ((rp.columns && rp.columns.length) ? (' columns="' + xesc(rp.columns.join(',')) + '"') : '') + '/>');
                 });
+                (n.inputs || []).forEach(function (ci) {
+                    if (ci.csv || ci.table) inner.push('            <input csv="' + xesc(ci.csv || '') + '" table="' + xesc(ci.table || '') + '"/>');
+                });
                 if (inner.length) {
                     L.push(s + '>');
                     inner.forEach(function (x) { L.push(x); });
@@ -1041,6 +1091,18 @@
                 }
                 if (ex === 'setvar' && (!n.params || !n.params.length)) errs.push(label + ' (' + n.id + '): at least one assignment is required');
                 if (ex === 'split' && !n.source) errs.push(label + ' (' + n.id + '): input file (source) is required');
+                if (ex === 'csvsql') {
+                    if (!n.inputs || !n.inputs.length) errs.push(label + ' (' + n.id + '): at least one input CSV is required');
+                    var tnames = {};
+                    (n.inputs || []).forEach(function (ci) {
+                        if (!ci.csv || !ci.table) errs.push(label + ' (' + n.id + '): every input needs both csv and table');
+                        else if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(ci.table)) errs.push(label + ' (' + n.id + '): invalid table name "' + ci.table + '"');
+                        else if (tnames[ci.table.toLowerCase()]) errs.push(label + ' (' + n.id + '): duplicate table name "' + ci.table + '"');
+                        if (ci.table) tnames[ci.table.toLowerCase()] = true;
+                    });
+                    if (!n.query) errs.push(label + ' (' + n.id + '): query is required');
+                    if (!n.csvFile) errs.push(label + ' (' + n.id + '): output csvFile is required');
+                }
                 if (ex === 'safecopy' && (!n.source || !n.dest)) errs.push(label + ' (' + n.id + '): source and dest directories are required');
                 if (ex === 'dequote' && !n.source) errs.push(label + ' (' + n.id + '): input CSV (source) is required');
             } else if (n.kind === 'LOOP') {
@@ -1238,7 +1300,7 @@
                 wf = d;
                 wf.variables = wf.variables || [];
                 wf.nodes = wf.nodes || [];
-                wf.nodes.forEach(function (n) { n.params = n.params || []; n.outputs = n.outputs || []; });
+                wf.nodes.forEach(function (n) { n.params = n.params || []; n.outputs = n.outputs || []; n.inputs = n.inputs || []; });
                 // open compact: all steps collapsed initially
                 collapsedNodes = {};
                 wf.nodes.forEach(function (n, i) { collapsedNodes[nodeKey(n, i)] = true; });

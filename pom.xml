@@ -47,6 +47,15 @@
             <artifactId>jt400</artifactId>
             <version>20.0.7</version>
         </dependency>
+        <!-- H2: runtime-only engine for the csvsql executor (SQL/joins across CSVs via CSVREAD).
+             The code is pure java.sql (no org.h2.* imports), so the project compiles even without
+             this jar; H2 is required only at runtime. Version is managed by the Spring Boot 2.7 BOM
+             (H2 2.1.214, Java-8-safe). See h2/README_H2.md for the no-CDN / Nexus options. -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
     </dependencies>
 
     <build>

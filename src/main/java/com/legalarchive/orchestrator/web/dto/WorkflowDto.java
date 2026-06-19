@@ -65,6 +65,8 @@ public class WorkflowDto {
         public Integer csvSplitMb;
         public java.util.List<String> validateChecks;
         public java.util.List<ReplacementDto> replacements;
+        public static class CsvInputDto { public String csv; public String table; }
+        public java.util.List<CsvInputDto> inputs;
         public String delimiter;
         // parallel fan-out
         public String forEach;

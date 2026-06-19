@@ -1,33 +1,28 @@
-Add global variables, a Variables manager page, and source/target descriptions
+Add csvsql executor: H2 SQL/joins across CSVs -> CSV
 
-Global variables (common to all workflows)
-- New GlobalVarsStore merges two sources with application.properties winning:
-  a file-based set (default <sharedDir>/global-vars.properties, or
-  orchestrator.global-vars-file) and orchestrator.global-vars.* entries.
-- The engine seeds the merged map into every run at the lowest precedence, so
-  built-ins and per-workflow variables override a global of the same name.
+New internal STEP that runs an arbitrary SQL query (joins, aggregates,
+subqueries, CTEs, window functions) across several CSV files and streams the
+result to a new CSV, like the other CSV-producing steps. The user writes only
+the SELECT over table aliases; all H2 plumbing (CSVREAD staging, the export) is
+generated and hidden.
 
-Variables manager page (/variables)
-- Three multi-select filters (source / target / feed) that narrow each other.
-- Single workflow selected: edit all its variables plus step parameters,
-  grouped by section and step.
-- Multiple workflows selected: edit only the variables common to all of them;
-  a value is applied to every selected workflow.
-- On save, every modified workflow XML is regenerated and validated with the
-  runtime parser before anything is written; if any fails, nothing is saved and
-  per-feed results are returned.
-- The page also edits the file-based global variables; properties-based globals
-  are listed read-only.
+- Pure java.sql (no org.h2.* imports): the project compiles and the app starts
+  with no H2 on the classpath; H2 is a runtime-only dependency. A csvsql step
+  fails with a clear message until the driver is present (see h2/README_H2.md).
+- Everything stays VARCHAR (CSVREAD); the user casts inside the query for math.
+  String equi-joins keep leading zeros; fixed-width yyyyMMdd dates compare as
+  strings.
+- Temporary file-mode H2 DB under ${stepDir}, deleted in finally. The user
+  query runs verbatim via Statement.executeQuery and is streamed through the
+  shared CSV exporter (UTF-8, CRLF, header, row/MB split, ##VAR rowCount/
+  csvFile/csvFiles/csvParts), so it is fully LOOP-compatible. Output is written
+  without a BOM so csvsql->csvsql chains are safe.
 
-Source / target descriptions
-- WorkflowDef, WorkflowDto, the XML parser and writer now carry
-  sourceDescription and targetDescription.
-- Editable in the designer and loadable from the Bulk create CSV mapping.
+Files: model/def/CsvInput + StepDef.inputs; parser whitelist/internal/<input>;
+engine internalKind; SqlSupport.exportResultSet refactor; InternalSteps.runCsvSql;
+WorkflowDto.CsvInputDto; ApiController toDto + /csvsql/preview; XML writer <input>;
+pom.xml h2 (runtime); h2/README_H2.md + h2/H2Probe.java; designer (option, branch,
+preview, validation).
 
-Backend
-- ApiController.toDto(WorkflowDef) extracted and reused; new endpoints
-  /api/var-catalog, /api/globals/save, /api/variables/save.
-
-All Java compiles (82 classes). Parser/writer round-trip, bulk generation and
-GlobalVarsStore precedence are covered by local tests; inline JS passes
-node --check; templates are clean of bare \n/\r and unsafe Thymeleaf tokens.
+Compiles (85 classes). Parser/writer round-trip and designer JS verified locally;
+live H2 link test (h2/H2Probe) and the step run to be verified on UBS/Nexus.

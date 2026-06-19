@@ -93,6 +93,8 @@ public class InternalSteps {
                 runSafeCopy(step, resolvedParams, vars, res, line);
             } else if ("dequote".equals(kind)) {
                 runDequote(step, resolvedParams, vars, res, line);
+            } else if ("csvsql".equals(kind)) {
+                runCsvSql(step, resolvedParams, vars, res, line);
             } else {
                 line.accept("unknown internal step kind: " + kind);
                 res.exitCode = -996;
@@ -105,6 +107,107 @@ public class InternalSteps {
             if (log != null) try { log.close(); } catch (Exception ignored) {}
         }
         return res;
+    }
+
+    // -------------------------------------------------------------- csvsql
+    /**
+     * Run an arbitrary SQL query (joins, aggregates, CTEs, window functions) across several CSV files
+     * via a temporary file-mode H2 database, streaming the result through the shared CSV exporter.
+     * The user writes only the SELECT over the table aliases; all H2 plumbing is generated here and
+     * is invisible. Pure JDBC: the project compiles with no H2 on the classpath; H2 is needed only at
+     * runtime (a missing driver fails this step with a clear message, like ARX).
+     */
+    private void runCsvSql(StepDef step, Map<String, String> params, Map<String, String> vars,
+                           StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        // 1) resolve output + delimiter + inputs
+        String csvFile = VarResolver.resolve(step.csvFile, vars);
+        if (csvFile == null || csvFile.trim().isEmpty()) { line.accept("csvsql: csvFile (output) is required"); res.exitCode = 2; return; }
+        char delim = (step.delimiter != null && !step.delimiter.isEmpty()) ? step.delimiter.charAt(0) : ';';
+        String query = VarResolver.resolve(step.query, vars);
+        if (query == null || query.trim().isEmpty()) { line.accept("csvsql: query is required"); res.exitCode = 2; return; }
+
+        if (step.inputs == null || step.inputs.isEmpty()) { line.accept("csvsql: at least one <input> is required"); res.exitCode = 2; return; }
+        java.util.List<String[]> ins = new java.util.ArrayList<String[]>();   // {table, resolvedCsv}
+        java.util.Set<String> seenTables = new java.util.HashSet<String>();
+        for (com.legalarchive.orchestrator.model.def.CsvInput ci : step.inputs) {
+            String table = ci.table == null ? "" : ci.table.trim();
+            String csv = VarResolver.resolve(ci.csv, vars);
+            if (table.isEmpty() || csv == null || csv.trim().isEmpty()) { line.accept("csvsql: every <input> needs both csv and table"); res.exitCode = 2; return; }
+            if (!table.matches("[A-Za-z_][A-Za-z0-9_]*")) { line.accept("csvsql: invalid table name '" + table + "' (use letters, digits, underscore; not starting with a digit)"); res.exitCode = 2; return; }
+            if (!seenTables.add(table.toUpperCase(java.util.Locale.ROOT))) { line.accept("csvsql: duplicate table name '" + table + "'"); res.exitCode = 2; return; }
+            ins.add(new String[]{table, csv});
+        }
+
+        // 2) temp file-mode H2 DB under ${stepDir}/_h2
+        String stepDir = VarResolver.resolve("${stepDir}", vars);
+        if (stepDir == null || stepDir.trim().isEmpty()) stepDir = new java.io.File(csvFile).getParent();
+        java.io.File h2dir = new java.io.File(stepDir, "_h2");
+        h2dir.mkdirs();
+        String runId = vars.get("runId"); if (runId == null) runId = "run";
+        String dbBase = "q_" + runId + "_" + step.id;
+        String url = "jdbc:h2:file:" + new java.io.File(h2dir, dbBase).getAbsolutePath().replace('\\', '/') + ";AUTO_SERVER=FALSE";
+
+        // 3) driver presence (pure JDBC; H2 is runtime-only)
+        try {
+            Class.forName("org.h2.Driver");
+        } catch (ClassNotFoundException e) {
+            line.accept("csvsql: H2 driver not on classpath — add com.h2database:h2 (see h2/README_H2.md)");
+            res.exitCode = 2; return;
+        }
+
+        java.sql.Connection conn = null;
+        try {
+            conn = java.sql.DriverManager.getConnection(url, "sa", "");
+            String csvOpts = "fieldSeparator=" + delim + " charset=UTF-8";
+            // 4) stage each input: CREATE TABLE <t> AS SELECT * FROM CSVREAD(path, NULL, opts)
+            for (String[] in : ins) {
+                String table = in[0], csv = in[1];
+                java.sql.PreparedStatement ps = null;
+                try {
+                    ps = conn.prepareStatement("CREATE TABLE " + table + " AS SELECT * FROM CSVREAD(?, NULL, ?)");
+                    ps.setString(1, csv);
+                    ps.setString(2, csvOpts);
+                    int n = ps.executeUpdate();
+                    line.accept("staged " + table + " <- " + csv + " (" + n + " rows)");
+                } finally {
+                    if (ps != null) try { ps.close(); } catch (Exception ignored) {}
+                }
+            }
+
+            // 5) run the user query verbatim and stream through the shared exporter
+            line.accept("query: " + query);
+            java.io.File out = new java.io.File(csvFile);
+            if (out.getParentFile() != null) out.getParentFile().mkdirs();
+            long maxRows = step.csvSplitRows > 0 ? step.csvSplitRows : 0;
+            long maxBytes = step.csvSplitMb > 0 ? (long) step.csvSplitMb * 1024L * 1024L : 0;
+            boolean trim = !"false".equalsIgnoreCase(params.get("trim"));
+            java.sql.Statement st = null;
+            try {
+                st = conn.createStatement();
+                java.sql.ResultSet rs = st.executeQuery(query);
+                // csvsql output is written WITHOUT BOM so it is safe to feed into another csvsql input
+                SqlSupport.ExportResult er = sql.exportResultSet(rs, out, delim, false, maxRows, maxBytes, trim);
+                res.outVars.put("rowCount", String.valueOf(er.rows));
+                res.outVars.put("csvParts", String.valueOf(er.parts));
+                res.outVars.put("csvFile", er.files.isEmpty() ? out.getAbsolutePath() : er.files.get(0));
+                res.outVars.put("csvFiles", String.join(step.delimiter == null ? ";" : step.delimiter, er.files));
+                if (er.parts > 1) line.accept("exported " + er.rows + " row(s) into " + er.parts + " CSV part(s)");
+                else line.accept("exported " + er.rows + " row(s) to " + res.outVars.get("csvFile"));
+                for (String f : er.files) line.accept("  " + f);
+                for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
+                res.exitCode = 0;
+            } finally {
+                if (st != null) try { st.close(); } catch (Exception ignored) {}
+            }
+        } finally {
+            if (conn != null) try { conn.close(); } catch (Exception ignored) {}
+            // 6) delete the temp DB files and the _h2 dir
+            java.io.File[] dbFiles = h2dir.listFiles();
+            if (dbFiles != null) for (java.io.File f : dbFiles) {
+                if (f.getName().startsWith(dbBase)) try { f.delete(); } catch (Exception ignored) {}
+            }
+            try { h2dir.delete(); } catch (Exception ignored) {}
+        }
     }
 
     // ----------------------------------------------------------------- sql

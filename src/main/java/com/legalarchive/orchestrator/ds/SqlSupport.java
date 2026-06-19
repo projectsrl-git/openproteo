@@ -126,15 +126,31 @@ public class SqlSupport {
      */
     public ExportResult exportCsv(DataSourceDef d, String sql, java.io.File baseFile, char delim,
                                   boolean bom, long maxRows, long maxBytes, boolean trim) throws Exception {
-        boolean split = maxRows > 0 || maxBytes > 0;
-        ExportResult res = new ExportResult();
         Connection c = null;
         Statement st = null;
-        java.io.Writer w = null;
         try {
             c = open(d);
             st = c.createStatement();
             ResultSet rs = st.executeQuery(sql);
+            return exportResultSet(rs, baseFile, delim, bom, maxRows, maxBytes, trim);
+        } finally {
+            if (st != null) try { st.close(); } catch (Exception ignored) {}
+            if (c != null) try { c.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    /**
+     * Stream an already-open ResultSet to one or more CSV files (UTF-8, optional BOM, CRLF, header),
+     * honouring the same split rules as {@link #exportCsv}. The caller owns the ResultSet (and its
+     * Statement/Connection) lifecycle. Shared by the DB2 {@code sql} executor and the H2 {@code csvsql}
+     * executor so both produce byte-identical output.
+     */
+    public ExportResult exportResultSet(ResultSet rs, java.io.File baseFile, char delim,
+                                        boolean bom, long maxRows, long maxBytes, boolean trim) throws Exception {
+        boolean split = maxRows > 0 || maxBytes > 0;
+        ExportResult res = new ExportResult();
+        java.io.Writer w = null;
+        try {
             ResultSetMetaData md = rs.getMetaData();
             int cols = md.getColumnCount();
 
@@ -195,8 +211,6 @@ public class SqlSupport {
             return res;
         } finally {
             if (w != null) try { w.close(); } catch (Exception ignored) {}
-            if (st != null) try { st.close(); } catch (Exception ignored) {}
-            if (c != null) try { c.close(); } catch (Exception ignored) {}
         }
     }
 

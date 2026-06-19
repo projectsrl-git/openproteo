@@ -98,6 +98,18 @@ A STEP runs one executor. Built-in (internal) executors:
 - **split** — split an **existing file** into parts by rows and/or MB, using the same logic
   as the SQL export. Use it to run a LOOP only over the final steps, after validation and
   anonymization (see Splitting and Loops).
+- **csvsql** — run an arbitrary SQL query (joins, aggregates, subqueries, CTEs, window
+  functions) across several CSV files and stream the result to a new CSV. Each `<input>` is a
+  CSV path plus a table alias the query uses; you write only the SELECT over those aliases — all
+  H2 plumbing (staging via `CSVREAD`, the export) is generated and hidden. The output honours the
+  same conventions as `sql`/`split` (delimiter, row/MB split, `${csvFile}`/`${csvFiles}`/
+  `${csvParts}`/`${rowCount}`), so it is fully LOOP-compatible. All columns are VARCHAR: cast
+  inside the query when you do arithmetic or date math, e.g. `CAST(col AS DECIMAL(18,2))` or
+  `PARSEDATETIME(col,'yyyyMMdd')`. Fixed-width `yyyyMMdd` dates compare and sort correctly as
+  strings, and string equi-joins preserve leading zeros (NDG etc.). It uses a temporary H2
+  database created under `${stepDir}` and deleted afterwards. H2 is a **runtime-only** dependency
+  (the code is pure JDBC); a `csvsql` step fails with a clear message if the H2 driver is not yet
+  on the classpath (see `h2/README_H2.md`).
 - **mask** — deterministic streaming masking of a CSV (constant memory). Strategies are driven
   by the displayschema; pool-based strategies (names, cities, company parts) pick their values
   from selectable pool files (see Masking pools).
@@ -117,6 +129,15 @@ A STEP runs one executor. Built-in (internal) executors:
 
 External executors run a PowerShell (or other) script from the scripts directory or an
 absolute path; the script path can use `${alias}` of an uploaded executable.
+
+**csvsql notes.** Inputs are read with H2 `CSVREAD`. A UTF-8 **BOM** on an input is folded into
+the first header cell, so a query that references the first column by name would not match;
+`csvsql` writes its own output **without a BOM** so csvsql→csvsql chains are safe, but a `sql`/
+`split` output (which carries a BOM) used as a csvsql input can hit this until BOM-stripping on
+ingest is added. Empty fields are read as `NULL` (use `COALESCE(col,'')` when `''` is required).
+Staging copies each input into the temp DB (≈ input size), so make sure `${stepDir}`'s volume has
+room and pre-filter upstream for very large joins. Per-input separators/charset, an in-memory mode
+for small inputs, opt-in join indexes and header-based column suggestions are planned follow-ups.
 
 ## Gates
 

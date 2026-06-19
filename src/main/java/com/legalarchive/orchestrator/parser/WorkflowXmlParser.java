@@ -79,12 +79,12 @@ public class WorkflowXmlParser {
                     s.name = el.hasAttribute("name") ? el.getAttribute("name") : s.id;
                     s.exec = trimToNull(el.getAttribute("exec"));
                     if (s.exec != null && !java.util.Arrays.asList(
-                            "auto", "powershell", "cmd", "jar", "sql", "ifscopy", "filecopy", "setvar", "validate", "csvreplace", "encoding", "anonymize", "mask", "split", "safecopy", "dequote")
+                            "auto", "powershell", "cmd", "jar", "sql", "ifscopy", "filecopy", "setvar", "validate", "csvreplace", "encoding", "anonymize", "mask", "split", "safecopy", "dequote", "csvsql")
                             .contains(s.exec.toLowerCase())) {
-                        throw new IllegalArgumentException("Step '" + s.id + "': exec must be auto, powershell, cmd, jar, sql, ifscopy, filecopy, setvar, validate, csvreplace, encoding, anonymize, mask, split, safecopy or dequote");
+                        throw new IllegalArgumentException("Step '" + s.id + "': exec must be auto, powershell, cmd, jar, sql, ifscopy, filecopy, setvar, validate, csvreplace, encoding, anonymize, mask, split, safecopy, dequote or csvsql");
                     }
                     String ik = s.exec == null ? null : s.exec.toLowerCase();
-                    boolean internal = "sql".equals(ik) || "ifscopy".equals(ik) || "filecopy".equals(ik) || "setvar".equals(ik) || "validate".equals(ik) || "csvreplace".equals(ik) || "encoding".equals(ik) || "anonymize".equals(ik) || "mask".equals(ik) || "split".equals(ik) || "safecopy".equals(ik) || "dequote".equals(ik);
+                    boolean internal = "sql".equals(ik) || "ifscopy".equals(ik) || "filecopy".equals(ik) || "setvar".equals(ik) || "validate".equals(ik) || "csvreplace".equals(ik) || "encoding".equals(ik) || "anonymize".equals(ik) || "mask".equals(ik) || "split".equals(ik) || "safecopy".equals(ik) || "dequote".equals(ik) || "csvsql".equals(ik);
                     // script is required only for external (process) steps
                     s.script = internal ? trimToNull(el.getAttribute("script")) : req(el, "script", xmlFile);
                     // built-in step attributes
@@ -110,6 +110,12 @@ public class WorkflowXmlParser {
                         String cols = trimToNull(rep.getAttribute("columns"));
                         if (cols != null) for (String cn : cols.split(",")) { String c2 = cn.trim(); if (!c2.isEmpty()) rp.columns.add(c2); }
                         s.replacements.add(rp);
+                    }
+                    for (Element in : directChildren(el, "input")) {
+                        com.legalarchive.orchestrator.model.def.CsvInput ci = new com.legalarchive.orchestrator.model.def.CsvInput();
+                        ci.csv = in.getAttribute("csv");
+                        ci.table = in.getAttribute("table");
+                        s.inputs.add(ci);
                     }
                     s.forEach = trimToNull(el.getAttribute("forEach"));
                     s.concurrency = intAttr(el, "concurrency", 4);

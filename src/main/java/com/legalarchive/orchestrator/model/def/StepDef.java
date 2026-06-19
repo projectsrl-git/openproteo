@@ -61,6 +61,8 @@ public class StepDef extends NodeDef {
     public java.util.List<String> validateChecks = new java.util.ArrayList<String>();
     /** csvreplace: sostituzioni da applicare. */
     public java.util.List<Replacement> replacements = new java.util.ArrayList<Replacement>();
+    /** csvsql: input CSVs + their table aliases. */
+    public java.util.List<CsvInput> inputs = new java.util.ArrayList<CsvInput>();
     /** Delimiter for joined list output vars (default ;). */
     public String delimiter;
 
