@@ -43,6 +43,8 @@ public final class BulkWorkflowGenerator {
         public String name = "name";
         public String sourceId = "sourceId";
         public String targetId = "targetId";
+        public String sourceDescription = "sourceDescription";
+        public String targetDescription = "targetDescription";
         public String description = "description";
         public String recordBusinessDate = "recordBusinessDate";
         public String recordBusinessDateFormat = "recordBusinessDateFormat";
@@ -111,6 +113,10 @@ public final class BulkWorkflowGenerator {
                 if (nm != null) root.setAttribute("name", nm);
                 if (src != null) root.setAttribute("sourceId", src);
                 if (tgt != null) root.setAttribute("targetId", tgt);
+                String srcD = resolveField(map.sourceDescription, header, row);
+                String tgtD = resolveField(map.targetDescription, header, row);
+                if (srcD != null) root.setAttribute("sourceDescription", srcD);
+                if (tgtD != null) root.setAttribute("targetDescription", tgtD);
                 if (dsc != null) setChildText(doc, root, "description", dsc);
 
                 // recordBusinessDate / recordBusinessDateFormat: injected as workflow variables

@@ -53,6 +53,7 @@ public class WorkflowEngine {
     private final AuditLogger audit;
     private final InternalSteps internalSteps;
     private final AssetStore assets;
+    private final com.legalarchive.orchestrator.store.GlobalVarsStore globalVars;
     // Coda FIFO globale a singolo worker: i run vengono serializzati - un workflow
     // parte solo quando il precedente e' terminato completamente. L'unica concorrenza
     // resta il fan-out forEach (esplicito) interno a uno step, che gira dentro al run
@@ -72,13 +73,15 @@ public class WorkflowEngine {
     private final AtomicLong seq = new AtomicLong(0);
 
     public WorkflowEngine(AppProperties props, WorkflowRegistry registry, RunStore store, AuditLogger audit,
-                          InternalSteps internalSteps, AssetStore assets) {
+                          InternalSteps internalSteps, AssetStore assets,
+                          com.legalarchive.orchestrator.store.GlobalVarsStore globalVars) {
         this.props = props;
         this.registry = registry;
         this.store = store;
         this.audit = audit;
         this.internalSteps = internalSteps;
         this.assets = assets;
+        this.globalVars = globalVars;
     }
 
     /** Avvia un run. Ritorna il run creato, o null se il feed ha gia' un run attivo. */
@@ -229,6 +232,7 @@ public class WorkflowEngine {
         run.startTs = now.format(TS);
 
         // variabili builtin: l'identita' del feed e' disponibile ovunque
+        run.vars.putAll(globalVars.all());   // common vars for all workflows (lowest precedence)
         run.vars.put("feedId", def.feedId);
         run.vars.put("sourceId", def.sourceId == null ? "" : def.sourceId);
         run.vars.put("targetId", def.targetId == null ? "" : def.targetId);

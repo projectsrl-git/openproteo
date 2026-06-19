@@ -52,6 +52,7 @@ public class ApiController {
     private final AuditLogger audit;
     private final WorkflowScheduler scheduler;
     private final AppProperties props;
+    private final com.legalarchive.orchestrator.store.GlobalVarsStore globalVars;
     private final DataSourceStore dataSources;
     private final SqlSupport sql;
     private final AssetStore assets;
@@ -62,7 +63,8 @@ public class ApiController {
 
     public ApiController(WorkflowRegistry registry, WorkflowEngine engine, RunStore store,
                          AuditLogger audit, WorkflowScheduler scheduler, AppProperties props,
-                         DataSourceStore dataSources, SqlSupport sql, AssetStore assets, CsvService csv) {
+                         DataSourceStore dataSources, SqlSupport sql, AssetStore assets, CsvService csv,
+                         com.legalarchive.orchestrator.store.GlobalVarsStore globalVars) {
         this.registry = registry;
         this.engine = engine;
         this.store = store;
@@ -73,6 +75,7 @@ public class ApiController {
         this.sql = sql;
         this.assets = assets;
         this.csv = csv;
+        this.globalVars = globalVars;
     }
 
     // ----------------------------------------------------------- datasources
@@ -195,6 +198,8 @@ public class ApiController {
             @RequestParam(value = "mapDescription", defaultValue = "description") String mapDescription,
             @RequestParam(value = "mapRecordBusinessDate", defaultValue = "recordBusinessDate") String mapRecordBusinessDate,
             @RequestParam(value = "mapRecordBusinessDateFormat", defaultValue = "recordBusinessDateFormat") String mapRecordBusinessDateFormat,
+            @RequestParam(value = "mapSourceDescription", defaultValue = "sourceDescription") String mapSourceDescription,
+            @RequestParam(value = "mapTargetDescription", defaultValue = "targetDescription") String mapTargetDescription,
             @RequestParam(value = "mapDataschema", defaultValue = "dataschema") String mapDataschema,
             @RequestParam(value = "mapDisplayschema", defaultValue = "displayschema") String mapDisplayschema,
             @RequestParam(value = "csv2", defaultValue = "") String csv2,
@@ -229,6 +234,7 @@ public class ApiController {
             map.targetId = mapTargetId;
             map.description = mapDescription; map.dataschema = mapDataschema; map.displayschema = mapDisplayschema;
             map.recordBusinessDate = mapRecordBusinessDate; map.recordBusinessDateFormat = mapRecordBusinessDateFormat;
+            map.sourceDescription = mapSourceDescription; map.targetDescription = mapTargetDescription;
 
             Map<String, String> tableByFeed =
                     com.legalarchive.orchestrator.parser.BulkWorkflowGenerator.joinTable(csv2, delim2, mapFeedId2, mapTableName);
@@ -685,10 +691,18 @@ public class ApiController {
     public ResponseEntity<WorkflowDto> definition(@PathVariable String feedId) {
         WorkflowDef def = registry.get(feedId);
         if (def == null) return ResponseEntity.notFound().build();
+        WorkflowDto dto = toDto(def);
+        return ResponseEntity.ok(dto);
+    }
+
+    /** Build the editor DTO from a workflow definition (used by the designer and the variables page). */
+    WorkflowDto toDto(WorkflowDef def) {
         WorkflowDto dto = new WorkflowDto();
         dto.feedId = def.feedId;
         dto.sourceId = def.sourceId;
         dto.targetId = def.targetId;
+        dto.sourceDescription = def.sourceDescription;
+        dto.targetDescription = def.targetDescription;
         dto.production = def.production;
         dto.name = def.name;
         dto.cron = def.cron;
@@ -757,7 +771,185 @@ public class ApiController {
             }
             dto.nodes.add(nd);
         }
-        return ResponseEntity.ok(dto);
+        return dto;
+    }
+
+    // =========================== variables manager ===========================
+
+    /** Everything the variables page needs: global vars (file + properties) and, per workflow,
+     *  its selectors (source/target ids + descriptions), workflow variables and step params. */
+    @GetMapping("/api/var-catalog")
+    public ResponseEntity<Map<String, Object>> varCatalog() {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        Map<String, Object> globals = new LinkedHashMap<String, Object>();
+        globals.put("filePath", globalVars.file().getAbsolutePath());
+        globals.put("file", globalVars.fileVars());
+        globals.put("props", globalVars.propsVars());
+        out.put("globals", globals);
+
+        java.util.List<Map<String, Object>> wfs = new java.util.ArrayList<Map<String, Object>>();
+        for (WorkflowDef def : registry.all()) {
+            WorkflowDto dto = toDto(def);
+            Map<String, Object> w = new LinkedHashMap<String, Object>();
+            w.put("feedId", dto.feedId);
+            w.put("name", dto.name == null ? "" : dto.name);
+            w.put("sourceId", dto.sourceId == null ? "" : dto.sourceId);
+            w.put("targetId", dto.targetId == null ? "" : dto.targetId);
+            w.put("sourceDescription", dto.sourceDescription == null ? "" : dto.sourceDescription);
+            w.put("targetDescription", dto.targetDescription == null ? "" : dto.targetDescription);
+            java.util.List<Map<String, String>> vars = new java.util.ArrayList<Map<String, String>>();
+            for (WorkflowDto.KV kv : dto.variables) {
+                Map<String, String> m = new LinkedHashMap<String, String>();
+                m.put("name", kv.name); m.put("value", kv.value == null ? "" : kv.value);
+                vars.add(m);
+            }
+            w.put("vars", vars);
+            java.util.List<Map<String, Object>> steps = new java.util.ArrayList<Map<String, Object>>();
+            for (WorkflowDto.NodeDto nd : dto.nodes) {
+                if (!"STEP".equals(nd.kind)) continue;
+                Map<String, Object> sm = new LinkedHashMap<String, Object>();
+                sm.put("id", nd.id); sm.put("name", nd.name == null ? "" : nd.name); sm.put("exec", nd.exec == null ? "" : nd.exec);
+                java.util.List<Map<String, String>> ps = new java.util.ArrayList<Map<String, String>>();
+                if (nd.params != null) for (WorkflowDto.KV kv : nd.params) {
+                    Map<String, String> m = new LinkedHashMap<String, String>();
+                    m.put("name", kv.name); m.put("value", kv.value == null ? "" : kv.value);
+                    ps.add(m);
+                }
+                sm.put("params", ps);
+                steps.add(sm);
+            }
+            w.put("steps", steps);
+            wfs.add(w);
+        }
+        out.put("workflows", wfs);
+        out.put("ok", true);
+        return ResponseEntity.ok(out);
+    }
+
+    public static class GlobalsSaveReq { public java.util.List<WorkflowDto.KV> vars; }
+
+    /** Save the file-based global variables (application.properties globals are read-only). */
+    @PostMapping("/api/globals/save")
+    public ResponseEntity<Map<String, Object>> saveGlobals(@RequestBody GlobalsSaveReq body) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        Map<String, String> m = new LinkedHashMap<String, String>();
+        java.util.Set<String> seen = new java.util.HashSet<String>();
+        if (body != null && body.vars != null) {
+            for (WorkflowDto.KV kv : body.vars) {
+                String k = kv.name == null ? "" : kv.name.trim();
+                if (k.isEmpty()) continue;
+                if (!k.matches("[A-Za-z_][A-Za-z0-9_.-]*")) return badRequest(out, "Invalid variable name: '" + k + "'");
+                if (!seen.add(k)) return badRequest(out, "Duplicate variable name: '" + k + "'");
+                m.put(k, kv.value == null ? "" : kv.value);
+            }
+        }
+        try {
+            globalVars.saveFile(m);
+        } catch (Exception e) {
+            return badRequest(out, "Could not save global variables: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+        }
+        out.put("ok", true);
+        out.put("count", m.size());
+        out.put("file", globalVars.file().getAbsolutePath());
+        return ResponseEntity.ok(out);
+    }
+
+    public static class VarSaveReq {
+        public java.util.List<FeedEdit> edits;
+        public static class FeedEdit {
+            public String feedId;
+            public java.util.List<WorkflowDto.KV> vars;     // workflow-level variables to set
+            public java.util.List<StepEdit> steps;          // optional per-step param edits
+        }
+        public static class StepEdit {
+            public String stepId;
+            public java.util.List<WorkflowDto.KV> params;
+        }
+    }
+
+    /**
+     * Apply variable (and optional step-param) edits to one or more workflows. Every modified XML
+     * is regenerated and validated with the runtime parser BEFORE anything is written: if any
+     * workflow fails validation, nothing is saved and the per-feed errors are returned.
+     */
+    @PostMapping("/api/variables/save")
+    public ResponseEntity<Map<String, Object>> saveVariables(@RequestBody VarSaveReq body, HttpServletRequest req) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        if (body == null || body.edits == null || body.edits.isEmpty()) return badRequest(out, "No edits supplied");
+
+        java.util.List<Map<String, Object>> results = new java.util.ArrayList<Map<String, Object>>();
+        java.util.List<String[]> staged = new java.util.ArrayList<String[]>(); // {feedId, fileName, xml}
+        boolean allOk = true;
+
+        for (VarSaveReq.FeedEdit fe : body.edits) {
+            Map<String, Object> r = new LinkedHashMap<String, Object>();
+            r.put("feedId", fe.feedId);
+            WorkflowDef def = fe.feedId == null ? null : registry.get(fe.feedId);
+            if (def == null) { r.put("ok", false); r.put("error", "workflow not found"); results.add(r); allOk = false; continue; }
+            WorkflowDto dto = toDto(def);
+            // apply workflow-level variable edits
+            if (fe.vars != null) {
+                for (WorkflowDto.KV kv : fe.vars) {
+                    if (kv.name == null || kv.name.trim().isEmpty()) continue;
+                    boolean found = false;
+                    for (WorkflowDto.KV ex : dto.variables) { if (kv.name.equals(ex.name)) { ex.value = kv.value; found = true; break; } }
+                    if (!found) dto.variables.add(new WorkflowDto.KV(kv.name.trim(), kv.value == null ? "" : kv.value));
+                }
+            }
+            // apply per-step param edits
+            if (fe.steps != null) {
+                for (VarSaveReq.StepEdit se : fe.steps) {
+                    if (se.stepId == null || se.params == null) continue;
+                    for (WorkflowDto.NodeDto nd : dto.nodes) {
+                        if (!"STEP".equals(nd.kind) || !se.stepId.equals(nd.id) || nd.params == null) continue;
+                        for (WorkflowDto.KV kv : se.params) {
+                            for (WorkflowDto.KV ex : nd.params) { if (kv.name != null && kv.name.equals(ex.name)) { ex.value = kv.value; break; } }
+                        }
+                    }
+                }
+            }
+            // regenerate + validate
+            String fileName = def.sourceFile != null ? def.sourceFile : def.feedId + ".xml";
+            Path tmp = null;
+            try {
+                String xml = xmlWriter.toXml(dto);
+                java.io.File dir = new java.io.File(props.getWorkflowsDir());
+                if (!dir.isDirectory()) dir.mkdirs();
+                tmp = Files.createTempFile(dir.toPath(), "_validate_", ".tmp");
+                Files.write(tmp, xml.getBytes(StandardCharsets.UTF_8));
+                xmlParser.parse(tmp.toFile());          // throws if invalid
+                staged.add(new String[]{def.feedId, fileName, xml});
+                r.put("ok", true);
+            } catch (Exception e) {
+                r.put("ok", false);
+                r.put("error", e.getMessage() == null ? e.toString() : e.getMessage());
+                allOk = false;
+            } finally {
+                if (tmp != null) try { Files.deleteIfExists(tmp); } catch (Exception ignore) {}
+            }
+            results.add(r);
+        }
+
+        if (!allOk) {
+            out.put("ok", false);
+            out.put("error", "No changes were saved: one or more workflows failed validation.");
+            out.put("results", results);
+            return ResponseEntity.badRequest().body(out);
+        }
+
+        // all valid: write every staged file, then reload once
+        java.io.File dir = new java.io.File(props.getWorkflowsDir());
+        try {
+            for (String[] s : staged) Files.write(dir.toPath().resolve(s[1]), s[2].getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            return badRequest(out, "Validation passed but writing failed: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+        }
+        registry.reload();
+        scheduler.reschedule();
+        out.put("ok", true);
+        out.put("saved", staged.size());
+        out.put("results", results);
+        return ResponseEntity.ok(out);
     }
 
     /**

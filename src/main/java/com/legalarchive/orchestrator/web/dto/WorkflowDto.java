@@ -12,6 +12,8 @@ public class WorkflowDto {
     public String feedId;
     public String sourceId;
     public String targetId;
+    public String sourceDescription;
+    public String targetDescription;
     public boolean production;
     public String name;
     public String cron;

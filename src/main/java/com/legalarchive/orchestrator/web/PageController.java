@@ -162,6 +162,11 @@ public class PageController {
         return "bulk";
     }
 
+    @GetMapping("/variables")
+    public String variables() {
+        return "variables";
+    }
+
     private List<Map<String, Object>> buildSimpleRows() {
         List<Map<String, Object>> list = new ArrayList<Map<String, Object>>();
         for (WorkflowDef wf : registry.all()) {

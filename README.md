@@ -23,7 +23,7 @@ Variables are referenced as `${name}`. Resolution is iterative and innermost-fir
 `feedName`, `runId`, `runDate`, layout paths (e.g. `feedDir`, `landingIn`, `landingOut`,
 `stepDir`), `sharedDir` (the shared-files directory), `stepId` and `stepName` (the id and name
 of the step currently running), plus every workflow variable you declare. A step can publish
-output variables (printed in the log as `##VAR name=value`) that later steps can read.
+output variables (printed in the log as `##VAR name=value`) that later steps can read. Variables common to **all** workflows (see *Global variables* below) are seeded first, with the lowest precedence, so built-ins and per-workflow variables override a global of the same name.
 
 ### Production environment flag
 
@@ -179,10 +179,21 @@ The shipped name lists are intentionally fake: some inner letters are swapped (M
 ## Bulk creation
 
 The **Bulk create** page generates many workflows at once from a template plus one or two CSV
-files: the first maps feed attributes (id, name, sourceId, targetId, description, and inline
+files: the first maps feed attributes (id, name, sourceId, targetId, **sourceDescription**, **targetDescription**, description, and inline
 `dataschema`/`displayschema` JSON), the second maps a per-feed table name. Attribute fields
 accept `{Column Name}` tokens mixed with literal text, e.g. `{Bank} - {ICTO Code}`; `targetId`
 accepts comma-separated tokens for multiple destinations.
+
+## Global variables and the Variables page
+
+**Global variables** are shared by every workflow and are usable as `${name}` anywhere a variable is. They come from two sources, merged with *application.properties winning*:
+
+1. a **properties file** edited in-app (default `<sharedDir>/global-vars.properties`, or set `orchestrator.global-vars-file` to an absolute path); and
+2. **`orchestrator.global-vars.NAME=value`** entries in `application.properties` (ops-controlled, shown read-only in the UI).
+
+They have the lowest precedence: any built-in or per-workflow variable of the same name wins.
+
+The **Variables** page (from the dashboard) has two parts. At the top, the file-based global variables can be added, edited and saved; the application.properties globals are listed locked. Below, three multi-select filters (by **source**, **target** and **feed**) narrow each other progressively. Selecting a **single** workflow shows all its variables and step parameters, grouped by section and step, all editable. Selecting **several** shows only the variables they have in common (by name), and a value entered there is applied to every selected workflow. On save, the modified XML of **every** affected workflow is regenerated and validated with the runtime parser before anything is written: if any one fails, nothing is saved and the per-feed result is reported.
 
 ## Files
 
@@ -200,8 +211,8 @@ workflow.
 The application is a WAR deployed on an external Tomcat. Environment-specific and secret
 configuration lives only in an external `application.properties` under the Tomcat config
 directory — never in the repository. Key settings include the workflows/scripts directories,
-the datasources file, `orchestrator.masking-secret`, `orchestrator.mask-pools-dir` and
-`orchestrator.max-transitions`.
+the datasources file, `orchestrator.masking-secret`, `orchestrator.mask-pools-dir`, `orchestrator.max-transitions`,
+`orchestrator.global-vars-file` and any `orchestrator.global-vars.*` entries.
 
 The deploy script syncs the latest package into the working copy (preserving `.git`), builds
 the WAR, then commits and pushes using the `COMMIT_MSG.txt` shipped inside the package, and

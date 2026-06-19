@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenProteo — Variables</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+    <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+    <style>
+        .vargrid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+        .selrow { display: -webkit-flex; display: flex; gap: 16px; flex-wrap: wrap; }
+        .selrow .field { min-width: 260px; -webkit-flex: 1; flex: 1; }
+        .selrow select[multiple] { width: 100%; min-height: 140px; }
+        .vsection { border: 1px solid var(--line); border-radius: 6px; margin: 12px 0; }
+        .vsection > .vhead { padding: 8px 12px; background: var(--bg-raise); border-bottom: 1px solid var(--line-soft);
+            font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--label); }
+        .vsection > .vbody { padding: 10px 12px; }
+        .vline { display: -webkit-flex; display: flex; gap: 10px; align-items: center; margin: 5px 0; }
+        .vline .vname { min-width: 240px; font-family: var(--mono); font-size: 12.5px; color: var(--ink); word-break: break-word; }
+        .vline input.vval { -webkit-flex: 1; flex: 1; }
+        .vline .vhint { font-size: 11px; color: var(--ink-faint); }
+        .gvline { display: -webkit-flex; display: flex; gap: 8px; align-items: center; margin: 5px 0; }
+        .gvline input { font-family: var(--mono); font-size: 12.5px; }
+        .gvline input.gk { width: 240px; }
+        .gvline input.gv { -webkit-flex: 1; flex: 1; }
+        .dirty input.vval, .dirty input.gv { border-color: var(--accent); }
+        .feedlist { font-size: 12px; color: var(--ink-dim); margin: 4px 0 10px; }
+        .rolabel { font-size: 11px; color: var(--ink-faint); }
+        .res-ok { color: var(--ok); } .res-fail { color: var(--fail); }
+        .lockrow { display: -webkit-flex; display: flex; gap: 8px; align-items: center; margin: 4px 0; font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub">Variables</span>
+    <span class="spacer"></span>
+    <a class="btn sm" th:href="@{/}">← Dashboard</a>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap" style="max-width:1200px">
+    <div id="banner"></div>
+
+    <h1>Variables</h1>
+    <p class="page-sub">Manage variables that are common to <b>all</b> workflows, and edit the variables (and step
+        parameters) of one or many workflows at once. Every change is validated against the workflow parser before
+        anything is written.</p>
+
+    <!-- ===================== global variables ===================== -->
+    <h2>Global variables (all workflows)</h2>
+    <p class="page-sub" id="gvPath">&nbsp;</p>
+    <div class="panel">
+        <div class="sub-label">File-based (editable) — usable as <span class="mono">${name}</span> in every workflow. Per-workflow variables of the same name win.</div>
+        <div id="gvFile"></div>
+        <div class="addline" style="margin-top:8px">
+            <button class="btn sm" onclick="gvAdd('','')">＋ add global</button>
+            <button class="btn sm primary" onclick="saveGlobals()">💾 Save global variables</button>
+        </div>
+        <div id="gvProps" style="margin-top:12px"></div>
+    </div>
+
+    <!-- ===================== per-feed / common ===================== -->
+    <h2 style="margin-top:26px">Workflow variables</h2>
+    <p class="page-sub">Pick workflows with the three filters below (multi-select, they narrow each other). Select a
+        single workflow to edit all its variables and step parameters; select several to edit only the variables they
+        have in common.</p>
+    <div class="panel">
+        <div class="selrow">
+            <div class="field">
+                <label>Source <span class="rolabel">(sourceId — description)</span></label>
+                <select id="selSource" multiple onchange="onSel()"></select>
+            </div>
+            <div class="field">
+                <label>Target <span class="rolabel">(targetId — description)</span></label>
+                <select id="selTarget" multiple onchange="onSel()"></select>
+            </div>
+            <div class="field">
+                <label>Feed <span class="rolabel">(feedId — name)</span></label>
+                <select id="selFeed" multiple onchange="onSel()"></select>
+            </div>
+        </div>
+        <div class="addline" style="margin-top:6px">
+            <button class="btn sm" onclick="clearSel()">✕ Clear selection</button>
+            <span class="dim small" id="selCount"></span>
+        </div>
+    </div>
+
+    <div id="editorWrap"></div>
+    <div class="addline" id="saveBar" style="display:none;margin-top:10px">
+        <button class="btn sm primary" onclick="saveVariables()">💾 Validate &amp; save changes</button>
+        <span class="dim small">All modified workflow XML files are validated before any of them is saved.</span>
+    </div>
+    <div id="results" style="margin-top:10px"></div>
+</div>
+
+<script th:src="@{/js/modal.js}"></script>
+<script th:src="@{/js/theme.js}"></script>
+<script>
+    function tick(){ var c=document.getElementById('clock'); if(c) c.textContent=new Date().toLocaleString('it-IT'); }
+    tick(); setInterval(tick,1000);
+    var CTX = location.pathname.replace(/variables\/?$/, '');
+    function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+    function el(tag,cls,parent){ var e=document.createElement(tag); if(cls)e.className=cls; if(parent)parent.appendChild(e); return e; }
+    function banner(ok,msg){ var b=document.getElementById('banner'); b.innerHTML='<div class="banner '+(ok?'ok':'error')+'">'+msg+'</div>'; }
+    function readJson(r){ var ct=r.headers.get('content-type')||''; if(ct.indexOf('application/json')<0){ return r.text().then(function(t){ return { ok:false, error:(t&&t.length<300)?t:('HTTP '+r.status) }; }); } return r.json(); }
+
+    var CATALOG = { globals:{file:{},props:{},filePath:''}, workflows:[] };
+    var selSrc={}, selTgt={}, selFeed={};
+
+    // ---------------- load ----------------
+    function load(){
+        fetch(CTX+'api/var-catalog').then(readJson).then(function(j){
+            if(!j.ok){ banner(false, esc(j.error||'load failed')); return; }
+            CATALOG=j;
+            renderGlobals();
+            populateAll();
+            renderEditor();
+        }).catch(function(e){ banner(false,'Error: '+esc(e)); });
+    }
+
+    // ---------------- globals ----------------
+    function renderGlobals(){
+        document.getElementById('gvPath').innerHTML='File: <span class="mono">'+esc(CATALOG.globals.filePath||'')+'</span>';
+        var host=document.getElementById('gvFile'); host.innerHTML='';
+        var f=CATALOG.globals.file||{}; var keys=Object.keys(f);
+        if(!keys.length){ var none=el('div','dim small',host); none.textContent='No file-based global variables yet.'; }
+        keys.forEach(function(k){ gvRow(host,k,f[k]); });
+        // properties (read-only)
+        var ph=document.getElementById('gvProps'); ph.innerHTML='';
+        var p=CATALOG.globals.props||{}; var pk=Object.keys(p);
+        var lbl=el('div','sub-label',ph); lbl.textContent='From application.properties (read-only, ops-controlled — orchestrator.global-vars.*). These override the file values.';
+        if(!pk.length){ var n2=el('div','dim small',ph); n2.textContent='None configured.'; }
+        pk.forEach(function(k){ var r=el('div','lockrow',ph); r.innerHTML='🔒 '+esc(k)+' = '+esc(p[k]); });
+    }
+    function gvRow(host,k,v){
+        var row=el('div','gvline',host);
+        var ik=el('input','gk',row); ik.value=k; ik.placeholder='name';
+        var iv=el('input','gv',row); iv.value=(v==null?'':v); iv.placeholder='value';
+        var del=el('button','btn sm',row); del.textContent='✕'; del.onclick=function(){ row.parentNode.removeChild(row); };
+    }
+    function gvAdd(k,v){ gvRow(document.getElementById('gvFile'),k||'',v||''); }
+    function saveGlobals(){
+        var rows=document.getElementById('gvFile').getElementsByClassName('gvline');
+        var vars=[]; for(var i=0;i<rows.length;i++){ var ik=rows[i].getElementsByClassName('gk')[0], iv=rows[i].getElementsByClassName('gv')[0]; var name=ik.value.trim(); if(!name) continue; vars.push({name:name,value:iv.value}); }
+        fetch(CTX+'api/globals/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({vars:vars})})
+            .then(readJson).then(function(j){
+                if(j.ok){ banner(true,'Saved '+j.count+' global variable(s) to <span class="mono">'+esc(j.file)+'</span>.'); load(); }
+                else banner(false, esc(j.error||'save failed'));
+                window.scrollTo(0,0);
+            }).catch(function(e){ banner(false,'Error: '+esc(e)); });
+    }
+
+    // ---------------- selectors (cascading) ----------------
+    function matches(wf, useSrc, useTgt, useFeed){
+        if(useSrc && Object.keys(selSrc).length && !selSrc[wf.sourceId]) return false;
+        if(useTgt && Object.keys(selTgt).length && !selTgt[wf.targetId]) return false;
+        if(useFeed && Object.keys(selFeed).length && !selFeed[wf.feedId]) return false;
+        return true;
+    }
+    function fillSelect(sel, items, chosen){
+        sel.innerHTML='';
+        items.forEach(function(it){
+            var o=document.createElement('option'); o.value=it.value; o.textContent=it.label;
+            if(chosen[it.value]) o.selected=true;
+            sel.appendChild(o);
+        });
+    }
+    function distinct(kind){
+        var map={}; var order=[];
+        CATALOG.workflows.forEach(function(wf){
+            var useSrc=(kind!=='source'), useTgt=(kind!=='target'), useFeed=(kind!=='feed');
+            if(!matches(wf,useSrc,useTgt,useFeed)) return;
+            var val,label;
+            if(kind==='source'){ val=wf.sourceId; label=(val||'(none)')+(wf.sourceDescription?(' — '+wf.sourceDescription):''); }
+            else if(kind==='target'){ val=wf.targetId; label=(val||'(none)')+(wf.targetDescription?(' — '+wf.targetDescription):''); }
+            else { val=wf.feedId; label=val+(wf.name?(' — '+wf.name):''); }
+            if(!(val in map)){ map[val]=label; order.push(val); }
+        });
+        return order.map(function(v){ return {value:v,label:map[v]}; });
+    }
+    function populateAll(){
+        fillSelect(document.getElementById('selSource'), distinct('source'), selSrc);
+        fillSelect(document.getElementById('selTarget'), distinct('target'), selTgt);
+        fillSelect(document.getElementById('selFeed'), distinct('feed'), selFeed);
+    }
+    function readSel(id){ var s=document.getElementById(id); var m={}; for(var i=0;i<s.options.length;i++){ if(s.options[i].selected) m[s.options[i].value]=true; } return m; }
+    function onSel(){
+        selSrc=readSel('selSource'); selTgt=readSel('selTarget'); selFeed=readSel('selFeed');
+        populateAll();
+        renderEditor();
+    }
+    function clearSel(){ selSrc={}; selTgt={}; selFeed={}; populateAll(); renderEditor(); }
+    function effectiveFeeds(){ return CATALOG.workflows.filter(function(wf){ return matches(wf,true,true,true); }); }
+
+    // ---------------- editor ----------------
+    function markDirty(inp){ var line=inp.parentNode; line.className=line.className.replace(/\bdirty\b/,'').trim()+' dirty'; inp.setAttribute('data-dirty','1'); }
+    function valLine(host, name, value, hint){
+        var line=el('div','vline',host);
+        var n=el('div','vname',line); n.textContent=name;
+        var inp=el('input','vval',line); inp.value=(value==null?'':value); inp.setAttribute('data-name',name);
+        inp.addEventListener('input',function(){ markDirty(inp); });
+        if(hint){ var h=el('span','vhint',line); h.textContent=hint; }
+        return inp;
+    }
+    function renderEditor(){
+        var host=document.getElementById('editorWrap'); host.innerHTML='';
+        document.getElementById('results').innerHTML='';
+        var feeds=effectiveFeeds();
+        document.getElementById('selCount').textContent=feeds.length+' workflow(s) selected';
+        document.getElementById('saveBar').style.display = feeds.length? '' : 'none';
+        if(!feeds.length){ var d=el('div','dim',host); d.textContent='Select one or more workflows above.'; return; }
+        if(feeds.length===1){ renderSingle(host, feeds[0]); }
+        else { renderCommon(host, feeds); }
+    }
+    function renderSingle(host, wf){
+        var fl=el('div','feedlist',host); fl.innerHTML='Editing <b>'+esc(wf.feedId)+'</b>'+(wf.name?(' — '+esc(wf.name)):'');
+        host.setAttribute('data-mode','single'); host.setAttribute('data-feed', wf.feedId);
+        // workflow variables
+        var sec=el('div','vsection',host); var hd=el('div','vhead',sec); hd.textContent='Workflow variables';
+        var bd=el('div','vbody',sec);
+        if(!wf.vars.length){ el('div','dim small',bd).textContent='No workflow variables.'; }
+        wf.vars.forEach(function(v){ var inp=valLine(bd, v.name, v.value, ''); inp.setAttribute('data-scope','var'); });
+        // steps
+        wf.steps.forEach(function(st){
+            if(!st.params || !st.params.length) return;
+            var ssec=el('div','vsection',host); var sh=el('div','vhead',ssec);
+            sh.textContent='Step: '+st.id+(st.name?(' — '+st.name):'')+(st.exec?('  ['+st.exec+']'):'');
+            var sb=el('div','vbody',ssec);
+            st.params.forEach(function(p){ var inp=valLine(sb, p.name, p.value, ''); inp.setAttribute('data-scope','param'); inp.setAttribute('data-step', st.id); });
+        });
+    }
+    function renderCommon(host, feeds){
+        host.setAttribute('data-mode','multi');
+        var fl=el('div','feedlist',host);
+        fl.innerHTML='Editing common variables of <b>'+feeds.length+'</b> workflows: '+esc(feeds.map(function(f){return f.feedId;}).join(', '));
+        // intersection of variable names present in ALL feeds
+        var counts={}, valuesByName={};
+        feeds.forEach(function(f){ var seen={}; f.vars.forEach(function(v){ if(seen[v.name])return; seen[v.name]=1; counts[v.name]=(counts[v.name]||0)+1; (valuesByName[v.name]=valuesByName[v.name]||[]).push(v.value); }); });
+        var common=Object.keys(counts).filter(function(n){ return counts[n]===feeds.length; });
+        var sec=el('div','vsection',host); var hd=el('div','vhead',sec); hd.textContent='Common workflow variables ('+common.length+')';
+        var bd=el('div','vbody',sec);
+        if(!common.length){ el('div','dim small',bd).textContent='These workflows share no variable names.'; return; }
+        common.forEach(function(n){
+            var vals=valuesByName[n]; var allEqual=vals.every(function(x){ return x===vals[0]; });
+            var inp=valLine(bd, n, allEqual? vals[0] : '', allEqual? '' : '(values differ across feeds — type to set the same value for all)');
+            inp.setAttribute('data-scope','var');
+        });
+    }
+
+    // ---------------- save variables ----------------
+    function saveVariables(){
+        var host=document.getElementById('editorWrap'); var mode=host.getAttribute('data-mode');
+        var edits=[];
+        if(mode==='single'){
+            var feedId=host.getAttribute('data-feed');
+            var vars=[], stepsMap={};
+            var inputs=host.querySelectorAll('input.vval[data-dirty="1"]');
+            for(var i=0;i<inputs.length;i++){ var inp=inputs[i]; var name=inp.getAttribute('data-name');
+                if(inp.getAttribute('data-scope')==='var'){ vars.push({name:name,value:inp.value}); }
+                else { var sid=inp.getAttribute('data-step'); (stepsMap[sid]=stepsMap[sid]||[]).push({name:name,value:inp.value}); }
+            }
+            var steps=Object.keys(stepsMap).map(function(sid){ return {stepId:sid, params:stepsMap[sid]}; });
+            if(!vars.length && !steps.length){ banner(false,'No changes to save.'); window.scrollTo(0,0); return; }
+            edits.push({feedId:feedId, vars:vars, steps:steps});
+        } else if(mode==='multi'){
+            var dirty=host.querySelectorAll('input.vval[data-dirty="1"]');
+            if(!dirty.length){ banner(false,'No changes to save.'); window.scrollTo(0,0); return; }
+            var changed=[]; for(var k=0;k<dirty.length;k++){ changed.push({name:dirty[k].getAttribute('data-name'), value:dirty[k].value}); }
+            effectiveFeeds().forEach(function(f){ edits.push({feedId:f.feedId, vars:changed, steps:[]}); });
+        } else { return; }
+
+        fetch(CTX+'api/variables/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({edits:edits})})
+            .then(function(r){ return readJson(r); })
+            .then(function(j){
+                renderResults(j.results||[]);
+                if(j.ok){ banner(true,'Saved '+j.saved+' workflow(s). All XML validated.'); load(); }
+                else banner(false, esc(j.error||'save failed'));
+                window.scrollTo(0,0);
+            }).catch(function(e){ banner(false,'Error: '+esc(e)); });
+    }
+    function renderResults(results){
+        var host=document.getElementById('results'); host.innerHTML='';
+        if(!results.length) return;
+        var sec=el('div','vsection',host); var hd=el('div','vhead',sec); hd.textContent='Validation results';
+        var bd=el('div','vbody',sec);
+        results.forEach(function(r){
+            var line=el('div','vline',bd);
+            var n=el('div','vname',line); n.textContent=r.feedId;
+            var st=el('span', r.ok?'res-ok':'res-fail', line); st.textContent=r.ok?'OK':('FAILED: '+(r.error||''));
+        });
+    }
+
+    load();
+</script>
+</body>
+</html>

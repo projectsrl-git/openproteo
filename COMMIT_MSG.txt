@@ -1,23 +1,33 @@
-feat(bulk/ui): bulk recordBusinessDate fields, dashboard target column,
-JSON/XML format button, light hover fix, sourceId in template list
+Add global variables, a Variables manager page, and source/target descriptions
 
-Bulk create:
-- Two new FEED CSV mapped columns, recordBusinessDate and
-  recordBusinessDateFormat, injected into each generated workflow as
-  variables (${recordBusinessDate} / ${recordBusinessDateFormat}).
-- The template-workflow dropdown now shows each template's sourceId.
+Global variables (common to all workflows)
+- New GlobalVarsStore merges two sources with application.properties winning:
+  a file-based set (default <sharedDir>/global-vars.properties, or
+  orchestrator.global-vars-file) and orchestrator.global-vars.* entries.
+- The engine seeds the merged map into every run at the lowest precedence, so
+  built-ins and per-workflow variables override a global of the same name.
 
-Dashboard:
-- New Target column next to Source; targetId is also searchable.
+Variables manager page (/variables)
+- Three multi-select filters (source / target / feed) that narrow each other.
+- Single workflow selected: edit all its variables plus step parameters,
+  grouped by section and step.
+- Multiple workflows selected: edit only the variables common to all of them;
+  a value is applied to every selected workflow.
+- On save, every modified workflow XML is regenerated and validated with the
+  runtime parser before anything is written; if any fails, nothing is saved and
+  per-feed results are returned.
+- The page also edits the file-based global variables; properties-based globals
+  are listed read-only.
 
-Viewer / editor:
-- A Format button pretty-prints JSON and XML for inline/unformatted
-  files, both in the file viewer's edit mode and in the designer's
-  direct-XML editor. Type is chosen by file extension, then content.
+Source / target descriptions
+- WorkflowDef, WorkflowDto, the XML parser and writer now carry
+  sourceDescription and targetDescription.
+- Editable in the designer and loadable from the Bulk create CSV mapping.
 
-Light theme:
-- Fixed button hover: the dark hover fills were hardcoded for the dark
-  theme and made button text unreadable on hover under the light theme.
+Backend
+- ApiController.toDto(WorkflowDef) extracted and reused; new endpoints
+  /api/var-catalog, /api/globals/save, /api/variables/save.
 
-77 classes compile; all touched JS validates; no \n/\r literals in JS;
-Thymeleaf-safe.
+All Java compiles (82 classes). Parser/writer round-trip, bulk generation and
+GlobalVarsStore precedence are covered by local tests; inline JS passes
+node --check; templates are clean of bare \n/\r and unsafe Thymeleaf tokens.

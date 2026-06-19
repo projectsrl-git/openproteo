@@ -52,6 +52,12 @@ public class AppProperties {
     private String maskNormalize = "trimUpper";     // none | trim | trimUpper (collapses value variants for consistency)
     private String maskPoolsDir = "";               // optional external dir overriding bundled /maskdata pools
 
+    /** Common variables for ALL workflows, set in application.properties as orchestrator.global-vars.NAME=value. Override the file-based globals. */
+    private java.util.Map<String, String> globalVars = new java.util.LinkedHashMap<String, String>();
+
+    /** Path to a properties file with file-based global variables (editable in-app). Empty = <sharedDir>/global-vars.properties. */
+    private String globalVarsFile = "";
+
     public String getWorkflowsDir() { return workflowsDir; }
     public void setWorkflowsDir(String v) { this.workflowsDir = v; }
     public String getScriptsDir() { return scriptsDir; }
@@ -96,5 +102,9 @@ public class AppProperties {
 
     public String getMaskPoolsDir() { return maskPoolsDir; }
     public void setMaskPoolsDir(String v) { this.maskPoolsDir = v; }
+    public java.util.Map<String, String> getGlobalVars() { return globalVars; }
+    public void setGlobalVars(java.util.Map<String, String> v) { this.globalVars = v; }
+    public String getGlobalVarsFile() { return globalVarsFile; }
+    public void setGlobalVarsFile(String v) { this.globalVarsFile = v; }
     public void setDatasourcesFile(String v) { this.datasourcesFile = v; }
 }
