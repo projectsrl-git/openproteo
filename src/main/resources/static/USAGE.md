@@ -110,6 +110,17 @@ A STEP runs one executor. Built-in (internal) executors:
   database created under `${stepDir}` and deleted afterwards. H2 is a **runtime-only** dependency
   (the code is pure JDBC); a `csvsql` step fails with a clear message if the H2 driver is not yet
   on the classpath (see `h2/README_H2.md`).
+- **xlsx2csv** — read **one sheet** of an `.xlsx` workbook and stream selected columns to a CSV.
+  Pick columns by header name or by column letter, set their order and an optional rename; leave the
+  column list empty to keep every column in sheet order. All cells become **text** deterministically
+  (not as Excel shows them): shared/inline/formula strings verbatim, booleans as `TRUE`/`FALSE`,
+  date-styled numbers formatted with `dateFormat` (default `yyyyMMdd`), plain numbers as plain
+  decimals (no scientific notation). The output uses the same conventions as `sql`/`csvsql`
+  (delimiter, split, `${csvFile}`/`${csvFiles}`/`${csvParts}`/`${rowCount}`) **plus** `${outputFile}`
+  (the first part), and carries **no BOM** so it drops straight into a `csvsql` `<input>` — chain
+  several `xlsx2csv` steps, then a `csvsql` to join them. Reading uses the POI streaming event API
+  (constant memory). **POI is a compile-time dependency**: the WAR will not build until POI and its
+  transitives are on Nexus — run `xlsx/PoiProbe` first (see `xlsx/README_POI.md`).
 - **mask** — deterministic streaming masking of a CSV (constant memory). Strategies are driven
   by the displayschema; pool-based strategies (names, cities, company parts) pick their values
   from selectable pool files (see Masking pools).
@@ -138,6 +149,17 @@ ingest is added. Empty fields are read as `NULL` (use `COALESCE(col,'')` when `'
 Staging copies each input into the temp DB (≈ input size), so make sure `${stepDir}`'s volume has
 room and pre-filter upstream for very large joins. Per-input separators/charset, an in-memory mode
 for small inputs, opt-in join indexes and header-based column suggestions are planned follow-ups.
+
+**xlsx2csv notes.** The biggest trap is **codes stored as numbers**: if an NDG/CF/IBAN was typed as
+a number in Excel, the leading zeros and/or precision were already lost in the source workbook (shown
+as e.g. `1.23E+15`) and **cannot be recovered here** — such columns must be stored as text in the
+xlsx. **Merged cells** keep their value only in the top-left cell (others read empty), so prefer a
+single clean header row. **Newlines inside cells** (Alt+Enter) are preserved and the field is
+RFC-4180 quoted. Workbooks using the **1904 date system** are handled via the `date1904` flag; other
+dates would shift by ~4 years. **Formulas are never calculated** — only the cached value stored in
+the file is emitted (empty if absent). The shared-strings table is read in memory, fine for typical
+extracts. `.xls` (the old BIFF format), merged-header flattening and formula evaluation are
+out of scope for this batch.
 
 ## Gates
 

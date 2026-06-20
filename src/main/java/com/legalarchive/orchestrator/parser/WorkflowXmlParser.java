@@ -79,12 +79,12 @@ public class WorkflowXmlParser {
                     s.name = el.hasAttribute("name") ? el.getAttribute("name") : s.id;
                     s.exec = trimToNull(el.getAttribute("exec"));
                     if (s.exec != null && !java.util.Arrays.asList(
-                            "auto", "powershell", "cmd", "jar", "sql", "ifscopy", "filecopy", "setvar", "validate", "csvreplace", "encoding", "anonymize", "mask", "split", "safecopy", "dequote", "csvsql")
+                            "auto", "powershell", "cmd", "jar", "sql", "ifscopy", "filecopy", "setvar", "validate", "csvreplace", "encoding", "anonymize", "mask", "split", "safecopy", "dequote", "csvsql", "xlsx2csv")
                             .contains(s.exec.toLowerCase())) {
-                        throw new IllegalArgumentException("Step '" + s.id + "': exec must be auto, powershell, cmd, jar, sql, ifscopy, filecopy, setvar, validate, csvreplace, encoding, anonymize, mask, split, safecopy, dequote or csvsql");
+                        throw new IllegalArgumentException("Step '" + s.id + "': exec must be auto, powershell, cmd, jar, sql, ifscopy, filecopy, setvar, validate, csvreplace, encoding, anonymize, mask, split, safecopy, dequote, csvsql or xlsx2csv");
                     }
                     String ik = s.exec == null ? null : s.exec.toLowerCase();
-                    boolean internal = "sql".equals(ik) || "ifscopy".equals(ik) || "filecopy".equals(ik) || "setvar".equals(ik) || "validate".equals(ik) || "csvreplace".equals(ik) || "encoding".equals(ik) || "anonymize".equals(ik) || "mask".equals(ik) || "split".equals(ik) || "safecopy".equals(ik) || "dequote".equals(ik) || "csvsql".equals(ik);
+                    boolean internal = "sql".equals(ik) || "ifscopy".equals(ik) || "filecopy".equals(ik) || "setvar".equals(ik) || "validate".equals(ik) || "csvreplace".equals(ik) || "encoding".equals(ik) || "anonymize".equals(ik) || "mask".equals(ik) || "split".equals(ik) || "safecopy".equals(ik) || "dequote".equals(ik) || "csvsql".equals(ik) || "xlsx2csv".equals(ik);
                     // script is required only for external (process) steps
                     s.script = internal ? trimToNull(el.getAttribute("script")) : req(el, "script", xmlFile);
                     // built-in step attributes
@@ -116,6 +116,12 @@ public class WorkflowXmlParser {
                         ci.csv = in.getAttribute("csv");
                         ci.table = in.getAttribute("table");
                         s.inputs.add(ci);
+                    }
+                    for (Element col : directChildren(el, "column")) {
+                        com.legalarchive.orchestrator.model.def.ColumnSel cs = new com.legalarchive.orchestrator.model.def.ColumnSel();
+                        cs.src = col.getAttribute("src");
+                        cs.as = col.hasAttribute("as") ? col.getAttribute("as") : col.getAttribute("src");
+                        s.columns.add(cs);
                     }
                     s.forEach = trimToNull(el.getAttribute("forEach"));
                     s.concurrency = intAttr(el, "concurrency", 4);

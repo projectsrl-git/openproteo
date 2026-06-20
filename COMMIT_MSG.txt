@@ -1,28 +1,34 @@
-Add csvsql executor: H2 SQL/joins across CSVs -> CSV
+Add xlsx2csv executor: Excel sheet -> CSV via POI (streaming)
 
-New internal STEP that runs an arbitrary SQL query (joins, aggregates,
-subqueries, CTEs, window functions) across several CSV files and streams the
-result to a new CSV, like the other CSV-producing steps. The user writes only
-the SELECT over table aliases; all H2 plumbing (CSVREAD staging, the export) is
-generated and hidden.
+New internal STEP that reads one sheet of an .xlsx workbook with the POI
+streaming event API (OPCPackage + XSSFReader + SAX, constant memory), projects
+the selected columns (by header name or column letter, with order and rename),
+and streams the result to a CSV through the shared writer -- so its output drops
+straight into a csvsql <input> (chain xlsx2csv -> xlsx2csv -> csvsql).
 
-- Pure java.sql (no org.h2.* imports): the project compiles and the app starts
-  with no H2 on the classpath; H2 is a runtime-only dependency. A csvsql step
-  fails with a clear message until the driver is present (see h2/README_H2.md).
-- Everything stays VARCHAR (CSVREAD); the user casts inside the query for math.
-  String equi-joins keep leading zeros; fixed-width yyyyMMdd dates compare as
-  strings.
-- Temporary file-mode H2 DB under ${stepDir}, deleted in finally. The user
-  query runs verbatim via Statement.executeQuery and is streamed through the
-  shared CSV exporter (UTF-8, CRLF, header, row/MB split, ##VAR rowCount/
-  csvFile/csvFiles/csvParts), so it is fully LOOP-compatible. Output is written
-  without a BOM so csvsql->csvsql chains are safe.
+All cells are rendered to text deterministically (NOT as Excel displays them):
+shared/inline/formula strings verbatim; boolean TRUE/FALSE; error empty;
+date-styled numbers via DateUtil + a fixed dateFormat (default yyyyMMdd, UTC);
+plain numbers via BigDecimal.stripTrailingZeros().toPlainString(); empty cells
+preserved. Output carries no BOM.
 
-Files: model/def/CsvInput + StepDef.inputs; parser whitelist/internal/<input>;
-engine internalKind; SqlSupport.exportResultSet refactor; InternalSteps.runCsvSql;
-WorkflowDto.CsvInputDto; ApiController toDto + /csvsql/preview; XML writer <input>;
-pom.xml h2 (runtime); h2/README_H2.md + h2/H2Probe.java; designer (option, branch,
-preview, validation).
+CSV writing is refactored into a shared ds/CsvWriter (open/header/row/split/close,
+UTF-8, CRLF, RFC-4180 quoting); sql, csvsql and xlsx2csv now emit byte-identical
+CSV with the same ##VAR outputs (rowCount/csvFile/csvFiles/csvParts, plus
+outputFile for xlsx2csv).
 
-Compiles (85 classes). Parser/writer round-trip and designer JS verified locally;
-live H2 link test (h2/H2Probe) and the step run to be verified on UBS/Nexus.
+IMPORTANT: unlike csvsql's H2 (pure JDBC, runtime-only), Apache POI is a
+COMPILE-TIME dependency. The WAR will not build until POI and all its transitives
+are on Nexus -- run xlsx/PoiProbe first (see xlsx/README_POI.md). poi + poi-ooxml
+5.2.5 are pinned (not BOM-managed); keep poi-ooxml-lite, not -full.
+
+Files: model/def/ColumnSel + StepDef.columns; parser whitelist/internal/<column>;
+engine internalKind; xlsx/XlsxSheetReader (POI event reader, only POI importer);
+ds/CsvWriter + SqlSupport.exportResultSet refactor; InternalSteps.runXlsx2Csv;
+WorkflowDto.ColumnSelDto; ApiController toDto + /xlsx/sheets + /xlsx/preview;
+XML writer <column>; pom.xml poi/poi-ooxml; xlsx/README_POI.md + xlsx/PoiProbe.java;
+designer (option, branch, sheet/column loading, preview, validation).
+
+Compiles (96 classes, against POI stubs in the sandbox). Parser/writer round-trip
+and column-plan logic verified locally (TestXlsx); live POI, the PoiProbe link
+test and the endpoints to be verified on UBS/Nexus.

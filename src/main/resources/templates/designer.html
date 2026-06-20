@@ -313,7 +313,7 @@
         stepSeq++;
         wf.nodes.push({ kind: 'STEP', id: 'step_' + stepSeq, name: 'Step ' + stepSeq, script: '', exec: 'auto',
             timeoutSec: null, retry: null, retryDelaySec: null, params: [], outputs: [],
-            datasource: '', query: '', csvFile: '', csvSplitRows: null, csvSplitMb: null, validateChecks: [], replacements: [], inputs: [], ifsPath: '', source: '', dest: '', pattern: '', mode: 'copy',
+            datasource: '', query: '', csvFile: '', csvSplitRows: null, csvSplitMb: null, validateChecks: [], replacements: [], inputs: [], columns: [], ifsPath: '', source: '', dest: '', pattern: '', mode: 'copy',
             overwrite: false, outputVar: '', delimiter: '', forEach: '', concurrency: null });
         renderNodes(); preview();
     }
@@ -384,6 +384,9 @@
     function addInput(i) { var n = wf.nodes[i]; n.inputs = n.inputs || []; n.inputs.push({ csv: '', table: '' }); renderNodes(); }
     function delInput(i, ii) { wf.nodes[i].inputs.splice(ii, 1); renderNodes(); preview(); }
     function updInput(i, ii, f, v) { wf.nodes[i].inputs[ii][f] = v; preview(); }
+    function addCol(i) { var n = wf.nodes[i]; n.columns = n.columns || []; n.columns.push({ src: '', as: '' }); renderNodes(); }
+    function delCol(i, ci) { wf.nodes[i].columns.splice(ci, 1); renderNodes(); preview(); }
+    function updCol(i, ci, f, v) { wf.nodes[i].columns[ci][f] = v; preview(); }
 
     function addParam(i) { wf.nodes[i].params.push({ name: '', value: '' }); renderNodes(); }
     function delParam(i, j) { wf.nodes[i].params.splice(j, 1); renderNodes(); preview(); }
@@ -451,6 +454,55 @@
         }).then(readJson).then(function (j) {
             if (!j.ok) { box.textContent = 'ERROR: ' + (j.error || 'preview failed'); return; }
             var out = (j.columns || []).join(' | ') + NL + '----' + NL;
+            (j.rows || []).forEach(function (row) { out += row.join(' | ') + NL; });
+            out += NL + (j.rows ? j.rows.length : 0) + ' row(s). ' + (j.note || '');
+            box.textContent = out;
+        }).catch(function (e) { box.textContent = 'Error: ' + e; });
+    }
+
+    function xlsxFeedId() { return (typeof EDIT_FEED_ID !== 'undefined' && EDIT_FEED_ID) ? EDIT_FEED_ID : wf.feedId; }
+    function loadXlsxSheets(i) {
+        var n = wf.nodes[i]; var box = document.getElementById('qprev_' + i); box.style.display = 'block';
+        var fid = xlsxFeedId();
+        if (!fid) { box.textContent = 'Save the workflow first (path ${vars} resolve against the saved feed).'; return; }
+        if (!n.source) { box.textContent = 'Set the xlsx path first.'; return; }
+        box.textContent = 'Loading sheets...';
+        fetch(CTX + 'api/workflows/' + encodeURIComponent(fid) + '/xlsx/sheets?path=' + encodeURIComponent(n.source)).then(readJson).then(function (j) {
+            if (!j.ok) { box.textContent = 'ERROR: ' + (j.error || ''); return; }
+            var sel = document.getElementById('xsheet_' + i); var cur = nodeParam(n, 'sheet') || '';
+            sel.innerHTML = '<option value="">(by index 0)</option>' + (j.sheets || []).map(function (sh) {
+                return '<option value="' + attresc(sh.name) + '"' + (sh.name === cur ? ' selected' : '') + '>' + esc(sh.name) + '</option>'; }).join('');
+            box.textContent = 'Loaded ' + (j.sheets || []).length + ' sheet(s). Pick one above.';
+        }).catch(function (e) { box.textContent = 'Error: ' + e; });
+    }
+    function xlsxPayload(n) {
+        return { path: n.source, sheet: nodeParam(n, 'sheet') || '', sheetIndex: parseInt(nodeParam(n, 'sheetIndex') || '0', 10),
+            headerRow: parseInt(nodeParam(n, 'headerRow') || '1', 10), firstDataRow: parseInt(nodeParam(n, 'firstDataRow') || '2', 10),
+            selectBy: nodeParam(n, 'selectBy') || 'header', dateFormat: nodeParam(n, 'dateFormat') || 'yyyyMMdd',
+            delimiter: n.delimiter || ';', rawValues: nodeParam(n, 'rawValues') === 'true',
+            columns: (n.columns || []).filter(function (c) { return c.src; }).map(function (c) { return { src: c.src, as: c.as }; }) };
+    }
+    function loadXlsxColumns(i) {
+        var n = wf.nodes[i]; var box = document.getElementById('qprev_' + i); box.style.display = 'block';
+        var fid = xlsxFeedId(); if (!fid) { box.textContent = 'Save the workflow first.'; return; }
+        if (!n.source) { box.textContent = 'Set the xlsx path first.'; return; }
+        box.textContent = 'Loading columns...';
+        var payload = xlsxPayload(n); payload.columns = [];
+        fetch(CTX + 'api/workflows/' + encodeURIComponent(fid) + '/xlsx/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }).then(readJson).then(function (j) {
+            if (!j.ok) { box.textContent = 'ERROR: ' + (j.error || ''); return; }
+            n.columns = n.columns || []; var have = {}; n.columns.forEach(function (c) { have[c.src] = true; });
+            (j.headers || []).forEach(function (hname) { if (hname && !have[hname]) n.columns.push({ src: hname, as: hname }); });
+            box.textContent = 'Loaded ' + (j.headers || []).length + ' header(s) — edit/reorder/remove below.'; renderNodes();
+        }).catch(function (e) { box.textContent = 'Error: ' + e; });
+    }
+    function previewXlsx2Csv(i) {
+        var n = wf.nodes[i]; var box = document.getElementById('qprev_' + i); box.style.display = 'block';
+        var fid = xlsxFeedId(); if (!fid) { box.textContent = 'Save the workflow first.'; return; }
+        if (!n.source) { box.textContent = 'Set the xlsx path first.'; return; }
+        box.textContent = 'Running...';
+        fetch(CTX + 'api/workflows/' + encodeURIComponent(fid) + '/xlsx/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(xlsxPayload(n)) }).then(readJson).then(function (j) {
+            if (!j.ok) { box.textContent = 'ERROR: ' + (j.error || 'preview failed'); return; }
+            var out = (j.headers || []).join(' | ') + NL + '----' + NL;
             (j.rows || []).forEach(function (row) { out += row.join(' | ') + NL; });
             out += NL + (j.rows ? j.rows.length : 0) + ' row(s). ' + (j.note || '');
             box.textContent = out;
@@ -644,6 +696,7 @@
                     '<option value="mask"' + (ex === 'mask' ? ' selected' : '') + '>mask (CSV streaming, deterministic)</option>' +
                     '<option value="split"' + (ex === 'split' ? ' selected' : '') + '>split (file → parts by rows/MB)</option>' +
                     '<option value="csvsql"' + (ex === 'csvsql' ? ' selected' : '') + '>csvsql (H2 SQL/joins across CSVs)</option>' +
+                    '<option value="xlsx2csv"' + (ex === 'xlsx2csv' ? ' selected' : '') + '>xlsx2csv (Excel sheet → CSV)</option>' +
                     '</select></div>';
                 h += '<div class="field wide"><label>Script / executable (relative to scripts dir or absolute)' + (isExternal(ex) ? ' *' : '') + '</label>' +
                     '<input value="' + attresc(n.script) + '" placeholder="' + (isExternal(ex) ? 'Prepare-Feed.ps1 | tool.bat | app.jar' : '(not used for this executor)') + '" oninput="updNode(' + i + ',\'script\',this.value)"' + (isExternal(ex) ? '' : ' disabled') + '></div>' +
@@ -696,6 +749,46 @@
                         '<span class="dim small">outputs: ##VAR rowCount, csvFile, csvFiles, csvParts</span></div>' +
                         '<div class="xmlbox" id="qprev_' + i + '" style="display:none;margin-top:8px;max-height:220px"></div></div>';
                     h += '<div class="dim small" style="margin-top:6px">All columns are VARCHAR — cast inside the query for math, e.g. CAST(col AS DECIMAL(18,2)) or PARSEDATETIME(col,' + String.fromCharCode(39) + 'yyyyMMdd' + String.fromCharCode(39) + '). yyyyMMdd dates compare correctly as strings.</div>';
+                } else if (ex === 'xlsx2csv') {
+                    h += '<div class="form-row"><div class="field wide"><label>Excel file (.xlsx) *</label>' +
+                        '<input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${landingIn}/clienti.xlsx" oninput="updNode(' + i + ',\'source\',this.value)"></div>' +
+                        '<div class="field"><label>Sheet</label><select id="xsheet_' + i + '" onchange="setNodeParam(' + i + ',\'sheet\',this.value)"><option value="">(by index 0)</option>' +
+                        (nodeParam(n,'sheet') ? '<option value="' + attresc(nodeParam(n,'sheet')) + '" selected>' + esc(nodeParam(n,'sheet')) + '</option>' : '') + '</select></div>' +
+                        '<div class="field" style="max-width:120px"><label>&nbsp;</label><button class="ghost-btn" onclick="loadXlsxSheets(' + i + ')">Load sheets</button></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Header row</label><input type="number" min="0" value="' + (nodeParam(n,'headerRow') || '1') + '" oninput="setNodeParam(' + i + ',\'headerRow\',this.value)"></div>' +
+                        '<div class="field"><label>First data row</label><input type="number" min="1" value="' + (nodeParam(n,'firstDataRow') || '2') + '" oninput="setNodeParam(' + i + ',\'firstDataRow\',this.value)"></div>' +
+                        '<div class="field"><label>Select by</label><select onchange="setNodeParam(' + i + ',\'selectBy\',this.value)">' +
+                        '<option value="header"' + (nodeParam(n,'selectBy') !== 'letter' ? ' selected' : '') + '>header name</option>' +
+                        '<option value="letter"' + (nodeParam(n,'selectBy') === 'letter' ? ' selected' : '') + '>column letter</option></select></div>' +
+                        '<div class="field"><label>Date format</label><input value="' + attresc(nodeParam(n,'dateFormat') || 'yyyyMMdd') + '" oninput="setNodeParam(' + i + ',\'dateFormat\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Raw values</label><select onchange="setNodeParam(' + i + ',\'rawValues\',this.value)">' +
+                        '<option value="false"' + (nodeParam(n,'rawValues') !== 'true' ? ' selected' : '') + '>no (render dates/numbers)</option>' +
+                        '<option value="true"' + (nodeParam(n,'rawValues') === 'true' ? ' selected' : '') + '>yes (stored value)</option></select></div>' +
+                        '<div class="field"><label>Skip empty rows</label><select onchange="setNodeParam(' + i + ',\'skipEmptyRows\',this.value)">' +
+                        '<option value="true"' + (nodeParam(n,'skipEmptyRows') !== 'false' ? ' selected' : '') + '>yes</option>' +
+                        '<option value="false"' + (nodeParam(n,'skipEmptyRows') === 'false' ? ' selected' : '') + '>no</option></select></div></div>';
+                    h += '<div class="subsection"><div class="sub-label">Columns to keep (empty = all, in sheet order)</div>';
+                    (n.columns || []).forEach(function (c, ci) {
+                        h += '<div class="form-row">' +
+                            '<div class="field wide"><label>Source (header name or letter)</label><input value="' + attresc(c.src) + '" placeholder="NDG" oninput="updCol(' + i + ',' + ci + ',\'src\',this.value)"></div>' +
+                            '<div class="field"><label>Output name</label><input value="' + attresc(c.as) + '" placeholder="NDG" oninput="updCol(' + i + ',' + ci + ',\'as\',this.value)"></div>' +
+                            '<div class="field" style="max-width:60px"><label>&nbsp;</label><button class="btn sm danger" onclick="delCol(' + i + ',' + ci + ')">✕</button></div></div>';
+                    });
+                    h += '<button class="ghost-btn" onclick="addCol(' + i + ')">＋ column</button> ' +
+                        '<button class="ghost-btn" onclick="loadXlsxColumns(' + i + ')">Load columns from sheet</button></div>';
+                    h += '<div class="form-row"><div class="field wide"><label>CSV output file * — no BOM (feeds csvsql)</label>' +
+                        '<input class="sugin" list="pathsug" value="' + attresc(n.csvFile) + '" placeholder="${stepDir}/clienti.csv" oninput="updNode(' + i + ',\'csvFile\',this.value)"></div>' +
+                        '<div class="field"><label>Delimiter</label><input value="' + attresc(n.delimiter) + '" placeholder=";" oninput="updNode(' + i + ',\'delimiter\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Split: max rows per file (0 = no split)</label><input type="number" min="0" value="' + (n.csvSplitRows || '') + '" placeholder="0" oninput="updNode(' + i + ',\'csvSplitRows\',this.value)"></div>' +
+                        '<div class="field"><label>Split: max MB per file (0 = no split)</label><input type="number" min="0" value="' + (n.csvSplitMb || '') + '" placeholder="0" oninput="updNode(' + i + ',\'csvSplitMb\',this.value)"></div>' +
+                        '<div class="field"><label></label><span class="dim small">→ ${csvFile}, ${csvFiles}, ${csvParts}, ${outputFile}</span></div></div>';
+                    h += '<div style="margin-top:8px"><button class="ghost-btn" onclick="previewXlsx2Csv(' + i + ')">▶ Preview</button> ' +
+                        '<span class="dim small">outputs: ##VAR rowCount, csvFile, csvFiles, csvParts, outputFile</span></div>' +
+                        '<div class="xmlbox" id="qprev_' + i + '" style="display:none;margin-top:8px;max-height:220px"></div>';
+                    h += '<div class="dim small" style="margin-top:6px">All cells become text; dates → the date format; numbers → plain decimals. Codes (NDG/CF/IBAN) must be stored as TEXT in the xlsx — if stored as numbers, Excel already lost leading zeros/precision and it cannot be recovered here.</div>';
                 } else if (ex === 'ifscopy') {
                     h += '<div class="form-row">' + dsSelect(i, n.datasource) +
                         '<div class="field wide"><label>IFS source path (AS400) *</label><input value="' + attresc(n.ifsPath) + '" placeholder="/QIBM/feeds/EOR/${runDate}" oninput="updNode(' + i + ',\'ifsPath\',this.value)"></div></div>' +
@@ -1053,6 +1146,9 @@
                 (n.inputs || []).forEach(function (ci) {
                     if (ci.csv || ci.table) inner.push('            <input csv="' + xesc(ci.csv || '') + '" table="' + xesc(ci.table || '') + '"/>');
                 });
+                (n.columns || []).forEach(function (c) {
+                    if (c.src || c.as) inner.push('            <column src="' + xesc(c.src || '') + '" as="' + xesc(c.as || '') + '"/>');
+                });
                 if (inner.length) {
                     L.push(s + '>');
                     inner.forEach(function (x) { L.push(x); });
@@ -1102,6 +1198,15 @@
                     });
                     if (!n.query) errs.push(label + ' (' + n.id + '): query is required');
                     if (!n.csvFile) errs.push(label + ' (' + n.id + '): output csvFile is required');
+                }
+                if (ex === 'xlsx2csv') {
+                    if (!n.source) errs.push(label + ' (' + n.id + '): xlsx file (source) is required');
+                    else if (!/\.xlsx$/i.test(n.source)) errs.push(label + ' (' + n.id + '): source must be an .xlsx file');
+                    if (!n.csvFile) errs.push(label + ' (' + n.id + '): output csvFile is required');
+                    var asNames = {};
+                    (n.columns || []).forEach(function (c) {
+                        if (c.as) { if (asNames[c.as]) errs.push(label + ' (' + n.id + '): duplicate output column "' + c.as + '"'); asNames[c.as] = true; }
+                    });
                 }
                 if (ex === 'safecopy' && (!n.source || !n.dest)) errs.push(label + ' (' + n.id + '): source and dest directories are required');
                 if (ex === 'dequote' && !n.source) errs.push(label + ' (' + n.id + '): input CSV (source) is required');
@@ -1300,7 +1405,7 @@
                 wf = d;
                 wf.variables = wf.variables || [];
                 wf.nodes = wf.nodes || [];
-                wf.nodes.forEach(function (n) { n.params = n.params || []; n.outputs = n.outputs || []; n.inputs = n.inputs || []; });
+                wf.nodes.forEach(function (n) { n.params = n.params || []; n.outputs = n.outputs || []; n.inputs = n.inputs || []; n.columns = n.columns || []; });
                 // open compact: all steps collapsed initially
                 collapsedNodes = {};
                 wf.nodes.forEach(function (n, i) { collapsedNodes[nodeKey(n, i)] = true; });

@@ -117,6 +117,12 @@ public class WorkflowXmlWriter {
                             ie.setAttribute("table", ci.table == null ? "" : ci.table);
                             s.appendChild(ie);
                         }
+                        if (n.columns != null) for (com.legalarchive.orchestrator.web.dto.WorkflowDto.NodeDto.ColumnSelDto cs : n.columns) {
+                            org.w3c.dom.Element ce = doc.createElement("column");
+                            ce.setAttribute("src", cs.src == null ? "" : cs.src);
+                            if (cs.as != null && !cs.as.isEmpty()) ce.setAttribute("as", cs.as);
+                            s.appendChild(ce);
+                        }
                         if (n.csvSplitRows != null && n.csvSplitRows > 0) s.setAttribute("csvSplitRows", String.valueOf(n.csvSplitRows));
                         if (n.csvSplitMb != null && n.csvSplitMb > 0) s.setAttribute("csvSplitMb", String.valueOf(n.csvSplitMb));
                         attr(s, "delimiter", n.delimiter);

@@ -63,6 +63,8 @@ public class StepDef extends NodeDef {
     public java.util.List<Replacement> replacements = new java.util.ArrayList<Replacement>();
     /** csvsql: input CSVs + their table aliases. */
     public java.util.List<CsvInput> inputs = new java.util.ArrayList<CsvInput>();
+    /** xlsx2csv: selected columns (src header/letter -> as output name). */
+    public java.util.List<ColumnSel> columns = new java.util.ArrayList<ColumnSel>();
     /** Delimiter for joined list output vars (default ;). */
     public String delimiter;
 

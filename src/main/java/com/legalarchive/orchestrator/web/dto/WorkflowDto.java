@@ -67,6 +67,8 @@ public class WorkflowDto {
         public java.util.List<ReplacementDto> replacements;
         public static class CsvInputDto { public String csv; public String table; }
         public java.util.List<CsvInputDto> inputs;
+        public static class ColumnSelDto { public String src; public String as; }
+        public java.util.List<ColumnSelDto> columns;
         public String delimiter;
         // parallel fan-out
         public String forEach;

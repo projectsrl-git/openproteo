@@ -95,6 +95,8 @@ public class InternalSteps {
                 runDequote(step, resolvedParams, vars, res, line);
             } else if ("csvsql".equals(kind)) {
                 runCsvSql(step, resolvedParams, vars, res, line);
+            } else if ("xlsx2csv".equals(kind)) {
+                runXlsx2Csv(step, resolvedParams, vars, res, line);
             } else {
                 line.accept("unknown internal step kind: " + kind);
                 res.exitCode = -996;
@@ -209,6 +211,100 @@ public class InternalSteps {
             try { h2dir.delete(); } catch (Exception ignored) {}
         }
     }
+
+    // -------------------------------------------------------------- xlsx2csv
+    /**
+     * Read one sheet of an .xlsx workbook (POI streaming event API), project the selected columns,
+     * and write a CSV through the shared {@link CsvWriter}. All cells are rendered to text
+     * deterministically (see {@link com.legalarchive.orchestrator.xlsx.XlsxSheetReader}). Output has
+     * no BOM so it drops straight into a {@code csvsql} {@code <input>}.
+     */
+    private void runXlsx2Csv(StepDef step, Map<String, String> params, Map<String, String> vars,
+                             StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        String source = VarResolver.resolve(step.source, vars);
+        String csvFile = VarResolver.resolve(step.csvFile, vars);
+        if (source == null || source.trim().isEmpty()) { line.accept("xlsx2csv: source (xlsx) is required"); res.exitCode = 2; return; }
+        if (!source.toLowerCase(java.util.Locale.ROOT).endsWith(".xlsx")) { line.accept("xlsx2csv: source must be an .xlsx file"); res.exitCode = 2; return; }
+        java.io.File xlsx = new java.io.File(source);
+        if (!xlsx.isFile()) { line.accept("xlsx2csv: file not found: " + source); res.exitCode = 2; return; }
+        if (csvFile == null || csvFile.trim().isEmpty()) { line.accept("xlsx2csv: csvFile (output) is required"); res.exitCode = 2; return; }
+
+        char delim = (step.delimiter != null && !step.delimiter.isEmpty()) ? step.delimiter.charAt(0) : ';';
+        String sheet = VarResolver.resolve(params.get("sheet"), vars);
+        int sheetIndex = xInt(params.get("sheetIndex"), 0);
+        final int headerRow = xInt(params.get("headerRow"), 1);
+        final int firstDataRow = xInt(params.get("firstDataRow"), 2);
+        final String selectBy = xStr(params.get("selectBy"), "header");
+        String dateFormat = xStr(params.get("dateFormat"), "yyyyMMdd");
+        boolean rawValues = "true".equalsIgnoreCase(params.get("rawValues"));
+        final boolean skipEmptyRows = !"false".equalsIgnoreCase(params.get("skipEmptyRows"));
+
+        try { Class.forName("org.apache.poi.openxml4j.opc.OPCPackage"); }
+        catch (Throwable t) { line.accept("xlsx2csv: Apache POI not on classpath — add org.apache.poi:poi-ooxml (see xlsx/README_POI.md)"); res.exitCode = 2; return; }
+
+        final java.util.List<String> srcs = new java.util.ArrayList<String>();
+        final java.util.List<String> ases = new java.util.ArrayList<String>();
+        if (step.columns != null) for (com.legalarchive.orchestrator.model.def.ColumnSel c : step.columns) {
+            srcs.add(VarResolver.resolve(c.src, vars));
+            ases.add(VarResolver.resolve(c.as, vars));
+        }
+
+        java.io.File out = new java.io.File(csvFile);
+        if (out.getParentFile() != null) out.getParentFile().mkdirs();
+        long maxRows = step.csvSplitRows > 0 ? step.csvSplitRows : 0;
+        long maxBytes = step.csvSplitMb > 0 ? (long) step.csvSplitMb * 1024L * 1024L : 0;
+        final com.legalarchive.orchestrator.ds.CsvWriter cw = new com.legalarchive.orchestrator.ds.CsvWriter(out, delim, false, maxRows, maxBytes);   // no BOM (feeds csvsql)
+        final com.legalarchive.orchestrator.xlsx.XlsxSheetReader.Plan[] plan = {null};
+
+        line.accept("xlsx2csv: " + source + " sheet=" + ((sheet != null && !sheet.trim().isEmpty()) ? sheet : ("#" + sheetIndex)));
+        try {
+            com.legalarchive.orchestrator.xlsx.XlsxSheetReader.read(xlsx, sheet, sheetIndex, dateFormat, rawValues,
+                new com.legalarchive.orchestrator.xlsx.XlsxSheetReader.RowSink() {
+                    public void row(int rowNum, java.util.List<String> cells) throws Exception {
+                        if (headerRow >= 1 && rowNum == headerRow) {
+                            plan[0] = com.legalarchive.orchestrator.xlsx.XlsxSheetReader.plan(cells, srcs.isEmpty() ? null : srcs, ases, selectBy);
+                            cw.header(plan[0].out);
+                            return;
+                        }
+                        if (rowNum >= firstDataRow) {
+                            if (plan[0] == null) {
+                                plan[0] = com.legalarchive.orchestrator.xlsx.XlsxSheetReader.plan(cells, srcs.isEmpty() ? null : srcs, ases, selectBy);
+                                cw.header(plan[0].out);
+                            }
+                            int[] idx = plan[0].idx;
+                            String[] projected = new String[idx.length];
+                            boolean allEmpty = true;
+                            for (int k = 0; k < idx.length; k++) {
+                                int ci = idx[k];
+                                String v = (ci >= 0 && ci < cells.size()) ? cells.get(ci) : "";
+                                if (v == null) v = "";
+                                if (!v.isEmpty()) allEmpty = false;
+                                projected[k] = v;
+                            }
+                            if (skipEmptyRows && allEmpty) return;
+                            cw.row(projected);
+                        }
+                    }
+                });
+        } finally {
+            cw.close();
+        }
+
+        res.outVars.put("rowCount", String.valueOf(cw.rows));
+        res.outVars.put("csvParts", String.valueOf(cw.parts));
+        String first = cw.files.isEmpty() ? out.getAbsolutePath() : cw.files.get(0);
+        res.outVars.put("csvFile", first);
+        res.outVars.put("csvFiles", String.join(step.delimiter == null ? ";" : step.delimiter, cw.files));
+        res.outVars.put("outputFile", first);
+        if (cw.parts > 1) line.accept("wrote " + cw.rows + " data row(s) into " + cw.parts + " CSV part(s)");
+        else line.accept("wrote " + cw.rows + " data row(s) to " + first);
+        for (String fpath : cw.files) line.accept("  " + fpath);
+        for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
+        res.exitCode = 0;
+    }
+
+    private static int xInt(String s, int def) { if (s == null || s.trim().isEmpty()) return def; try { return Integer.parseInt(s.trim()); } catch (Exception e) { return def; } }
+    private static String xStr(String s, String def) { return (s == null || s.trim().isEmpty()) ? def : s.trim(); }
 
     // ----------------------------------------------------------------- sql
     private void runSql(StepDef step, Map<String, String> params, Map<String, String> vars,

@@ -584,7 +584,7 @@ public class WorkflowEngine {
     private static String internalKind(String exec) {
         if (exec == null) return null;
         String e = exec.trim().toLowerCase();
-        if (e.equals("sql") || e.equals("ifscopy") || e.equals("filecopy") || e.equals("setvar") || e.equals("validate") || e.equals("csvreplace") || e.equals("encoding") || e.equals("anonymize") || e.equals("mask") || e.equals("split") || e.equals("safecopy") || e.equals("dequote") || e.equals("csvsql")) return e;
+        if (e.equals("sql") || e.equals("ifscopy") || e.equals("filecopy") || e.equals("setvar") || e.equals("validate") || e.equals("csvreplace") || e.equals("encoding") || e.equals("anonymize") || e.equals("mask") || e.equals("split") || e.equals("safecopy") || e.equals("dequote") || e.equals("csvsql") || e.equals("xlsx2csv")) return e;
         return null;
     }
 

@@ -56,6 +56,20 @@
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- Apache POI: COMPILE-TIME dependency for the xlsx2csv reader (streaming .xlsx -> CSV).
+             Not managed by the Spring Boot BOM — pin the version. POI's transitive tree is large;
+             confirm ALL transitives resolve on Nexus before building (see xlsx/README_POI.md and run
+             xlsx/PoiProbe). poi-ooxml pulls poi-ooxml-lite (keep lite; do NOT add poi-ooxml-full). -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.2.5</version>
+        </dependency>
     </dependencies>
 
     <build>

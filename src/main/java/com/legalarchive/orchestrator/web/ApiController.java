@@ -225,6 +225,129 @@ public class ApiController {
         }
     }
 
+    /** Best-effort variable map for a feed (no step outputs), used by previews. */
+    private Map<String, String> feedVars(WorkflowDef def, String feedId) {
+        Map<String, String> vars = new LinkedHashMap<String, String>();
+        vars.putAll(globalVars.all());
+        vars.put("feedId", def.feedId);
+        vars.put("sourceId", def.sourceId == null ? "" : def.sourceId);
+        vars.put("targetId", def.targetId == null ? "" : def.targetId);
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        vars.put("runDate", now.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd")));
+        vars.put("runTs", now.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
+        FeedLayout layout = registry.layout(feedId);
+        if (layout != null) { try { layout.provision(); } catch (Exception ignore) {} vars.putAll(layout.dirVars()); }
+        try { vars.put("sharedDir", assets.sharedDir().toString()); } catch (Exception ignore) {}
+        if (def.variables != null) vars.putAll(def.variables);
+        return vars;
+    }
+
+    /** List the sheet names of an .xlsx (for the xlsx2csv sheet dropdown). */
+    @GetMapping("/api/workflows/{feedId}/xlsx/sheets")
+    public ResponseEntity<Map<String, Object>> xlsxSheets(@PathVariable String feedId,
+                                                          @RequestParam("path") String path) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        WorkflowDef def = registry.get(feedId);
+        if (def == null) return badRequest(out, "Unknown workflow: " + feedId);
+        String resolved = com.legalarchive.orchestrator.engine.VarResolver.resolve(path, feedVars(def, feedId));
+        if (resolved == null || resolved.trim().isEmpty()) return badRequest(out, "path is required");
+        java.io.File f = new java.io.File(resolved);
+        if (!f.isFile()) return badRequest(out, "file not found: " + resolved);
+        if (!resolved.toLowerCase(java.util.Locale.ROOT).endsWith(".xlsx")) return badRequest(out, "not an .xlsx file: " + resolved);
+        try {
+            java.util.List<String> names = com.legalarchive.orchestrator.xlsx.XlsxSheetReader.sheetNames(f);
+            java.util.List<Map<String, Object>> sheets = new java.util.ArrayList<Map<String, Object>>();
+            for (int i = 0; i < names.size(); i++) {
+                Map<String, Object> m = new LinkedHashMap<String, Object>();
+                m.put("name", names.get(i)); m.put("index", i);
+                sheets.add(m);
+            }
+            out.put("ok", true); out.put("sheets", sheets); out.put("path", resolved);
+            return ResponseEntity.ok(out);
+        } catch (Throwable t) {
+            return badRequest(out, t.getMessage() == null ? t.toString() : t.getMessage());
+        }
+    }
+
+    public static class XlsxPreviewReq {
+        public String path;
+        public String sheet;
+        public Integer sheetIndex;
+        public Integer headerRow;
+        public Integer firstDataRow;
+        public String selectBy;
+        public String dateFormat;
+        public String delimiter;
+        public Boolean rawValues;
+        public java.util.List<WorkflowDto.NodeDto.ColumnSelDto> columns;
+    }
+
+    /** Preview the xlsx2csv conversion: header row + up to 50 projected data rows. */
+    @PostMapping("/api/workflows/{feedId}/xlsx/preview")
+    public ResponseEntity<Map<String, Object>> xlsxPreview(@PathVariable String feedId,
+                                                           @RequestBody XlsxPreviewReq body) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        WorkflowDef def = registry.get(feedId);
+        if (def == null) return badRequest(out, "Unknown workflow: " + feedId);
+        if (body == null || body.path == null || body.path.trim().isEmpty()) return badRequest(out, "path is required");
+        String resolved = com.legalarchive.orchestrator.engine.VarResolver.resolve(body.path, feedVars(def, feedId));
+        java.io.File f = new java.io.File(resolved);
+        if (!f.isFile()) return badRequest(out, "file not found: " + resolved);
+        if (!resolved.toLowerCase(java.util.Locale.ROOT).endsWith(".xlsx")) return badRequest(out, "not an .xlsx file: " + resolved);
+
+        final int headerRow = body.headerRow != null ? body.headerRow : 1;
+        final int firstDataRow = body.firstDataRow != null ? body.firstDataRow : 2;
+        final String selectBy = (body.selectBy == null || body.selectBy.trim().isEmpty()) ? "header" : body.selectBy.trim();
+        String dateFormat = (body.dateFormat == null || body.dateFormat.trim().isEmpty()) ? "yyyyMMdd" : body.dateFormat.trim();
+        boolean rawValues = body.rawValues != null && body.rawValues.booleanValue();
+        final java.util.List<String> srcs = new java.util.ArrayList<String>();
+        final java.util.List<String> ases = new java.util.ArrayList<String>();
+        if (body.columns != null) for (WorkflowDto.NodeDto.ColumnSelDto c : body.columns) { srcs.add(c.src); ases.add(c.as); }
+
+        final java.util.List<String> headers = new java.util.ArrayList<String>();
+        final java.util.List<java.util.List<String>> rows = new java.util.ArrayList<java.util.List<String>>();
+        final int LIMIT = 50;
+        try {
+            try {
+                com.legalarchive.orchestrator.xlsx.XlsxSheetReader.read(f, body.sheet,
+                        body.sheetIndex != null ? body.sheetIndex : 0, dateFormat, rawValues,
+                        new com.legalarchive.orchestrator.xlsx.XlsxSheetReader.RowSink() {
+                            com.legalarchive.orchestrator.xlsx.XlsxSheetReader.Plan plan;
+                            public void row(int rowNum, java.util.List<String> cells) throws Exception {
+                                if (headerRow >= 1 && rowNum == headerRow) {
+                                    plan = com.legalarchive.orchestrator.xlsx.XlsxSheetReader.plan(cells, srcs.isEmpty() ? null : srcs, ases, selectBy);
+                                    for (String h : plan.out) headers.add(h);
+                                    return;
+                                }
+                                if (rowNum >= firstDataRow) {
+                                    if (plan == null) {
+                                        plan = com.legalarchive.orchestrator.xlsx.XlsxSheetReader.plan(cells, srcs.isEmpty() ? null : srcs, ases, selectBy);
+                                        for (String h : plan.out) headers.add(h);
+                                    }
+                                    java.util.List<String> r = new java.util.ArrayList<String>();
+                                    for (int k = 0; k < plan.idx.length; k++) {
+                                        int ci = plan.idx[k];
+                                        String v = (ci >= 0 && ci < cells.size()) ? cells.get(ci) : "";
+                                        r.add(v == null ? "" : v);
+                                    }
+                                    rows.add(r);
+                                    if (rows.size() >= LIMIT) throw new StopPreview();
+                                }
+                            }
+                        });
+            } catch (StopPreview stop) { /* reached the row cap */ }
+            out.put("ok", true);
+            out.put("headers", headers);
+            out.put("rows", rows);
+            out.put("note", "preview of the first " + LIMIT + " data rows");
+            return ResponseEntity.ok(out);
+        } catch (Throwable t) {
+            return badRequest(out, t.getMessage() == null ? t.toString() : t.getMessage());
+        }
+    }
+
+    private static class StopPreview extends RuntimeException {}
+
     private DataSourceDef mask(DataSourceDef d) {
         DataSourceDef c = new DataSourceDef();
         c.id = d.id; c.name = d.name; c.type = d.type; c.host = d.host; c.user = d.user;
@@ -830,6 +953,14 @@ public class ApiController {
                         WorkflowDto.NodeDto.CsvInputDto cd = new WorkflowDto.NodeDto.CsvInputDto();
                         cd.csv = ci.csv; cd.table = ci.table;
                         nd.inputs.add(cd);
+                    }
+                }
+                if (st.columns != null && !st.columns.isEmpty()) {
+                    nd.columns = new java.util.ArrayList<WorkflowDto.NodeDto.ColumnSelDto>();
+                    for (com.legalarchive.orchestrator.model.def.ColumnSel cs : st.columns) {
+                        WorkflowDto.NodeDto.ColumnSelDto cd = new WorkflowDto.NodeDto.ColumnSelDto();
+                        cd.src = cs.src; cd.as = cs.as;
+                        nd.columns.add(cd);
                     }
                 }
                 nd.delimiter = st.delimiter;
