@@ -149,7 +149,7 @@ button that copies the **feed-relative** path; you can paste that bare relative 
 relative paths are resolved against `${feedDir}`, so both forms point at the same file. Absolute
 paths and `${landingOut}/...`-style paths are used as-is.
 
-**csvsql notes.** Inputs are read with H2 `CSVREAD`. A UTF-8 **BOM** on an input is folded into
+**csvsql notes.** Each input's field separator is **auto-detected** from its header row (comma / semicolon / tab / pipe); set the per-input **Sep** field to force one. The input separator is independent of the output **Delimiter**, so you can read comma CSVs and still write semicolon output. Inputs are read with H2 `CSVREAD`. A UTF-8 **BOM** on an input is folded into
 the first header cell, so a query that references the first column by name would not match;
 `csvsql` writes its own output **without a BOM** so csvsql→csvsql chains are safe, but a `sql`/
 `split` output (which carries a BOM) used as a csvsql input can hit this until BOM-stripping on

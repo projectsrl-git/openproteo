@@ -115,6 +115,7 @@ public class WorkflowXmlWriter {
                             org.w3c.dom.Element ie = doc.createElement("input");
                             ie.setAttribute("csv", ci.csv == null ? "" : ci.csv);
                             ie.setAttribute("table", ci.table == null ? "" : ci.table);
+                            if (ci.delimiter != null && !ci.delimiter.isEmpty()) ie.setAttribute("delimiter", ci.delimiter);
                             s.appendChild(ie);
                         }
                         if (n.columns != null) for (com.legalarchive.orchestrator.web.dto.WorkflowDto.NodeDto.ColumnSelDto cs : n.columns) {

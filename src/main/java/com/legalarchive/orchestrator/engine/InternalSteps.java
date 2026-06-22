@@ -137,7 +137,7 @@ public class InternalSteps {
             if (table.isEmpty() || csv == null || csv.trim().isEmpty()) { line.accept("csvsql: every <input> needs both csv and table"); res.exitCode = 2; return; }
             if (!table.matches("[A-Za-z_][A-Za-z0-9_]*")) { line.accept("csvsql: invalid table name '" + table + "' (use letters, digits, underscore; not starting with a digit)"); res.exitCode = 2; return; }
             if (!seenTables.add(table.toUpperCase(java.util.Locale.ROOT))) { line.accept("csvsql: duplicate table name '" + table + "'"); res.exitCode = 2; return; }
-            ins.add(new String[]{table, rebaseRel(csv, vars)});
+            ins.add(new String[]{table, rebaseRel(csv, vars), VarResolver.resolve(ci.delimiter, vars)});
         }
 
         // 2) temp file-mode H2 DB under ${stepDir}/_h2
@@ -160,21 +160,27 @@ public class InternalSteps {
         java.sql.Connection conn = null;
         try {
             conn = java.sql.DriverManager.getConnection(url, "sa", "");
-            String csvOpts = "fieldSeparator=" + delim + " charset=UTF-8";
             // 4) stage each input: CREATE TABLE <t> AS SELECT * FROM CSVREAD('path', NULL, 'opts')
             //    H2 reads the CSV header to derive the table columns at statement-PREPARE time, before
             //    bound parameters are applied; a bound file name therefore fails with
             //    'Parameter "fileName" is not set [90012]'. So inline the path and options as escaped
             //    SQL string literals (the table name is already regex-validated).
+            //    The INPUT field separator is independent of the output one: use the per-input
+            //    delimiter when set, otherwise auto-detect it from the header (comma/semicolon/tab/pipe).
             for (String[] in : ins) {
                 String table = in[0], csv = in[1];
+                String idelim = in.length > 2 ? in[2] : null;
+                char sep = (idelim != null && !idelim.trim().isEmpty())
+                        ? idelim.trim().charAt(0)
+                        : detectDelim(new java.io.File(csv), delim);
+                String csvOpts = "fieldSeparator=" + sep + " charset=UTF-8";
                 java.sql.Statement ps = null;
                 try {
                     ps = conn.createStatement();
                     String sql = "CREATE TABLE " + table + " AS SELECT * FROM CSVREAD("
                             + sqlLit(csv) + ", NULL, " + sqlLit(csvOpts) + ")";
                     int n = ps.executeUpdate(sql);
-                    line.accept("staged " + table + " <- " + csv + " (" + n + " rows)");
+                    line.accept("staged " + table + " <- " + csv + " (sep='" + sep + "', " + n + " rows)");
                 } finally {
                     if (ps != null) try { ps.close(); } catch (Exception ignored) {}
                 }
@@ -313,6 +319,43 @@ public class InternalSteps {
 
     /** SQL string literal with single quotes doubled (standard SQL / H2). */
     private static String sqlLit(String s) { return s == null ? "NULL" : "'" + s.replace("'", "''") + "'"; }
+
+    /** Public entry point so the csvsql preview reuses the exact same detection as the executor. */
+    public static char detectDelimiter(java.io.File f, char def) { return detectDelim(f, def); }
+
+    /**
+     * Best-effort detection of a CSV field separator from the header line. Counts comma, semicolon,
+     * tab and pipe outside double quotes and returns the most frequent; falls back to {@code def}
+     * when the header has no recognisable separator (single-column file). A leading UTF-8 BOM is
+     * ignored. This lets a {@code csvsql} input be read correctly whether it is comma- or
+     * semicolon-separated, without forcing the user to match the output delimiter.
+     */
+    private static char detectDelim(java.io.File f, char def) {
+        java.io.BufferedReader r = null;
+        try {
+            r = new java.io.BufferedReader(new java.io.InputStreamReader(
+                    new java.io.FileInputStream(f), java.nio.charset.StandardCharsets.UTF_8));
+            String line = r.readLine();
+            if (line == null) return def;
+            if (!line.isEmpty() && line.charAt(0) == '\uFEFF') line = line.substring(1);
+            char[] cands = {',', ';', '\t', '|'};
+            char best = def; int bestN = 0;
+            for (char c : cands) {
+                int n = 0; boolean inQ = false;
+                for (int i = 0; i < line.length(); i++) {
+                    char ch = line.charAt(i);
+                    if (ch == '"') inQ = !inQ;
+                    else if (ch == c && !inQ) n++;
+                }
+                if (n > bestN) { bestN = n; best = c; }
+            }
+            return bestN > 0 ? best : def;
+        } catch (Exception e) {
+            return def;
+        } finally {
+            if (r != null) try { r.close(); } catch (Exception ignored) {}
+        }
+    }
 
     /**
      * Rebase a bare relative path against {@code ${feedDir}} so a feed-relative path copied from the

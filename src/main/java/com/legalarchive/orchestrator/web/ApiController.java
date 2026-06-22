@@ -185,7 +185,6 @@ public class ApiController {
         java.sql.Connection conn = null;
         try {
             conn = java.sql.DriverManager.getConnection("jdbc:h2:mem:prev_" + System.nanoTime(), "sa", "");
-            String csvOpts = "fieldSeparator=" + delim + " charset=UTF-8";
             java.util.Set<String> seen = new java.util.HashSet<String>();
             for (WorkflowDto.NodeDto.CsvInputDto ci : body.inputs) {
                 String table = ci.table == null ? "" : ci.table.trim();
@@ -195,6 +194,10 @@ public class ApiController {
                 if (!table.matches("[A-Za-z_][A-Za-z0-9_]*")) return badRequest(out, "Invalid table name '" + table + "'");
                 if (!seen.add(table.toUpperCase(java.util.Locale.ROOT))) return badRequest(out, "Duplicate table name '" + table + "'");
                 if (!new java.io.File(csv).isFile()) return badRequest(out, "Input file not found: " + csv);
+                char sep = (ci.delimiter != null && !ci.delimiter.trim().isEmpty())
+                        ? ci.delimiter.trim().charAt(0)
+                        : com.legalarchive.orchestrator.engine.InternalSteps.detectDelimiter(new java.io.File(csv), delim);
+                String csvOpts = "fieldSeparator=" + sep + " charset=UTF-8";
                 java.sql.Statement ps = conn.createStatement();
                 ps.executeUpdate("CREATE TABLE " + table + " AS SELECT * FROM CSVREAD("
                         + sqlLit(csv) + ", NULL, " + sqlLit(csvOpts) + ") FETCH FIRST 1000 ROWS ONLY");
@@ -970,7 +973,7 @@ public class ApiController {
                     nd.inputs = new java.util.ArrayList<WorkflowDto.NodeDto.CsvInputDto>();
                     for (com.legalarchive.orchestrator.model.def.CsvInput ci : st.inputs) {
                         WorkflowDto.NodeDto.CsvInputDto cd = new WorkflowDto.NodeDto.CsvInputDto();
-                        cd.csv = ci.csv; cd.table = ci.table;
+                        cd.csv = ci.csv; cd.table = ci.table; cd.delimiter = ci.delimiter;
                         nd.inputs.add(cd);
                     }
                 }

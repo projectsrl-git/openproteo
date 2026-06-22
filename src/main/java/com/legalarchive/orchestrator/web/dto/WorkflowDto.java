@@ -65,7 +65,7 @@ public class WorkflowDto {
         public Integer csvSplitMb;
         public java.util.List<String> validateChecks;
         public java.util.List<ReplacementDto> replacements;
-        public static class CsvInputDto { public String csv; public String table; }
+        public static class CsvInputDto { public String csv; public String table; public String delimiter; }
         public java.util.List<CsvInputDto> inputs;
         public static class ColumnSelDto { public String src; public String as; }
         public java.util.List<ColumnSelDto> columns;

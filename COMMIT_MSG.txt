@@ -1,24 +1,20 @@
-Fix csvsql: inline CSVREAD path/options as SQL literals
+Fix csvsql: auto-detect input delimiter (was forced to output)
 
-csvsql steps failed at staging with H2 error 90012
-  Parameter "fileName" is not set; SQL statement:
-  CREATE TABLE <t> AS SELECT * FROM CSVREAD(?, NULL, ?)
-even with a correct, existing input path.
+csvsql read every input with the step's OUTPUT delimiter (default ';'). A
+comma-separated input was therefore parsed as a single column named after the
+whole header, so SELECT * "worked" but WHERE <col> failed with
+  Column "<col>" not found [42122]
 
-Cause: for CREATE TABLE ... AS SELECT, H2 derives the table columns at
-statement-PREPARE time and (with a NULL column list) must read the CSV header
-then -- before JDBC bound parameters are applied -- so the bound CSVREAD file
-name is seen as unset. Known H2 limitation, not a path issue.
+Fix: decouple input and output separators and auto-detect the input one.
+- New optional per-input <input ... delimiter="">; blank = auto-detect.
+- InternalSteps.detectDelim() sniffs the header (comma/semicolon/tab/pipe
+  outside quotes, ignores BOM, falls back to the output delimiter); each input
+  is staged with its own separator and the log records which was used.
+- ApiController csvsql preview reuses the same detection.
+- model/parser/writer/DTO carry the per-input delimiter; designer adds a small
+  "Sep" field (placeholder "auto") plus a hint; XML emits delimiter only when set.
 
-Fix: inline the file name and options as escaped SQL string literals (single
-quotes doubled) via a new sqlLit() helper, instead of bound '?' parameters. The
-table name is already regex-validated and the literals are escaped, so this is
-not an injection vector.
+A comma EORFULL extract now parses into real columns (CODCLI, NDG, ...), so
+WHERE NDG = '...' works; the output delimiter stays independent.
 
-- engine/InternalSteps.runCsvSql: Statement + CSVREAD('path', NULL, 'opts').
-- web/ApiController csvsql preview: same.
-- h2/H2Probe.java: had the same bound-parameter bug (would fail the link test on
-  a healthy H2); switched to the inlined-literal form to match the executor.
-
-Compiles (96 classes). Re-run the csvsql step and h2/H2Probe on UBS to confirm
-(live H2 is not runnable in the build sandbox).
+Compiles (96 classes). Confirm on UBS (live H2 not runnable in the sandbox).

@@ -115,6 +115,7 @@ public class WorkflowXmlParser {
                         com.legalarchive.orchestrator.model.def.CsvInput ci = new com.legalarchive.orchestrator.model.def.CsvInput();
                         ci.csv = in.getAttribute("csv");
                         ci.table = in.getAttribute("table");
+                        ci.delimiter = in.getAttribute("delimiter");
                         s.inputs.add(ci);
                     }
                     for (Element col : directChildren(el, "column")) {

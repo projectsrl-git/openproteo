@@ -4,4 +4,6 @@ package com.legalarchive.orchestrator.model.def;
 public class CsvInput {
     public String csv;
     public String table;
+    /** Optional input field separator; blank/null = auto-detect from the header. */
+    public String delimiter;
 }
