@@ -137,7 +137,7 @@ public class InternalSteps {
             if (table.isEmpty() || csv == null || csv.trim().isEmpty()) { line.accept("csvsql: every <input> needs both csv and table"); res.exitCode = 2; return; }
             if (!table.matches("[A-Za-z_][A-Za-z0-9_]*")) { line.accept("csvsql: invalid table name '" + table + "' (use letters, digits, underscore; not starting with a digit)"); res.exitCode = 2; return; }
             if (!seenTables.add(table.toUpperCase(java.util.Locale.ROOT))) { line.accept("csvsql: duplicate table name '" + table + "'"); res.exitCode = 2; return; }
-            ins.add(new String[]{table, csv});
+            ins.add(new String[]{table, rebaseRel(csv, vars)});
         }
 
         // 2) temp file-mode H2 DB under ${stepDir}/_h2
@@ -161,15 +161,19 @@ public class InternalSteps {
         try {
             conn = java.sql.DriverManager.getConnection(url, "sa", "");
             String csvOpts = "fieldSeparator=" + delim + " charset=UTF-8";
-            // 4) stage each input: CREATE TABLE <t> AS SELECT * FROM CSVREAD(path, NULL, opts)
+            // 4) stage each input: CREATE TABLE <t> AS SELECT * FROM CSVREAD('path', NULL, 'opts')
+            //    H2 reads the CSV header to derive the table columns at statement-PREPARE time, before
+            //    bound parameters are applied; a bound file name therefore fails with
+            //    'Parameter "fileName" is not set [90012]'. So inline the path and options as escaped
+            //    SQL string literals (the table name is already regex-validated).
             for (String[] in : ins) {
                 String table = in[0], csv = in[1];
-                java.sql.PreparedStatement ps = null;
+                java.sql.Statement ps = null;
                 try {
-                    ps = conn.prepareStatement("CREATE TABLE " + table + " AS SELECT * FROM CSVREAD(?, NULL, ?)");
-                    ps.setString(1, csv);
-                    ps.setString(2, csvOpts);
-                    int n = ps.executeUpdate();
+                    ps = conn.createStatement();
+                    String sql = "CREATE TABLE " + table + " AS SELECT * FROM CSVREAD("
+                            + sqlLit(csv) + ", NULL, " + sqlLit(csvOpts) + ")";
+                    int n = ps.executeUpdate(sql);
                     line.accept("staged " + table + " <- " + csv + " (" + n + " rows)");
                 } finally {
                     if (ps != null) try { ps.close(); } catch (Exception ignored) {}
@@ -225,6 +229,7 @@ public class InternalSteps {
         String csvFile = VarResolver.resolve(step.csvFile, vars);
         if (source == null || source.trim().isEmpty()) { line.accept("xlsx2csv: source (xlsx) is required"); res.exitCode = 2; return; }
         if (!source.toLowerCase(java.util.Locale.ROOT).endsWith(".xlsx")) { line.accept("xlsx2csv: source must be an .xlsx file"); res.exitCode = 2; return; }
+        source = rebaseRel(source, vars);
         java.io.File xlsx = new java.io.File(source);
         if (!xlsx.isFile()) { line.accept("xlsx2csv: file not found: " + source); res.exitCode = 2; return; }
         if (csvFile == null || csvFile.trim().isEmpty()) { line.accept("xlsx2csv: csvFile (output) is required"); res.exitCode = 2; return; }
@@ -305,6 +310,24 @@ public class InternalSteps {
 
     private static int xInt(String s, int def) { if (s == null || s.trim().isEmpty()) return def; try { return Integer.parseInt(s.trim()); } catch (Exception e) { return def; } }
     private static String xStr(String s, String def) { return (s == null || s.trim().isEmpty()) ? def : s.trim(); }
+
+    /** SQL string literal with single quotes doubled (standard SQL / H2). */
+    private static String sqlLit(String s) { return s == null ? "NULL" : "'" + s.replace("'", "''") + "'"; }
+
+    /**
+     * Rebase a bare relative path against {@code ${feedDir}} so a feed-relative path copied from the
+     * Feed Files panel (e.g. {@code 10_SQL_EXTRACTION/tf0003819_SQL_EXTRACTION.csv}) resolves to the
+     * right file. Absolute paths (and {@code ${var}}-expanded absolute paths) are returned unchanged.
+     */
+    private static String rebaseRel(String path, Map<String, String> vars) {
+        if (path == null) return null;
+        String p = path.trim();
+        if (p.isEmpty()) return p;
+        if (new java.io.File(p).isAbsolute()) return p;
+        String feedDir = vars.get("feedDir");
+        if (feedDir != null && !feedDir.trim().isEmpty()) return new java.io.File(feedDir.trim(), p).getPath();
+        return p;
+    }
 
     // ----------------------------------------------------------------- sql
     private void runSql(StepDef step, Map<String, String> params, Map<String, String> vars,

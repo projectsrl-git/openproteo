@@ -191,13 +191,14 @@ public class ApiController {
                 String table = ci.table == null ? "" : ci.table.trim();
                 String csv = com.legalarchive.orchestrator.engine.VarResolver.resolve(ci.csv, vars);
                 if (table.isEmpty() || csv == null || csv.trim().isEmpty()) return badRequest(out, "Every input needs both csv and table");
+                csv = rebaseRel(csv, vars);
                 if (!table.matches("[A-Za-z_][A-Za-z0-9_]*")) return badRequest(out, "Invalid table name '" + table + "'");
                 if (!seen.add(table.toUpperCase(java.util.Locale.ROOT))) return badRequest(out, "Duplicate table name '" + table + "'");
                 if (!new java.io.File(csv).isFile()) return badRequest(out, "Input file not found: " + csv);
-                java.sql.PreparedStatement ps = conn.prepareStatement(
-                        "CREATE TABLE " + table + " AS SELECT * FROM CSVREAD(?, NULL, ?) FETCH FIRST 1000 ROWS ONLY");
-                ps.setString(1, csv); ps.setString(2, csvOpts);
-                ps.executeUpdate(); ps.close();
+                java.sql.Statement ps = conn.createStatement();
+                ps.executeUpdate("CREATE TABLE " + table + " AS SELECT * FROM CSVREAD("
+                        + sqlLit(csv) + ", NULL, " + sqlLit(csvOpts) + ") FETCH FIRST 1000 ROWS ONLY");
+                ps.close();
             }
             String q = com.legalarchive.orchestrator.engine.VarResolver.resolve(body.query, vars);
             java.sql.Statement st = conn.createStatement();
@@ -242,6 +243,20 @@ public class ApiController {
         return vars;
     }
 
+    /** SQL string literal with single quotes doubled (standard SQL / H2). */
+    private static String sqlLit(String s) { return s == null ? "NULL" : "'" + s.replace("'", "''") + "'"; }
+
+    /** Rebase a bare relative path against ${feedDir} (mirrors InternalSteps.rebaseRel). */
+    private String rebaseRel(String path, Map<String, String> vars) {
+        if (path == null) return null;
+        String p = path.trim();
+        if (p.isEmpty()) return p;
+        if (new java.io.File(p).isAbsolute()) return p;
+        String feedDir = vars.get("feedDir");
+        if (feedDir != null && !feedDir.trim().isEmpty()) return new java.io.File(feedDir.trim(), p).getPath();
+        return p;
+    }
+
     /** List the sheet names of an .xlsx (for the xlsx2csv sheet dropdown). */
     @GetMapping("/api/workflows/{feedId}/xlsx/sheets")
     public ResponseEntity<Map<String, Object>> xlsxSheets(@PathVariable String feedId,
@@ -249,8 +264,10 @@ public class ApiController {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
         WorkflowDef def = registry.get(feedId);
         if (def == null) return badRequest(out, "Unknown workflow: " + feedId);
-        String resolved = com.legalarchive.orchestrator.engine.VarResolver.resolve(path, feedVars(def, feedId));
+        Map<String, String> fv = feedVars(def, feedId);
+        String resolved = com.legalarchive.orchestrator.engine.VarResolver.resolve(path, fv);
         if (resolved == null || resolved.trim().isEmpty()) return badRequest(out, "path is required");
+        resolved = rebaseRel(resolved, fv);
         java.io.File f = new java.io.File(resolved);
         if (!f.isFile()) return badRequest(out, "file not found: " + resolved);
         if (!resolved.toLowerCase(java.util.Locale.ROOT).endsWith(".xlsx")) return badRequest(out, "not an .xlsx file: " + resolved);
@@ -290,7 +307,9 @@ public class ApiController {
         WorkflowDef def = registry.get(feedId);
         if (def == null) return badRequest(out, "Unknown workflow: " + feedId);
         if (body == null || body.path == null || body.path.trim().isEmpty()) return badRequest(out, "path is required");
-        String resolved = com.legalarchive.orchestrator.engine.VarResolver.resolve(body.path, feedVars(def, feedId));
+        Map<String, String> fv = feedVars(def, feedId);
+        String resolved = com.legalarchive.orchestrator.engine.VarResolver.resolve(body.path, fv);
+        resolved = rebaseRel(resolved, fv);
         java.io.File f = new java.io.File(resolved);
         if (!f.isFile()) return badRequest(out, "file not found: " + resolved);
         if (!resolved.toLowerCase(java.util.Locale.ROOT).endsWith(".xlsx")) return badRequest(out, "not an .xlsx file: " + resolved);

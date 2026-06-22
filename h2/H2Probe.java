@@ -26,12 +26,14 @@ public class H2Probe {
         w.close();
 
         Connection c = DriverManager.getConnection("jdbc:h2:mem:probe", "sa", "");
-        PreparedStatement ps = c.prepareStatement(
-                "CREATE TABLE t AS SELECT * FROM CSVREAD(?, NULL, ?)");
-        ps.setString(1, csv.getAbsolutePath());
-        ps.setString(2, "fieldSeparator=; charset=UTF-8");
-        ps.executeUpdate();
-        ps.close();
+        // NOTE: H2 reads the CSV header to derive the table columns at statement-PREPARE time, before
+        // bound parameters are applied, so CSVREAD's file name MUST be an inlined SQL string literal
+        // (single quotes doubled), not a bound '?'. A bound parameter fails with
+        // 'Parameter "fileName" is not set [90012]'. This mirrors the csvsql executor.
+        String path = csv.getAbsolutePath().replace("'", "''");
+        Statement ddl = c.createStatement();
+        ddl.executeUpdate("CREATE TABLE t AS SELECT * FROM CSVREAD('" + path + "', NULL, 'fieldSeparator=; charset=UTF-8')");
+        ddl.close();
 
         Statement st = c.createStatement();
         ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM t");

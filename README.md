@@ -141,6 +141,14 @@ A STEP runs one executor. Built-in (internal) executors:
 External executors run a PowerShell (or other) script from the scripts directory or an
 absolute path; the script path can use `${alias}` of an uploaded executable.
 
+**Using generated files as a source.** Files produced by a run (the `output` files you see in the
+Feed Files panel, e.g. `10_SQL_EXTRACTION/...csv`) can be fed straight into a later `csvsql`
+`<input>` or an `xlsx2csv` `source`. In the designer they appear in the path autocomplete as
+`${feedDir}/<relative-path>` (type to filter). In the Feed Files panel each row has a **Copy path**
+button that copies the **feed-relative** path; you can paste that bare relative path as a source —
+relative paths are resolved against `${feedDir}`, so both forms point at the same file. Absolute
+paths and `${landingOut}/...`-style paths are used as-is.
+
 **csvsql notes.** Inputs are read with H2 `CSVREAD`. A UTF-8 **BOM** on an input is folded into
 the first header cell, so a query that references the first column by name would not match;
 `csvsql` writes its own output **without a BOM** so csvsql→csvsql chains are safe, but a `sql`/

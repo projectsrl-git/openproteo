@@ -1,34 +1,24 @@
-Add xlsx2csv executor: Excel sheet -> CSV via POI (streaming)
+Fix csvsql: inline CSVREAD path/options as SQL literals
 
-New internal STEP that reads one sheet of an .xlsx workbook with the POI
-streaming event API (OPCPackage + XSSFReader + SAX, constant memory), projects
-the selected columns (by header name or column letter, with order and rename),
-and streams the result to a CSV through the shared writer -- so its output drops
-straight into a csvsql <input> (chain xlsx2csv -> xlsx2csv -> csvsql).
+csvsql steps failed at staging with H2 error 90012
+  Parameter "fileName" is not set; SQL statement:
+  CREATE TABLE <t> AS SELECT * FROM CSVREAD(?, NULL, ?)
+even with a correct, existing input path.
 
-All cells are rendered to text deterministically (NOT as Excel displays them):
-shared/inline/formula strings verbatim; boolean TRUE/FALSE; error empty;
-date-styled numbers via DateUtil + a fixed dateFormat (default yyyyMMdd, UTC);
-plain numbers via BigDecimal.stripTrailingZeros().toPlainString(); empty cells
-preserved. Output carries no BOM.
+Cause: for CREATE TABLE ... AS SELECT, H2 derives the table columns at
+statement-PREPARE time and (with a NULL column list) must read the CSV header
+then -- before JDBC bound parameters are applied -- so the bound CSVREAD file
+name is seen as unset. Known H2 limitation, not a path issue.
 
-CSV writing is refactored into a shared ds/CsvWriter (open/header/row/split/close,
-UTF-8, CRLF, RFC-4180 quoting); sql, csvsql and xlsx2csv now emit byte-identical
-CSV with the same ##VAR outputs (rowCount/csvFile/csvFiles/csvParts, plus
-outputFile for xlsx2csv).
+Fix: inline the file name and options as escaped SQL string literals (single
+quotes doubled) via a new sqlLit() helper, instead of bound '?' parameters. The
+table name is already regex-validated and the literals are escaped, so this is
+not an injection vector.
 
-IMPORTANT: unlike csvsql's H2 (pure JDBC, runtime-only), Apache POI is a
-COMPILE-TIME dependency. The WAR will not build until POI and all its transitives
-are on Nexus -- run xlsx/PoiProbe first (see xlsx/README_POI.md). poi + poi-ooxml
-5.2.5 are pinned (not BOM-managed); keep poi-ooxml-lite, not -full.
+- engine/InternalSteps.runCsvSql: Statement + CSVREAD('path', NULL, 'opts').
+- web/ApiController csvsql preview: same.
+- h2/H2Probe.java: had the same bound-parameter bug (would fail the link test on
+  a healthy H2); switched to the inlined-literal form to match the executor.
 
-Files: model/def/ColumnSel + StepDef.columns; parser whitelist/internal/<column>;
-engine internalKind; xlsx/XlsxSheetReader (POI event reader, only POI importer);
-ds/CsvWriter + SqlSupport.exportResultSet refactor; InternalSteps.runXlsx2Csv;
-WorkflowDto.ColumnSelDto; ApiController toDto + /xlsx/sheets + /xlsx/preview;
-XML writer <column>; pom.xml poi/poi-ooxml; xlsx/README_POI.md + xlsx/PoiProbe.java;
-designer (option, branch, sheet/column loading, preview, validation).
-
-Compiles (96 classes, against POI stubs in the sandbox). Parser/writer round-trip
-and column-plan logic verified locally (TestXlsx); live POI, the PoiProbe link
-test and the endpoints to be verified on UBS/Nexus.
+Compiles (96 classes). Re-run the csvsql step and h2/H2Probe on UBS to confirm
+(live H2 is not runnable in the build sandbox).

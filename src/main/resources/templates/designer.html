@@ -179,10 +179,7 @@
                 hint.style.display = 'none';
                 if (!panel.getAttribute('data-mounted')) {
                     mountFilesPanel(panel, CTX + 'api/workflows/' + encodeURIComponent(EDIT_FEED_ID) + '/', CTX, function (files) {
-                        FEED_DOCS = (files || [])
-                            .filter(function (f) { return f.kind !== 'script'; })
-                            .map(function (f) { return '${feedDir}/' + f.path; });
-                        refreshSuggestions();
+                        loadFeedDocs();   // refresh suggestions from the FULL file list (uploads + generated outputs)
                     }, { rootOnly: true });
                     panel.setAttribute('data-mounted', '1');
                 }
@@ -528,10 +525,10 @@
     }
 
     var SUGGESTIONS = [];
-    var FEED_DOCS = [];        // ${feedDir}/<path> for files uploaded/created on this feed
+    var FEED_DOCS = [];        // ${feedDir}/<path> for ALL feed files (uploads + run-generated outputs)
     function loadFeedDocs() {
         if (!EDIT_FEED_ID) { FEED_DOCS = []; return; }
-        fetch(CTX + 'api/workflows/' + encodeURIComponent(EDIT_FEED_ID) + '/files?root=true')
+        fetch(CTX + 'api/workflows/' + encodeURIComponent(EDIT_FEED_ID) + '/files')
             .then(readJson)
             .then(function (j) {
                 if (!j || !j.ok || !j.files) { FEED_DOCS = []; return; }

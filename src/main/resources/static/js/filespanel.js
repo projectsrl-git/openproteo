@@ -253,7 +253,7 @@ function mountFilesPanel(container, apiBase, ctx, onChange, opts) {
             '<th data-sort="alias" class="sortable">Alias' + sortIcon('alias') + '</th>' +
             '<th data-sort="size" class="sortable" style="width:90px">Size' + sortIcon('size') + '</th>' +
             '<th data-sort="modified" class="sortable" style="width:150px">Modified' + sortIcon('modified') + '</th>' +
-            '<th style="width:160px"></th></tr></thead><tbody>';
+            '<th style="width:260px"></th></tr></thead><tbody>';
         rows.forEach(function (f) {
             var dl = apiBase + 'download?path=' + encodeURIComponent(f.path);
             var kindLabel = f.kind === 'script' ? 'executable' : (f.kind === 'output' ? 'output' : 'document');
@@ -269,6 +269,7 @@ function mountFilesPanel(container, apiBase, ctx, onChange, opts) {
                 '<td class="mono small dim">' + fmt(f.size) + '</td>' +
                 '<td class="mono small dim">' + esc(fmtDate(f.modified)) + '</td>' +
                 '<td>' + viewBtn + '<a class="btn sm" href="' + dl + '">\u2B07 Download</a> ' +
+                '<button class="btn sm" data-copy="' + esc(f.path) + '" title="Copy the feed-relative path (use it as a csvsql/xlsx2csv source)">\uD83D\uDCCB Copy path</button> ' +
                 '<button class="btn sm danger" data-del="' + esc(f.path) + '">Delete</button></td>' +
                 '</tr>';
         });
@@ -277,6 +278,9 @@ function mountFilesPanel(container, apiBase, ctx, onChange, opts) {
         host.querySelectorAll('[data-del]').forEach(function (b) {
             b.addEventListener('click', function () { del(b.getAttribute('data-del')); });
         });
+        host.querySelectorAll('[data-copy]').forEach(function (b) {
+            b.addEventListener('click', function () { copyPath(b.getAttribute('data-copy'), b); });
+        });
         host.querySelectorAll('[data-sort]').forEach(function (th) {
             th.addEventListener('click', function () {
                 var k = th.getAttribute('data-sort');
@@ -284,6 +288,24 @@ function mountFilesPanel(container, apiBase, ctx, onChange, opts) {
                 renderTable();
             });
         });
+    }
+
+    function copyPath(path, btn) {
+        var done = function () {
+            if (!btn) return;
+            var old = btn.textContent; btn.textContent = '\u2713 Copied!';
+            setTimeout(function () { btn.textContent = old; }, 1200);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(path).then(done, function () { fallbackCopy(path); done(); });
+        } else { fallbackCopy(path); done(); }
+    }
+    function fallbackCopy(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.top = '-2000px'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        document.body.removeChild(ta);
     }
 
     function del(path) {
