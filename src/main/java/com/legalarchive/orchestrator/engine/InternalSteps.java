@@ -101,6 +101,11 @@ public class InternalSteps {
                 line.accept("unknown internal step kind: " + kind);
                 res.exitCode = -996;
             }
+        } catch (java.sql.SQLTimeoutException te) {
+            res.timedOut = true;
+            res.exitCode = res.exitCode == 0 ? 1 : res.exitCode;
+            res.lastLines = "query exceeded the timeout (TIMEOUT SEC) and was aborted";
+            safeLine(log, "ERROR: query timed out and was aborted - simplify the query (see notes) or raise TIMEOUT SEC");
         } catch (Exception e) {
             res.exitCode = res.exitCode == 0 ? 1 : res.exitCode;
             res.lastLines = e.getMessage();
@@ -165,6 +170,10 @@ public class InternalSteps {
                     + ";AUTO_SERVER=FALSE" + tuning;
         }
         line.accept("csvsql: engine=" + (useMem ? "mem" : "file") + ", inputs " + (totalBytes / 1048576) + " MB");
+        // Query/statement timeout (seconds): the step's TIMEOUT SEC, else the app default. H2 aborts a
+        // runaway query (e.g. an OR-join that degrades to a nested loop) instead of running for hours.
+        final int qto = step.timeoutSec > 0 ? step.timeoutSec : (props != null ? props.getDefaultStepTimeoutSec() : 0);
+        if (qto > 0) line.accept("csvsql: query timeout " + qto + "s");
 
         // 3) driver presence (pure JDBC; H2 is runtime-only)
         try {
@@ -194,6 +203,7 @@ public class InternalSteps {
                 java.sql.Statement ps = null;
                 try {
                     ps = conn.createStatement();
+                    if (qto > 0) ps.setQueryTimeout(qto);
                     String sql = "CREATE TABLE " + table + " AS SELECT * FROM CSVREAD("
                             + sqlLit(csv) + ", NULL, " + sqlLit(csvOpts) + ")";
                     int n = ps.executeUpdate(sql);
@@ -218,6 +228,7 @@ public class InternalSteps {
                     java.sql.Statement ix = null;
                     try {
                         ix = conn.createStatement();
+                        if (qto > 0) ix.setQueryTimeout(qto);
                         ix.executeUpdate("CREATE INDEX IF NOT EXISTS ix_" + table + "_" + c + " ON " + table + "(" + c + ")");
                         line.accept("indexed " + table + "(" + c + ")");
                     } catch (Exception e) {
@@ -227,6 +238,14 @@ public class InternalSteps {
                     }
                 }
             }
+
+            // 4c) refresh optimizer statistics (cheap; helps H2 pick join order/indexes)
+            try {
+                java.sql.Statement an = conn.createStatement();
+                if (qto > 0) an.setQueryTimeout(qto);
+                an.execute("ANALYZE");
+                an.close();
+            } catch (Exception ignored) {}
 
             // 5) run the user query verbatim and stream through the shared exporter
             line.accept("query: " + query);
@@ -238,6 +257,7 @@ public class InternalSteps {
             java.sql.Statement st = null;
             try {
                 st = conn.createStatement();
+                if (qto > 0) st.setQueryTimeout(qto);
                 java.sql.ResultSet rs = st.executeQuery(query);
                 // csvsql output is written WITHOUT BOM so it is safe to feed into another csvsql input
                 SqlSupport.ExportResult er = sql.exportResultSet(rs, out, delim, false, maxRows, maxBytes, trim);
