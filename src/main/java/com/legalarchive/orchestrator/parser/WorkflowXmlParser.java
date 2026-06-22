@@ -116,6 +116,7 @@ public class WorkflowXmlParser {
                         ci.csv = in.getAttribute("csv");
                         ci.table = in.getAttribute("table");
                         ci.delimiter = in.getAttribute("delimiter");
+                        ci.index = in.getAttribute("index");
                         s.inputs.add(ci);
                     }
                     for (Element col : directChildren(el, "column")) {

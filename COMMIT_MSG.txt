@@ -1,20 +1,24 @@
-Fix csvsql: auto-detect input delimiter (was forced to output)
+Speed up csvsql: in-memory H2 engine + per-input indexes
 
-csvsql read every input with the step's OUTPUT delimiter (default ';'). A
-comma-separated input was therefore parsed as a single column named after the
-whole header, so SELECT * "worked" but WHERE <col> failed with
-  Column "<col>" not found [42122]
+csvsql was correct but unusably slow on ~1M-row inputs with joins/filters: every
+input was materialised into an on-disk H2 (MVStore) database and the all-VARCHAR
+tables had no indexes, so each join/filter was a full scan.
 
-Fix: decouple input and output separators and auto-detect the input one.
-- New optional per-input <input ... delimiter="">; blank = auto-detect.
-- InternalSteps.detectDelim() sniffs the header (comma/semicolon/tab/pipe
-  outside quotes, ignores BOM, falls back to the output delimiter); each input
-  is staged with its own separator and the log records which was used.
-- ApiController csvsql preview reuses the same detection.
-- model/parser/writer/DTO carry the per-input delimiter; designer adds a small
-  "Sep" field (placeholder "auto") plus a hint; XML emits delimiter only when set.
+- Engine selection (step param 'engine', default orchestrator.csvsql-engine =
+  auto): auto uses an in-memory H2 below orchestrator.csvsql-mem-max-mb (default
+  512 MB of total input) and on-disk above it; 'mem' forces in-memory (fastest);
+  'file' forces on-disk. The chosen engine + input size are logged.
+- Per-input indexes: <input ... index="NDG,CODCLI"> builds CREATE INDEX on the
+  listed columns after staging (regex-validated; unknown columns warn, not fatal)
+  -- the big win for complex queries.
+- H2 tuning: LOCK_MODE=0 and CACHE_SIZE=262144 on the connection.
+- In-memory DBs use a unique name + DB_CLOSE_DELAY=0 (freed on close); on-disk
+  cleanup made null-safe.
+- Designer: per-input "Index cols" field + an "Engine" selector on the output row
+  (auto/in-memory/on-disk). Preview already used capped in-memory H2.
 
-A comma EORFULL extract now parses into real columns (CODCLI, NDG, ...), so
-WHERE NDG = '...' works; the output delimiter stays independent.
+Guidance: for big joins keep Engine=auto and index the join keys; if mem hits
+OutOfMemory set Engine=file (still indexed) or raise -Xmx.
 
-Compiles (96 classes). Confirm on UBS (live H2 not runnable in the sandbox).
+Compiles (96 classes). Round-trip test for input delimiter+index passes; live H2
+timing is UBS-side.

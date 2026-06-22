@@ -973,7 +973,7 @@ public class ApiController {
                     nd.inputs = new java.util.ArrayList<WorkflowDto.NodeDto.CsvInputDto>();
                     for (com.legalarchive.orchestrator.model.def.CsvInput ci : st.inputs) {
                         WorkflowDto.NodeDto.CsvInputDto cd = new WorkflowDto.NodeDto.CsvInputDto();
-                        cd.csv = ci.csv; cd.table = ci.table; cd.delimiter = ci.delimiter;
+                        cd.csv = ci.csv; cd.table = ci.table; cd.delimiter = ci.delimiter; cd.index = ci.index;
                         nd.inputs.add(cd);
                     }
                 }

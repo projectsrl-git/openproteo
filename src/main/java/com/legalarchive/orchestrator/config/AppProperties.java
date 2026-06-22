@@ -37,6 +37,13 @@ public class AppProperties {
     /** File JSON con le definizioni dei datasource (connessioni riusabili). */
     private String datasourcesFile = "./datasources.json";
 
+    // --- csvsql (H2 SQL over CSVs) ---
+    /** Default H2 engine for csvsql: auto | mem | file. 'auto' uses in-memory below the size
+        threshold (much faster) and on-disk above it. Override per step with param 'engine'. */
+    private String csvsqlEngine = "auto";
+    /** In 'auto' mode, total input size (MB) at/above which csvsql uses the on-disk H2 engine. */
+    private int csvsqlMemMaxMb = 512;
+
     // --- anonymize (ARX) preflight thresholds — conservative fail-fast guards ---
     private long anonymizeMaxRows = 5_000_000L;        // 0 = no limit
     private long anonymizeMaxCells = 200_000_000L;     // 0 = no limit (rough proxy of load)
@@ -77,6 +84,11 @@ public class AppProperties {
     public int getMaxTransitions() { return maxTransitions; }
     public void setMaxTransitions(int v) { this.maxTransitions = v; }
     public String getDatasourcesFile() { return datasourcesFile; }
+
+    public String getCsvsqlEngine() { return csvsqlEngine; }
+    public void setCsvsqlEngine(String v) { this.csvsqlEngine = v; }
+    public int getCsvsqlMemMaxMb() { return csvsqlMemMaxMb; }
+    public void setCsvsqlMemMaxMb(int v) { this.csvsqlMemMaxMb = v; }
 
     public long getAnonymizeMaxRows() { return anonymizeMaxRows; }
     public void setAnonymizeMaxRows(long v) { this.anonymizeMaxRows = v; }

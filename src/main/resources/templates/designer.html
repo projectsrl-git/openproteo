@@ -731,13 +731,18 @@
                             '<div class="field wide"><label>CSV file *</label><input class="sugin" list="pathsug" value="' + attresc(ci.csv) + '" placeholder="${extract.outputFile} | ${landingOut}/conti.csv" oninput="updInput(' + i + ',' + ii + ',\'csv\',this.value)"></div>' +
                             '<div class="field"><label>Table name *</label><input value="' + attresc(ci.table) + '" placeholder="anagrafica" oninput="updInput(' + i + ',' + ii + ',\'table\',this.value)"></div>' +
                             '<div class="field" style="max-width:90px"><label>Sep</label><input value="' + attresc(ci.delimiter) + '" placeholder="auto" title="Input field separator. Leave blank to auto-detect (comma/semicolon/tab/pipe)." oninput="updInput(' + i + ',' + ii + ',\'delimiter\',this.value)"></div>' +
+                            '<div class="field"><label>Index cols</label><input value="' + attresc(ci.index) + '" placeholder="NDG,CODCLI" title="Comma-separated columns to index after load (join/filter keys). Big speed-up for complex queries on large inputs." oninput="updInput(' + i + ',' + ii + ',\'index\',this.value)"></div>' +
                             '<div class="field" style="max-width:60px"><label>&nbsp;</label><button class="btn sm danger" onclick="delInput(' + i + ',' + ii + ')">✕</button></div></div>';
                     });
                     h += '<button class="ghost-btn" onclick="addInput(' + i + ')">＋ CSV</button>' +
-                        '<div class="dim small" style="margin-top:4px">Each input\'s separator is auto-detected from its header (comma/semicolon/tab/pipe); set <b>Sep</b> to force one. The output uses the <b>Delimiter</b> below.</div></div>';
+                        '<div class="dim small" style="margin-top:4px">Each input\'s separator is auto-detected from its header (comma/semicolon/tab/pipe); set <b>Sep</b> to force one. The output uses the <b>Delimiter</b> below. For large inputs, list join/filter columns in <b>Index cols</b> and keep <b>Engine</b> = auto (in-memory) for speed.</div></div>';
                     h += '<div class="form-row"><div class="field wide"><label>CSV output file * — full result streamed here (no BOM)</label>' +
                         '<input class="sugin" list="pathsug" value="' + attresc(n.csvFile) + '" placeholder="${landingOut}/report_${runDate}.csv" oninput="updNode(' + i + ',\'csvFile\',this.value)"></div>' +
-                        '<div class="field"><label>Delimiter</label><input value="' + attresc(n.delimiter) + '" placeholder=";" oninput="updNode(' + i + ',\'delimiter\',this.value)"></div></div>';
+                        '<div class="field"><label>Delimiter</label><input value="' + attresc(n.delimiter) + '" placeholder=";" oninput="updNode(' + i + ',\'delimiter\',this.value)"></div>' +
+                        '<div class="field"><label>Engine</label><select title="H2 engine. auto = in-memory below the size threshold, on-disk above; mem = always in-memory (fastest, uses RAM); file = always on-disk." onchange="setNodeParam(' + i + ',\'engine\',this.value)">' +
+                        '<option value=""' + (!nodeParam(n, 'engine') ? ' selected' : '') + '>auto</option>' +
+                        '<option value="mem"' + (nodeParam(n, 'engine') === 'mem' ? ' selected' : '') + '>in-memory (fast)</option>' +
+                        '<option value="file"' + (nodeParam(n, 'engine') === 'file' ? ' selected' : '') + '>on-disk (huge inputs)</option></select></div></div>';
                     h += '<div class="form-row">' +
                         '<div class="field"><label>Split: max rows per file (0 = no split)</label><input type="number" min="0" value="' + (n.csvSplitRows || '') + '" placeholder="0" oninput="updNode(' + i + ',\'csvSplitRows\',this.value)"></div>' +
                         '<div class="field"><label>Split: max MB per file (0 = no split)</label><input type="number" min="0" value="' + (n.csvSplitMb || '') + '" placeholder="0" oninput="updNode(' + i + ',\'csvSplitMb\',this.value)"></div>' +
@@ -1143,7 +1148,7 @@
                     if (rp.from) inner.push('            <replace from="' + xesc(rp.from) + '" to="' + xesc(rp.to || '') + '"' + ((rp.columns && rp.columns.length) ? (' columns="' + xesc(rp.columns.join(',')) + '"') : '') + '/>');
                 });
                 (n.inputs || []).forEach(function (ci) {
-                    if (ci.csv || ci.table) inner.push('            <input csv="' + xesc(ci.csv || '') + '" table="' + xesc(ci.table || '') + '"' + (ci.delimiter ? (' delimiter="' + xesc(ci.delimiter) + '"') : '') + '/>');
+                    if (ci.csv || ci.table) inner.push('            <input csv="' + xesc(ci.csv || '') + '" table="' + xesc(ci.table || '') + '"' + (ci.delimiter ? (' delimiter="' + xesc(ci.delimiter) + '"') : '') + (ci.index ? (' index="' + xesc(ci.index) + '"') : '') + '/>');
                 });
                 (n.columns || []).forEach(function (c) {
                     if (c.src || c.as) inner.push('            <column src="' + xesc(c.src || '') + '" as="' + xesc(c.as || '') + '"/>');

@@ -6,4 +6,6 @@ public class CsvInput {
     public String table;
     /** Optional input field separator; blank/null = auto-detect from the header. */
     public String delimiter;
+    /** Optional comma-separated columns to index after staging (join/filter keys) for speed. */
+    public String index;
 }

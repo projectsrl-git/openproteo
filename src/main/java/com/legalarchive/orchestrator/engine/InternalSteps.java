@@ -137,17 +137,34 @@ public class InternalSteps {
             if (table.isEmpty() || csv == null || csv.trim().isEmpty()) { line.accept("csvsql: every <input> needs both csv and table"); res.exitCode = 2; return; }
             if (!table.matches("[A-Za-z_][A-Za-z0-9_]*")) { line.accept("csvsql: invalid table name '" + table + "' (use letters, digits, underscore; not starting with a digit)"); res.exitCode = 2; return; }
             if (!seenTables.add(table.toUpperCase(java.util.Locale.ROOT))) { line.accept("csvsql: duplicate table name '" + table + "'"); res.exitCode = 2; return; }
-            ins.add(new String[]{table, rebaseRel(csv, vars), VarResolver.resolve(ci.delimiter, vars)});
+            ins.add(new String[]{table, rebaseRel(csv, vars), VarResolver.resolve(ci.delimiter, vars), VarResolver.resolve(ci.index, vars)});
         }
 
-        // 2) temp file-mode H2 DB under ${stepDir}/_h2
+        // 2) choose the H2 engine: in-memory (fast, no disk I/O) vs on-disk (for very large inputs).
+        //    'auto' uses memory below the configured size threshold. LOCK_MODE=0 + a large CACHE_SIZE
+        //    suit a single-threaded, throwaway DB.
         String stepDir = VarResolver.resolve("${stepDir}", vars);
         if (stepDir == null || stepDir.trim().isEmpty()) stepDir = new java.io.File(csvFile).getParent();
-        java.io.File h2dir = new java.io.File(stepDir, "_h2");
-        h2dir.mkdirs();
         String runId = vars.get("runId"); if (runId == null) runId = "run";
-        String dbBase = "q_" + runId + "_" + step.id;
-        String url = "jdbc:h2:file:" + new java.io.File(h2dir, dbBase).getAbsolutePath().replace('\\', '/') + ";AUTO_SERVER=FALSE";
+
+        long totalBytes = 0;
+        for (String[] in : ins) { java.io.File cf = new java.io.File(in[1]); if (cf.isFile()) totalBytes += cf.length(); }
+        String engineMode = xStr(params.get("engine"), props != null ? props.getCsvsqlEngine() : "auto").toLowerCase(java.util.Locale.ROOT);
+        long memMaxBytes = (long) (props != null ? props.getCsvsqlMemMaxMb() : 700) * 1024L * 1024L;
+        boolean useMem = "mem".equals(engineMode) || (!"file".equals(engineMode) && totalBytes < memMaxBytes);
+
+        String tuning = ";LOCK_MODE=0;CACHE_SIZE=262144";
+        java.io.File h2dir = null;
+        String url;
+        if (useMem) {
+            url = "jdbc:h2:mem:csvsql_" + runId + "_" + step.id + "_" + System.nanoTime() + ";DB_CLOSE_DELAY=0" + tuning;
+        } else {
+            h2dir = new java.io.File(stepDir, "_h2");
+            h2dir.mkdirs();
+            url = "jdbc:h2:file:" + new java.io.File(h2dir, "q_" + runId + "_" + step.id).getAbsolutePath().replace('\\', '/')
+                    + ";AUTO_SERVER=FALSE" + tuning;
+        }
+        line.accept("csvsql: engine=" + (useMem ? "mem" : "file") + ", inputs " + (totalBytes / 1048576) + " MB");
 
         // 3) driver presence (pure JDBC; H2 is runtime-only)
         try {
@@ -186,6 +203,31 @@ public class InternalSteps {
                 }
             }
 
+            // 4b) optional indexes on join/filter columns — big speed-up for complex queries
+            for (String[] in : ins) {
+                String table = in[0];
+                String idx = in.length > 3 ? in[3] : null;
+                if (idx == null || idx.trim().isEmpty()) continue;
+                for (String col : idx.split(",")) {
+                    String c = col.trim();
+                    if (c.isEmpty()) continue;
+                    if (!c.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                        line.accept("csvsql: ignoring invalid index column '" + c + "' on " + table);
+                        continue;
+                    }
+                    java.sql.Statement ix = null;
+                    try {
+                        ix = conn.createStatement();
+                        ix.executeUpdate("CREATE INDEX IF NOT EXISTS ix_" + table + "_" + c + " ON " + table + "(" + c + ")");
+                        line.accept("indexed " + table + "(" + c + ")");
+                    } catch (Exception e) {
+                        line.accept("csvsql: could not index " + table + "(" + c + "): " + e.getMessage());
+                    } finally {
+                        if (ix != null) try { ix.close(); } catch (Exception ignored) {}
+                    }
+                }
+            }
+
             // 5) run the user query verbatim and stream through the shared exporter
             line.accept("query: " + query);
             java.io.File out = new java.io.File(csvFile);
@@ -213,12 +255,15 @@ public class InternalSteps {
             }
         } finally {
             if (conn != null) try { conn.close(); } catch (Exception ignored) {}
-            // 6) delete the temp DB files and the _h2 dir
-            java.io.File[] dbFiles = h2dir.listFiles();
-            if (dbFiles != null) for (java.io.File f : dbFiles) {
-                if (f.getName().startsWith(dbBase)) try { f.delete(); } catch (Exception ignored) {}
+            // 6) on-disk engine only: delete the temp DB files and the _h2 dir (mem engine leaves nothing)
+            if (h2dir != null) {
+                String dbBase = "q_" + runId + "_" + step.id;
+                java.io.File[] dbFiles = h2dir.listFiles();
+                if (dbFiles != null) for (java.io.File f : dbFiles) {
+                    if (f.getName().startsWith(dbBase)) try { f.delete(); } catch (Exception ignored) {}
+                }
+                try { h2dir.delete(); } catch (Exception ignored) {}
             }
-            try { h2dir.delete(); } catch (Exception ignored) {}
         }
     }
 
