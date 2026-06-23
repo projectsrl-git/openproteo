@@ -54,6 +54,10 @@ public class AppProperties {
     /** How often (seconds) the scheduler re-checks resources to admit deferred queued runs. */
     private int schedulerTickSec = 20;
 
+    /** Comma-separated workflow variable names to surface as columns in the home feed list
+        (also included in the row's general search), e.g. "recordBusinessDate,businessDate". */
+    private String homeListVars = "";
+
     // --- anonymize (ARX) preflight thresholds — conservative fail-fast guards ---
     private long anonymizeMaxRows = 5_000_000L;        // 0 = no limit
     private long anonymizeMaxCells = 200_000_000L;     // 0 = no limit (rough proxy of load)
@@ -106,6 +110,17 @@ public class AppProperties {
     public void setRunAdmissionHeadroomMb(int v) { this.runAdmissionHeadroomMb = v; }
     public int getSchedulerTickSec() { return schedulerTickSec; }
     public void setSchedulerTickSec(int v) { this.schedulerTickSec = v; }
+
+    public String getHomeListVars() { return homeListVars; }
+    public void setHomeListVars(String v) { this.homeListVars = v; }
+    /** Parsed, trimmed, non-empty variable names from {@link #homeListVars}. */
+    public java.util.List<String> homeListVarNames() {
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        if (homeListVars != null) {
+            for (String s : homeListVars.split(",")) { String t = s.trim(); if (!t.isEmpty()) out.add(t); }
+        }
+        return out;
+    }
 
     public long getAnonymizeMaxRows() { return anonymizeMaxRows; }
     public void setAnonymizeMaxRows(long v) { this.anonymizeMaxRows = v; }

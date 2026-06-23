@@ -28,16 +28,20 @@ public class PageController {
     private final RunStore store;
     private final AuditLogger audit;
     private final WorkflowScheduler scheduler;
+    private final com.legalarchive.orchestrator.config.AppProperties props;
 
-    public PageController(WorkflowRegistry registry, RunStore store, AuditLogger audit, WorkflowScheduler scheduler) {
+    public PageController(WorkflowRegistry registry, RunStore store, AuditLogger audit, WorkflowScheduler scheduler,
+                          com.legalarchive.orchestrator.config.AppProperties props) {
         this.registry = registry;
         this.store = store;
         this.audit = audit;
         this.scheduler = scheduler;
+        this.props = props;
     }
 
     @GetMapping("/")
     public String dashboard(Model model) {
+        java.util.List<String> homeVarNames = props.homeListVarNames();
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
         for (WorkflowDef wf : registry.all()) {
             FeedLayout layout = registry.layout(wf.feedId);
@@ -47,9 +51,20 @@ public class PageController {
             row.put("lastRun", last.isEmpty() ? null : last.get(0));
             row.put("feedDir", layout.feedDir.toString());
             row.put("scheduled", scheduler.isScheduled(wf.feedId));
+            java.util.List<String> varValues = new java.util.ArrayList<String>();
+            StringBuilder varSearch = new StringBuilder();
+            for (String vn : homeVarNames) {
+                String v = wf.variables != null ? wf.variables.get(vn) : null;
+                if (v == null) v = "";
+                varValues.add(v);
+                if (!v.isEmpty()) varSearch.append(' ').append(v);
+            }
+            row.put("varValues", varValues);
+            row.put("varSearch", varSearch.toString());
             rows.add(row);
         }
         model.addAttribute("rows", rows);
+        model.addAttribute("homeVarNames", homeVarNames);
         model.addAttribute("errors", registry.errors());
         model.addAttribute("cronErrors", scheduler.errors());
 

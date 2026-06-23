@@ -70,7 +70,7 @@ public class InternalSteps {
             if (control != null && control.aborted) { line.accept("aborted before start"); res.exitCode = -997; return res; }
 
             if ("sql".equals(kind)) {
-                runSql(step, resolvedParams, vars, res, line);
+                runSql(step, resolvedParams, vars, res, line, control);
             } else if ("ifscopy".equals(kind)) {
                 runIfsCopy(step, vars, res, line);
             } else if ("filecopy".equals(kind)) {
@@ -460,7 +460,7 @@ public class InternalSteps {
 
     // ----------------------------------------------------------------- sql
     private void runSql(StepDef step, Map<String, String> params, Map<String, String> vars,
-                        StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+                        StepExecutor.Result res, java.util.function.Consumer<String> line, RunControl control) throws Exception {
         DataSourceDef d = dataSources.get(step.datasource);
         if (d == null) { line.accept("datasource not found: " + step.datasource); res.exitCode = 2; return; }
         // {{columns}} expansion: build the SELECT column list from a (per-feed) dataschema JSON.
@@ -493,7 +493,8 @@ public class InternalSteps {
             if (out.getParentFile() != null) out.getParentFile().mkdirs();
             long maxRows = step.csvSplitRows > 0 ? step.csvSplitRows : 0;
             long maxBytes = step.csvSplitMb > 0 ? (long) step.csvSplitMb * 1024L * 1024L : 0;
-            SqlSupport.ExportResult er = sql.exportCsv(d, query, out, delim, true, maxRows, maxBytes, trim);
+            SqlSupport.ExportResult er = sql.exportCsv(d, query, out, delim, true, maxRows, maxBytes, trim,
+                    st -> { if (control != null) control.statement = st; });
             res.outVars.put("rowCount", String.valueOf(er.rows));
             res.outVars.put("csvParts", String.valueOf(er.parts));
             res.outVars.put("csvFile", er.files.isEmpty() ? out.getAbsolutePath() : er.files.get(0));

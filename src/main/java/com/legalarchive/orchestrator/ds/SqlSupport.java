@@ -126,14 +126,28 @@ public class SqlSupport {
      */
     public ExportResult exportCsv(DataSourceDef d, String sql, java.io.File baseFile, char delim,
                                   boolean bom, long maxRows, long maxBytes, boolean trim) throws Exception {
+        return exportCsv(d, sql, baseFile, delim, bom, maxRows, maxBytes, trim, null);
+    }
+
+    /**
+     * As {@link #exportCsv}, but reports the live {@link Statement} to {@code onStatement} (and null when
+     * done) so the caller can cancel a long-running query/extraction on Stop. setFetchSize cuts JDBC
+     * round-trips while streaming and lets cancel() interrupt the fetch.
+     */
+    public ExportResult exportCsv(DataSourceDef d, String sql, java.io.File baseFile, char delim,
+                                  boolean bom, long maxRows, long maxBytes, boolean trim,
+                                  java.util.function.Consumer<Statement> onStatement) throws Exception {
         Connection c = null;
         Statement st = null;
         try {
             c = open(d);
             st = c.createStatement();
+            try { st.setFetchSize(1000); } catch (Exception ignored) {}
+            if (onStatement != null) onStatement.accept(st);
             ResultSet rs = st.executeQuery(sql);
             return exportResultSet(rs, baseFile, delim, bom, maxRows, maxBytes, trim);
         } finally {
+            if (onStatement != null) try { onStatement.accept(null); } catch (Exception ignored) {}
             if (st != null) try { st.close(); } catch (Exception ignored) {}
             if (c != null) try { c.close(); } catch (Exception ignored) {}
         }

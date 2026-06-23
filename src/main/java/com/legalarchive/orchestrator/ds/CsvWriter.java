@@ -13,16 +13,18 @@ import java.util.List;
 /**
  * Row-oriented CSV writer shared by the {@code sql}, {@code csvsql} and {@code xlsx2csv} executors so
  * they all produce byte-identical output: UTF-8, optional BOM, CRLF line endings, RFC-4180 quoting
- * and the same split-by-rows / split-by-MB behaviour. Usage:
- * <pre>
- *   CsvWriter w = new CsvWriter(baseFile, ';', false, maxRows, maxBytes);
- *   try { w.header(cols); while (...) w.row(cells); } finally { w.close(); }
- *   // w.files / w.rows / w.parts
- * </pre>
- * Always call {@link #close()} (in a finally): it flushes and guarantees at least one file
- * (header-only) even when no data rows were written.
+ * and the same split-by-rows / split-by-MB behaviour. Always call {@link #close()} in a finally.
+ *
+ * <p>Write-path optimisations (output stays byte-identical):
+ * <ul>
+ *   <li>UTF-8 byte counting per row only when splitting by bytes (maxBytes &gt; 0).</li>
+ *   <li>One reusable StringBuilder + char[] across rows (no per-row String/StringBuilder alloc).</li>
+ *   <li>Single-pass field quoting; 512 KB output buffer.</li>
+ * </ul>
  */
 public class CsvWriter implements AutoCloseable {
+
+    private static final int BUFFER_BYTES = 1 << 19;   // 512 KB
 
     private final File baseFile;
     private final char delim;
@@ -30,6 +32,7 @@ public class CsvWriter implements AutoCloseable {
     private final long maxRows;
     private final long maxBytes;
     private final boolean split;
+    private final boolean countBytes;
 
     private Writer w;
     private int part = 0;
@@ -37,6 +40,9 @@ public class CsvWriter implements AutoCloseable {
     private long bytesInPart = 0;
     private String headerLine;
     private long headerBytes;
+
+    private final StringBuilder sb = new StringBuilder(512);
+    private char[] cbuf = new char[8192];
 
     public final List<String> files = new ArrayList<String>();
     public long rows = 0;
@@ -49,26 +55,32 @@ public class CsvWriter implements AutoCloseable {
         this.maxRows = maxRows;
         this.maxBytes = maxBytes;
         this.split = maxRows > 0 || maxBytes > 0;
+        this.countBytes = maxBytes > 0;
     }
 
-    /** Set the header line. Call before the first {@link #row}. */
     public void header(String[] cols) {
-        headerLine = buildLine(cols);
-        headerBytes = utf8Len(headerLine) + 2;
+        sb.setLength(0);
+        appendFields(sb, cols);
+        headerLine = sb.toString();
+        headerBytes = countBytes ? utf8Len(headerLine) + 2 : 0;
     }
 
     public void row(String[] cells) throws IOException {
-        String line = buildLine(cells);
-        long rb = utf8Len(line) + 2;
+        sb.setLength(0);
+        appendFields(sb, cells);
+        long rb = countBytes ? utf8Len(sb) + 2 : 0;
         boolean rollover = w == null
                 || (split && rowsInPart > 0 && (
                         (maxRows > 0 && rowsInPart >= maxRows) ||
-                        (maxBytes > 0 && bytesInPart + rb > maxBytes)));
+                        (countBytes && bytesInPart + rb > maxBytes)));
         if (rollover) openNext();
-        w.write(line);
-        w.write("\r\n");
+        sb.append('\r').append('\n');
+        int len = sb.length();
+        if (cbuf.length < len) cbuf = new char[Math.max(len, cbuf.length * 2)];
+        sb.getChars(0, len, cbuf, 0);
+        w.write(cbuf, 0, len);
         rowsInPart++;
-        bytesInPart += rb;
+        if (countBytes) bytesInPart += rb;
         rows++;
     }
 
@@ -77,7 +89,7 @@ public class CsvWriter implements AutoCloseable {
         part++;
         File f = split ? partName(baseFile, part) : baseFile;
         if (f.getParentFile() != null) f.getParentFile().mkdirs();
-        w = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(f), StandardCharsets.UTF_8), 1 << 16);
+        w = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(f), StandardCharsets.UTF_8), BUFFER_BYTES);
         if (bom) w.write('\uFEFF');
         if (headerLine != null) { w.write(headerLine); w.write("\r\n"); }
         files.add(f.getAbsolutePath());
@@ -86,26 +98,33 @@ public class CsvWriter implements AutoCloseable {
     }
 
     public void close() throws IOException {
-        if (w == null) openNext();   // no data rows: still emit an (empty-but-header) first file
+        if (w == null) openNext();
         if (w != null) { w.flush(); w.close(); w = null; }
         parts = files.size();
     }
 
-    private String buildLine(String[] cells) {
-        StringBuilder sb = new StringBuilder();
+    private void appendFields(StringBuilder out, String[] cells) {
         for (int i = 0; i < cells.length; i++) {
-            if (i > 0) sb.append(delim);
-            sb.append(csvField(cells[i]));
+            if (i > 0) out.append(delim);
+            appendField(out, cells[i]);
         }
-        return sb.toString();
     }
 
-    /** RFC 4180 quoting: wrap in double quotes when the field holds the delimiter, a quote or a newline. */
-    private String csvField(String s) {
-        if (s == null) return "";
-        boolean q = s.indexOf(delim) >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0 || s.indexOf('\r') >= 0;
-        if (!q) return s;
-        return '"' + s.replace("\"", "\"\"") + '"';
+    private void appendField(StringBuilder out, String s) {
+        if (s == null || s.isEmpty()) return;
+        boolean q = false;
+        for (int i = 0, n = s.length(); i < n; i++) {
+            char ch = s.charAt(i);
+            if (ch == delim || ch == '"' || ch == '\n' || ch == '\r') { q = true; break; }
+        }
+        if (!q) { out.append(s); return; }
+        out.append('"');
+        for (int i = 0, n = s.length(); i < n; i++) {
+            char ch = s.charAt(i);
+            if (ch == '"') out.append('"');
+            out.append(ch);
+        }
+        out.append('"');
     }
 
     private static File partName(File base, int n) {
@@ -116,14 +135,13 @@ public class CsvWriter implements AutoCloseable {
         return new File(base.getParentFile(), stem + "_" + String.format("%03d", n) + ext);
     }
 
-    /** Exact UTF-8 byte length (surrogate pairs counted as 4 bytes). */
-    private static long utf8Len(String s) {
+    private static long utf8Len(CharSequence s) {
         long n = 0;
-        for (int i = 0; i < s.length(); i++) {
+        for (int i = 0, L = s.length(); i < L; i++) {
             char ch = s.charAt(i);
             if (ch < 0x80) n += 1;
             else if (ch < 0x800) n += 2;
-            else if (Character.isHighSurrogate(ch) && i + 1 < s.length() && Character.isLowSurrogate(s.charAt(i + 1))) { n += 4; i++; }
+            else if (Character.isHighSurrogate(ch) && i + 1 < L && Character.isLowSurrogate(s.charAt(i + 1))) { n += 4; i++; }
             else n += 3;
         }
         return n;
