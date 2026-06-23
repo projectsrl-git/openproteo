@@ -24,7 +24,9 @@
         <button class="btn sm" id="rerunBtn" style="margin-left:8px" onclick="reRun()">↻ Re-run</button>
     </h1>
     <p class="page-sub">
-        <span id="runMeta" class="mono small"></span>
+        <span class="mono small" th:if="${wf.sourceId}">source: <b th:text="${wf.sourceId}"></b><span th:if="${wf.sourceDescription}" th:text="' (' + ${wf.sourceDescription} + ')'"></span> &nbsp;·&nbsp; </span>
+        <span class="mono small" th:if="${wf.targetId}">target: <b th:text="${wf.targetId}"></b><span th:if="${wf.targetDescription}" th:text="' (' + ${wf.targetDescription} + ')'"></span></span>
+        <br><span id="runMeta" class="mono small"></span>
     </p>
 
     <div class="toolbar">

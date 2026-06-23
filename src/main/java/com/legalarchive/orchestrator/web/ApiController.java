@@ -853,6 +853,52 @@ public class ApiController {
         return ResponseEntity.ok(out);
     }
 
+    /**
+     * Clear the run history of a SINGLE feed: deletes run records (_runs), step logs (_logs/runs) and
+     * the step working directories (and 99_landing_out, _h2), then recreates the empty structure.
+     * PRESERVES the workflow-level uploads (dataschema/displayschema/scripts at the feed root and
+     * _assets.json), the declared input (00_landing_in) and the audit trail (_logs/audit_*.jsonl).
+     */
+    @PostMapping("/api/workflows/{feedId}/clear-history")
+    public ResponseEntity<Map<String, Object>> clearFeedHistory(@PathVariable String feedId, HttpServletRequest req) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        WorkflowDef def = registry.get(feedId);
+        if (def == null) return badRequest(out, "Unknown workflow: " + feedId);
+        if (def.production) return badRequest(out, "Refusing to clear history for a PRODUCTION workflow.");
+        if (engine.activeRunId(feedId) != null) return badRequest(out, "A run is currently active — stop it before clearing history.");
+        FeedLayout layout = registry.layout(feedId);
+        if (layout == null) return badRequest(out, "No layout for " + feedId);
+        try {
+            int removed = clearOneFeed(layout);
+            audit.log(layout.auditFile(), feedId, null, null, "FEED_HISTORY_CLEARED", user(req), new java.util.LinkedHashMap<String, String>());
+            out.put("ok", true);
+            out.put("removed", removed);
+            return ResponseEntity.ok(out);
+        } catch (Exception e) {
+            return badRequest(out, "Clear history failed: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+        }
+    }
+
+    /** Delete run/step working data for one feed, preserving uploads, input and audit. Returns count removed. */
+    private int clearOneFeed(FeedLayout layout) throws Exception {
+        java.io.File feedDir = layout.feedDir.toFile();
+        int removed = 0;
+        java.io.File[] kids = feedDir.listFiles();
+        if (kids != null) for (java.io.File c : kids) {
+            if (c.isFile()) continue;                       // keep uploads (dataschema/displayschema) + _assets.json
+            String name = c.getName();
+            if ("00_landing_in".equals(name)) continue;     // keep declared input
+            if ("_logs".equals(name)) {                      // keep audit trail, drop step logs only
+                java.io.File runsLog = new java.io.File(c, "runs");
+                if (runsLog.isDirectory()) { deleteRecursively(runsLog); removed++; }
+                continue;
+            }
+            deleteRecursively(c); removed++;                 // _runs, step dirs, 99_landing_out, _h2, ...
+        }
+        layout.provision();
+        return removed;
+    }
+
     private static void deleteRecursively(java.io.File f) throws java.io.IOException {
         if (f == null) return;
         java.nio.file.Path root = f.toPath();

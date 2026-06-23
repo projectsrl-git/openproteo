@@ -1,25 +1,28 @@
-csvsql: enforce query timeout + ANALYZE (runaway queries)
+stepTimeoutMins var, per-feed Clear History, working Stop, names
 
-A 3-level self-join of a 1.5M-row table with OR conditions in the JOIN
-predicates ran for hours. Two issues:
+1) stepTimeoutMins (default 5 min): seeded per run at lowest precedence,
+   overridable globally / per-workflow / per-step via stepTimeoutMins.<stepId>.
+   InternalSteps.stepTimeoutSec() resolves the effective timeout (explicit
+   TIMEOUT SEC field wins, else the variable, else app default); used for both
+   external steps and the csvsql query timeout. Added to the cheat sheet.
 
-1) Tool bug: internal steps (csvsql/xlsx2csv) ignored the step timeout entirely
-   (only external script steps got it), so a runaway query had nothing to stop
-   it.
-2) The query itself is pathological: an OR in a join condition cannot use an
-   index/hash join and degrades to a nested loop (rows x rows ~ 2.25e12 for the
-   first join, multiplied again by the second), which no engine tuning can fix.
+2) Clear History data-loss fixes:
+   - was calling the admin endpoint that wiped EVERY feed; added per-feed
+     POST /api/workflows/{feedId}/clear-history and pointed the button at it.
+   - per-feed clear deletes run records, step logs and step working dirs but
+     PRESERVES feed-root uploads (dataschema/displayschema + _assets.json),
+     00_landing_in and the audit trail. Refuses on active run or PRODUCTION.
 
-Changes (tool side):
-- csvsql applies Statement.setQueryTimeout to the staging, index and query
-  statements, from the step's TIMEOUT SEC (else orchestrator.default-step-
-  timeout-sec = 1800s). A query over the limit is aborted by H2 and the step is
-  flagged timedOut with a clear message, instead of hanging for hours.
-- best-effort ANALYZE after staging+indexing so H2 has stats for join order /
-  index use.
+3) Show source/target NAMES (descriptions) next to ids on the dashboard feed
+   list, the workflow header and the run header.
 
-Guidance (USAGE): avoid OR in JOINs; rewrite each OR-join as a UNION of separate
-equi-joins. csvsql targets filter/aggregate/equi-join workloads, not multi-hop
-graph expansion over millions of rows.
+6) Stop now works for internal steps: RunControl carries the active JDBC
+   statement; runCsvSql registers it around staging/query and engine.stop()
+   cancels it (plus killing any external process), so a runaway csvsql query is
+   aborted and the run ends ABORTED.
 
-Compiles (96 classes). Live H2 timing is UBS-side.
+Deferred (need a dedicated pass): 2.3 bulk "schema only" updater; 4 live
+executions board + per-source rollup; 5 step-by-step run while another run is
+active (the runner is single-threaded).
+
+Compiles (96 classes). Live behaviour to verify on UBS.

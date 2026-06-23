@@ -8,4 +8,6 @@ package com.legalarchive.orchestrator.engine;
 public class RunControl {
     public volatile boolean aborted = false;
     public volatile Process process;
+    /** Currently executing JDBC statement (csvsql), so an operator Stop can cancel a long query. */
+    public volatile java.sql.Statement statement;
 }

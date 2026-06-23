@@ -120,8 +120,8 @@
                 th:attr="data-search=${(row.wf.feedId + ' ' + (row.wf.sourceId ?: '') + ' ' + (row.wf.targetId ?: '') + ' ' + row.wf.name + ' ' + (row.wf.description ?: '') + ' ' + (row.wf.cron ?: 'manual'))},data-source=${(row.wf.sourceId == null or row.wf.sourceId.trim().isEmpty()) ? '—' : row.wf.sourceId.trim()}">
                 <td class="cbcol"><input type="checkbox" class="rowcb" th:attr="data-feed=${row.wf.feedId}" onclick="onRowCb()"></td>
                 <td class="mono"><span class="feed-id" th:text="${row.wf.feedId}"></span></td>
-                <td class="mono small dim"><span th:if="${row.wf.sourceId}" th:text="${row.wf.sourceId}"></span><span th:if="${row.wf.sourceId == null}">—</span></td>
-                <td class="mono small dim"><span th:if="${row.wf.targetId}" th:text="${row.wf.targetId}"></span><span th:if="${row.wf.targetId == null}">—</span></td>
+                <td class="mono small dim"><span th:if="${row.wf.sourceId}" th:text="${row.wf.sourceId}"></span><span th:if="${row.wf.sourceId == null}">—</span><div class="dim" style="font-size:11px" th:if="${row.wf.sourceDescription}" th:text="${row.wf.sourceDescription}"></div></td>
+                <td class="mono small dim"><span th:if="${row.wf.targetId}" th:text="${row.wf.targetId}"></span><span th:if="${row.wf.targetId == null}">—</span><div class="dim" style="font-size:11px" th:if="${row.wf.targetDescription}" th:text="${row.wf.targetDescription}"></div></td>
                 <td>
                     <span th:text="${row.wf.name}"></span>
                     <div class="dim small" th:if="${row.wf.description}" th:text="${row.wf.description}"></div>

@@ -123,7 +123,7 @@
                 <a class="btn" th:href="@{/}">Cancel</a>
                 <button class="btn" onclick="duplicateWorkflow()" th:if="${feedId != null}">⧉ Duplicate as new</button>
                 <button class="btn danger" onclick="deleteWorkflow()" th:if="${feedId != null}">🗑 Delete workflow</button>
-                <button class="btn danger js-clearhist" onclick="clearHistory()" title="delete all run history/data under the feeds directory">🧹 Clear History</button>
+                <button class="btn danger js-clearhist" onclick="clearHistory()" title="delete this workflow's run history and step working files (uploads and audit are kept)">🧹 Clear History</button>
                 <button class="btn primary" onclick="save()">💾 Validate &amp; save</button>
             </div>
         </div>
@@ -152,7 +152,7 @@
             <div class="panel">
                 <dl class="kv">
                     <dt>Executors</dt><dd>.ps1 → powershell · .bat/.cmd → cmd · .jar → java -jar (or force with Executor)</dd>
-                    <dt>Builtin vars</dt><dd>${feedId} ${runId} ${runDate} ${landingIn} ${landingOut} ${stepDir} ${stepId} ${stepName} ${sharedDir} ${dir.&lt;stepId&gt;}</dd>
+                    <dt>Builtin vars</dt><dd>${feedId} ${runId} ${runDate} ${landingIn} ${landingOut} ${stepDir} ${stepId} ${stepName} ${sharedDir} ${dir.&lt;stepId&gt;} ${stepTimeoutMins} (default 5; per-step ${stepTimeoutMins.&lt;stepId&gt;})</dd>
                     <dt>Output vars</dt><dd>script prints:&nbsp; ##VAR name=value</dd>
                     <dt>Condition ops</dt><dd>== != &gt;= &lt;= &gt; &lt; contains notcontains matches exists notexists</dd>
                     <dt>Combine</dt><dd>clause &amp;&amp; clause &nbsp;or&nbsp; clause || clause (not mixed)</dd>
@@ -540,7 +540,7 @@
             .catch(function () { FEED_DOCS = []; });
     }
     function refreshSuggestions() {
-        var base = ['${feedDir}','${stepDir}','${stepId}','${landingIn}','${landingOut}','${sharedDir}','${logDir}','${feedId}','${sourceId}','${targetId}','${runId}','${runDate}','${item}','${itemIndex}','${matchedFiles}','${matchedCount}','${csvFile}','${csvFiles}'];
+        var base = ['${feedDir}','${stepDir}','${stepId}','${landingIn}','${landingOut}','${sharedDir}','${logDir}','${feedId}','${sourceId}','${targetId}','${runId}','${runDate}','${item}','${itemIndex}','${matchedFiles}','${matchedCount}','${csvFile}','${csvFiles}','${stepTimeoutMins}'];
         var toks = base.slice();
         FEED_DOCS.forEach(function (d) { toks.push(d); });
         (wf.nodes || []).forEach(function (n) { if (n.kind === 'STEP' && n.id) { toks.push('${dir.' + n.id + '}'); toks.push('${' + n.id + '.outputFile}'); } });
@@ -1306,22 +1306,21 @@
         }).catch(function (e) { banner(false, 'Error: ' + esc(e)); });
     }
 
-    // ---------------- clear history ----------------
+    // ---------------- clear history (this workflow only) ----------------
     function clearHistory() {
         if (wf.production) { banner(false, 'Clear History is disabled while this workflow is flagged Production.'); window.scrollTo(0, 0); return; }
-        opConfirm('IRREVERSIBLE: this deletes ALL run history and data for EVERY workflow — every directory under the feeds base folder is removed and recreated empty. This cannot be undone. Are you absolutely sure?',
+        if (!EDIT_FEED_ID) { banner(false, 'Save the workflow first.'); window.scrollTo(0, 0); return; }
+        opConfirm('Clear the run history of THIS workflow (' + esc(EDIT_FEED_ID) + ')? This deletes run records, step logs and the step working directories. Uploaded files (dataschema/displayschema), the declared input and the audit trail are kept. This cannot be undone.',
             function () {
-                opConfirm('Final confirmation: permanently wipe all run history and feed data now?', function () {
-                    fetch(CTX + 'api/admin/clear-history', { method: 'POST' })
-                        .then(readJson)
-                        .then(function (j) {
-                            if (j.ok) banner(true, 'Run history cleared — ' + j.removed + ' item(s) removed under <b>' + esc(j.base) + '</b>.');
-                            else banner(false, esc(j.error || 'Clear history failed'));
-                            window.scrollTo(0, 0);
-                        })
-                        .catch(function (e) { banner(false, 'Error: ' + esc(e)); window.scrollTo(0, 0); });
-                }, { danger: true, okText: 'Wipe everything' });
-            }, { danger: true, okText: 'Continue' });
+                fetch(CTX + 'api/workflows/' + encodeURIComponent(EDIT_FEED_ID) + '/clear-history', { method: 'POST' })
+                    .then(readJson)
+                    .then(function (j) {
+                        if (j.ok) banner(true, 'Run history cleared for this workflow — ' + j.removed + ' item(s) removed. Uploads and audit kept.');
+                        else banner(false, esc(j.error || 'Clear history failed'));
+                        window.scrollTo(0, 0);
+                    })
+                    .catch(function (e) { banner(false, 'Error: ' + esc(e)); window.scrollTo(0, 0); });
+            }, { danger: true, okText: 'Clear this workflow' });
     }
 
     // ---------------- direct XML editing ----------------

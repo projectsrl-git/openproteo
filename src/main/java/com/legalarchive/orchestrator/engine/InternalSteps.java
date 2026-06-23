@@ -94,7 +94,7 @@ public class InternalSteps {
             } else if ("dequote".equals(kind)) {
                 runDequote(step, resolvedParams, vars, res, line);
             } else if ("csvsql".equals(kind)) {
-                runCsvSql(step, resolvedParams, vars, res, line);
+                runCsvSql(step, resolvedParams, vars, res, line, control);
             } else if ("xlsx2csv".equals(kind)) {
                 runXlsx2Csv(step, resolvedParams, vars, res, line);
             } else {
@@ -125,7 +125,7 @@ public class InternalSteps {
      * runtime (a missing driver fails this step with a clear message, like ARX).
      */
     private void runCsvSql(StepDef step, Map<String, String> params, Map<String, String> vars,
-                           StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+                           StepExecutor.Result res, java.util.function.Consumer<String> line, RunControl control) throws Exception {
         // 1) resolve output + delimiter + inputs
         String csvFile = VarResolver.resolve(step.csvFile, vars);
         if (csvFile == null || csvFile.trim().isEmpty()) { line.accept("csvsql: csvFile (output) is required"); res.exitCode = 2; return; }
@@ -172,7 +172,7 @@ public class InternalSteps {
         line.accept("csvsql: engine=" + (useMem ? "mem" : "file") + ", inputs " + (totalBytes / 1048576) + " MB");
         // Query/statement timeout (seconds): the step's TIMEOUT SEC, else the app default. H2 aborts a
         // runaway query (e.g. an OR-join that degrades to a nested loop) instead of running for hours.
-        final int qto = step.timeoutSec > 0 ? step.timeoutSec : (props != null ? props.getDefaultStepTimeoutSec() : 0);
+        final int qto = stepTimeoutSec(step.id, step.timeoutSec, vars, props != null ? props.getDefaultStepTimeoutSec() : 0);
         if (qto > 0) line.accept("csvsql: query timeout " + qto + "s");
 
         // 3) driver presence (pure JDBC; H2 is runtime-only)
@@ -204,11 +204,13 @@ public class InternalSteps {
                 try {
                     ps = conn.createStatement();
                     if (qto > 0) ps.setQueryTimeout(qto);
+                    if (control != null) control.statement = ps;
                     String sql = "CREATE TABLE " + table + " AS SELECT * FROM CSVREAD("
                             + sqlLit(csv) + ", NULL, " + sqlLit(csvOpts) + ")";
                     int n = ps.executeUpdate(sql);
                     line.accept("staged " + table + " <- " + csv + " (sep='" + sep + "', " + n + " rows)");
                 } finally {
+                    if (control != null) control.statement = null;
                     if (ps != null) try { ps.close(); } catch (Exception ignored) {}
                 }
             }
@@ -258,6 +260,7 @@ public class InternalSteps {
             try {
                 st = conn.createStatement();
                 if (qto > 0) st.setQueryTimeout(qto);
+                if (control != null) control.statement = st;
                 java.sql.ResultSet rs = st.executeQuery(query);
                 // csvsql output is written WITHOUT BOM so it is safe to feed into another csvsql input
                 SqlSupport.ExportResult er = sql.exportResultSet(rs, out, delim, false, maxRows, maxBytes, trim);
@@ -271,6 +274,7 @@ public class InternalSteps {
                 for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
                 res.exitCode = 0;
             } finally {
+                if (control != null) control.statement = null;
                 if (st != null) try { st.close(); } catch (Exception ignored) {}
             }
         } finally {
@@ -384,6 +388,23 @@ public class InternalSteps {
 
     /** SQL string literal with single quotes doubled (standard SQL / H2). */
     private static String sqlLit(String s) { return s == null ? "NULL" : "'" + s.replace("'", "''") + "'"; }
+
+    /**
+     * Effective step timeout in seconds. Precedence: the explicit per-step TIMEOUT SEC field (if &gt; 0),
+     * else the variable {@code stepTimeoutMins.<stepId>} (minutes), else {@code stepTimeoutMins} (minutes),
+     * else {@code defaultSec}. The standard variable {@code stepTimeoutMins} is seeded to 5 for every run
+     * and can be overridden globally, per-workflow, or per-step.
+     */
+    public static int stepTimeoutSec(String stepId, int stepTimeoutSecField, Map<String, String> vars, int defaultSec) {
+        if (stepTimeoutSecField > 0) return stepTimeoutSecField;
+        String m = vars != null ? vars.get("stepTimeoutMins." + stepId) : null;
+        if (m == null || m.trim().isEmpty()) m = vars != null ? vars.get("stepTimeoutMins") : null;
+        if (m != null) {
+            try { double mins = Double.parseDouble(m.trim()); if (mins > 0) return (int) Math.round(mins * 60.0); }
+            catch (Exception ignored) {}
+        }
+        return defaultSec;
+    }
 
     /** Public entry point so the csvsql preview reuses the exact same detection as the executor. */
     public static char detectDelimiter(java.io.File f, char def) { return detectDelim(f, def); }

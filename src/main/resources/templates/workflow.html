@@ -18,7 +18,8 @@
 <div class="wrap">
     <h1><span class="feed-id" th:text="${wf.feedId}"></span> — <span th:text="${wf.name}"></span></h1>
     <p class="page-sub">
-        <span th:if="${wf.sourceId}" class="mono small">source: <b th:text="${wf.sourceId}"></b> &nbsp;·&nbsp; </span>
+        <span th:if="${wf.sourceId}" class="mono small">source: <b th:text="${wf.sourceId}"></b><span th:if="${wf.sourceDescription}" th:text="' (' + ${wf.sourceDescription} + ')'"></span> &nbsp;·&nbsp; </span>
+        <span th:if="${wf.targetId}" class="mono small">target: <b th:text="${wf.targetId}"></b><span th:if="${wf.targetDescription}" th:text="' (' + ${wf.targetDescription} + ')'"></span> &nbsp;·&nbsp; </span>
         <span th:text="${wf.description != null ? wf.description : 'Feed preparation and delivery workflow'}"></span>
     </p>
 

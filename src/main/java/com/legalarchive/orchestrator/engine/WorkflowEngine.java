@@ -208,6 +208,9 @@ public class WorkflowEngine {
             finish(def, layout, run, RunStatus.ABORTED, "Stopped while queued by " + user);
             return true;
         }
+        if (c != null && c.statement != null) {
+            try { c.statement.cancel(); } catch (Exception ignored) {}   // abort a long csvsql query
+        }
         if (c != null && c.process != null) {
             c.process.destroyForcibly();
         }
@@ -232,6 +235,7 @@ public class WorkflowEngine {
         run.startTs = now.format(TS);
 
         // variabili builtin: l'identita' del feed e' disponibile ovunque
+        run.vars.put("stepTimeoutMins", "5");   // standard default (minutes); overridable globally, per-workflow, or per-step via stepTimeoutMins.<stepId>
         run.vars.putAll(globalVars.all());   // common vars for all workflows (lowest precedence)
         run.vars.put("feedId", def.feedId);
         run.vars.put("sourceId", def.sourceId == null ? "" : def.sourceId);
@@ -501,7 +505,7 @@ public class WorkflowEngine {
         if (step.forEach != null && !step.forEach.trim().isEmpty()) startDet.put("forEach", step.forEach);
         auditFeed(layout, run.feedId, run.runId, step.id, "STEP_STARTED", "system", startDet);
 
-        int timeout = step.timeoutSec > 0 ? step.timeoutSec : props.getDefaultStepTimeoutSec();
+        int timeout = InternalSteps.stepTimeoutSec(step.id, step.timeoutSec, run.vars, props.getDefaultStepTimeoutSec());
 
         try {
             // ---- parallel fan-out: run once per item of the resolved list ----
