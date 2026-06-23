@@ -1,21 +1,17 @@
-Bulk "schema only" mode: restore dataschema/displayschema
+Operations board: live executions + per-source rollup
 
-Adds a schema-only path to POST /api/workflows/bulk (schemaOnly=true) to
-re-create or refresh the dataschema.json / displayschema.json of EXISTING feeds
-in bulk, without a template and without touching any workflow XML. Needed to
-recover the ~140 feeds whose schema uploads were deleted by the earlier
-clear-history bug.
+New /overview page (linked from the dashboard) with two auto-refreshing views.
 
-- BulkWorkflowGenerator.parseSchemas() reads only feedId + dataschema +
-  displayschema columns (no template, no XML).
-- The endpoint writes the validated JSON into ${feedDir}/dataschema.json and
-  displayschema.json for each row whose feed already exists (same file names and
-  write as the original bulk-create), reporting per-row updated/skipped/error and
-  counts. 'template' is now optional (required only for the create path).
-- bulk.html: a Mode selector (create/update workflows | schema only); in
-  schema-only the template is disabled with a hint, and 'updated' shows green.
+- Executions in progress (3s): GET /api/overview/active from engine.queueSnapshot
+  -- every queued/running/waiting run across all feeds with source, status,
+  current step, progress, an Open link and a Stop button.
+- By source rollup (20s + manual): GET /api/overview/rollup reads each feed's
+  latest run once and buckets feeds per source into not-run / running / success /
+  failed / aborted / other (running detected via engine.activeRunId, so active
+  feeds skip the disk read). Page shows totals tiles + a per-source table with a
+  stacked mix bar.
 
-Use: Bulk page -> Mode = schema only -> paste the feeds CSV (feedId, dataschema,
-displayschema) -> run.
+Files: ApiController overviewActive()/overviewRollup(); PageController /overview;
+templates/overview.html; dashboard "Operations" nav link.
 
-Compiles (96 classes). bulk JS verified; live write is UBS-side.
+Compiles (97 classes). overview JS verified; live data is UBS-side.

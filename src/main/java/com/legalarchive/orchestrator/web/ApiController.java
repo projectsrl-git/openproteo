@@ -908,6 +908,102 @@ public class ApiController {
         return ResponseEntity.ok(out);
     }
 
+    /** Live board: all executions currently in progress (queued/running/waiting). In-memory, cheap. */
+    @GetMapping("/api/overview/active")
+    public ResponseEntity<Map<String, Object>> overviewActive() {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        java.util.List<Map<String, Object>> running = new java.util.ArrayList<Map<String, Object>>();
+        for (WorkflowRun r : engine.queueSnapshot()) {
+            WorkflowDef def = registry.get(r.feedId);
+            Map<String, Object> m = new LinkedHashMap<String, Object>();
+            m.put("feedId", r.feedId);
+            m.put("name", r.workflowName != null ? r.workflowName : (def != null ? def.name : r.feedId));
+            m.put("source", def != null && def.sourceId != null ? def.sourceId : "");
+            m.put("sourceDescription", def != null ? def.sourceDescription : null);
+            m.put("targetId", def != null && def.targetId != null ? def.targetId : "");
+            m.put("runId", r.runId);
+            m.put("status", r.status != null ? r.status.name() : "");
+            m.put("startTs", r.startTs);
+            m.put("trigger", r.trigger);
+            m.put("by", r.triggeredBy);
+            int total = def != null ? def.steps().size() : 0;
+            int done = 0; String cur = null;
+            for (com.legalarchive.orchestrator.model.run.StepExec se : r.steps) {
+                if (se.status == com.legalarchive.orchestrator.model.run.StepStatus.SUCCESS
+                        || se.status == com.legalarchive.orchestrator.model.run.StepStatus.SKIPPED) done++;
+                if (se.status == com.legalarchive.orchestrator.model.run.StepStatus.RUNNING && cur == null)
+                    cur = se.name != null ? se.name : se.stepId;
+            }
+            if (cur == null && r.status == com.legalarchive.orchestrator.model.run.RunStatus.WAITING_APPROVAL) cur = "waiting approval";
+            m.put("totalSteps", total);
+            m.put("doneSteps", done);
+            m.put("currentStep", cur);
+            running.add(m);
+        }
+        out.put("ok", true);
+        out.put("running", running);
+        out.put("count", running.size());
+        return ResponseEntity.ok(out);
+    }
+
+    /** Per-source rollup of every feed by status (one read of the latest run per feed). */
+    @GetMapping("/api/overview/rollup")
+    public ResponseEntity<Map<String, Object>> overviewRollup() {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        // counts per source: [total, notRun, running, success, failed, aborted, other]
+        java.util.LinkedHashMap<String, long[]> agg = new java.util.LinkedHashMap<String, long[]>();
+        java.util.Map<String, String> srcDesc = new java.util.LinkedHashMap<String, String>();
+        long[] tot = new long[7];
+        for (WorkflowDef def : registry.all()) {
+            String src = (def.sourceId == null || def.sourceId.trim().isEmpty()) ? "\u2014" : def.sourceId.trim();
+            if (def.sourceDescription != null && !def.sourceDescription.trim().isEmpty() && !srcDesc.containsKey(src))
+                srcDesc.put(src, def.sourceDescription.trim());
+            long[] a = agg.get(src); if (a == null) { a = new long[7]; agg.put(src, a); }
+            int bucket;
+            if (engine.activeRunId(def.feedId) != null) {
+                bucket = 2;
+            } else {
+                FeedLayout layout = registry.layout(def.feedId);
+                java.util.List<WorkflowRun> last = layout != null ? store.list(layout, 1) : java.util.Collections.<WorkflowRun>emptyList();
+                if (last.isEmpty()) {
+                    bucket = 1;
+                } else {
+                    com.legalarchive.orchestrator.model.run.RunStatus st = last.get(0).status;
+                    if (st == com.legalarchive.orchestrator.model.run.RunStatus.SUCCESS) bucket = 3;
+                    else if (st == com.legalarchive.orchestrator.model.run.RunStatus.FAILED) bucket = 4;
+                    else if (st == com.legalarchive.orchestrator.model.run.RunStatus.QUEUED
+                            || st == com.legalarchive.orchestrator.model.run.RunStatus.RUNNING
+                            || st == com.legalarchive.orchestrator.model.run.RunStatus.WAITING_APPROVAL) bucket = 2;
+                    else if (st == com.legalarchive.orchestrator.model.run.RunStatus.ABORTED) bucket = 5;
+                    else bucket = 6;
+                }
+            }
+            a[0]++; a[bucket]++; tot[0]++; tot[bucket]++;
+        }
+        java.util.List<Map<String, Object>> sources = new java.util.ArrayList<Map<String, Object>>();
+        for (Map.Entry<String, long[]> e : agg.entrySet()) {
+            long[] a = e.getValue();
+            Map<String, Object> m = new LinkedHashMap<String, Object>();
+            m.put("source", e.getKey());
+            m.put("sourceDescription", srcDesc.get(e.getKey()));
+            m.put("total", a[0]); m.put("notRun", a[1]); m.put("running", a[2]);
+            m.put("success", a[3]); m.put("failed", a[4]); m.put("aborted", a[5]); m.put("other", a[6]);
+            sources.add(m);
+        }
+        java.util.Collections.sort(sources, new java.util.Comparator<Map<String, Object>>() {
+            public int compare(Map<String, Object> x, Map<String, Object> y) {
+                return Long.compare((Long) y.get("total"), (Long) x.get("total"));
+            }
+        });
+        Map<String, Object> totals = new LinkedHashMap<String, Object>();
+        totals.put("total", tot[0]); totals.put("notRun", tot[1]); totals.put("running", tot[2]);
+        totals.put("success", tot[3]); totals.put("failed", tot[4]); totals.put("aborted", tot[5]); totals.put("other", tot[6]);
+        out.put("ok", true);
+        out.put("sources", sources);
+        out.put("totals", totals);
+        return ResponseEntity.ok(out);
+    }
+
     /**
      * Clear the run history of a SINGLE feed: deletes run records (_runs), step logs (_logs/runs) and
      * the step working directories (and 99_landing_out, _h2), then recreates the empty structure.
