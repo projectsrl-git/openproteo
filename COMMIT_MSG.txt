@@ -1,18 +1,20 @@
-Fix Stop on SQL runs (left RUNNING); selectable home-list variables
+Add read-only Cert Identity Probe diagnostic endpoint (GET /diag/whoami)
 
-1) Stop left a run RUNNING during SQL extraction: the DB2 sql executor never
-   registered its JDBC Statement in RunControl, so engine.stop() couldn't cancel
-   it. SqlSupport.exportCsv now reports the live Statement via a callback (+ fetch
-   size); runSql registers it (st -> control.statement = st). Stop cancels it, the
-   query aborts, the step returns not-ok and the run finalises ABORTED (loop catch
-   also guarantees finalisation). Re-applied the G2 CsvWriter optimisation +
-   setFetchSize lost in an earlier packaging (byte-identical, re-verified).
+Temporary diagnostic to determine how the UBS personal browser-certificate
+identity reaches OpenProteo (TLS client cert at Tomcat vs identity headers
+injected by an upstream proxy), to design the real authentication filter.
 
-2) Selectable variables in the home feed list: new orchestrator.home-list-vars
-   (comma-separated workflow variable names). The dashboard shows a column per
-   name with each feed's value and includes those values in the row search, so
-   feeds can be searched by e.g. Business Record Date. Empty = unchanged layout.
-   AppProperties.homeListVars/homeListVarNames(); PageController resolves
-   row.varValues + row.varSearch; dashboard.html renders dynamic columns/colspans.
+- Adds com.legalarchive.orchestrator.diag.CertIdentityProbeController (package
+  adjusted from the handoff's example com.ubs.openproteo to this project's base
+  com.legalarchive.orchestrator; auto-detected under the @SpringBootApplication
+  scan root). Renders one HTML page with: (1) the javax.servlet.request
+  .X509Certificate chain, (2) all request headers (SSL_CLIENT_* / verify / UBS
+  identity headers), (3) connection facts (isSecure, scheme, remoteAddr, server
+  name, URL, cipher). No new dependencies, no pom change, no JavaScript.
+- Handoff doc placed at .claude/CERT_IDENTITY_PROBE_INTEGRATION.md.
 
-Compiles (99 classes); CsvWriter byte-identity test passes; dashboard JS verified.
+Open it through the same HTTPS/SSO entry point users use, with the cert-holding
+browser: https://<host>/openproteo/diag/whoami. REMOVE or lock down after the
+identity source is confirmed (it exposes all request headers).
+
+Compiles (100 classes).
