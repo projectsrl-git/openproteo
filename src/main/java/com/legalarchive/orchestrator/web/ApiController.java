@@ -1162,6 +1162,10 @@ public class ApiController {
         out.put("queued", queued);
         out.put("waiting", waiting);
         out.put("test", test);
+        out.put("maxParallel", engine.maxParallelRuns());
+        out.put("admitted", engine.activeRunCount());
+        out.put("pendingAdmission", engine.pendingRunCount());
+        out.put("admissionHeadroomMb", props.getRunAdmissionHeadroomMb());
         out.put("ok", true);
         return ResponseEntity.ok(out);
     }

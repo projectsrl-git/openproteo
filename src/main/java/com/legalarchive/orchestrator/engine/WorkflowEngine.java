@@ -58,11 +58,24 @@ public class WorkflowEngine {
     // parte solo quando il precedente e' terminato completamente. L'unica concorrenza
     // resta il fan-out forEach (esplicito) interno a uno step, che gira dentro al run
     // che occupa il worker, senza interleaving con altri run.
-    private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
+    // Admitted-run pool: concurrency is bounded by the admission logic (schedule()), not the pool size,
+    // so a cached pool is fine. Each admitted task occupies one "active" slot until it returns
+    // (finishes OR pauses at a manual gate, which frees the slot).
+    private final ExecutorService runPool = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "wf-runner");
         t.setDaemon(true);
         return t;
     });
+    // Periodic scheduler tick: re-checks resources and admits deferred queued runs ("decide next minute").
+    private final java.util.concurrent.ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "wf-scheduler");
+        t.setDaemon(true);
+        return t;
+    });
+    // FIFO of runs waiting for an execution slot, and the count currently executing.
+    private static final class Pending { final String runId; final Runnable task; Pending(String id, Runnable t) { runId = id; task = t; } }
+    private final java.util.concurrent.ConcurrentLinkedQueue<Pending> pending = new java.util.concurrent.ConcurrentLinkedQueue<Pending>();
+    private final java.util.concurrent.atomic.AtomicInteger active = new java.util.concurrent.atomic.AtomicInteger(0);
 
     // Pool dedicato ai TEST di singolo step lanciati dall'editor: gira FUORI dalla coda FIFO
     // principale, cosi' un test parte subito anche mentre altri feed sono in esecuzione.
@@ -90,7 +103,55 @@ public class WorkflowEngine {
         this.internalSteps = internalSteps;
         this.assets = assets;
         this.globalVars = globalVars;
+        int tick = props.getSchedulerTickSec() > 0 ? props.getSchedulerTickSec() : 20;
+        scheduler.scheduleWithFixedDelay(this::schedule, tick, tick, java.util.concurrent.TimeUnit.SECONDS);
     }
+
+    // ---- adaptive admission: bound parallel runs by config + JVM heap headroom ----
+
+    /** Queue a unit of run work (initial start or gate-resume) for admission, then try to admit now. */
+    private void enqueue(String runId, Runnable task) {
+        pending.add(new Pending(runId, task));
+        schedule();
+    }
+
+    /** Admit as many queued runs as the parallelism limit and current resources allow. Thread-safe. */
+    private synchronized void schedule() {
+        while (true) {
+            Pending p = pending.peek();
+            if (p == null) break;
+            if (!canAdmit()) break;
+            pending.poll();
+            active.incrementAndGet();
+            final Pending pp = p;
+            runPool.submit(() -> {
+                try { pp.task.run(); }
+                catch (Throwable t) { log.error("run task {} crashed: {}", pp.runId, t.toString()); }
+                finally { active.decrementAndGet(); schedule(); }
+            });
+        }
+    }
+
+    private boolean canAdmit() {
+        int max = props.getMaxParallelRuns() > 0 ? props.getMaxParallelRuns() : 1;
+        int cur = active.get();
+        if (cur >= max) return false;
+        if (cur == 0) return true;                       // always run at least one (guarantees progress)
+        return availHeapMb() >= props.getRunAdmissionHeadroomMb();
+    }
+
+    /** JVM heap still allocatable, in MB. */
+    private static long availHeapMb() {
+        Runtime rt = Runtime.getRuntime();
+        long used = rt.totalMemory() - rt.freeMemory();
+        return (rt.maxMemory() - used) / 1048576L;
+    }
+
+    /** Operations: number of runs currently executing (admitted, not yet finished/paused). */
+    public int activeRunCount() { return active.get(); }
+    /** Operations: number of runs queued waiting for an execution slot. */
+    public int pendingRunCount() { return pending.size(); }
+    public int maxParallelRuns() { return props.getMaxParallelRuns() > 0 ? props.getMaxParallelRuns() : 1; }
 
     /** Avvia un run. Ritorna il run creato, o null se il feed ha gia' un run attivo. */
     public WorkflowRun start(String feedId, String trigger, String user) {
@@ -115,7 +176,7 @@ public class WorkflowEngine {
             log.info("[{}] RUN_QUEUED {} trigger={} user={}", feedId, run.runId, trigger, user);
             auditFeed(layout, feedId, run.runId, null, "RUN_QUEUED", user,
                     kv("trigger", trigger, "workflow", def.name));
-            executor.submit(() -> loop(def, layout, run, 0));
+            enqueue(run.runId, () -> loop(def, layout, run, 0));
             return run;
         }
     }
@@ -288,7 +349,7 @@ public class WorkflowEngine {
 
         final WorkflowRun r = run;
         String target = approve ? gate.onTrue : gate.onFalse;
-        executor.submit(() -> continueFromTarget(def, layout, r, gate, target));
+        enqueue(r.runId, () -> continueFromTarget(def, layout, r, gate, target));
         return true;
     }
 
@@ -873,6 +934,7 @@ public class WorkflowEngine {
 
     @PreDestroy
     public void shutdown() {
-        executor.shutdownNow();
+        runPool.shutdownNow();
+        scheduler.shutdownNow();
     }
 }

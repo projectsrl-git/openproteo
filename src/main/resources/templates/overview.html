@@ -108,6 +108,7 @@
         h += '<div class="metric"><div class="l">Processors</div><div class="v">' + num(j.processors) + '</div></div>';
         h += '<div class="metric"><div class="l">Load average</div><div class="v">' + load + '</div></div>';
         h += '<div class="metric"><div class="l">Running / queued / waiting</div><div class="v">' + num(j.running) + ' / ' + num(j.queued) + ' / ' + num(j.waiting) + '</div></div>';
+        h += '<div class="metric"><div class="l">Parallelism (admitted / max)</div><div class="v">' + num(j.admitted) + ' / ' + num(j.maxParallel) + (j.pendingAdmission ? ' <span class="dim small">· ' + num(j.pendingAdmission) + ' waiting slot</span>' : '') + '</div></div>';
         h += '<div class="metric"><div class="l">Test runs</div><div class="v">' + num(j.test) + '</div></div>';
         document.getElementById('resWrap').innerHTML = h;
     }

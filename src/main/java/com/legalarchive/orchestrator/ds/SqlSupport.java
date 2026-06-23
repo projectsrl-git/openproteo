@@ -131,7 +131,6 @@ public class SqlSupport {
         try {
             c = open(d);
             st = c.createStatement();
-            try { st.setFetchSize(1000); } catch (Exception ignored) {}   // fewer JDBC round-trips while streaming large extracts
             ResultSet rs = st.executeQuery(sql);
             return exportResultSet(rs, baseFile, delim, bom, maxRows, maxBytes, trim);
         } finally {

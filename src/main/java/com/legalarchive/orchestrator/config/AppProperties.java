@@ -44,6 +44,16 @@ public class AppProperties {
     /** In 'auto' mode, total input size (MB) at/above which csvsql uses the on-disk H2 engine. */
     private int csvsqlMemMaxMb = 512;
 
+    // --- adaptive parallel run scheduler ---
+    /** Max workflow runs executing in parallel. 1 = sequential (legacy behaviour). Different feeds only;
+        the same feed is always serialised by its per-feed lock. */
+    private int maxParallelRuns = 1;
+    /** Admit an ADDITIONAL parallel run only while at least this much JVM heap is still allocatable (MB).
+        The first run is always admitted regardless, so progress is guaranteed. */
+    private int runAdmissionHeadroomMb = 256;
+    /** How often (seconds) the scheduler re-checks resources to admit deferred queued runs. */
+    private int schedulerTickSec = 20;
+
     // --- anonymize (ARX) preflight thresholds — conservative fail-fast guards ---
     private long anonymizeMaxRows = 5_000_000L;        // 0 = no limit
     private long anonymizeMaxCells = 200_000_000L;     // 0 = no limit (rough proxy of load)
@@ -89,6 +99,13 @@ public class AppProperties {
     public void setCsvsqlEngine(String v) { this.csvsqlEngine = v; }
     public int getCsvsqlMemMaxMb() { return csvsqlMemMaxMb; }
     public void setCsvsqlMemMaxMb(int v) { this.csvsqlMemMaxMb = v; }
+
+    public int getMaxParallelRuns() { return maxParallelRuns; }
+    public void setMaxParallelRuns(int v) { this.maxParallelRuns = v; }
+    public int getRunAdmissionHeadroomMb() { return runAdmissionHeadroomMb; }
+    public void setRunAdmissionHeadroomMb(int v) { this.runAdmissionHeadroomMb = v; }
+    public int getSchedulerTickSec() { return schedulerTickSec; }
+    public void setSchedulerTickSec(int v) { this.schedulerTickSec = v; }
 
     public long getAnonymizeMaxRows() { return anonymizeMaxRows; }
     public void setAnonymizeMaxRows(long v) { this.anonymizeMaxRows = v; }

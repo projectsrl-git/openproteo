@@ -41,6 +41,10 @@ Each step also has a **▶▶ From here** button: it starts a step-by-step test 
 
 Each step in the designer has a **▶ Test** button. It runs that one step **immediately on a separate executor**, off the main FIFO queue, so it works even while other feeds are running. It uses the **last SAVED** workflow (save first), runs the step once, writes to this feed’s normal step folders and opens the standard run page (live console + Stop) in a new tab. Because outputs persist in the step folders, testing steps in order gives a true step-by-step run: step N reads step N-1’s output. Testing is refused only if the **same feed** has a normal run in progress (to avoid clobbering its working files); concurrency with other feeds is fine. Caveat: a step that relies on LOOP-node iteration context (${item}) is run once without that context.
 
+### Parallel runs (adaptive scheduler)
+
+By default OpenProteo runs one workflow at a time. Set **orchestrator.max-parallel-runs** (external application.properties) above 1 to let DIFFERENT feeds run in parallel; the same feed is always serialised. An ADDITIONAL run starts only while at least **orchestrator.run-admission-headroom-mb** (default 256) of JVM heap is still free — the first run always starts. A background scheduler re-checks every **orchestrator.scheduler-tick-sec** (default 20s) and admits runs that were deferred for lack of memory. Watch "Parallelism (admitted / max)" and heap in the Operations Resources panel while raising the limit.
+
 ### Operations: resources, clickable rollup, last run/success
 
 The Operations page now shows, top to bottom: a **Resources** panel (JVM heap used/available, processors, load average, running/queued/waiting and test-run counts; refresh 5s); the **By source** rollup FIRST, with **clickable** totals — click any tile or any number in the table to drill down to the matching feeds, each showing **last run** (status + time) and **last success**; then **Executions in progress**, which now also shows the **Target** and each feed’s last run / last success. Test runs are excluded from the production rollup and last-run stats.
