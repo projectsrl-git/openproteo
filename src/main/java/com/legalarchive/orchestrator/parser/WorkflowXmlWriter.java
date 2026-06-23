@@ -33,6 +33,7 @@ public class WorkflowXmlWriter {
             attr(root, "sourceDescription", dto.sourceDescription);
             attr(root, "targetDescription", dto.targetDescription);
             if (dto.production) root.setAttribute("production", "true");
+            if (dto.locked) root.setAttribute("locked", "true");
             attr(root, "cron", dto.cron);
             attr(root, "baseDir", dto.baseDir);
 

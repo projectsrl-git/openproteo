@@ -294,3 +294,8 @@ the WAR, then commits and pushes using the `COMMIT_MSG.txt` shipped inside the p
 finally restarts Tomcat. Documentation and commit messages are kept in English.
 
 After deploying, hard-refresh the browser (Ctrl+F5) so updated CSS/JS are picked up.
+
+
+### Maintenance lock
+
+Any feed can be **locked** to block execution during maintenance. A locked feed refuses manual and scheduled runs; **step-by-step testing stays available** so you can still configure and verify it. Toggle it from the **Lock / Unlock** button on the dashboard, or the **Maintenance lock** switch in the designer. Locked feeds show a 🔒 badge on the dashboard, the workflow page and Operations, and their Run button is disabled.

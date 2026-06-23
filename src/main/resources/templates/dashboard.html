@@ -120,7 +120,7 @@
             <tr th:each="row : ${rows}" class="wf-row"
                 th:attr="data-search=${(row.wf.feedId + ' ' + (row.wf.sourceId ?: '') + ' ' + (row.wf.targetId ?: '') + ' ' + row.wf.name + ' ' + (row.wf.description ?: '') + ' ' + (row.wf.cron ?: 'manual'))},data-source=${(row.wf.sourceId == null or row.wf.sourceId.trim().isEmpty()) ? '—' : row.wf.sourceId.trim()}">
                 <td class="cbcol"><input type="checkbox" class="rowcb" th:attr="data-feed=${row.wf.feedId}" onclick="onRowCb()"></td>
-                <td class="mono"><span class="feed-id" th:text="${row.wf.feedId}"></span></td>
+                <td class="mono"><span class="feed-id" th:text="${row.wf.feedId}"></span> <span th:if="${row.wf.locked}" class="chip sm" title="locked for maintenance">🔒</span></td>
                 <td class="mono small dim"><span th:if="${row.wf.sourceId}" th:text="${row.wf.sourceId}"></span><span th:if="${row.wf.sourceId == null}">—</span><div class="dim" style="font-size:11px" th:if="${row.wf.sourceDescription}" th:text="${row.wf.sourceDescription}"></div></td>
                 <td class="mono small dim"><span th:if="${row.wf.targetId}" th:text="${row.wf.targetId}"></span><span th:if="${row.wf.targetId == null}">—</span><div class="dim" style="font-size:11px" th:if="${row.wf.targetDescription}" th:text="${row.wf.targetDescription}"></div></td>
                 <td>
@@ -145,7 +145,8 @@
                     <span th:if="${row.lastRun == null}" class="dim">never run</span>
                 </td>
                 <td>
-                    <button class="btn sm primary" th:attr="data-feed=${row.wf.feedId}" onclick="runNow(this.dataset.feed)">▶ Run</button>
+                    <button class="btn sm primary" th:attr="data-feed=${row.wf.feedId}" th:disabled="${row.wf.locked}" th:title="${row.wf.locked} ? 'Locked for maintenance' : 'run now'" onclick="runNow(this.dataset.feed)">▶ Run</button>
+                    <button class="btn sm" th:attr="data-feed=${row.wf.feedId},data-lock=${row.wf.locked} ? 'false' : 'true'" th:text="${row.wf.locked} ? '🔓 Unlock' : '🔒 Lock'" onclick="toggleLock(this.dataset.feed, this.dataset.lock === 'true')"></button>
                     <a class="btn sm" th:href="@{'/workflow/' + ${row.wf.feedId}}">Details</a>
                     <a class="btn sm" th:href="@{'/runs/' + ${row.wf.feedId}}">⟲ Runs</a>
                     <a class="btn sm" th:href="@{'/designer/' + ${row.wf.feedId}}">Edit</a>
@@ -191,6 +192,13 @@
                     opAlert(j.error || 'Start failed');
                 }
             })
+            .catch(function (e) { opAlert('Error: ' + e); });
+    }
+
+    function toggleLock(feedId, lock) {
+        fetch(CTX + 'api/workflows/' + encodeURIComponent(feedId) + '/lock?locked=' + (lock ? 'true' : 'false'), { method: 'POST' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) { if (!j.ok) opAlert(j.error || 'Lock change failed'); window.location.reload(); })
             .catch(function (e) { opAlert('Error: ' + e); });
     }
 

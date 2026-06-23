@@ -618,10 +618,45 @@ public class ApiController {
         return new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
     }
 
+    /** Lock or unlock a feed for maintenance. Locked feeds refuse manual and scheduled runs
+        (step-by-step testing is still allowed). Persists the flag in the workflow XML. */
+    @PostMapping("/api/workflows/{feedId}/lock")
+    public ResponseEntity<Map<String, Object>> setLock(@PathVariable String feedId,
+                                                       @RequestParam(defaultValue = "true") boolean locked,
+                                                       HttpServletRequest req) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        WorkflowDef def = registry.get(feedId);
+        if (def == null) { out.put("ok", false); out.put("error", "Unknown workflow: " + feedId); return ResponseEntity.status(HttpStatus.NOT_FOUND).body(out); }
+        try {
+            WorkflowDto dto = toDto(def);
+            dto.locked = locked;
+            String xml = xmlWriter.toXml(dto);
+            java.io.File dir = new java.io.File(props.getWorkflowsDir());
+            String fileName = def.sourceFile != null ? new java.io.File(def.sourceFile).getName() : feedId + ".xml";
+            Path target = dir.toPath().resolve(fileName);
+            Files.write(target, xml.getBytes(StandardCharsets.UTF_8));
+            registry.reload();
+            FeedLayout layout = registry.layout(feedId);
+            if (layout != null) audit.log(layout.auditFile(), feedId, null, null, locked ? "FEED_LOCKED" : "FEED_UNLOCKED", user(req), new java.util.LinkedHashMap<String, String>());
+            out.put("ok", true);
+            out.put("locked", locked);
+            return ResponseEntity.ok(out);
+        } catch (Exception e) {
+            return badRequest(out, "Lock change failed: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+        }
+    }
+
     @PostMapping("/api/workflows/{feedId}/run")
     public ResponseEntity<Map<String, Object>> run(@PathVariable String feedId, HttpServletRequest req) {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
         try {
+            WorkflowDef wf0 = registry.get(feedId);
+            if (wf0 != null && wf0.locked) {
+                out.put("ok", false);
+                out.put("locked", true);
+                out.put("error", "This feed is locked for maintenance. Unlock it to run.");
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(out);
+            }
             WorkflowRun run = engine.start(feedId, "MANUAL", user(req));
             if (run == null) {
                 out.put("ok", false);
@@ -977,6 +1012,7 @@ public class ApiController {
             m.put("sourceDescription", def != null ? def.sourceDescription : null);
             m.put("targetId", def != null && def.targetId != null ? def.targetId : "");
             m.put("targetDescription", def != null ? def.targetDescription : null);
+            m.put("locked", def != null && def.locked);
             m.put("runId", r.runId);
             m.put("status", r.status != null ? r.status.name() : "");
             m.put("startTs", r.startTs);
@@ -1110,6 +1146,7 @@ public class ApiController {
                     }
                 }
                 m.put("running", running);
+                m.put("locked", def.locked);
                 m.put("lastStatus", lastStatus);
                 m.put("lastRunTs", lastRunTs);
                 m.put("lastSuccessTs", lastSuccessTs);
@@ -1292,6 +1329,7 @@ public class ApiController {
         dto.sourceDescription = def.sourceDescription;
         dto.targetDescription = def.targetDescription;
         dto.production = def.production;
+        dto.locked = def.locked;
         dto.name = def.name;
         dto.cron = def.cron;
         dto.baseDir = def.baseDir;

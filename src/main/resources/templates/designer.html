@@ -86,6 +86,11 @@
                         <label class="prod-switch"><input type="checkbox" id="f_production" onchange="upd()"><span class="prod-track"></span><span id="prodLabel" class="prod-text">No</span></label>
                         <div class="dim small" id="prodHint" style="display:none;margin-top:4px">PROD: anonymize/mask steps run as <b>passthrough</b> (no masking) and Clear History is disabled.</div>
                     </div>
+                    <div class="field">
+                        <label>Maintenance lock</label>
+                        <label class="prod-switch"><input type="checkbox" id="f_locked" onchange="upd()"><span class="prod-track"></span><span id="lockLabel" class="prod-text">Unlocked</span></label>
+                        <div class="dim small" id="lockHint" style="display:none;margin-top:4px">LOCKED: manual and scheduled runs are refused (step-by-step testing is still allowed). Use during maintenance.</div>
+                    </div>
                 </div>
                 <div class="form-row">
                     <div class="field wide">
@@ -202,7 +207,7 @@
     })();
     var NL = String.fromCharCode(10);   // never write a literal backslash-n in source: corporate proxies mangle it
 
-    var wf = { feedId: '', sourceId: '', targetId: '', sourceDescription: '', targetDescription: '', production: false, name: '', cron: '', baseDir: '', description: '', variables: [], nodes: [] };
+    var wf = { feedId: '', sourceId: '', targetId: '', sourceDescription: '', targetDescription: '', production: false, locked: false, name: '', cron: '', baseDir: '', description: '', variables: [], nodes: [] };
     var stepSeq = 0, gateSeq = 0, loopSeq = 0;
     var DATASOURCES = [];
     fetch(CTX + 'api/datasources').then(readJson).then(function(d){ DATASOURCES = d || []; renderNodes(); }).catch(function(e){ console.warn('datasources load failed:', e && e.message); });
@@ -274,8 +279,15 @@
         wf.description = val('f_description');
         var prodEl = document.getElementById('f_production');
         wf.production = !!(prodEl && prodEl.checked);
+        var lockEl = document.getElementById('f_locked');
+        wf.locked = !!(lockEl && lockEl.checked);
         applyProdState();
+        applyLockState();
         preview();
+    }
+    function applyLockState() {
+        var lbl = document.getElementById('lockLabel'); if (lbl) lbl.textContent = wf.locked ? 'LOCKED' : 'Unlocked';
+        var hint = document.getElementById('lockHint'); if (hint) hint.style.display = wf.locked ? 'block' : 'none';
     }
     function applyProdState() {
         var lbl = document.getElementById('prodLabel'); if (lbl) lbl.textContent = wf.production ? 'Yes (PROD)' : 'No';
@@ -1123,6 +1135,7 @@
         if (wf.sourceDescription) head += ' sourceDescription="' + xesc(wf.sourceDescription) + '"';
         if (wf.targetDescription) head += ' targetDescription="' + xesc(wf.targetDescription) + '"';
         if (wf.production) head += ' production="true"';
+        if (wf.locked) head += ' locked="true"';
         if (wf.name) head += ' name="' + xesc(wf.name) + '"';
         if (wf.cron) head += ' cron="' + xesc(wf.cron) + '"';
         if (wf.baseDir) head += ' baseDir="' + xesc(wf.baseDir) + '"';
@@ -1465,7 +1478,9 @@
                 fill('f_baseDir', wf.baseDir);
                 fill('f_description', wf.description);
                 var prodEl = document.getElementById('f_production'); if (prodEl) prodEl.checked = !!wf.production;
+                var lockEl = document.getElementById('f_locked'); if (lockEl) lockEl.checked = !!wf.locked;
                 applyProdState();
+                applyLockState();
                 renderVars(); renderNodes(); preview();
             })
             .catch(function () { banner(false, 'Could not load workflow ' + esc(feedId)); });

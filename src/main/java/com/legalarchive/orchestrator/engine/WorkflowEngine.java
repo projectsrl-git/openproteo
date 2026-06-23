@@ -161,6 +161,12 @@ public class WorkflowEngine {
             throw new IllegalArgumentException("Unknown workflow: " + feedId);
         }
         synchronized (this) {
+            if (def.locked) {
+                log.warn("[{}] avvio rifiutato ({}): feed bloccato (manutenzione)", feedId, trigger);
+                auditFeed(layout, feedId, null, null, "RUN_REJECTED", user,
+                        kv("reason", "feed is locked for maintenance", "trigger", trigger));
+                return null;
+            }
             if (runningFeeds.containsKey(feedId)) {
                 log.warn("[{}] avvio rifiutato ({}): run gia' attivo {}", feedId, trigger, runningFeeds.get(feedId));
                 auditFeed(layout, feedId, null, null, "RUN_REJECTED", user,

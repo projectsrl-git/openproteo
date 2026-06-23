@@ -1,21 +1,19 @@
-Adaptive, resource-gated parallel run scheduler (G3)
+Per-feed maintenance lock (G4)
 
-Lets different feeds run in parallel when resources allow, instead of strict
-single-thread FIFO. Same feed stays serialised; default preserves old behaviour.
+Adds a lock flag to block execution of a feed under maintenance.
 
-- Config: orchestrator.max-parallel-runs (default 1 = legacy sequential),
-  orchestrator.run-admission-headroom-mb (default 256), orchestrator
-  .scheduler-tick-sec (default 20).
-- Engine: single-thread executor replaced by a cached daemon pool bounded by an
-  admission step. start() and gate-resume now enqueue(runId, task); a synchronized
-  schedule() admits while active < max-parallel AND (active==0 OR free heap >=
-  headroom), and each finishing/pausing task re-runs schedule() so a freed slot
-  admits the next. A wf-scheduler tick re-checks resources every tick so runs
-  deferred for memory get admitted when heap frees. Per-feed lock unchanged
-  (no two runs of one feed); test runs use their own executor.
-- Operations Resources panel shows "Parallelism (admitted / max)" + runs waiting
-  for a slot (new fields on /api/overview/resources).
+- A locked feed refuses manual and scheduled (cron) runs; step-by-step TEST runs
+  stay allowed so it can still be configured/verified during maintenance.
+- Model WorkflowDef.locked; parser reads / writer emits root @locked (mirrors
+  production); WorkflowDto.locked + toDto + designer save round-trip it.
+- engine.start() refuses locked feeds (audited RUN_REJECTED) — one point that also
+  covers the cron scheduler. POST /api/workflows/{feedId}/run returns 409 locked
+  with a clear message. POST /api/workflows/{feedId}/lock?locked=true|false
+  toggles and persists the flag (rewrite XML + reload + audit FEED_LOCKED/
+  FEED_UNLOCKED). /api/overview/feeds and /active expose locked.
+- UI: designer "Maintenance lock" switch; dashboard lock badge + Run disabled +
+  quick Lock/Unlock per row; workflow header LOCKED badge + Run disabled;
+  Operations lock glyph in drill-down and executions.
 
-Default max-parallel-runs=1 reproduces previous behaviour exactly. Admission
-algorithm simulated standalone (peak concurrency == max for {1,3,5}, all tasks
-completed, no deadlock). Compiles (99 classes).
+Round-trip test confirms the flag persists. Compiles (99 classes); all touched
+JS verified.

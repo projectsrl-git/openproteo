@@ -183,7 +183,7 @@
         for (var i=0;i<list.length;i++){
             var f = list[i];
             h += '<tr>' +
-                '<td><span class="mono feed-id">' + esc(f.feedId) + '</span><div class="dim small">' + esc(f.name||'') + '</div></td>' +
+                '<td><span class="mono feed-id">' + esc(f.feedId) + '</span>' + (f.locked?' \uD83D\uDD12':'') + '<div class="dim small">' + esc(f.name||'') + '</div></td>' +
                 '<td class="mono small dim">' + esc(f.source||'—') + '</td>' +
                 '<td class="mono small dim">' + esc(f.targetId||'—') + '</td>' +
                 '<td>' + statusChip(f.lastStatus) + ' <span class="mono small dim">' + esc(f.lastRunTs||'') + '</span></td>' +
@@ -218,7 +218,7 @@
             var last = statusChip(r.lastStatus) + ' <span class="mono small dim">' + esc(r.lastRunTs||'') + '</span>' +
                        '<div class="dim small">✓ ' + esc(r.lastSuccessTs||'—') + '</div>';
             h += '<tr>' +
-                '<td><span class="mono feed-id">' + esc(r.feedId) + '</span><div class="dim small">' + esc(r.name||'') + '</div></td>' +
+                '<td><span class="mono feed-id">' + esc(r.feedId) + '</span>' + (r.locked?' \uD83D\uDD12':'') + '<div class="dim small">' + esc(r.name||'') + '</div></td>' +
                 '<td class="mono small dim">' + esc(r.source||'—') + '</td>' +
                 '<td class="mono small dim">' + esc(r.targetId||'—') + '</td>' +
                 '<td>' + statusChip(r.status) + (r.trigger==='TEST'?' <span class="dim small">test</span>':'') + '</td>' +

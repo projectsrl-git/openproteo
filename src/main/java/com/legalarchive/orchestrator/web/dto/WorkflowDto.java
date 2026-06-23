@@ -15,6 +15,7 @@ public class WorkflowDto {
     public String sourceDescription;
     public String targetDescription;
     public boolean production;
+    public boolean locked;
     public String name;
     public String cron;
     public String baseDir;

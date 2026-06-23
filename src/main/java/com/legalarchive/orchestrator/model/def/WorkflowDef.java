@@ -19,6 +19,7 @@ public class WorkflowDef {
     public String sourceDescription;
     public String targetDescription;
     public boolean production;   // PROD environment flag: forces anonymize/mask to passthrough
+    public boolean locked;       // maintenance lock: blocks manual/scheduled execution (testing still allowed)
 
     /** Nome friendly del feed (es. "EORFULL verso Legal Archive"). */
     public String name;

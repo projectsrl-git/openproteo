@@ -56,6 +56,7 @@ public class WorkflowXmlParser {
             wf.sourceDescription = trimToNull(root.getAttribute("sourceDescription"));
             wf.targetDescription = trimToNull(root.getAttribute("targetDescription"));
             wf.production = "true".equalsIgnoreCase(root.getAttribute("production"));
+            wf.locked = "true".equalsIgnoreCase(root.getAttribute("locked"));
             wf.cron = trimToNull(root.getAttribute("cron"));
             wf.baseDir = trimToNull(root.getAttribute("baseDir"));
 
