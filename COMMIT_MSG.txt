@@ -1,19 +1,55 @@
-Per-feed maintenance lock (G4)
+Batch G+O: faster CSV writes, adaptive parallel scheduler, maintenance lock,
+Operations rollup-first/clickable/target/last-run
 
-Adds a lock flag to block execution of a feed under maintenance.
+Performance, execution-control and Operations improvements. Compiles (99 classes);
+all touched templates/JS verified with node --check, no literal \n/\r, no unsafe
+[[ / [( in Thymeleaf. Live behaviour (JDBC/heap/concurrency/browser) to verify on
+UBS. G1 (feedId+targetId identity) intentionally deferred — design in
+.claude/2026-06-23-DESIGN-g1-identity-g3-scheduler.md.
 
-- A locked feed refuses manual and scheduled (cron) runs; step-by-step TEST runs
-  stay allowed so it can still be configured/verified during maintenance.
-- Model WorkflowDef.locked; parser reads / writer emits root @locked (mirrors
-  production); WorkflowDto.locked + toDto + designer save round-trip it.
-- engine.start() refuses locked feeds (audited RUN_REJECTED) — one point that also
-  covers the cron scheduler. POST /api/workflows/{feedId}/run returns 409 locked
-  with a clear message. POST /api/workflows/{feedId}/lock?locked=true|false
-  toggles and persists the flag (rewrite XML + reload + audit FEED_LOCKED/
-  FEED_UNLOCKED). /api/overview/feeds and /active expose locked.
+G2) Faster ResultSet -> CSV writing (output byte-identical)
+- CsvWriter: skip UTF-8 byte counting unless splitting by MB (a full per-row pass
+  removed in the common case); reuse one StringBuilder + one char[] across rows
+  (no per-row String/StringBuilder allocation); single-pass field quoting; 512 KB
+  output buffer. Round-trip self-test confirms identical bytes.
+- SqlSupport: setFetchSize(1000) on the streaming extract to cut JDBC round-trips
+  (extraction-side, best-effort).
+
+G3) Adaptive, resource-gated parallel run scheduler
+- Config: orchestrator.max-parallel-runs (default 1 = legacy sequential),
+  orchestrator.run-admission-headroom-mb (default 256), orchestrator
+  .scheduler-tick-sec (default 20).
+- The single-thread executor is replaced by a cached daemon pool bounded by an
+  admission step. start() and gate-resume enqueue(runId, task); a synchronized
+  schedule() admits while active < max-parallel AND (active==0 OR free heap >=
+  headroom), and each finishing/pausing task re-runs schedule() so a freed slot
+  admits the next. A wf-scheduler tick re-checks resources every tick to admit
+  runs deferred for memory. Per-feed lock unchanged (no two runs of one feed);
+  test runs use their own executor and don't count against the limit.
+- Operations Resources panel: JVM heap used/available, processors, load average,
+  running/queued/waiting/test counts and "Parallelism (admitted / max)" with runs
+  waiting for a slot (GET /api/overview/resources).
+- Default max-parallel-runs=1 reproduces previous behaviour exactly; admission
+  algorithm simulated standalone (peak concurrency == max for {1,3,5}, all tasks
+  completed, no deadlock).
+
+G4) Per-feed maintenance lock
+- A locked feed refuses manual and scheduled runs; step-by-step TEST runs stay
+  allowed so it can be configured/verified during maintenance.
+- WorkflowDef.locked persisted as root @locked (parser/writer); WorkflowDto.locked
+  + toDto + designer save round-trip it (verified). engine.start() refuses locked
+  feeds (one point, also covers cron). POST /api/workflows/{feedId}/run returns 409
+  with a clear message; POST /api/workflows/{feedId}/lock?locked=... toggles and
+  persists (rewrite XML + reload + audit FEED_LOCKED/FEED_UNLOCKED).
 - UI: designer "Maintenance lock" switch; dashboard lock badge + Run disabled +
   quick Lock/Unlock per row; workflow header LOCKED badge + Run disabled;
   Operations lock glyph in drill-down and executions.
 
-Round-trip test confirms the flag persists. Compiles (99 classes); all touched
-JS verified.
+Operations dashboard (O1-O4)
+- O2 By-source rollup moved ABOVE Executions in progress.
+- O1 All totals clickable: tiles and every by-source number drill down to the
+  matching feeds (GET /api/overview/feeds, 10s server cache).
+- O4 Per feed: last run (status + time) and last success, in the drill-down and
+  next to each in-progress execution.
+- O3 Executions list shows Target as well as Source.
+- Test runs are excluded from the production rollup and last-run stats.
