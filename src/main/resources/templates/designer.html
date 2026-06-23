@@ -328,6 +328,26 @@
         renderNodes(); preview();
     }
     function delNode(i) { wf.nodes.splice(i, 1); renderNodes(); preview(); }
+
+    // ---------------- test-run a single step (off the main queue) ----------------
+    function testStep(stepId) {
+        if (!EDIT_FEED_ID) { banner(false, 'Save the workflow first, then test a step.'); window.scrollTo(0, 0); return; }
+        opConfirm('Test-run step "' + esc(stepId) + '" now? It uses the last SAVED workflow and runs off the main queue (concurrently with other feeds). Outputs go to the step folders of this feed.',
+            function () {
+                fetch(CTX + 'api/workflows/' + encodeURIComponent(EDIT_FEED_ID) + '/test-step/' + encodeURIComponent(stepId), { method: 'POST' })
+                    .then(readJson)
+                    .then(function (j) {
+                        if (j.ok) {
+                            window.open(CTX + j.url, '_blank');
+                            banner(true, 'Test run started: ' + esc(j.runId) + ' — opened in a new tab.');
+                        } else {
+                            banner(false, esc(j.error || 'Test step failed'));
+                        }
+                        window.scrollTo(0, 0);
+                    })
+                    .catch(function (e) { banner(false, 'Error: ' + esc(e)); window.scrollTo(0, 0); });
+            }, { okText: 'Test step' });
+    }
     function dupNode(i) {
         var src = wf.nodes[i];
         var copy = JSON.parse(JSON.stringify(src));
@@ -626,6 +646,7 @@
                 '<span class="nc-name">' + attresc(n.name || '') + '</span>' +
                 (n.id ? '<span class="nc-id" title="step id">' + attresc(n.id) + '</span>' : '') +
                 '<span class="spacer"></span><span class="nc-tools">' +
+                ((!isGate && !isLoop && !isEnd && n.id) ? '<button class="test" onclick="testStep(\'' + attresc(n.id) + '\')" title="test-run this step now, off the main queue (uses the SAVED workflow)">\u25B6 Test</button>' : '') +
                 '<button class="mv" onclick="move(' + i + ',-1)" title="move up">\u2191</button>' +
                 '<button class="mv" onclick="move(' + i + ',1)" title="move down">\u2193</button>' +
                 '<button onclick="dupNode(' + i + ')" title="duplicate">⧉</button>' +

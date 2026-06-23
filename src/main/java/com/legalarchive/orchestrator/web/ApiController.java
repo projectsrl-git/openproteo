@@ -908,6 +908,28 @@ public class ApiController {
         return ResponseEntity.ok(out);
     }
 
+    /**
+     * Test-run a single step from the editor, off the main queue, concurrently with other feeds.
+     * Returns the ephemeral test run id and the URL of the normal run page (live output + Stop).
+     */
+    @PostMapping("/api/workflows/{feedId}/test-step/{stepId}")
+    public ResponseEntity<Map<String, Object>> testStep(@PathVariable String feedId, @PathVariable String stepId, HttpServletRequest req) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        try {
+            WorkflowRun run = engine.testStep(feedId, stepId, user(req));
+            out.put("ok", true);
+            out.put("runId", run.runId);
+            out.put("url", "run/" + feedId + "/" + run.runId);
+            return ResponseEntity.ok(out);
+        } catch (IllegalStateException e) {
+            return badRequest(out, e.getMessage());
+        } catch (IllegalArgumentException e) {
+            return badRequest(out, e.getMessage());
+        } catch (Exception e) {
+            return badRequest(out, "Test step failed: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+        }
+    }
+
     /** Live board: all executions currently in progress (queued/running/waiting). In-memory, cheap. */
     @GetMapping("/api/overview/active")
     public ResponseEntity<Map<String, Object>> overviewActive() {

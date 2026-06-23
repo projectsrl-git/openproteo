@@ -64,6 +64,14 @@ public class WorkflowEngine {
         return t;
     });
 
+    // Pool dedicato ai TEST di singolo step lanciati dall'editor: gira FUORI dalla coda FIFO
+    // principale, cosi' un test parte subito anche mentre altri feed sono in esecuzione.
+    private final ExecutorService testExecutor = Executors.newFixedThreadPool(2, r -> {
+        Thread t = new Thread(r, "wf-test-runner");
+        t.setDaemon(true);
+        return t;
+    });
+
     /** feedId -> runId attualmente in esecuzione (un run alla volta per feed). */
     private final Map<String, String> runningFeeds = new ConcurrentHashMap<String, String>();
     /** Run attivi in memoria per polling veloce della UI. */
@@ -110,6 +118,50 @@ public class WorkflowEngine {
             executor.submit(() -> loop(def, layout, run, 0));
             return run;
         }
+    }
+
+    /**
+     * Test-run a single step on a dedicated executor, OUTSIDE the main FIFO queue, so it runs immediately
+     * even while other feeds are executing. Builds an ephemeral TEST run (runId contains "_test_"),
+     * executes only the chosen step (the rest are marked SKIPPED) and registers it in activeRuns +
+     * controls so the normal run page shows live output and Stop works. Does NOT take the per-feed lock,
+     * so it runs concurrently with other feeds. Refuses only if the SAME feed has a normal run active
+     * (to avoid clobbering its working files).
+     */
+    public WorkflowRun testStep(String feedId, String stepId, String user) {
+        WorkflowDef def = registry.get(feedId);
+        FeedLayout layout = registry.layout(feedId);
+        if (def == null || layout == null) throw new IllegalArgumentException("Unknown workflow: " + feedId);
+        StepDef step = null;
+        for (StepDef s : def.steps()) if (s.id.equals(stepId)) { step = s; break; }
+        if (step == null) throw new IllegalArgumentException("Unknown step: " + stepId);
+        if (runningFeeds.containsKey(feedId)) {
+            throw new IllegalStateException("This feed has a run in progress (" + runningFeeds.get(feedId)
+                    + "). Wait for it to finish before testing a step on the same feed.");
+        }
+
+        final WorkflowRun run = buildRun(def, layout, "TEST", user);
+        LocalDateTime now = LocalDateTime.now();
+        run.runId = def.feedId + "_test_" + now.format(ID_TS) + "_" + String.format("%03d", seq.incrementAndGet() % 1000);
+        run.vars.put("runId", run.runId);
+        run.status = RunStatus.RUNNING;
+        for (StepExec se : run.steps) if (!se.stepId.equals(stepId)) se.status = StepStatus.SKIPPED;
+
+        try { layout.provision(); } catch (Exception e) { throw new RuntimeException("provision failed: " + e.getMessage(), e); }
+        activeRuns.put(run.runId, run);
+        controls.put(run.runId, new RunControl());
+        store.save(layout, run);
+        log.info("[{}] TEST_STEP {} step={} user={}", feedId, run.runId, stepId, user);
+        auditFeed(layout, feedId, run.runId, stepId, "TEST_STEP_STARTED", user, kv("step", stepId));
+
+        final WorkflowDef fdef = def; final FeedLayout flay = layout; final StepDef fstep = step;
+        testExecutor.submit(() -> {
+            boolean ok = false;
+            try { ok = executeStep(fdef, flay, run, fstep); }
+            catch (Exception e) { log.error("[{}] test step {} error: {}", fdef.feedId, fstep.id, e.toString()); }
+            finish(fdef, flay, run, ok ? RunStatus.SUCCESS : RunStatus.FAILED, ok ? "Test step OK" : "Test step failed");
+        });
+        return run;
     }
 
     /** Decisione su un gate manuale in attesa: riprende il run. */
@@ -693,7 +745,7 @@ public class WorkflowEngine {
         }
         store.save(layout, run);
         activeRuns.remove(run.runId);
-        runningFeeds.remove(run.feedId);
+        runningFeeds.remove(run.feedId, run.runId);   // only clear the lock if it belongs to THIS run (test runs never hold it)
         controls.remove(run.runId);
         java.util.Map<String, String> finDet = new java.util.LinkedHashMap<String, String>();
         finDet.put("status", status.name());

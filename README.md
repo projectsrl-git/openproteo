@@ -33,6 +33,10 @@ is copied unchanged to the step output so downstream steps still get a file, but
 applied. The **Clear History** button is also disabled for production workflows. A single step
 can also be forced to passthrough with a `passthrough=true` param regardless of the flag.
 
+### Test a single step (step-by-step config)
+
+Each step in the designer has a **▶ Test** button. It runs that one step **immediately on a separate executor**, off the main FIFO queue, so it works even while other feeds are running. It uses the **last SAVED** workflow (save first), runs the step once, writes to this feed’s normal step folders and opens the standard run page (live console + Stop) in a new tab. Because outputs persist in the step folders, testing steps in order gives a true step-by-step run: step N reads step N-1’s output. Testing is refused only if the **same feed** has a normal run in progress (to avoid clobbering its working files); concurrency with other feeds is fine. Caveat: a step that relies on LOOP-node iteration context (${item}) is run once without that context.
+
 ### Operations board
 
 The **Operations** page (link on the dashboard, or `/overview`) shows two things, refreshed automatically: **Executions in progress** — every queued/running/waiting run across all feeds, with its current step, progress, an **Open** link and a **Stop** button (auto-refresh 3s); and **By source** — a rollup of every feed grouped by source, counting *not run / running / success / failed / aborted / other* (based on each feed's latest run), with totals and a per-source mix bar (refresh 20s, or the Refresh button).

@@ -1,17 +1,21 @@
-Operations board: live executions + per-source rollup
+Step-by-step testing off the main queue
 
-New /overview page (linked from the dashboard) with two auto-refreshing views.
+Adds a dedicated test executor (wf-test-runner) and
+WorkflowEngine.testStep(feedId, stepId, user) so a single step can be test-run
+immediately, off the single-threaded main queue, concurrently with other feeds.
 
-- Executions in progress (3s): GET /api/overview/active from engine.queueSnapshot
-  -- every queued/running/waiting run across all feeds with source, status,
-  current step, progress, an Open link and a Stop button.
-- By source rollup (20s + manual): GET /api/overview/rollup reads each feed's
-  latest run once and buckets feeds per source into not-run / running / success /
-  failed / aborted / other (running detected via engine.activeRunId, so active
-  feeds skip the disk read). Page shows totals tiles + a per-source table with a
-  stacked mix bar.
+- testStep() reuses buildRun() (full var seeding) with a distinct
+  <feedId>_test_<ts> runId, marks other steps SKIPPED, registers the run in
+  activeRuns + controls and persists it, then runs executeStep() on the test
+  pool and finalizes via finish(). It writes to the feed's normal step folders,
+  so outputs persist and step N can read step N-1's output (true step-by-step).
+  It does not take the per-feed lock; it is refused only if the SAME feed has a
+  normal run active.
+- finish() now releases the per-feed lock conditionally
+  (runningFeeds.remove(feedId, runId)) so a finishing test run can never clear a
+  normal run's lock.
+- API POST /api/workflows/{feedId}/test-step/{stepId} -> {ok, runId, url}.
+- Designer: a "Test" button on each STEP node opens the standard run page (live
+  console + Stop) in a new tab; uses the SAVED workflow.
 
-Files: ApiController overviewActive()/overviewRollup(); PageController /overview;
-templates/overview.html; dashboard "Operations" nav link.
-
-Compiles (97 classes). overview JS verified; live data is UBS-side.
+Compiles (97 classes). designer JS verified; live behaviour is UBS-side.
