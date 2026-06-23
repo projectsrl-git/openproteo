@@ -412,8 +412,9 @@ public class ApiController {
         description) set workflow attributes; every other column becomes a workflow variable. */
     @PostMapping("/api/workflows/bulk")
     public ResponseEntity<Map<String, Object>> bulkCreate(
-            @RequestParam("template") String templateFeedId,
+            @RequestParam(value = "template", defaultValue = "") String templateFeedId,
             @RequestParam("csv") String csv,
+            @RequestParam(value = "schemaOnly", defaultValue = "false") String schemaOnlyParam,
             @RequestParam(value = "overwrite", defaultValue = "false") String overwriteParam,
             @RequestParam(value = "delimiter", defaultValue = ",") String delimParam,
             @RequestParam(value = "mapFeedId", defaultValue = "feedId") String mapFeedId,
@@ -437,6 +438,60 @@ public class ApiController {
             boolean overwrite = "true".equalsIgnoreCase(overwriteParam);
             char delim = (delimParam != null && !delimParam.isEmpty()) ? delimParam.charAt(0) : ',';
             char delim2 = (delim2Param != null && !delim2Param.isEmpty()) ? delim2Param.charAt(0) : ',';
+
+            if (csv == null || csv.trim().isEmpty()) {
+                out.put("ok", false); out.put("error", "missing 'csv' content");
+                return ResponseEntity.badRequest().body(out);
+            }
+
+            // --- SCHEMA ONLY: no template, no workflow XML; (re)write dataschema/displayschema of EXISTING feeds ---
+            if ("true".equalsIgnoreCase(schemaOnlyParam)) {
+                com.legalarchive.orchestrator.parser.BulkWorkflowGenerator.Mapping smap =
+                        new com.legalarchive.orchestrator.parser.BulkWorkflowGenerator.Mapping();
+                smap.feedId = mapFeedId; smap.dataschema = mapDataschema; smap.displayschema = mapDisplayschema;
+                java.util.List<com.legalarchive.orchestrator.parser.BulkWorkflowGenerator.Item> items =
+                        com.legalarchive.orchestrator.parser.BulkWorkflowGenerator.parseSchemas(csv, delim, smap);
+                int updated = 0, skipped = 0, failed = 0, schemasWritten = 0;
+                java.util.List<Map<String, Object>> details = new java.util.ArrayList<Map<String, Object>>();
+                for (com.legalarchive.orchestrator.parser.BulkWorkflowGenerator.Item it : items) {
+                    Map<String, Object> row = new LinkedHashMap<String, Object>();
+                    row.put("feedId", it.feedId);
+                    if (it.error != null) { row.put("status", "error"); row.put("detail", it.error); failed++; details.add(row); continue; }
+                    com.legalarchive.orchestrator.model.def.WorkflowDef def = registry.get(it.feedId);
+                    com.legalarchive.orchestrator.store.FeedLayout layout = registry.layout(it.feedId);
+                    if (def == null || layout == null) {
+                        row.put("status", "skipped"); row.put("detail", "feed does not exist"); skipped++; details.add(row); continue;
+                    }
+                    java.util.List<String> notes = new java.util.ArrayList<String>();
+                    String dataJson = checkJson(it.dataschemaJson, "dataschema", notes);
+                    String dispJson = checkJson(it.displayschemaJson, "displayschema", notes);
+                    if (dataJson == null && dispJson == null) {
+                        row.put("status", "skipped");
+                        row.put("detail", notes.isEmpty() ? "no dataschema/displayschema in this row" : String.join("; ", notes));
+                        skipped++; details.add(row); continue;
+                    }
+                    try {
+                        layout.provision();
+                        if (dataJson != null) { java.nio.file.Files.write(layout.feedDir.resolve("dataschema.json"), dataJson.getBytes(StandardCharsets.UTF_8)); schemasWritten++; }
+                        if (dispJson != null) { java.nio.file.Files.write(layout.feedDir.resolve("displayschema.json"), dispJson.getBytes(StandardCharsets.UTF_8)); schemasWritten++; }
+                        row.put("status", "updated");
+                        row.put("detail", (dataJson != null ? "dataschema " : "") + (dispJson != null ? "displayschema" : "")
+                                + (notes.isEmpty() ? "" : " (" + String.join("; ", notes) + ")"));
+                        updated++;
+                    } catch (Exception we) {
+                        row.put("status", "error"); row.put("detail", "write failed: " + we.getMessage()); failed++;
+                    }
+                    details.add(row);
+                }
+                out.put("ok", true);
+                out.put("mode", "schemaOnly");
+                out.put("updated", updated);
+                out.put("skipped", skipped);
+                out.put("failed", failed);
+                out.put("schemasWritten", schemasWritten);
+                out.put("items", details);
+                return ResponseEntity.ok(out);
+            }
 
             if (templateFeedId == null || templateFeedId.trim().isEmpty()) {
                 out.put("ok", false); out.put("error", "missing 'template' feedId");

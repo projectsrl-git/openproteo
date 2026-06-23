@@ -33,6 +33,10 @@ is copied unchanged to the step output so downstream steps still get a file, but
 applied. The **Clear History** button is also disabled for production workflows. A single step
 can also be forced to passthrough with a `passthrough=true` param regardless of the flag.
 
+### Bulk: schema only
+
+The Bulk page has a **Mode** selector. **Schema only** ignores the template and does **not** modify any workflow: for each CSV row it (re)writes `dataschema.json` / `displayschema.json` into the matching **existing** feed (matched by `feedId`), from the `dataschema` / `displayschema` columns. Use it to restore or refresh schemas for many feeds at once without regenerating their workflows. Rows whose feed does not exist are skipped.
+
 ### Clear History
 
 The designer has a **Clear History** button that deletes every entry under the feeds base

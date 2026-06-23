@@ -1,28 +1,21 @@
-stepTimeoutMins var, per-feed Clear History, working Stop, names
+Bulk "schema only" mode: restore dataschema/displayschema
 
-1) stepTimeoutMins (default 5 min): seeded per run at lowest precedence,
-   overridable globally / per-workflow / per-step via stepTimeoutMins.<stepId>.
-   InternalSteps.stepTimeoutSec() resolves the effective timeout (explicit
-   TIMEOUT SEC field wins, else the variable, else app default); used for both
-   external steps and the csvsql query timeout. Added to the cheat sheet.
+Adds a schema-only path to POST /api/workflows/bulk (schemaOnly=true) to
+re-create or refresh the dataschema.json / displayschema.json of EXISTING feeds
+in bulk, without a template and without touching any workflow XML. Needed to
+recover the ~140 feeds whose schema uploads were deleted by the earlier
+clear-history bug.
 
-2) Clear History data-loss fixes:
-   - was calling the admin endpoint that wiped EVERY feed; added per-feed
-     POST /api/workflows/{feedId}/clear-history and pointed the button at it.
-   - per-feed clear deletes run records, step logs and step working dirs but
-     PRESERVES feed-root uploads (dataschema/displayschema + _assets.json),
-     00_landing_in and the audit trail. Refuses on active run or PRODUCTION.
+- BulkWorkflowGenerator.parseSchemas() reads only feedId + dataschema +
+  displayschema columns (no template, no XML).
+- The endpoint writes the validated JSON into ${feedDir}/dataschema.json and
+  displayschema.json for each row whose feed already exists (same file names and
+  write as the original bulk-create), reporting per-row updated/skipped/error and
+  counts. 'template' is now optional (required only for the create path).
+- bulk.html: a Mode selector (create/update workflows | schema only); in
+  schema-only the template is disabled with a hint, and 'updated' shows green.
 
-3) Show source/target NAMES (descriptions) next to ids on the dashboard feed
-   list, the workflow header and the run header.
+Use: Bulk page -> Mode = schema only -> paste the feeds CSV (feedId, dataschema,
+displayschema) -> run.
 
-6) Stop now works for internal steps: RunControl carries the active JDBC
-   statement; runCsvSql registers it around staging/query and engine.stop()
-   cancels it (plus killing any external process), so a runaway csvsql query is
-   aborted and the run ends ABORTED.
-
-Deferred (need a dedicated pass): 2.3 bulk "schema only" updater; 4 live
-executions board + per-source rollup; 5 step-by-step run while another run is
-active (the runner is single-threaded).
-
-Compiles (96 classes). Live behaviour to verify on UBS.
+Compiles (96 classes). bulk JS verified; live write is UBS-side.

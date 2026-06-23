@@ -69,6 +69,42 @@ public final class BulkWorkflowGenerator {
      * @param tableByFeed feedId -> table name (from CSV #2); may be empty
      * @param tableVar    workflow variable name to receive the table (default originTableName)
      */
+    /**
+     * Lightweight CSV parse for the "schema only" bulk mode: extracts feedId + dataschema/displayschema
+     * JSON per row, with NO template and NO XML generation. Used to (re)write the dataschema.json /
+     * displayschema.json of feeds that already exist.
+     */
+    public static List<Item> parseSchemas(String feedsCsv, char delim, Mapping map) {
+        List<Item> out = new ArrayList<Item>();
+        if (map == null) map = new Mapping();
+        List<List<String>> rows = parseCsv(feedsCsv, delim);
+        if (rows.isEmpty()) return out;
+        List<String> header = rows.get(0);
+        int iFeed = indexOf(header, map.feedId);
+        int iData = indexOf(header, map.dataschema);
+        int iDisp = indexOf(header, map.displayschema);
+        if (iFeed < 0) {
+            Item e = new Item();
+            e.error = "feeds CSV: column '" + map.feedId + "' (feedId) not found in header";
+            out.add(e);
+            return out;
+        }
+        for (int r = 1; r < rows.size(); r++) {
+            List<String> row = rows.get(r);
+            if (allBlank(row)) continue;
+            Item it = new Item();
+            String feedId = cell(row, iFeed);
+            if (feedId == null || feedId.trim().isEmpty()) { it.error = "row " + r + ": empty feedId"; out.add(it); continue; }
+            it.feedId = feedId.trim();
+            String ds = iData >= 0 ? cell(row, iData) : null;
+            String dp = iDisp >= 0 ? cell(row, iDisp) : null;
+            if (ds != null && !ds.trim().isEmpty()) it.dataschemaJson = ds.trim();
+            if (dp != null && !dp.trim().isEmpty()) it.displayschemaJson = dp.trim();
+            out.add(it);
+        }
+        return out;
+    }
+
     public static List<Item> generate(String templateXml, String feedsCsv, char delim, Mapping map,
                                        Map<String, String> tableByFeed, String tableVar) {
         List<Item> out = new ArrayList<Item>();

@@ -41,7 +41,15 @@
                     <option value="true">overwrite</option>
                 </select>
             </div>
+            <div class="field" style="max-width:260px">
+                <label>Mode</label>
+                <select id="schemaOnly" onchange="onModeChange()">
+                    <option value="false">create / update workflows</option>
+                    <option value="true">schema only (existing feeds)</option>
+                </select>
+            </div>
         </div>
+        <div class="dim small" id="schemaOnlyHint" style="display:none">Schema-only: no template is used and workflows are not modified — only <b>dataschema.json</b> / <b>displayschema.json</b> are (re)written into each <b>existing</b> feed from the CSV (uses the feedId, dataschema and displayschema columns).</div>
     </div>
 
     <h2>1 · Feeds CSV</h2>
@@ -150,16 +158,28 @@
         window.scrollTo(0, 0);
     }
 
+    function onModeChange() {
+        var so = val('schemaOnly') === 'true';
+        document.getElementById('schemaOnlyHint').style.display = so ? 'block' : 'none';
+        var t = document.getElementById('template');
+        if (t) t.disabled = so;
+    }
     function generate() {
+        var schemaOnly = val('schemaOnly') === 'true';
+        if (!val('csv').trim()) { banner(false, 'Paste the feeds CSV first.'); return; }
+        if (schemaOnly) {
+            opConfirm('Schema only: (re)write dataschema.json / displayschema.json for EXISTING feeds from the CSV? Workflows are not modified.', doGenerate, { okText: 'Update schemas' });
+            return;
+        }
         var tpl = val('template');
         if (!tpl) { banner(false, 'Select a template workflow.'); return; }
-        if (!val('csv').trim()) { banner(false, 'Paste the feeds CSV first.'); return; }
-        opConfirm('Generate workflows from template "' + tpl + '"?', doGenerate, { okText:'Generate' });
+        opConfirm('Generate workflows from template "' + tpl + '"?', doGenerate, { okText: 'Generate' });
     }
     function doGenerate() {
         var tpl = val('template');
         var p = {
             template: tpl,
+            schemaOnly: val('schemaOnly'),
             csv: val('csv'),
             overwrite: val('overwrite'),
             delimiter: delimOf('delimiter'),
@@ -178,8 +198,13 @@
             body: body
         }).then(function (r) { return r.json(); }).then(function (j) {
             if (!j.ok) { banner(false, j.error || 'Generation failed.'); return; }
-            banner(true, 'Created ' + j.created + ', skipped ' + j.skipped + ', failed ' + j.failed +
-                         '. Schema files written: ' + (j.schemasWritten || 0) + '.');
+            if (j.mode === 'schemaOnly') {
+                banner(true, 'Schema only — updated ' + j.updated + ', skipped ' + j.skipped + ', failed ' + j.failed +
+                             '. Schema files written: ' + (j.schemasWritten || 0) + '.');
+            } else {
+                banner(true, 'Created ' + j.created + ', skipped ' + j.skipped + ', failed ' + j.failed +
+                             '. Schema files written: ' + (j.schemasWritten || 0) + '.');
+            }
             renderResults(j.items || []);
         }).catch(function (e) { banner(false, 'Request error: ' + e); });
     }
@@ -189,7 +214,7 @@
         var h = '<table class="grid"><thead><tr><th>Feed ID</th><th>Status</th><th>Table</th><th>Detail</th></tr></thead><tbody>';
         for (var i = 0; i < items.length; i++) {
             var it = items[i];
-            var cls = it.status === 'created' ? 'SUCCESS' : (it.status === 'error' ? 'FAILED' : 'SKIPPED');
+            var cls = (it.status === 'created' || it.status === 'updated') ? 'SUCCESS' : (it.status === 'error' ? 'FAILED' : 'SKIPPED');
             h += '<tr><td class="mono">' + esc(it.feedId) + '</td>' +
                  '<td><span class="chip sm ' + cls + '">' + esc(it.status) + '</span></td>' +
                  '<td class="mono dim small">' + esc(it.table || '') + '</td>' +
