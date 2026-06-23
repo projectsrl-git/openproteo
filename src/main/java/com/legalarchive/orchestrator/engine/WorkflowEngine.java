@@ -164,6 +164,94 @@ public class WorkflowEngine {
         return run;
     }
 
+    // ---- step-by-step test sessions: run steps one at a time from a chosen start, pausing for confirm ----
+    private static final class TestSession {
+        final WorkflowDef def; final FeedLayout layout; final WorkflowRun run;
+        final java.util.List<StepDef> steps; int cursor;
+        TestSession(WorkflowDef d, FeedLayout l, WorkflowRun r, java.util.List<StepDef> s) { def = d; layout = l; run = r; steps = s; cursor = 0; }
+    }
+    private final Map<String, TestSession> testSessions = new ConcurrentHashMap<String, TestSession>();
+
+    /**
+     * Start a step-by-step TEST from a chosen step through the end of the workflow, on the test executor
+     * (off the main queue). Runs the first step, then pauses (WAITING_APPROVAL) until {@link #testContinue}
+     * or Stop. All steps share ONE run, so output vars and files accumulate (step N sees step N-1's
+     * output). Steps before the start are SKIPPED; gates and loops are not evaluated. Does not take the
+     * per-feed lock; refused only if the SAME feed has a normal run active.
+     */
+    public WorkflowRun testFrom(String feedId, String startStepId, String user) {
+        WorkflowDef def = registry.get(feedId);
+        FeedLayout layout = registry.layout(feedId);
+        if (def == null || layout == null) throw new IllegalArgumentException("Unknown workflow: " + feedId);
+        java.util.List<StepDef> all = def.steps();
+        int start = -1;
+        for (int i = 0; i < all.size(); i++) if (all.get(i).id.equals(startStepId)) { start = i; break; }
+        if (start < 0) throw new IllegalArgumentException("Unknown step: " + startStepId);
+        if (runningFeeds.containsKey(feedId)) {
+            throw new IllegalStateException("This feed has a run in progress (" + runningFeeds.get(feedId)
+                    + "). Wait for it to finish before testing on the same feed.");
+        }
+        java.util.List<StepDef> plan = new java.util.ArrayList<StepDef>(all.subList(start, all.size()));
+        java.util.Set<String> planIds = new java.util.HashSet<String>();
+        for (StepDef s : plan) planIds.add(s.id);
+
+        final WorkflowRun run = buildRun(def, layout, "TEST", user);
+        LocalDateTime now = LocalDateTime.now();
+        run.runId = def.feedId + "_test_" + now.format(ID_TS) + "_" + String.format("%03d", seq.incrementAndGet() % 1000);
+        run.vars.put("runId", run.runId);
+        run.status = RunStatus.RUNNING;
+        for (StepExec se : run.steps) if (!planIds.contains(se.stepId)) se.status = StepStatus.SKIPPED;
+
+        try { layout.provision(); } catch (Exception e) { throw new RuntimeException("provision failed: " + e.getMessage(), e); }
+        activeRuns.put(run.runId, run);
+        controls.put(run.runId, new RunControl());
+        testSessions.put(run.runId, new TestSession(def, layout, run, plan));
+        store.save(layout, run);
+        log.info("[{}] TEST_FROM {} start={} steps={} user={}", feedId, run.runId, startStepId, plan.size(), user);
+        auditFeed(layout, feedId, run.runId, startStepId, "TEST_SESSION_STARTED", user,
+                kv("from", startStepId, "steps", String.valueOf(plan.size())));
+        testExecutor.submit(() -> runSessionStep(run.runId));
+        return run;
+    }
+
+    /** Resume a paused step-by-step test: run the next step. */
+    public boolean testContinue(String feedId, String runId, String user) {
+        TestSession s = testSessions.get(runId);
+        if (s == null || s.run.status != RunStatus.WAITING_APPROVAL) return false;
+        s.run.status = RunStatus.RUNNING;
+        s.run.pausedNextStep = null;
+        store.save(s.layout, s.run);
+        auditFeed(s.layout, feedId, runId, null, "TEST_CONTINUE", user, null);
+        testExecutor.submit(() -> runSessionStep(runId));
+        return true;
+    }
+
+    private void runSessionStep(String runId) {
+        TestSession s = testSessions.get(runId);
+        if (s == null) return;
+        RunControl ctl = controls.get(runId);
+        if (ctl != null && ctl.aborted) { finish(s.def, s.layout, s.run, RunStatus.ABORTED, "Stopped by user"); return; }
+        if (s.cursor >= s.steps.size()) { finish(s.def, s.layout, s.run, RunStatus.SUCCESS, "Step-by-step test completed"); return; }
+        StepDef step = s.steps.get(s.cursor);
+        boolean ok;
+        try { ok = executeStep(s.def, s.layout, s.run, step); }
+        catch (Exception e) { log.error("[{}] test session step {} error: {}", s.def.feedId, step.id, e.toString()); ok = false; }
+        RunControl c2 = controls.get(runId);
+        if (c2 != null && c2.aborted) { finish(s.def, s.layout, s.run, RunStatus.ABORTED, "Stopped by user"); return; }
+        if (!ok) { finish(s.def, s.layout, s.run, RunStatus.FAILED, "Step '" + step.id + "' failed"); return; }
+        s.cursor++;
+        if (s.cursor >= s.steps.size()) {
+            finish(s.def, s.layout, s.run, RunStatus.SUCCESS, "Step-by-step test completed");
+        } else {
+            StepDef next = s.steps.get(s.cursor);
+            s.run.status = RunStatus.WAITING_APPROVAL;
+            s.run.pausedNextStep = (next.name == null || next.name.isEmpty() ? next.id : next.name) + " (" + next.id + ")";
+            store.save(s.layout, s.run);
+            auditFeed(s.layout, s.run.feedId, s.run.runId, step.id, "TEST_STEP_DONE_WAITING", "system",
+                    kv("done", step.id, "next", next.id));
+        }
+    }
+
     /** Decisione su un gate manuale in attesa: riprende il run. */
     public boolean decide(String feedId, String runId, boolean approve, String user, String note) {
         WorkflowDef def = registry.get(feedId);
@@ -747,6 +835,7 @@ public class WorkflowEngine {
         activeRuns.remove(run.runId);
         runningFeeds.remove(run.feedId, run.runId);   // only clear the lock if it belongs to THIS run (test runs never hold it)
         controls.remove(run.runId);
+        testSessions.remove(run.runId);                // drop any step-by-step test session
         java.util.Map<String, String> finDet = new java.util.LinkedHashMap<String, String>();
         finDet.put("status", status.name());
         if (message != null) finDet.put("message", message);

@@ -329,6 +329,25 @@
     }
     function delNode(i) { wf.nodes.splice(i, 1); renderNodes(); preview(); }
 
+    function testFromHere(stepId) {
+        if (!EDIT_FEED_ID) { banner(false, 'Save the workflow first, then test.'); window.scrollTo(0, 0); return; }
+        opConfirm('Step-by-step test from "' + esc(stepId) + '" to the end? It uses the last SAVED workflow and runs off the main queue. The first step runs now; after each step it pauses so you can Continue or Stop on the run page. Outputs accumulate, so later steps see earlier output. Gates and loops are not evaluated.',
+            function () {
+                fetch(CTX + 'api/workflows/' + encodeURIComponent(EDIT_FEED_ID) + '/test-from/' + encodeURIComponent(stepId), { method: 'POST' })
+                    .then(readJson)
+                    .then(function (j) {
+                        if (j.ok) {
+                            window.open(CTX + j.url, '_blank');
+                            banner(true, 'Step-by-step test started: ' + esc(j.runId) + ' — opened in a new tab (Continue/Stop there).');
+                        } else {
+                            banner(false, esc(j.error || 'Test failed'));
+                        }
+                        window.scrollTo(0, 0);
+                    })
+                    .catch(function (e) { banner(false, 'Error: ' + esc(e)); window.scrollTo(0, 0); });
+            }, { okText: 'Start step-by-step' });
+    }
+
     // ---------------- test-run a single step (off the main queue) ----------------
     function testStep(stepId) {
         if (!EDIT_FEED_ID) { banner(false, 'Save the workflow first, then test a step.'); window.scrollTo(0, 0); return; }
@@ -647,6 +666,7 @@
                 (n.id ? '<span class="nc-id" title="step id">' + attresc(n.id) + '</span>' : '') +
                 '<span class="spacer"></span><span class="nc-tools">' +
                 ((!isGate && !isLoop && !isEnd && n.id) ? '<button class="test" onclick="testStep(\'' + attresc(n.id) + '\')" title="test-run this step now, off the main queue (uses the SAVED workflow)">\u25B6 Test</button>' : '') +
+                ((!isGate && !isLoop && !isEnd && n.id) ? '<button class="test" onclick="testFromHere(\'' + attresc(n.id) + '\')" title="step-by-step test from this step to the end, confirming each step (uses the SAVED workflow)">\u25B6\u25B6 From here</button>' : '') +
                 '<button class="mv" onclick="move(' + i + ',-1)" title="move up">\u2191</button>' +
                 '<button class="mv" onclick="move(' + i + ',1)" title="move down">\u2193</button>' +
                 '<button onclick="dupNode(' + i + ')" title="duplicate">⧉</button>' +

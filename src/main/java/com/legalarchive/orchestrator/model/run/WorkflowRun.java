@@ -28,6 +28,9 @@ public class WorkflowRun {
     /** Id del gate manuale in attesa di approvazione (null se non in attesa). */
     public String waitingGateId;
 
+    /** Step-by-step test: descrizione del prossimo step in attesa di conferma (null se non in pausa di test). */
+    public String pausedNextStep;
+
     /** Variabili del run: builtin (${feedId}, ${runId}, dir...) + output degli step. */
     public Map<String, String> vars = new LinkedHashMap<String, String>();
 

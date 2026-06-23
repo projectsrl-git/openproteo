@@ -1,73 +1,26 @@
-Ops batch: step timeout var, safe per-feed Clear History, schema-only bulk,
-source/target names, operations board, off-queue step testing, working Stop
+CSV write speed-up; Operations resources + clickable rollup + target/last-run
 
-Six related changes to make day-to-day operation, recovery and testing safe and
-practical. Compiles (97 classes); all designer/template JS verified with
-node --check, no literal \n/\r, no unsafe [[ / [( in Thymeleaf. Live behaviour
-(H2/POI, browser, concurrency) to be verified on UBS.
+G2 - faster ResultSet->CSV writing (output byte-identical):
+- CsvWriter: skip UTF-8 byte counting unless splitting by MB (a full per-row
+  pass removed in the common case); reuse one StringBuilder + char[] across rows
+  (no per-row String/StringBuilder allocation); single-pass field quoting; 512 KB
+  output buffer. Round-trip self-test confirms identical bytes.
+- SqlSupport: setFetchSize(1000) on the streaming extract to cut JDBC round-trips
+  (extraction-side, best-effort).
 
-1) Standard variable stepTimeoutMins (default 5 minutes)
-   - Seeded on every run at the lowest precedence, so it can be overridden
-     globally, per-workflow (def variables) or per-step via
-     stepTimeoutMins.<stepId>.
-   - InternalSteps.stepTimeoutSec() resolves the effective timeout: explicit
-     per-step TIMEOUT SEC field (if > 0) wins, else stepTimeoutMins.<stepId>,
-     else stepTimeoutMins, else the app default. Used for both external-step
-     waitFor and the csvsql query timeout. Added to the designer cheat sheet and
-     path autocomplete.
+Operations dashboard:
+- O2 By-source rollup moved ABOVE Executions in progress.
+- O1 All totals clickable: tiles and every by-source number drill down to the
+  matching feeds (new GET /api/overview/feeds, 10s server cache).
+- O4 Per feed: last run (status + time) and last success, in the drill-down and
+  next to each in-progress execution.
+- O3 Executions list now shows Target as well as Source.
+- G3 (observability): Resources panel (GET /api/overview/resources) with JVM heap
+  used/available, processors, load average and running/queued/waiting/test counts.
+Test runs are excluded from the production rollup and last-run stats.
 
-2) Clear History: two data-loss bugs fixed
-   2.1 Scope: the button called the admin endpoint that wiped EVERY feed under
-       the base directory. Added POST /api/workflows/{feedId}/clear-history and
-       repointed the button to the current workflow only (the admin "wipe all"
-       endpoint remains but is no longer wired to the button).
-   2.2 Uploads preserved: the per-feed clear deletes run records (_runs), step
-       logs (_logs/runs) and the step working dirs (and 99_landing_out, _h2) but
-       PRESERVES feed-root uploads (dataschema/displayschema/scripts +
-       _assets.json), the declared input (00_landing_in) and the audit trail
-       (_logs/audit_*.jsonl). Refuses on active run or PRODUCTION.
-   2.3 Bulk "schema only": POST /api/workflows/bulk now accepts schemaOnly=true
-       to (re)create or refresh dataschema.json / displayschema.json of EXISTING
-       feeds from the bulk CSV (feedId + dataschema + displayschema columns), no
-       template and no workflow XML touched. BulkWorkflowGenerator.parseSchemas()
-       does the lightweight parse; 'template' is now optional. UI adds a Mode
-       selector (create/update workflows | schema only). Used to recover the
-       ~140 feeds whose schema uploads were deleted by the 2.x bug.
+Deferred to dedicated turns (design in .claude/2026-06-23-DESIGN-g1-identity-g3-
+scheduler.md): G1 composite identity (feedId+targetId) and the G3 adaptive,
+resource-gated parallel scheduler (config max-parallel-runs, default 1).
 
-3) Show source/target NAMES next to ids
-   sourceDescription/targetDescription now shown next to sourceId/targetId on the
-   dashboard feed list (Source/Target columns), the workflow header and the run
-   header. (The designer already has editable description fields.)
-
-4) Operations board
-   New /overview page ("Operations", linked from the dashboard), auto-refreshing:
-   - Executions in progress (3s): GET /api/overview/active from
-     engine.queueSnapshot() -- every queued/running/waiting run across all feeds
-     with source, status, current step, progress, an Open link and a Stop button.
-   - By-source rollup (20s + manual): GET /api/overview/rollup reads each feed's
-     latest run once and buckets feeds per source into not-run / running /
-     success / failed / aborted / other (running detected via activeRunId so
-     active feeds skip the disk read); totals tiles + per-source stacked mix bar.
-
-5) Step-by-step testing off the main queue
-   The runner is single-threaded, so anything launched during a run queues behind
-   it. Added a dedicated test executor (wf-test-runner) and
-   WorkflowEngine.testStep(feedId, stepId, user): an ephemeral TEST run
-   (<feedId>_test_<ts>) built via the existing buildRun(), executing only the
-   chosen step on the test pool, registered in activeRuns + controls and
-   persisted so the standard run page shows live output and Stop works. It writes
-   to the feed's normal step folders, so outputs persist and step N can read step
-   N-1's output (true step-by-step). It does not take the per-feed lock (runs
-   concurrently with other feeds) and is refused only if the SAME feed has a
-   normal run active. finish() now releases the lock conditionally
-   (runningFeeds.remove(feedId, runId)) so a finishing test run can never clear a
-   normal run's lock. API: POST /api/workflows/{feedId}/test-step/{stepId}.
-   Designer: a "Test" button on each STEP node opens the run page in a new tab
-   (uses the SAVED workflow).
-
-6) Stop now actually stops a running step
-   Internal steps ignored Stop (no OS process, and a long H2 query does not poll
-   the abort flag). RunControl now carries the active JDBC statement; runCsvSql
-   registers it around staging and the query, and engine.stop() calls
-   statement.cancel() (in addition to killing any external process). A runaway
-   csvsql query is cancelled and the run ends ABORTED.
+Compiles (98 classes). overview JS verified; no literal \n/\r; no unsafe [[ /[(.

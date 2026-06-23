@@ -33,9 +33,17 @@ is copied unchanged to the step output so downstream steps still get a file, but
 applied. The **Clear History** button is also disabled for production workflows. A single step
 can also be forced to passthrough with a `passthrough=true` param regardless of the flag.
 
+### Step-by-step test from a step (▶▶ From here)
+
+Each step also has a **▶▶ From here** button: it starts a step-by-step test from that step to the end of the workflow, off the main queue. The first step runs immediately, then the run **pauses** and the run page shows **▶ Continue (next step)** / **■ Stop**. All steps share ONE run, so output variables and files accumulate — the next step sees the previous step’s output. Start from step 1 to walk the whole workflow and produce inputs as you go, or from a later step if its inputs already exist on disk. Uses the SAVED workflow; gates and loops are not evaluated; refused only if the same feed has a normal run active.
+
 ### Test a single step (step-by-step config)
 
 Each step in the designer has a **▶ Test** button. It runs that one step **immediately on a separate executor**, off the main FIFO queue, so it works even while other feeds are running. It uses the **last SAVED** workflow (save first), runs the step once, writes to this feed’s normal step folders and opens the standard run page (live console + Stop) in a new tab. Because outputs persist in the step folders, testing steps in order gives a true step-by-step run: step N reads step N-1’s output. Testing is refused only if the **same feed** has a normal run in progress (to avoid clobbering its working files); concurrency with other feeds is fine. Caveat: a step that relies on LOOP-node iteration context (${item}) is run once without that context.
+
+### Operations: resources, clickable rollup, last run/success
+
+The Operations page now shows, top to bottom: a **Resources** panel (JVM heap used/available, processors, load average, running/queued/waiting and test-run counts; refresh 5s); the **By source** rollup FIRST, with **clickable** totals — click any tile or any number in the table to drill down to the matching feeds, each showing **last run** (status + time) and **last success**; then **Executions in progress**, which now also shows the **Target** and each feed’s last run / last success. Test runs are excluded from the production rollup and last-run stats.
 
 ### Operations board
 

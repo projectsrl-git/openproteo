@@ -7,24 +7,34 @@
     <link rel="stylesheet" th:href="@{/css/app.css}">
     <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
     <style>
-        .tiles { display:flex; flex-wrap:wrap; gap:10px; margin:14px 0 18px; }
-        .tile { background:var(--bg-panel); border:1px solid var(--line); border-radius:10px; padding:10px 14px; min-width:96px; }
+        .tiles { display:flex; flex-wrap:wrap; gap:10px; margin:14px 0 6px; }
+        .tile { background:var(--bg-panel); border:1px solid var(--line); border-radius:10px; padding:10px 14px; min-width:96px; cursor:pointer; }
+        .tile:hover { border-color:var(--run); }
+        .tile.active { outline:2px solid var(--run); }
         .tile .n { font-size:22px; font-weight:700; }
         .tile .l { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); }
         .tile.run .n{color:var(--run)} .tile.ok .n{color:var(--ok)} .tile.fail .n{color:var(--fail)}
         .bar { display:flex; height:12px; border-radius:6px; overflow:hidden; background:var(--bg-raise); border:1px solid var(--line); min-width:140px; }
         .bar > span { display:block; height:100%; }
         .seg-run{background:var(--run)} .seg-ok{background:var(--ok)} .seg-fail{background:var(--fail)}
-        .seg-abort{background:var(--accent)} .seg-other{background:#7a8699} .seg-none{background:transparent}
+        .seg-abort{background:var(--accent)} .seg-other{background:#7a8699}
         .num { text-align:right; font-variant-numeric:tabular-nums; }
+        .clk { cursor:pointer; }
+        .clk:hover { text-decoration:underline; }
         .legend { font-size:11px; color:var(--ink-faint); margin:6px 0 0; }
         .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin:0 4px 0 12px; vertical-align:middle; }
+        .res { display:flex; flex-wrap:wrap; gap:18px; align-items:center; }
+        .res .metric { min-width:150px; }
+        .res .metric .l { font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.04em; }
+        .res .metric .v { font-size:18px; font-weight:700; }
+        .heapbar { height:10px; border-radius:5px; background:var(--bg-raise); border:1px solid var(--line); overflow:hidden; width:220px; margin-top:4px; }
+        .heapbar > span { display:block; height:100%; background:var(--ok); }
     </style>
 </head>
 <body>
 <div class="topbar">
     <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
-    <span class="sub">Operations · live executions &amp; per-source rollup</span>
+    <span class="sub">Operations · resources, per-source rollup &amp; live executions</span>
     <span class="spacer"></span>
     <span class="clock" id="clock"></span>
 </div>
@@ -32,11 +42,38 @@
 <div class="wrap">
     <h1>Operations <span class="dim small" id="genTs"></span></h1>
     <p class="page-sub">
-        All executions in progress and a rollup of every feed by status.
+        Server resources, a clickable rollup of every feed by status, and all executions in progress.
         <a class="btn sm" th:href="@{/}">← Dashboard</a>
     </p>
 
-    <div class="tiles" id="tiles"></div>
+    <div class="panel">
+        <h3 style="display:flex;align-items:center;justify-content:space-between">
+            <span>Resources</span><span class="dim small">auto-refresh 5s</span>
+        </h3>
+        <div class="res" id="resWrap"><div class="dim small">Loading…</div></div>
+    </div>
+
+    <div class="panel">
+        <h3 style="display:flex;align-items:center;justify-content:space-between">
+            <span>By source <span class="dim small" id="rollupHint"></span></span>
+            <button class="btn sm" onclick="loadFeeds(true)">↻ Refresh</button>
+        </h3>
+        <div class="tiles" id="tiles"></div>
+        <div id="rollupWrap"><div class="dim small">Loading…</div></div>
+        <p class="legend">
+            <i class="seg-run"></i>running <i class="seg-ok"></i>success <i class="seg-fail"></i>failed
+            <i class="seg-abort"></i>aborted <i class="seg-other"></i>other <i style="border:1px solid var(--line)"></i>not run
+            &nbsp;·&nbsp; tip: click any total to list the feeds
+        </p>
+    </div>
+
+    <div class="panel" id="drillPanel" style="display:none">
+        <h3 style="display:flex;align-items:center;justify-content:space-between">
+            <span id="drillTitle">Feeds</span>
+            <button class="btn sm" onclick="clearDrill()">✕ Close</button>
+        </h3>
+        <div id="drillWrap"></div>
+    </div>
 
     <div class="panel">
         <h3 style="display:flex;align-items:center;justify-content:space-between">
@@ -45,51 +82,148 @@
         </h3>
         <div id="activeWrap"><div class="dim small">Loading…</div></div>
     </div>
-
-    <div class="panel">
-        <h3 style="display:flex;align-items:center;justify-content:space-between">
-            <span>By source</span>
-            <button class="btn sm" onclick="loadRollup()">↻ Refresh</button>
-        </h3>
-        <div id="rollupWrap"><div class="dim small">Loading…</div></div>
-        <p class="legend">
-            <i class="seg-run"></i>running <i class="seg-ok"></i>success <i class="seg-fail"></i>failed
-            <i class="seg-abort"></i>aborted <i class="seg-other"></i>other <i style="border:1px solid var(--line)"></i>not run
-        </p>
-    </div>
 </div>
 
 <script>
     var CTX = (function(){ var b=document.querySelector('.brand'); var h=b?b.getAttribute('href'):'/'; return h.charAt(h.length-1)==='/'?h:h+'/'; })();
     function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
     function num(n){ return (n==null?0:n).toLocaleString(); }
+    function readJson(r){ return r.json(); }
+    function statusChip(st){ return st ? '<span class="chip sm ' + esc(st) + '">' + esc(st) + '</span>' : '<span class="dim">—</span>'; }
 
     (function clock(){ var c=document.getElementById('clock'); function t(){ if(c) c.textContent=new Date().toLocaleString(); } t(); setInterval(t,1000); })();
 
-    function readJson(r){ return r.json(); }
+    var FEEDS = [];
+    var drill = null;
 
-    // ---------- live executions ----------
-    function statusChip(st){ return '<span class="chip sm ' + esc(st) + '">' + esc(st) + '</span>'; }
+    function renderResources(j){
+        if (!j || !j.ok){ document.getElementById('resWrap').innerHTML='<div class="dim small">unavailable</div>'; return; }
+        var pct = j.heapUsedPct || 0;
+        var col = pct >= 90 ? 'var(--fail)' : (pct >= 75 ? 'var(--accent)' : 'var(--ok)');
+        var load = (j.loadAverage != null && j.loadAverage >= 0) ? j.loadAverage.toFixed(2) : 'n/a';
+        var h = '';
+        h += '<div class="metric"><div class="l">Heap used</div><div class="v">' + num(j.heapUsedMb) + ' / ' + num(j.heapMaxMb) + ' MB (' + pct + '%)</div>' +
+             '<div class="heapbar"><span style="width:' + pct + '%;background:' + col + '"></span></div></div>';
+        h += '<div class="metric"><div class="l">Heap available</div><div class="v">' + num(j.heapAvailMb) + ' MB</div></div>';
+        h += '<div class="metric"><div class="l">Processors</div><div class="v">' + num(j.processors) + '</div></div>';
+        h += '<div class="metric"><div class="l">Load average</div><div class="v">' + load + '</div></div>';
+        h += '<div class="metric"><div class="l">Running / queued / waiting</div><div class="v">' + num(j.running) + ' / ' + num(j.queued) + ' / ' + num(j.waiting) + '</div></div>';
+        h += '<div class="metric"><div class="l">Test runs</div><div class="v">' + num(j.test) + '</div></div>';
+        document.getElementById('resWrap').innerHTML = h;
+    }
+    function loadResources(){ fetch(CTX + 'api/overview/resources').then(readJson).then(renderResources).catch(function(){}); }
+
+    function rollup(feeds){
+        var bySrc = {}, order = [], tot = { total:0, notRun:0, running:0, success:0, failed:0, aborted:0, other:0 };
+        for (var i=0;i<feeds.length;i++){
+            var f = feeds[i];
+            var src = f.source || '—';
+            if (!bySrc[src]){ bySrc[src] = { source:src, sourceDescription:f.sourceDescription, total:0, notRun:0, running:0, success:0, failed:0, aborted:0, other:0 }; order.push(src); }
+            var b = bySrc[src];
+            b.total++; tot.total++;
+            b[f.bucket] = (b[f.bucket]||0) + 1;
+            tot[f.bucket] = (tot[f.bucket]||0) + 1;
+        }
+        order.sort(function(a,b){ return bySrc[b].total - bySrc[a].total; });
+        return { bySrc:bySrc, order:order, tot:tot };
+    }
+    function tileEl(bucket, label, n, cls){
+        var act = (drill && drill.source==null && drill.bucket===bucket) ? ' active' : '';
+        return '<div class="tile ' + cls + act + '" onclick="setDrill(\'' + bucket + '\',null)"><div class="n">' + num(n) + '</div><div class="l">' + label + '</div></div>';
+    }
+    function seg(cls, n, total, label){ if(!n) return ''; var w = total>0?(n*100.0/total):0; return '<span class="' + cls + '" style="width:' + w + '%" title="' + label + ': ' + n + '"></span>'; }
+    function cell(bucket, src, n, style){
+        if (!n) return '<td class="num dim">0</td>';
+        return '<td class="num clk" style="' + (style||'') + '" onclick="setDrill(\'' + bucket + '\',\'' + esc(src).replace(/'/g,"\\'") + '\')">' + num(n) + '</td>';
+    }
+    function renderRollup(){
+        var r = rollup(FEEDS), t = r.tot;
+        document.getElementById('tiles').innerHTML =
+            tileEl('total','Feeds',t.total,'') + tileEl('running','Running',t.running,'run') +
+            tileEl('success','Success',t.success,'ok') + tileEl('failed','Failed',t.failed,'fail') +
+            tileEl('notRun','Not run',t.notRun,'') + tileEl('aborted','Aborted',t.aborted,'') +
+            tileEl('other','Other',t.other,'');
+        if (r.order.length === 0){ document.getElementById('rollupWrap').innerHTML='<div class="dim small">No feeds.</div>'; return; }
+        var h = '<table class="grid"><thead><tr><th>Source</th><th class="num">Total</th><th class="num">Not run</th>' +
+                '<th class="num">Running</th><th class="num">Success</th><th class="num">Failed</th><th class="num">Aborted</th><th class="num">Other</th><th>Mix</th></tr></thead><tbody>';
+        for (var i=0;i<r.order.length;i++){
+            var s = r.bySrc[r.order[i]];
+            var bar = '<div class="bar">' + seg('seg-run',s.running,s.total,'running') + seg('seg-ok',s.success,s.total,'success') +
+                seg('seg-fail',s.failed,s.total,'failed') + seg('seg-abort',s.aborted,s.total,'aborted') + seg('seg-other',s.other,s.total,'other') + '</div>';
+            var label = '<span class="mono">' + esc(s.source) + '</span>' + (s.sourceDescription ? '<div class="dim small">' + esc(s.sourceDescription) + '</div>' : '');
+            h += '<tr><td>' + label + '</td>' +
+                cell('total', s.source, s.total, '') +
+                cell('notRun', s.source, s.notRun, '') +
+                cell('running', s.source, s.running, 'color:var(--run)') +
+                cell('success', s.source, s.success, 'color:var(--ok)') +
+                cell('failed', s.source, s.failed, 'color:var(--fail)') +
+                cell('aborted', s.source, s.aborted, '') +
+                cell('other', s.source, s.other, '') +
+                '<td>' + bar + '</td></tr>';
+        }
+        h += '</tbody></table>';
+        document.getElementById('rollupWrap').innerHTML = h;
+    }
+
+    function setDrill(bucket, source){ drill = { bucket:bucket, source:source }; renderRollup(); renderDrill(); }
+    function clearDrill(){ drill = null; document.getElementById('drillPanel').style.display='none'; renderRollup(); }
+    function bucketLabel(b){ return ({total:'all',notRun:'not run',running:'running',success:'success',failed:'failed',aborted:'aborted',other:'other'})[b] || b; }
+    function renderDrill(){
+        if (!drill){ document.getElementById('drillPanel').style.display='none'; return; }
+        var list = FEEDS.filter(function(f){
+            if (drill.source != null && (f.source||'—') !== drill.source) return false;
+            if (drill.bucket !== 'total' && f.bucket !== drill.bucket) return false;
+            return true;
+        });
+        document.getElementById('drillPanel').style.display='block';
+        document.getElementById('drillTitle').innerHTML = 'Feeds — ' + esc(bucketLabel(drill.bucket)) + (drill.source!=null ? ' · source ' + esc(drill.source) : '') + ' <span class="dim small">(' + list.length + ')</span>';
+        if (list.length === 0){ document.getElementById('drillWrap').innerHTML='<div class="dim small">No feeds.</div>'; return; }
+        var h = '<table class="grid"><thead><tr><th>Feed</th><th>Source</th><th>Target</th><th>Last run</th><th>Last success</th><th></th></tr></thead><tbody>';
+        for (var i=0;i<list.length;i++){
+            var f = list[i];
+            h += '<tr>' +
+                '<td><span class="mono feed-id">' + esc(f.feedId) + '</span><div class="dim small">' + esc(f.name||'') + '</div></td>' +
+                '<td class="mono small dim">' + esc(f.source||'—') + '</td>' +
+                '<td class="mono small dim">' + esc(f.targetId||'—') + '</td>' +
+                '<td>' + statusChip(f.lastStatus) + ' <span class="mono small dim">' + esc(f.lastRunTs||'') + '</span></td>' +
+                '<td class="mono small dim">' + esc(f.lastSuccessTs||'—') + '</td>' +
+                '<td><a class="btn sm" href="' + CTX + 'workflow/' + encodeURIComponent(f.feedId) + '">open</a></td>' +
+                '</tr>';
+        }
+        h += '</tbody></table>';
+        document.getElementById('drillWrap').innerHTML = h;
+    }
+
+    function loadFeeds(force){
+        fetch(CTX + 'api/overview/feeds').then(readJson).then(function(j){
+            FEEDS = (j && j.feeds) || [];
+            document.getElementById('rollupHint').textContent = '· ' + FEEDS.length + ' feeds';
+            renderRollup();
+            renderDrill();
+        }).catch(function(){});
+    }
 
     function renderActive(j){
         var rows = (j && j.running) || [];
         document.getElementById('activeCount').textContent = '· ' + rows.length;
         if (rows.length === 0){ document.getElementById('activeWrap').innerHTML = '<div class="dim small">No executions in progress.</div>'; return; }
         var h = '<table class="grid"><thead><tr>' +
-            '<th>Feed</th><th>Source</th><th>Status</th><th>Progress</th><th>Started</th><th>Trigger</th><th></th>' +
+            '<th>Feed</th><th>Source</th><th>Target</th><th>Status</th><th>Progress</th><th>Last run / success</th><th>Started</th><th></th>' +
             '</tr></thead><tbody>';
         for (var i=0;i<rows.length;i++){
             var r = rows[i];
             var prog = (r.totalSteps ? (r.doneSteps + '/' + r.totalSteps + ' steps') : '');
             if (r.currentStep) prog += (prog ? ' · ' : '') + 'now: ' + esc(r.currentStep);
-            var srcLabel = esc(r.source || '—') + (r.sourceDescription ? ' <span class="dim">— ' + esc(r.sourceDescription) + '</span>' : '');
+            var last = statusChip(r.lastStatus) + ' <span class="mono small dim">' + esc(r.lastRunTs||'') + '</span>' +
+                       '<div class="dim small">✓ ' + esc(r.lastSuccessTs||'—') + '</div>';
             h += '<tr>' +
                 '<td><span class="mono feed-id">' + esc(r.feedId) + '</span><div class="dim small">' + esc(r.name||'') + '</div></td>' +
-                '<td class="mono small dim">' + srcLabel + '</td>' +
-                '<td>' + statusChip(r.status) + '</td>' +
+                '<td class="mono small dim">' + esc(r.source||'—') + '</td>' +
+                '<td class="mono small dim">' + esc(r.targetId||'—') + '</td>' +
+                '<td>' + statusChip(r.status) + (r.trigger==='TEST'?' <span class="dim small">test</span>':'') + '</td>' +
                 '<td class="small">' + prog + '</td>' +
+                '<td class="small">' + last + '</td>' +
                 '<td class="mono small dim">' + esc(r.startTs||'') + '</td>' +
-                '<td class="small dim">' + esc(r.trigger||'') + (r.by? ' ('+esc(r.by)+')':'') + '</td>' +
                 '<td style="white-space:nowrap">' +
                     '<a class="btn sm" href="' + CTX + 'run/' + encodeURIComponent(r.feedId) + '/' + encodeURIComponent(r.runId) + '">Open</a> ' +
                     '<button class="btn sm danger" onclick="stopRun(this,\'' + esc(r.feedId) + '\',\'' + esc(r.runId) + '\')">■ Stop</button>' +
@@ -98,14 +232,12 @@
         h += '</tbody></table>';
         document.getElementById('activeWrap').innerHTML = h;
     }
-
     function loadActive(){
         fetch(CTX + 'api/overview/active').then(readJson).then(function(j){
             renderActive(j);
             document.getElementById('genTs').textContent = '· updated ' + new Date().toLocaleTimeString();
         }).catch(function(){});
     }
-
     function stopRun(btn, feedId, runId){
         if (btn) { btn.disabled = true; btn.textContent = 'Stopping…'; }
         fetch(CTX + 'api/runs/' + encodeURIComponent(feedId) + '/' + encodeURIComponent(runId) + '/stop', { method:'POST' })
@@ -113,61 +245,9 @@
             .catch(function(){ if (btn){ btn.disabled=false; btn.textContent='■ Stop'; } });
     }
 
-    // ---------- per-source rollup ----------
-    function seg(cls, n, total, label){
-        if (!n) return '';
-        var w = total>0 ? (n*100.0/total) : 0;
-        return '<span class="' + cls + '" style="width:' + w + '%" title="' + label + ': ' + n + '"></span>';
-    }
-    function renderRollup(j){
-        var sources = (j && j.sources) || [];
-        var t = (j && j.totals) || {};
-        // tiles
-        var tiles = [
-            ['', 'Feeds', t.total], ['run','Running', t.running], ['ok','Success', t.success],
-            ['fail','Failed', t.failed], ['','Not run', t.notRun], ['','Aborted', t.aborted], ['','Other', t.other]
-        ];
-        var th = '';
-        for (var k=0;k<tiles.length;k++){
-            th += '<div class="tile ' + tiles[k][0] + '"><div class="n">' + num(tiles[k][2]) + '</div><div class="l">' + tiles[k][1] + '</div></div>';
-        }
-        document.getElementById('tiles').innerHTML = th;
-
-        if (sources.length === 0){ document.getElementById('rollupWrap').innerHTML = '<div class="dim small">No feeds.</div>'; return; }
-        var h = '<table class="grid"><thead><tr>' +
-            '<th>Source</th><th class="num">Total</th><th class="num">Not run</th><th class="num">Running</th>' +
-            '<th class="num">Success</th><th class="num">Failed</th><th class="num">Aborted</th><th class="num">Other</th><th>Mix</th>' +
-            '</tr></thead><tbody>';
-        for (var i=0;i<sources.length;i++){
-            var s = sources[i];
-            var bar = '<div class="bar">' +
-                seg('seg-run', s.running, s.total, 'running') +
-                seg('seg-ok', s.success, s.total, 'success') +
-                seg('seg-fail', s.failed, s.total, 'failed') +
-                seg('seg-abort', s.aborted, s.total, 'aborted') +
-                seg('seg-other', s.other, s.total, 'other') +
-                '</div>';
-            var srcLabel = '<span class="mono">' + esc(s.source) + '</span>' + (s.sourceDescription ? '<div class="dim small">' + esc(s.sourceDescription) + '</div>' : '');
-            h += '<tr>' +
-                '<td>' + srcLabel + '</td>' +
-                '<td class="num">' + num(s.total) + '</td>' +
-                '<td class="num dim">' + num(s.notRun) + '</td>' +
-                '<td class="num" style="color:var(--run)">' + num(s.running) + '</td>' +
-                '<td class="num" style="color:var(--ok)">' + num(s.success) + '</td>' +
-                '<td class="num" style="color:var(--fail)">' + num(s.failed) + '</td>' +
-                '<td class="num dim">' + num(s.aborted) + '</td>' +
-                '<td class="num dim">' + num(s.other) + '</td>' +
-                '<td>' + bar + '</td></tr>';
-        }
-        h += '</tbody></table>';
-        document.getElementById('rollupWrap').innerHTML = h;
-    }
-    function loadRollup(){
-        fetch(CTX + 'api/overview/rollup').then(readJson).then(renderRollup).catch(function(){});
-    }
-
+    loadResources(); setInterval(loadResources, 5000);
+    loadFeeds(); setInterval(loadFeeds, 20000);
     loadActive(); setInterval(loadActive, 3000);
-    loadRollup(); setInterval(loadRollup, 20000);
 </script>
 </body>
 </html>

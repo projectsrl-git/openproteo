@@ -51,6 +51,13 @@
         <button class="btn danger" onclick="decide(false)">✕ Reject</button>
     </div>
 
+    <div class="approval" id="stepBox" style="border-color:var(--run)">
+        <h3>▶ Step-by-step test — next: <span class="gname" id="nextStepName"></span></h3>
+        <p class="dim small">Paused after a step. Continue to run the next step, or Stop to end the test. Outputs persist between steps, so the next step sees the previous step's output.</p>
+        <button class="btn ok" onclick="continueRun()">▶ Continue (next step)</button>
+        <button class="btn danger" onclick="stopRun()">■ Stop</button>
+    </div>
+
     <h2>Workflow progress</h2>
     <div class="panel">
         <div class="bpmn-wrap" id="bpmnBox"><span class="dim small">loading diagram…</span></div>
@@ -156,12 +163,19 @@
 
         // approval box
         var box = document.getElementById('approvalBox');
+        var sbox = document.getElementById('stepBox');
         if (run.status === 'WAITING_APPROVAL' && run.waitingGateId) {
             var g = run.gates.filter(function (x) { return x.gateId === run.waitingGateId; })[0];
             document.getElementById('gateName').textContent = g ? g.name : run.waitingGateId;
             box.classList.add('visible');
+            sbox.classList.remove('visible');
+        } else if (run.status === 'WAITING_APPROVAL' && run.pausedNextStep) {
+            document.getElementById('nextStepName').textContent = run.pausedNextStep;
+            sbox.classList.add('visible');
+            box.classList.remove('visible');
         } else {
             box.classList.remove('visible');
+            sbox.classList.remove('visible');
         }
 
         // tabella step
@@ -315,6 +329,15 @@
                 box.appendChild(frag);
                 if (atBottom) box.scrollTop = box.scrollHeight;
             });
+    }
+
+    function continueRun() {
+        var sb = document.getElementById('stepBox');
+        sb.classList.remove('visible');
+        fetch(CTX + 'api/runs/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(RUN_ID) + '/continue', { method: 'POST' })
+            .then(function (r) { return r.json(); })
+            .then(function (j) { if (!j.ok) opAlert(j.error || 'Continue failed'); refresh(); })
+            .catch(function () { refresh(); });
     }
 
     function decide(approve) {

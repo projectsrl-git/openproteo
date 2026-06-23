@@ -930,6 +930,39 @@ public class ApiController {
         }
     }
 
+    /**
+     * Start a step-by-step test from a chosen step to the end, off the main queue. Runs the first step
+     * then pauses for confirmation; subsequent steps run via the continue endpoint. Shares one run so
+     * outputs accumulate. Returns the run id and the run page URL.
+     */
+    @PostMapping("/api/workflows/{feedId}/test-from/{stepId}")
+    public ResponseEntity<Map<String, Object>> testFrom(@PathVariable String feedId, @PathVariable String stepId, HttpServletRequest req) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        try {
+            WorkflowRun run = engine.testFrom(feedId, stepId, user(req));
+            out.put("ok", true);
+            out.put("runId", run.runId);
+            out.put("url", "run/" + feedId + "/" + run.runId);
+            return ResponseEntity.ok(out);
+        } catch (IllegalStateException e) {
+            return badRequest(out, e.getMessage());
+        } catch (IllegalArgumentException e) {
+            return badRequest(out, e.getMessage());
+        } catch (Exception e) {
+            return badRequest(out, "Test failed: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+        }
+    }
+
+    /** Continue a paused step-by-step test: run the next step. */
+    @PostMapping("/api/runs/{feedId}/{runId}/continue")
+    public ResponseEntity<Map<String, Object>> testContinue(@PathVariable String feedId, @PathVariable String runId, HttpServletRequest req) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        boolean ok = engine.testContinue(feedId, runId, user(req));
+        out.put("ok", ok);
+        if (!ok) out.put("error", "No paused test session for this run");
+        return ok ? ResponseEntity.ok(out) : ResponseEntity.status(HttpStatus.CONFLICT).body(out);
+    }
+
     /** Live board: all executions currently in progress (queued/running/waiting). In-memory, cheap. */
     @GetMapping("/api/overview/active")
     public ResponseEntity<Map<String, Object>> overviewActive() {
@@ -943,11 +976,27 @@ public class ApiController {
             m.put("source", def != null && def.sourceId != null ? def.sourceId : "");
             m.put("sourceDescription", def != null ? def.sourceDescription : null);
             m.put("targetId", def != null && def.targetId != null ? def.targetId : "");
+            m.put("targetDescription", def != null ? def.targetDescription : null);
             m.put("runId", r.runId);
             m.put("status", r.status != null ? r.status.name() : "");
             m.put("startTs", r.startTs);
             m.put("trigger", r.trigger);
             m.put("by", r.triggeredBy);
+            // last real (non-test) run outcome + last success for context
+            String lastStatus = null, lastRunTs = null, lastSuccessTs = null;
+            FeedLayout flay = def != null ? registry.layout(r.feedId) : null;
+            if (flay != null) {
+                for (WorkflowRun pr : store.list(flay, 25)) {
+                    if (pr.runId != null && (pr.runId.contains("_test_") || pr.runId.equals(r.runId))) continue;
+                    String ts = pr.endTs != null ? pr.endTs : pr.startTs;
+                    if (lastStatus == null) { lastStatus = pr.status != null ? pr.status.name() : null; lastRunTs = ts; }
+                    if (lastSuccessTs == null && pr.status == com.legalarchive.orchestrator.model.run.RunStatus.SUCCESS) lastSuccessTs = ts;
+                    if (lastStatus != null && lastSuccessTs != null) break;
+                }
+            }
+            m.put("lastStatus", lastStatus);
+            m.put("lastRunTs", lastRunTs);
+            m.put("lastSuccessTs", lastSuccessTs);
             int total = def != null ? def.steps().size() : 0;
             int done = 0; String cur = null;
             for (com.legalarchive.orchestrator.model.run.StepExec se : r.steps) {
@@ -1023,6 +1072,97 @@ public class ApiController {
         out.put("ok", true);
         out.put("sources", sources);
         out.put("totals", totals);
+        return ResponseEntity.ok(out);
+    }
+
+    // server-side cache so polling/clients don't multiply the per-feed disk reads
+    private volatile long feedsCacheTs = 0L;
+    private volatile java.util.List<Map<String, Object>> feedsCache = null;
+    private static final long FEEDS_TTL_MS = 10000L;
+
+    /** Per-feed status list (latest real run + last success), powering the clickable rollup and drill-down. */
+    @GetMapping("/api/overview/feeds")
+    public ResponseEntity<Map<String, Object>> overviewFeeds() {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        long now = System.currentTimeMillis();
+        java.util.List<Map<String, Object>> feeds = feedsCache;
+        if (feeds == null || now - feedsCacheTs > FEEDS_TTL_MS) {
+            feeds = new java.util.ArrayList<Map<String, Object>>();
+            for (WorkflowDef def : registry.all()) {
+                Map<String, Object> m = new LinkedHashMap<String, Object>();
+                m.put("feedId", def.feedId);
+                m.put("name", def.name);
+                m.put("source", def.sourceId == null ? "" : def.sourceId);
+                m.put("sourceDescription", def.sourceDescription);
+                m.put("targetId", def.targetId == null ? "" : def.targetId);
+                m.put("targetDescription", def.targetDescription);
+                String activeId = engine.activeRunId(def.feedId);
+                boolean running = activeId != null && !activeId.contains("_test_");
+                String lastStatus = null, lastRunTs = null, lastSuccessTs = null;
+                FeedLayout layout = registry.layout(def.feedId);
+                if (layout != null) {
+                    for (WorkflowRun r : store.list(layout, 25)) {
+                        if (r.runId != null && r.runId.contains("_test_")) continue;   // ignore test runs
+                        String ts = r.endTs != null ? r.endTs : r.startTs;
+                        if (lastStatus == null) { lastStatus = r.status != null ? r.status.name() : null; lastRunTs = ts; }
+                        if (lastSuccessTs == null && r.status == com.legalarchive.orchestrator.model.run.RunStatus.SUCCESS) { lastSuccessTs = ts; }
+                        if (lastStatus != null && lastSuccessTs != null) break;
+                    }
+                }
+                m.put("running", running);
+                m.put("lastStatus", lastStatus);
+                m.put("lastRunTs", lastRunTs);
+                m.put("lastSuccessTs", lastSuccessTs);
+                m.put("bucket", bucketFor(running, lastStatus));
+                feeds.add(m);
+            }
+            feedsCache = feeds;
+            feedsCacheTs = now;
+        }
+        out.put("ok", true);
+        out.put("feeds", feeds);
+        out.put("ts", feedsCacheTs);
+        return ResponseEntity.ok(out);
+    }
+
+    private static String bucketFor(boolean running, String lastStatus) {
+        if (running) return "running";
+        if (lastStatus == null) return "notRun";
+        if ("SUCCESS".equals(lastStatus)) return "success";
+        if ("FAILED".equals(lastStatus)) return "failed";
+        if ("QUEUED".equals(lastStatus) || "RUNNING".equals(lastStatus) || "WAITING_APPROVAL".equals(lastStatus)) return "running";
+        if ("ABORTED".equals(lastStatus)) return "aborted";
+        return "other";
+    }
+
+    /** Resource snapshot (JVM heap, processors, load, live run counts) for the Operations board. */
+    @GetMapping("/api/overview/resources")
+    public ResponseEntity<Map<String, Object>> overviewResources() {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        Runtime rt = Runtime.getRuntime();
+        long max = rt.maxMemory(), total = rt.totalMemory(), free = rt.freeMemory();
+        long used = total - free;
+        long avail = max - used;
+        out.put("heapUsedMb", used / 1048576);
+        out.put("heapMaxMb", max / 1048576);
+        out.put("heapAvailMb", avail / 1048576);
+        out.put("heapUsedPct", max > 0 ? Math.round(used * 100.0 / max) : 0);
+        out.put("processors", rt.availableProcessors());
+        double load = -1;
+        try { load = java.lang.management.ManagementFactory.getOperatingSystemMXBean().getSystemLoadAverage(); } catch (Exception ignored) {}
+        out.put("loadAverage", load);
+        int running = 0, queued = 0, waiting = 0, test = 0;
+        for (WorkflowRun r : engine.queueSnapshot()) {
+            if (r.runId != null && r.runId.contains("_test_")) test++;
+            if (r.status == com.legalarchive.orchestrator.model.run.RunStatus.RUNNING) running++;
+            else if (r.status == com.legalarchive.orchestrator.model.run.RunStatus.QUEUED) queued++;
+            else if (r.status == com.legalarchive.orchestrator.model.run.RunStatus.WAITING_APPROVAL) waiting++;
+        }
+        out.put("running", running);
+        out.put("queued", queued);
+        out.put("waiting", waiting);
+        out.put("test", test);
+        out.put("ok", true);
         return ResponseEntity.ok(out);
     }
 
