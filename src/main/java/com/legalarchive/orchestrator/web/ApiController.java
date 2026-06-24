@@ -1156,6 +1156,16 @@ public class ApiController {
             feedsCache = feeds;
             feedsCacheTs = now;
         }
+        // 'running' must be LIVE (not cached): recompute from in-memory engine state on every call, so
+        // Operations drops a feed from RUNNING the instant its run ends, instead of up to one cache TTL
+        // later. The heavy last-status/last-run/last-success fields stay cached (disk reads).
+        for (Map<String, Object> m : feeds) {
+            String fid = (String) m.get("feedId");
+            String activeId = engine.activeRunId(fid);
+            boolean running = activeId != null && !activeId.contains("_test_");
+            m.put("running", running);
+            m.put("bucket", bucketFor(running, (String) m.get("lastStatus")));
+        }
         out.put("ok", true);
         out.put("feeds", feeds);
         out.put("ts", feedsCacheTs);

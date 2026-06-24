@@ -405,6 +405,7 @@ public class WorkflowEngine {
         if (run == null || isTerminal(run.status)) return false;
 
         RunControl c = controls.get(runId);
+        boolean repeatStop = c != null && c.aborted;   // a Stop was already requested for this run
         if (c != null) c.aborted = true;
         log.info("[{}] STOP requested for {} by {}", feedId, runId, user);
         auditFeed(layout, feedId, runId, null, "RUN_STOP_REQUESTED", user, null);
@@ -430,6 +431,14 @@ public class WorkflowEngine {
         }
         if (c != null && c.process != null) {
             c.process.destroyForcibly();
+        }
+        // Last resort: if the operator presses Stop again and the run is still active (a worker thread
+        // genuinely stuck, e.g. a blocked native/IO call that ignores cancel+close), finalise it ABORTED
+        // now and abandon the worker, so the UI/Operations don't stay stuck on RUNNING forever.
+        if (repeatStop && !isTerminal(run.status)) {
+            log.warn("[{}] FORCE stop {} (repeat request): finalising ABORTED, worker thread abandoned", feedId, runId);
+            auditFeed(layout, feedId, runId, null, "RUN_FORCE_STOPPED", user, null);
+            finish(def, layout, run, RunStatus.ABORTED, "Force-stopped by " + user);
         }
         return true;
     }
@@ -901,8 +910,11 @@ public class WorkflowEngine {
     }
 
     private void finish(WorkflowDef def, FeedLayout layout, WorkflowRun run, RunStatus status, String message) {
+        synchronized (this) {
+            if (isTerminal(run.status)) return;   // idempotent: the first finalisation wins (force-stop vs worker)
+            run.status = status;                  // claim the terminal status atomically
+        }
         log.info("[{}] RUN terminato {} stato={}{}", run.feedId, run.runId, status, message == null ? "" : " - " + message);
-        run.status = status;
         run.message = message;
         run.endTs = now();
         for (StepExec se : run.steps) {

@@ -1,17 +1,20 @@
-Stop: forcibly abort AS400/DB2 SQL extractions by closing the connection
+Operations: live RUNNING flag; Stop: force-stop on repeat + idempotent finish
 
-Stop still left a SQL extraction RUNNING (seen on a TEST run of SQL_EXTRACTION
-against the AS400 jt400 source): the control wiring was correct, but jt400
-Statement.cancel() does not reliably interrupt a running query/fetch.
+Operations kept showing a feed RUNNING after its run ended, and a stuck AS400 SQL
+extraction needed more than one Stop.
 
-Fix: on Stop, in addition to cancel(), close the statement AND the connection of
-the running extraction (closing the socket makes the blocked call throw — the
-reliable cross-driver abort).
-- RunControl.aborter (Runnable); SqlSupport.exportCsv registers cancel+close-st+
-  close-conn; runSql wires it. engine.stop() runs the aborter on a daemon thread
-  (never blocks the Stop response) plus the existing cancel()/destroyForcibly().
-- The resulting SQLException is caught (exitCode set), executeStep returns not-ok,
-  and the run finalises ABORTED (loop for normal runs; testStep/runSessionStep now
-  map aborted -> ABORTED instead of FAILED).
+- /api/overview/feeds: the running flag was cached with the heavy last-status disk
+  reads (10s TTL). Now last-status stays cached but `running` and `bucket` are
+  recomputed every call from in-memory engine state (activeRunId), so a feed drops
+  out of RUNNING the instant its run leaves activeRuns.
+- engine.stop(): pressing Stop again while still active force-finalises the run
+  ABORTED and abandons the (genuinely stuck) worker, so the UI/Operations never
+  stay stuck on RUNNING. Audited RUN_FORCE_STOPPED. First Stop is still the graceful
+  cancel + DB-connection-close; second is the escape hatch.
+- finish() made idempotent + thread-safe (synchronized check-and-claim) so the
+  abandoned worker can't re-finalise after a force-stop.
+- run.html: generic Stop confirm text; button relabels to "Force stop" after the
+  first press.
 
-csvsql (H2) keeps cancel(). Compiles (101 classes).
+Compiles (101 classes). Complements the previously shipped sql/DB2 connection-close
+aborter (deploy that too).

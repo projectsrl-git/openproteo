@@ -133,7 +133,9 @@
             '  ·  trigger ' + run.trigger + ' (' + run.triggeredBy + ')';
 
         var active = run.status === 'QUEUED' || run.status === 'RUNNING' || run.status === 'WAITING_APPROVAL';
-        document.getElementById('stopBtn').style.display = active ? 'inline-block' : 'none';
+        var sb = document.getElementById('stopBtn');
+        sb.style.display = active ? 'inline-block' : 'none';
+        sb.textContent = (stopRequested && active) ? '■ Force stop' : '■ Stop';
         document.getElementById('rerunBtn').style.display = active ? 'none' : 'inline-block';
 
         var msg = document.getElementById('runMessage');
@@ -385,8 +387,10 @@
             return JSON.parse(t);
         });
     }
+    var stopRequested = false;
     function stopRun() {
-        opConfirm('Stop this run? The current PowerShell step will be terminated.', function () {
+        opConfirm(stopRequested ? 'Force-stop this run? The worker will be abandoned and the run marked ABORTED.' : 'Stop this run? The running step will be aborted (queries are cancelled and the DB connection closed).', function () {
+        stopRequested = true;
         var btn = document.getElementById('stopBtn');
         btn.disabled = true;
         fetch(CTX + 'api/runs/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(RUN_ID) + '/stop', { method: 'POST' })
