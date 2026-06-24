@@ -494,7 +494,7 @@ public class InternalSteps {
             long maxRows = step.csvSplitRows > 0 ? step.csvSplitRows : 0;
             long maxBytes = step.csvSplitMb > 0 ? (long) step.csvSplitMb * 1024L * 1024L : 0;
             SqlSupport.ExportResult er = sql.exportCsv(d, query, out, delim, true, maxRows, maxBytes, trim,
-                    st -> { if (control != null) control.statement = st; });
+                    r -> { if (control != null) control.aborter = r; });
             res.outVars.put("rowCount", String.valueOf(er.rows));
             res.outVars.put("csvParts", String.valueOf(er.parts));
             res.outVars.put("csvFile", er.files.isEmpty() ? out.getAbsolutePath() : er.files.get(0));

@@ -226,7 +226,10 @@ public class WorkflowEngine {
             boolean ok = false;
             try { ok = executeStep(fdef, flay, run, fstep); }
             catch (Exception e) { log.error("[{}] test step {} error: {}", fdef.feedId, fstep.id, e.toString()); }
-            finish(fdef, flay, run, ok ? RunStatus.SUCCESS : RunStatus.FAILED, ok ? "Test step OK" : "Test step failed");
+            RunControl c = controls.get(run.runId);
+            boolean aborted = c != null && c.aborted;
+            finish(fdef, flay, run, aborted ? RunStatus.ABORTED : (ok ? RunStatus.SUCCESS : RunStatus.FAILED),
+                    aborted ? "Stopped by user" : (ok ? "Test step OK" : "Test step failed"));
         });
         return run;
     }
@@ -416,7 +419,14 @@ public class WorkflowEngine {
             return true;
         }
         if (c != null && c.statement != null) {
-            try { c.statement.cancel(); } catch (Exception ignored) {}   // abort a long csvsql query
+            try { c.statement.cancel(); } catch (Exception ignored) {}   // csvsql (H2): cancel the running query
+        }
+        if (c != null && c.aborter != null) {
+            // sql/DB2: cancel + close statement and connection, to unblock a query that ignores cancel()
+            final Runnable ab = c.aborter;
+            Thread t = new Thread(() -> { try { ab.run(); } catch (Exception ignored) {} }, "wf-db-abort");
+            t.setDaemon(true);
+            t.start();
         }
         if (c != null && c.process != null) {
             c.process.destroyForcibly();

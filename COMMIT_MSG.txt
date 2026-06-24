@@ -1,20 +1,17 @@
-Add read-only Cert Identity Probe diagnostic endpoint (GET /diag/whoami)
+Stop: forcibly abort AS400/DB2 SQL extractions by closing the connection
 
-Temporary diagnostic to determine how the UBS personal browser-certificate
-identity reaches OpenProteo (TLS client cert at Tomcat vs identity headers
-injected by an upstream proxy), to design the real authentication filter.
+Stop still left a SQL extraction RUNNING (seen on a TEST run of SQL_EXTRACTION
+against the AS400 jt400 source): the control wiring was correct, but jt400
+Statement.cancel() does not reliably interrupt a running query/fetch.
 
-- Adds com.legalarchive.orchestrator.diag.CertIdentityProbeController (package
-  adjusted from the handoff's example com.ubs.openproteo to this project's base
-  com.legalarchive.orchestrator; auto-detected under the @SpringBootApplication
-  scan root). Renders one HTML page with: (1) the javax.servlet.request
-  .X509Certificate chain, (2) all request headers (SSL_CLIENT_* / verify / UBS
-  identity headers), (3) connection facts (isSecure, scheme, remoteAddr, server
-  name, URL, cipher). No new dependencies, no pom change, no JavaScript.
-- Handoff doc placed at .claude/CERT_IDENTITY_PROBE_INTEGRATION.md.
+Fix: on Stop, in addition to cancel(), close the statement AND the connection of
+the running extraction (closing the socket makes the blocked call throw — the
+reliable cross-driver abort).
+- RunControl.aborter (Runnable); SqlSupport.exportCsv registers cancel+close-st+
+  close-conn; runSql wires it. engine.stop() runs the aborter on a daemon thread
+  (never blocks the Stop response) plus the existing cancel()/destroyForcibly().
+- The resulting SQLException is caught (exitCode set), executeStep returns not-ok,
+  and the run finalises ABORTED (loop for normal runs; testStep/runSessionStep now
+  map aborted -> ABORTED instead of FAILED).
 
-Open it through the same HTTPS/SSO entry point users use, with the cert-holding
-browser: https://<host>/openproteo/diag/whoami. REMOVE or lock down after the
-identity source is confirmed (it exposes all request headers).
-
-Compiles (100 classes).
+csvsql (H2) keeps cancel(). Compiles (101 classes).

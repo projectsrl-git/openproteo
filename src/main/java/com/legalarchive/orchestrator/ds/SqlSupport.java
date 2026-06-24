@@ -130,26 +130,35 @@ public class SqlSupport {
     }
 
     /**
-     * As {@link #exportCsv}, but reports the live {@link Statement} to {@code onStatement} (and null when
-     * done) so the caller can cancel a long-running query/extraction on Stop. setFetchSize cuts JDBC
-     * round-trips while streaming and lets cancel() interrupt the fetch.
+     * As {@link #exportCsv}, but reports a forcible abort action to {@code onAborter} (and null when
+     * done). The action cancels the statement and closes the statement+connection, which unblocks a
+     * running query/fetch even on drivers (AS400 jt400) where Statement.cancel() alone does nothing.
+     * setFetchSize cuts JDBC round-trips while streaming.
      */
     public ExportResult exportCsv(DataSourceDef d, String sql, java.io.File baseFile, char delim,
                                   boolean bom, long maxRows, long maxBytes, boolean trim,
-                                  java.util.function.Consumer<Statement> onStatement) throws Exception {
-        Connection c = null;
+                                  java.util.function.Consumer<Runnable> onAborter) throws Exception {
+        final Connection c = open(d);
         Statement st = null;
         try {
-            c = open(d);
             st = c.createStatement();
             try { st.setFetchSize(1000); } catch (Exception ignored) {}
-            if (onStatement != null) onStatement.accept(st);
+            final Statement fst = st;
+            if (onAborter != null) {
+                onAborter.accept(new Runnable() {
+                    public void run() {
+                        try { fst.cancel(); } catch (Exception ignored) {}
+                        try { fst.close(); } catch (Exception ignored) {}
+                        try { c.close(); } catch (Exception ignored) {}
+                    }
+                });
+            }
             ResultSet rs = st.executeQuery(sql);
             return exportResultSet(rs, baseFile, delim, bom, maxRows, maxBytes, trim);
         } finally {
-            if (onStatement != null) try { onStatement.accept(null); } catch (Exception ignored) {}
+            if (onAborter != null) try { onAborter.accept(null); } catch (Exception ignored) {}
             if (st != null) try { st.close(); } catch (Exception ignored) {}
-            if (c != null) try { c.close(); } catch (Exception ignored) {}
+            try { c.close(); } catch (Exception ignored) {}
         }
     }
 
