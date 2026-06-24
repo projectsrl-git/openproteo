@@ -1,18 +1,16 @@
-PROD badge (home+ops); JSON/XML auto-prettify; CSV range search + sort
+CSV viewer: show displayschema DisplayName in the column header
 
-1) PROD flag now visible: red PROD badge on the dashboard feed id and on
-   Operations (drill-down + executions). /api/overview/feeds returns production.
+Friendlier CSV view: each header shows the human DisplayName from the feed's
+displayschema.json (matched to the CSV column = ColumnName), with the technical
+ColumnName kept underneath as a sub-label + tooltip.
 
-2) File viewer pretty-prints .json/.xml on open (read-only), via the existing
-   formatter, without entering Edit; falls back to raw with a note if unparseable.
+- ApiController.displayNameMap(feedId) reads <feedDir>/displayschema.json
+  (list or under "columns") into ColumnName -> DisplayName (keys name/ColumnName/
+  COLUMN_NAME; labels DisplayName/displayName/display_name). csv/meta now returns
+  displayNames aligned to columns (exact match, then case-insensitive). Empty for
+  shared files / feeds without a schema.
+- viewer.js CSV header renders DisplayName (bold) + ColumnName (sub); range filter
+  dropdown shows "DisplayName — ColumnName"; chips use the DisplayName. Falls back
+  to ColumnName when absent. Sort/resize/paging unchanged.
 
-3) CSV viewer FROM/TO range search on selectable columns (dropdown + from/to +
-   Add; multiple ranges AND, removable chips) and column sort (3.1: click header
-   asc/desc/clear with arrow). Applied server-side in CsvService.page (streaming
-   filter; sort buffers matching rows capped at 300k with a notice), combining
-   with the text filter and virtual paging. New params fc/ff/ft + sortCol/sortDir;
-   unchanged when unset.
-
-Compiles (103 classes). CsvService self-test (numeric range, numeric vs
-lexicographic sort, date range + secondary sort) passes. viewer.js/overview.html
-JS verified.
+Compiles (103 classes). viewer.js verified.

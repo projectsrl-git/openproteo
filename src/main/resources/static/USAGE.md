@@ -315,3 +315,7 @@ In the CSV table view, build FROM/TO range filters: pick a column, type a from a
 ### PROD badge
 
 Feeds set as production show a red PROD badge on the home feed list and on the Operations board.
+
+### CSV header: friendly names
+
+In the CSV table view, each column header shows the **DisplayName** from the feed’s displayschema.json (matched to the column = ColumnName), with the technical ColumnName underneath. Feeds without a displayschema (or shared files) keep the plain column names.

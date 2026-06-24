@@ -38,11 +38,11 @@
 
     function renderCsvServer(host, api, path, name, meta) {
         var PAGE = 200;
-        var columns = [], totalRows = 0, curTotal = 0, q = '';
+        var columns = [], displayNames = [], totalRows = 0, curTotal = 0, q = '';
         var cache = {}, inflight = {};
         fetch(api + 'csv/meta?path=' + encodeURIComponent(path)).then(json).then(function (j) {
             if (!j.ok) { showErr(host, j.error); return; }
-            columns = j.columns; totalRows = j.totalRows; curTotal = totalRows;
+            columns = j.columns; displayNames = j.displayNames || []; totalRows = j.totalRows; curTotal = totalRows;
             meta.textContent = totalRows + ' rows · ' + columns.length + ' cols · delim "' + j.delimiter + '"';
             build();
         }).catch(function (e) { showErr(host, String(e)); });
@@ -55,7 +55,7 @@
             var rtop = el('div', 'vwr-tools', host);
             var colSel = el('select', 'search-box', rtop); colSel.style.maxWidth = '240px';
             var o0 = el('option', null, colSel); o0.value = ''; text(o0, '— column —');
-            columns.forEach(function (cn, ci) { var o = el('option', null, colSel); o.value = String(ci); text(o, cn); });
+            columns.forEach(function (cn, ci) { var o = el('option', null, colSel); o.value = String(ci); text(o, displayNames[ci] ? (displayNames[ci] + ' \u2014 ' + cn) : cn); });
             var fromIn = el('input', 'search-box', rtop); fromIn.placeholder = 'from'; fromIn.style.maxWidth = '140px';
             var toIn = el('input', 'search-box', rtop); toIn.placeholder = 'to'; toIn.style.maxWidth = '140px';
             var addBtn = el('button', 'btn sm', rtop); text(addBtn, '+ Add range');
@@ -64,7 +64,7 @@
                 chips.innerHTML = '';
                 ranges.forEach(function (rg, idx) {
                     var ch = el('span', 'ms-chip', chips);
-                    text(ch, columns[rg.col] + ': ' + (rg.from || '*') + ' .. ' + (rg.to || '*') + ' ');
+                    text(ch, (displayNames[rg.col] || columns[rg.col]) + ': ' + (rg.from || '*') + ' .. ' + (rg.to || '*') + ' ');
                     var x = el('span', 'ms-x', ch); text(x, '✕');
                     x.addEventListener('click', function () { ranges.splice(idx, 1); renderChips(); applyParams(); });
                 });
@@ -113,7 +113,10 @@
             var hr = el('div', 'vgrid-row', head); hr.style.width = rowWidthPx() + 'px';
             for (var c = 0; c < columns.length; c++) {
                 var hc = el('div', 'vgrid-cell head', hr); hc.style.width = colW[c] + 'px'; hc.style.cursor = 'pointer';
-                var lbl = el('span', null, hc); text(lbl, columns[c]);
+                var dnm = displayNames[c];
+                var lbl = el('span', 'hcol', hc);
+                if (dnm) { var d1 = el('div', null, lbl); d1.style.fontWeight = '600'; text(d1, dnm); var d2 = el('div', 'dim small', lbl); text(d2, columns[c]); hc.title = dnm + '  (' + columns[c] + ')'; }
+                else { text(lbl, columns[c]); }
                 var arr = el('span', 'sortarr', hc); sortArrows.push(arr);
                 (function (idx, cell) {
                     cell.addEventListener('click', function (e) {

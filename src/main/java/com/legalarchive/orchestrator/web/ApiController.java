@@ -2190,6 +2190,34 @@ public class ApiController {
         return t.toFile();
     }
 
+    /** ColumnName -> DisplayName from the feed's displayschema.json (empty for shared/no schema). */
+    private java.util.Map<String, String> displayNameMap(String feedId) {
+        java.util.Map<String, String> map = new java.util.LinkedHashMap<String, String>();
+        if (feedId == null) return map;
+        try {
+            FeedLayout layout = registry.layout(feedId);
+            if (layout == null) return map;
+            java.io.File f = layout.feedDir.resolve("displayschema.json").toFile();
+            if (!f.isFile()) return map;
+            Object root = mapper.readValue(f, Object.class);
+            java.util.List<?> cols = null;
+            if (root instanceof java.util.List) cols = (java.util.List<?>) root;
+            else if (root instanceof java.util.Map) { Object c = ((java.util.Map<?, ?>) root).get("columns"); if (c instanceof java.util.List) cols = (java.util.List<?>) c; }
+            if (cols == null) return map;
+            for (Object o : cols) {
+                if (!(o instanceof java.util.Map)) continue;
+                java.util.Map<?, ?> m = (java.util.Map<?, ?>) o;
+                Object nm = m.get("name"); if (nm == null) nm = m.get("ColumnName"); if (nm == null) nm = m.get("COLUMN_NAME");
+                Object dn = m.get("DisplayName"); if (dn == null) dn = m.get("displayName"); if (dn == null) dn = m.get("display_name");
+                if (nm != null && dn != null) {
+                    String k = String.valueOf(nm).trim(), v = String.valueOf(dn).trim();
+                    if (!k.isEmpty() && !v.isEmpty()) map.put(k, v);
+                }
+            }
+        } catch (Exception ignored) {}
+        return map;
+    }
+
     private ResponseEntity<Map<String, Object>> csvMeta(String feedId, String path) {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
         java.io.File f = csvFile(feedId, path, out);
@@ -2197,6 +2225,20 @@ public class ApiController {
         try {
             CsvService.Meta m = csv.meta(f);
             out.put("ok", true); out.put("columns", m.columns); out.put("totalRows", m.totalRows); out.put("delimiter", m.delimiter);
+            java.util.Map<String, String> dn = displayNameMap(feedId);
+            if (!dn.isEmpty()) {
+                java.util.Map<String, String> ci = new java.util.HashMap<String, String>();
+                for (java.util.Map.Entry<String, String> e : dn.entrySet()) ci.put(e.getKey().toLowerCase(), e.getValue());
+                java.util.List<String> displayNames = new java.util.ArrayList<String>();
+                boolean any = false;
+                for (String col : m.columns) {
+                    String v = col == null ? null : dn.get(col);
+                    if (v == null && col != null) v = ci.get(col.toLowerCase());
+                    if (v != null) any = true;
+                    displayNames.add(v == null ? "" : v);
+                }
+                if (any) out.put("displayNames", displayNames);
+            }
             return ResponseEntity.ok(out);
         } catch (Exception e) { return badRequest(out, e.getMessage()); }
     }
