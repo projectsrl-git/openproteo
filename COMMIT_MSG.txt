@@ -1,16 +1,17 @@
-CSV viewer: show displayschema DisplayName in the column header
+Variables page: edit step core fields (SQL query) incl. across feeds
 
-Friendlier CSV view: each header shows the human DisplayName from the feed's
-displayschema.json (matched to the CSV column = ColumnName), with the technical
-ColumnName kept underneath as a sub-label + tooltip.
+The variables manager can now edit step CORE fields (query, source, dest,
+datasource, ifsPath, csvFile, delimiter) — chiefly the SQL query — not just step
+params, and apply them across multiple selected feeds for steps that share the
+same step id.
 
-- ApiController.displayNameMap(feedId) reads <feedDir>/displayschema.json
-  (list or under "columns") into ColumnName -> DisplayName (keys name/ColumnName/
-  COLUMN_NAME; labels DisplayName/displayName/display_name). csv/meta now returns
-  displayNames aligned to columns (exact match, then case-insensitive). Empty for
-  shared files / feeds without a schema.
-- viewer.js CSV header renders DisplayName (bold) + ColumnName (sub); range filter
-  dropdown shows "DisplayName — ColumnName"; chips use the DisplayName. Falls back
-  to ColumnName when absent. Sort/resize/paging unchanged.
+- /api/var-catalog: each step also returns `fields` (non-null core fields).
+- /api/variables/save: StepEdit gained `fields`; applyStepField sets the NodeDto
+  field. Edits are still regenerated + validated before any write (all-or-nothing).
+- variables.html: single-feed shows step core fields (query as a textarea) + params;
+  multi-feed adds a "Common steps" section (step ids present in every selected feed)
+  where editing a field/param applies the same value to all selected feeds; shared
+  values are pre-filled, differing ones show a "(differs)" hint. Save distinguishes
+  var/field/param scopes.
 
-Compiles (103 classes). viewer.js verified.
+Compiles (103 classes). Round-trip test: a query edit persists through XML. JS verified.

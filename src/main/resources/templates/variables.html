@@ -195,14 +195,20 @@
 
     // ---------------- editor ----------------
     function markDirty(inp){ var line=inp.parentNode; line.className=line.className.replace(/\bdirty\b/,'').trim()+' dirty'; inp.setAttribute('data-dirty','1'); }
-    function valLine(host, name, value, hint){
+    function valLine(host, name, value, hint, multi){
         var line=el('div','vline',host);
         var n=el('div','vname',line); n.textContent=name;
-        var inp=el('input','vval',line); inp.value=(value==null?'':value); inp.setAttribute('data-name',name);
+        var inp;
+        if(multi){ inp=el('textarea','vval',line); inp.rows=4; inp.style.width='100%'; inp.style.fontFamily='monospace'; }
+        else { inp=el('input','vval',line); }
+        inp.value=(value==null?'':value); inp.setAttribute('data-name',name);
         inp.addEventListener('input',function(){ markDirty(inp); });
         if(hint){ var h=el('span','vhint',line); h.textContent=hint; }
         return inp;
     }
+    function commonFieldKeys(arr){ var c={}; arr.forEach(function(st){ var f=st.fields||{}; Object.keys(f).forEach(function(k){ c[k]=(c[k]||0)+1; }); }); return Object.keys(c).filter(function(k){ return c[k]===arr.length; }); }
+    function commonParamKeys(arr){ var c={}; arr.forEach(function(st){ (st.params||[]).forEach(function(pp){ c[pp.name]=(c[pp.name]||0)+1; }); }); return Object.keys(c).filter(function(k){ return c[k]===arr.length; }); }
+    function paramVal(st,name){ var v=''; (st.params||[]).forEach(function(pp){ if(pp.name===name) v=pp.value; }); return v; }
     function renderEditor(){
         var host=document.getElementById('editorWrap'); host.innerHTML='';
         document.getElementById('results').innerHTML='';
@@ -221,13 +227,16 @@
         var bd=el('div','vbody',sec);
         if(!wf.vars.length){ el('div','dim small',bd).textContent='No workflow variables.'; }
         wf.vars.forEach(function(v){ var inp=valLine(bd, v.name, v.value, ''); inp.setAttribute('data-scope','var'); });
-        // steps
+        // steps (core fields like the SQL query, plus params)
         wf.steps.forEach(function(st){
-            if(!st.params || !st.params.length) return;
+            var fieldKeys=st.fields?Object.keys(st.fields):[];
+            var hasParams=st.params&&st.params.length;
+            if(!fieldKeys.length && !hasParams) return;
             var ssec=el('div','vsection',host); var sh=el('div','vhead',ssec);
             sh.textContent='Step: '+st.id+(st.name?(' — '+st.name):'')+(st.exec?('  ['+st.exec+']'):'');
             var sb=el('div','vbody',ssec);
-            st.params.forEach(function(p){ var inp=valLine(sb, p.name, p.value, ''); inp.setAttribute('data-scope','param'); inp.setAttribute('data-step', st.id); });
+            fieldKeys.forEach(function(fk){ var inp=valLine(sb, fk, st.fields[fk], '', fk==='query'); inp.setAttribute('data-scope','field'); inp.setAttribute('data-step', st.id); });
+            if(hasParams) st.params.forEach(function(p){ var inp=valLine(sb, p.name, p.value, ''); inp.setAttribute('data-scope','param'); inp.setAttribute('data-step', st.id); });
         });
     }
     function renderCommon(host, feeds){
@@ -240,11 +249,36 @@
         var common=Object.keys(counts).filter(function(n){ return counts[n]===feeds.length; });
         var sec=el('div','vsection',host); var hd=el('div','vhead',sec); hd.textContent='Common workflow variables ('+common.length+')';
         var bd=el('div','vbody',sec);
-        if(!common.length){ el('div','dim small',bd).textContent='These workflows share no variable names.'; return; }
+        if(!common.length){ el('div','dim small',bd).textContent='These workflows share no variable names.'; }
         common.forEach(function(n){
             var vals=valuesByName[n]; var allEqual=vals.every(function(x){ return x===vals[0]; });
             var inp=valLine(bd, n, allEqual? vals[0] : '', allEqual? '' : '(values differ across feeds — type to set the same value for all)');
             inp.setAttribute('data-scope','var');
+        });
+        // common steps: same step id present in ALL selected feeds
+        var stepCount={}, stepById={};
+        feeds.forEach(function(f){ var seen={}; (f.steps||[]).forEach(function(st){ if(seen[st.id])return; seen[st.id]=1; stepCount[st.id]=(stepCount[st.id]||0)+1; (stepById[st.id]=stepById[st.id]||[]).push(st); }); });
+        var commonSteps=Object.keys(stepCount).filter(function(id){ return stepCount[id]===feeds.length; });
+        var ssec=el('div','vsection',host); var sh=el('div','vhead',ssec); sh.textContent='Common steps ('+commonSteps.length+')';
+        var sbd=el('div','vbody',ssec);
+        el('div','dim small',sbd).textContent='Steps with the same id in every selected feed. Editing a field (e.g. the SQL query) applies the same value to all selected feeds.';
+        if(!commonSteps.length){ el('div','dim small',sbd).textContent='These workflows share no step id.'; }
+        commonSteps.forEach(function(id){
+            var arr=stepById[id];
+            var grp=el('div','vsection',sbd); var gh=el('div','vhead',grp); gh.textContent='Step: '+id;
+            var gb=el('div','vbody',grp);
+            commonFieldKeys(arr).forEach(function(fk){
+                var vals=arr.map(function(st){ return st.fields[fk]; });
+                var allEq=vals.every(function(x){ return x===vals[0]; });
+                var inp=valLine(gb, fk, allEq?vals[0]:'', allEq?'':'(differs across feeds — type to set for all)', fk==='query');
+                inp.setAttribute('data-scope','field'); inp.setAttribute('data-step', id);
+            });
+            commonParamKeys(arr).forEach(function(pn){
+                var vals=arr.map(function(st){ return paramVal(st,pn); });
+                var allEq=vals.every(function(x){ return x===vals[0]; });
+                var inp=valLine(gb, pn, allEq?vals[0]:'', allEq?'':'(differs across feeds — type to set for all)');
+                inp.setAttribute('data-scope','param'); inp.setAttribute('data-step', id);
+            });
         });
     }
 
@@ -252,22 +286,25 @@
     function saveVariables(){
         var host=document.getElementById('editorWrap'); var mode=host.getAttribute('data-mode');
         var edits=[];
+        function collect(scopeHost){
+            var vars=[], stepsMap={};
+            var inputs=scopeHost.querySelectorAll('.vval[data-dirty="1"]');
+            for(var i=0;i<inputs.length;i++){ var inp=inputs[i]; var name=inp.getAttribute('data-name'); var scope=inp.getAttribute('data-scope');
+                if(scope==='var'){ vars.push({name:name,value:inp.value}); }
+                else { var sid=inp.getAttribute('data-step'); var e=stepsMap[sid]=stepsMap[sid]||{params:[],fields:[]}; if(scope==='field') e.fields.push({name:name,value:inp.value}); else e.params.push({name:name,value:inp.value}); }
+            }
+            var steps=Object.keys(stepsMap).map(function(sid){ return {stepId:sid, params:stepsMap[sid].params, fields:stepsMap[sid].fields}; });
+            return {vars:vars, steps:steps};
+        }
         if(mode==='single'){
             var feedId=host.getAttribute('data-feed');
-            var vars=[], stepsMap={};
-            var inputs=host.querySelectorAll('input.vval[data-dirty="1"]');
-            for(var i=0;i<inputs.length;i++){ var inp=inputs[i]; var name=inp.getAttribute('data-name');
-                if(inp.getAttribute('data-scope')==='var'){ vars.push({name:name,value:inp.value}); }
-                else { var sid=inp.getAttribute('data-step'); (stepsMap[sid]=stepsMap[sid]||[]).push({name:name,value:inp.value}); }
-            }
-            var steps=Object.keys(stepsMap).map(function(sid){ return {stepId:sid, params:stepsMap[sid]}; });
-            if(!vars.length && !steps.length){ banner(false,'No changes to save.'); window.scrollTo(0,0); return; }
-            edits.push({feedId:feedId, vars:vars, steps:steps});
+            var c=collect(host);
+            if(!c.vars.length && !c.steps.length){ banner(false,'No changes to save.'); window.scrollTo(0,0); return; }
+            edits.push({feedId:feedId, vars:c.vars, steps:c.steps});
         } else if(mode==='multi'){
-            var dirty=host.querySelectorAll('input.vval[data-dirty="1"]');
-            if(!dirty.length){ banner(false,'No changes to save.'); window.scrollTo(0,0); return; }
-            var changed=[]; for(var k=0;k<dirty.length;k++){ changed.push({name:dirty[k].getAttribute('data-name'), value:dirty[k].value}); }
-            effectiveFeeds().forEach(function(f){ edits.push({feedId:f.feedId, vars:changed, steps:[]}); });
+            var c2=collect(host);
+            if(!c2.vars.length && !c2.steps.length){ banner(false,'No changes to save.'); window.scrollTo(0,0); return; }
+            effectiveFeeds().forEach(function(f){ edits.push({feedId:f.feedId, vars:c2.vars, steps:c2.steps}); });
         } else { return; }
 
         fetch(CTX+'api/variables/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({edits:edits})})

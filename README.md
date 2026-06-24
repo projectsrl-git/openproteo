@@ -319,3 +319,7 @@ Feeds set as production show a red PROD badge on the home feed list and on the O
 ### CSV header: friendly names
 
 In the CSV table view, each column header shows the **DisplayName** from the feed’s displayschema.json (matched to the column = ColumnName), with the technical ColumnName underneath. Feeds without a displayschema (or shared files) keep the plain column names.
+
+### Editing step fields (incl. SQL query) across feeds
+
+The Variables page edits not only workflow variables but also step **core fields** — above all the **SQL query** — and step params. Select one feed to edit its steps, or select several: a **Common steps** section appears with the step ids present in *every* selected feed, and editing a field (e.g. the query) applies the same value to all of them. Each change regenerates and validates the workflow XML before saving (all-or-nothing).

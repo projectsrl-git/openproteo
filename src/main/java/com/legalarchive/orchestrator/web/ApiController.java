@@ -1469,6 +1469,15 @@ public class ApiController {
                     ps.add(m);
                 }
                 sm.put("params", ps);
+                Map<String, Object> fields = new LinkedHashMap<String, Object>();
+                if (nd.query != null) fields.put("query", nd.query);
+                if (nd.source != null) fields.put("source", nd.source);
+                if (nd.dest != null) fields.put("dest", nd.dest);
+                if (nd.datasource != null) fields.put("datasource", nd.datasource);
+                if (nd.ifsPath != null) fields.put("ifsPath", nd.ifsPath);
+                if (nd.csvFile != null) fields.put("csvFile", nd.csvFile);
+                if (nd.delimiter != null) fields.put("delimiter", nd.delimiter);
+                sm.put("fields", fields);
                 steps.add(sm);
             }
             w.put("steps", steps);
@@ -1480,6 +1489,18 @@ public class ApiController {
     }
 
     public static class GlobalsSaveReq { public java.util.List<WorkflowDto.KV> vars; }
+
+    /** Set a step core field on a node by name (used by the variables-page step editor). */
+    private static void applyStepField(WorkflowDto.NodeDto nd, String field, String value) {
+        if (field == null) return;
+        if ("query".equals(field)) nd.query = value;
+        else if ("source".equals(field)) nd.source = value;
+        else if ("dest".equals(field)) nd.dest = value;
+        else if ("datasource".equals(field)) nd.datasource = value;
+        else if ("ifsPath".equals(field)) nd.ifsPath = value;
+        else if ("csvFile".equals(field)) nd.csvFile = value;
+        else if ("delimiter".equals(field)) nd.delimiter = value;
+    }
 
     /** Save the file-based global variables (application.properties globals are read-only). */
     @PostMapping("/api/globals/save")
@@ -1517,6 +1538,7 @@ public class ApiController {
         public static class StepEdit {
             public String stepId;
             public java.util.List<WorkflowDto.KV> params;
+            public java.util.List<WorkflowDto.KV> fields;   // step core fields (query/source/dest/...)
         }
     }
 
@@ -1552,11 +1574,16 @@ public class ApiController {
             // apply per-step param edits
             if (fe.steps != null) {
                 for (VarSaveReq.StepEdit se : fe.steps) {
-                    if (se.stepId == null || se.params == null) continue;
+                    if (se.stepId == null) continue;
                     for (WorkflowDto.NodeDto nd : dto.nodes) {
-                        if (!"STEP".equals(nd.kind) || !se.stepId.equals(nd.id) || nd.params == null) continue;
-                        for (WorkflowDto.KV kv : se.params) {
-                            for (WorkflowDto.KV ex : nd.params) { if (kv.name != null && kv.name.equals(ex.name)) { ex.value = kv.value; break; } }
+                        if (!"STEP".equals(nd.kind) || !se.stepId.equals(nd.id)) continue;
+                        if (se.params != null && nd.params != null) {
+                            for (WorkflowDto.KV kv : se.params) {
+                                for (WorkflowDto.KV ex : nd.params) { if (kv.name != null && kv.name.equals(ex.name)) { ex.value = kv.value; break; } }
+                            }
+                        }
+                        if (se.fields != null) {
+                            for (WorkflowDto.KV kv : se.fields) applyStepField(nd, kv.name, kv.value);
                         }
                     }
                 }
