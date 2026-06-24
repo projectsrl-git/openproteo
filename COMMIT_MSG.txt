@@ -1,17 +1,11 @@
-Variables page: edit step core fields (SQL query) incl. across feeds
+CLAUDE.md: modernize workflow, add executor rules and pre-commit checklist
 
-The variables manager can now edit step CORE fields (query, source, dest,
-datasource, ifsPath, csvFile, delimiter) — chiefly the SQL query — not just step
-params, and apply them across multiple selected feeds for steps that share the
-same step id.
+- Rewrite "Workflow di sviluppo" and "Deploy & commit" for Claude Code
+  direct git workflow (no zip/robocopy/deploy bat)
+- Reconcile ARX/anonymize: mark anonymize as placeholder, mask as active
+- Document missing executors: split, safecopy, dequote, csvsql, xlsx2csv
+- Add 4-location registration rule for new internal executors
+- Add build verification (mvn clean package) and pre-commit checklist
+- Add COMMIT_MSG.txt generation rule for every modification prompt
 
-- /api/var-catalog: each step also returns `fields` (non-null core fields).
-- /api/variables/save: StepEdit gained `fields`; applyStepField sets the NodeDto
-  field. Edits are still regenerated + validated before any write (all-or-nothing).
-- variables.html: single-feed shows step core fields (query as a textarea) + params;
-  multi-feed adds a "Common steps" section (step ids present in every selected feed)
-  where editing a field/param applies the same value to all selected feeds; shared
-  values are pre-filled, differing ones show a "(differs)" hint. Save distinguishes
-  var/field/param scopes.
-
-Compiles (103 classes). Round-trip test: a query edit persists through XML. JS verified.
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>

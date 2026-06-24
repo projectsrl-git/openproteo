@@ -22,8 +22,9 @@ Pacchettizzata come **WAR per un Tomcat esterno**, senza embedded server.
   `application.properties` esterna.
 * **Niente database server**: lo stato vive su **file** (JSON / JSONL pretty,
   audit hash-chained, run logs).
-* **Niente Nexus blockers**: ARX è solo un placeholder, da abilitare quando il
-  jar è disponibile sul Nexus corporate.
+* **ARX non disponibile**: la dipendenza ARX NON è nel `pom.xml`. Lo step
+  `anonymize` è un placeholder (Batch 2a free-text funziona, Batch 2b
+  k-anonymity rinviato). Lo step **`mask`** è l'executor attivo per il masking.
 
 ### Vincoli ambientali con effetti silenziosi
 
@@ -122,25 +123,32 @@ orchestrator.mask-pools-dir=       # opzionale: override dei pool senza rebuild
   in run.vars (sopravvive a pause su gate). Matching annidato via stack. maxTransitions
   (default 500) limita i giri totali: alzarlo per loop su molti file.
 * `encoding` — single + directory batch (filter, recursive, outputDir). Stabile.
-* `anonymize` (ARX) — Batch 2a (free-text + ruoli colonne). Batch 2b
-  (k-anonymity) **in attesa del jar ARX su Nexus**.
-* `mask` — **NEW**, streaming deterministico (HMAC-SHA256), memoria costante,
-  format-preserving + pool + free-text + 3 modalità CID. Mappa colonne via
-  **liste per anonType** (il displayschema è opzionale, serve solo per
-  `DataType=date`).
+* `mask` — executor attivo per il masking. Streaming deterministico (HMAC-SHA256),
+  memoria costante, format-preserving + pool + free-text + 3 modalità CID. Mappa
+  colonne via **liste per anonType** (il displayschema è opzionale, serve solo per
+  `DataType=date`). Stabile.
+* `anonymize` — **placeholder**. Batch 2a (free-text + ruoli colonne) funziona;
+  Batch 2b (k-anonymity via ARX) **NON wired** — ogni colonna quasi/sensitive è
+  passthrough. Dipendenza ARX assente dal `pom.xml`; rinviato a quando il jar
+  sarà disponibile su Nexus corporate.
+* `split` — divide un file in parti per righe/MB, riusa la logica di export SQL.
+  Output: csvFiles/csvParts/csvFile/rowCount (iterabili da LOOP). Stabile.
+* `safecopy` — copia wildcard dir→dir via temp `.on_fly_` + rename atomico. Stabile.
+* `dequote` — rimuove quoting da file CSV. Stabile.
+* `csvsql` — query SQL H2 su CSV locali (join tra file). Stabile.
+* `xlsx2csv` — conversione foglio Excel → CSV. Stabile.
 
 ## Workflow di sviluppo
 
 * **Ritmo**: incrementale, **confirmation-gated**. Una feature/batch alla
   volta, verifica reale sul deploy UBS, poi si prosegue.
-* **GitHub**: `https://github.com/projectsrl-git/openproteo` (pubblico). Lo
-  zip che si scarica con "Code → Download ZIP" deve corrispondere ai sorgenti
-  consegnati (parità garantita dal `.gitignore` minimale).
-* **Deploy locale (`deploy_openproteo.bat`)**: estrae lo zip in
-  `D:\SVILUPPO\openproteo`, `mvn clean package`, ferma Tomcat, rimuove WAR +
-  esploso + work cache, copia il nuovo WAR, riavvia. Il batch **non** scrive
-  l'`application.properties` esterno: in locale Spring usa i default bundled
-  (e quindi `./workflows` = `CATALINA_HOME/bin/workflows`).
+* **GitHub**: `https://github.com/projectsrl-git/openproteo` (pubblico).
+* **Sviluppo**: direttamente sulla working copy git (`D:\SVILUPPO\openproteo`)
+  con **Claude Code**. Niente zip, niente `robocopy /MIR`, niente
+  `deploy_openproteo.bat`. Commit e push diretti da git.
+* **Deploy locale**: `mvn clean package` nella working copy, poi deploy
+  manuale del WAR su Tomcat (stop → rimuovi WAR + esploso + work → copia WAR
+  → start). Spring in locale usa i default bundled.
 * **Sample**: i `SAMPLE-*.xml` NON sono nel WAR. In locale e su UBS vanno
   copiati a mano nella `orchestrator.workflows-dir` configurata.
 
@@ -171,16 +179,59 @@ Ogni turno di sviluppo (= ogni "consegna" di Claude) produce:
 2. un file `.claude/YYYY-MM-DD-slug.md` con il **riepilogo della modifica**
    (cosa, perché, file toccati, follow-up). Si committano insieme alle modifiche.
 
-## Deploy & commit (deploy_openproteo.bat)
+## Deploy & commit
 
-* `COMMIT_MSG.txt` viaggia DENTRO lo zip (in openproteo/), così ogni pacchetto porta il
-  proprio messaggio di commit. E' versionato (committato come file).
-* Il `.bat` (esterno al repo) sincronizza lo zip nel working dir con
-  `robocopy /MIR /XD .git` (NON piu' /XF COMMIT_MSG.txt: ora il messaggio arriva dallo zip),
-  poi DOPO una build OK fa `git add -A && git commit -F COMMIT_MSG.txt && git push`
-  (best-effort: push fallito non blocca il deploy locale; nessuna modifica -> nessun commit).
-* Quindi ogni turno: genero COMMIT_MSG.txt nel repo (entra nello zip) descrivendo le
-  modifiche di quel turno.
+Sviluppo diretto sulla working copy git con Claude Code. Niente più zip /
+`robocopy /MIR` / `deploy_openproteo.bat`.
+
+Flusso: modifica codice → `mvn clean package` (verifica build) →
+generare `COMMIT_MSG.txt` → commit → push.
+
+**COMMIT_MSG.txt**: ad ogni prompt che produce modifiche, Claude **DEVE**
+creare/aggiornare `COMMIT_MSG.txt` nella root del repo con il messaggio di
+commit (riga 1 ≤ 72 char, riga 2 vuota, corpo wrap a 78). Il commit si
+esegue con `git commit -F COMMIT_MSG.txt`. Il file è versionato (entra nel
+commit stesso). Il WAR prodotto si deploya manualmente su Tomcat.
+
+## Regola delle 4 location per nuovi executor interni
+
+Ogni nuovo executor interno (es. `dequote`, `csvsql`, …) va registrato in
+**4 punti** — dimenticarne uno causa errori silenti o executor invisibile:
+
+| # | File | Cosa |
+|---|------|------|
+| 1 | `engine/InternalSteps.java` — metodo `run()` | Aggiungere `else if` nel dispatch (chiama il metodo privato di esecuzione) |
+| 2 | `engine/WorkflowEngine.java` — metodo `internalKind()` | Aggiungere `.equals("nome")` nella catena (valida il tipo come interno) |
+| 3 | `templates/designer.html` — dropdown executor | Aggiungere `<option>` nel `<select>` del tipo executor |
+| 4 | `templates/designer.html` — funzione `clientValidate()` | Aggiungere validazione campi obbligatori per il nuovo executor |
+
+Se l'executor ha campi obbligatori specifici (source, dest, ecc.), la
+validazione nel punto 4 deve verificarli e segnalare errore.
+
+## Verifica build
+
+Prima di ogni commit, eseguire:
+
+```
+mvn clean package
+```
+
+Il build deve completare **senza errori**. Warning accettabili, errori di
+compilazione no. Il WAR risultante è in `target/openproteo.war`.
+
+## Checklist pre-commit
+
+1. **`mvn clean package`** — build OK (nessun errore di compilazione).
+2. **Scan `[[` / `[(`** nei template Thymeleaf modificati — nessuna occorrenza
+   fuori da `/*[[${...}]]*/` (causa `TemplateOutputException`).
+3. **Niente `\n` / `\r` letterali** nelle stringhe JS (né in `static/js/*.js`
+   né in `<script>` inline dei template). Usare `String.fromCharCode(10/13)`.
+4. **CSS variables** — usare solo quelle definite in `app.css` (vedi sezione
+   "Vincoli ambientali" punto 5). Mai inventare variabili non esistenti.
+5. **PII** — nessun valore originale né mascherato nei log.
+6. **Nuovi executor interni** — verificare tutte e 4 le location di
+   registrazione (vedi sezione sopra).
+7. **Java 8** — niente API ≥ 9.
 
 ## Mask pools: selezione per-file + gestione
 
