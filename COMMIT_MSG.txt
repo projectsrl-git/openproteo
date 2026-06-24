@@ -1,20 +1,18 @@
-Operations: live RUNNING flag; Stop: force-stop on repeat + idempotent finish
+PROD badge (home+ops); JSON/XML auto-prettify; CSV range search + sort
 
-Operations kept showing a feed RUNNING after its run ended, and a stuck AS400 SQL
-extraction needed more than one Stop.
+1) PROD flag now visible: red PROD badge on the dashboard feed id and on
+   Operations (drill-down + executions). /api/overview/feeds returns production.
 
-- /api/overview/feeds: the running flag was cached with the heavy last-status disk
-  reads (10s TTL). Now last-status stays cached but `running` and `bucket` are
-  recomputed every call from in-memory engine state (activeRunId), so a feed drops
-  out of RUNNING the instant its run leaves activeRuns.
-- engine.stop(): pressing Stop again while still active force-finalises the run
-  ABORTED and abandons the (genuinely stuck) worker, so the UI/Operations never
-  stay stuck on RUNNING. Audited RUN_FORCE_STOPPED. First Stop is still the graceful
-  cancel + DB-connection-close; second is the escape hatch.
-- finish() made idempotent + thread-safe (synchronized check-and-claim) so the
-  abandoned worker can't re-finalise after a force-stop.
-- run.html: generic Stop confirm text; button relabels to "Force stop" after the
-  first press.
+2) File viewer pretty-prints .json/.xml on open (read-only), via the existing
+   formatter, without entering Edit; falls back to raw with a note if unparseable.
 
-Compiles (101 classes). Complements the previously shipped sql/DB2 connection-close
-aborter (deploy that too).
+3) CSV viewer FROM/TO range search on selectable columns (dropdown + from/to +
+   Add; multiple ranges AND, removable chips) and column sort (3.1: click header
+   asc/desc/clear with arrow). Applied server-side in CsvService.page (streaming
+   filter; sort buffers matching rows capped at 300k with a notice), combining
+   with the text filter and virtual paging. New params fc/ff/ft + sortCol/sortDir;
+   unchanged when unset.
+
+Compiles (103 classes). CsvService self-test (numeric range, numeric vs
+lexicographic sort, date range + secondary sort) passes. viewer.js/overview.html
+JS verified.

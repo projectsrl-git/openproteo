@@ -58,6 +58,13 @@ public class CsvService {
     public static class Page {
         public List<List<String>> rows = new ArrayList<List<String>>();
         public long total;
+        public boolean sortTruncated;   // true if a sort had to drop rows beyond the in-memory cap
+    }
+
+    /** A FROM/TO range filter on one column. Empty bound = open on that side. */
+    public static class Filter {
+        public int col; public String from; public String to;
+        public Filter(int col, String from, String to) { this.col = col; this.from = from; this.to = to; }
     }
 
     public static class Agg {
@@ -216,6 +223,77 @@ public class CsvService {
             } finally { r.close(); }
         }
         return p;
+    }
+
+    /** Range filters + optional column sort. Streams to apply q + filters; when sorting, the matching
+        rows are buffered (capped) and sorted, then paged. Numeric-aware comparison falls back to
+        case-insensitive lexicographic. */
+    public Page page(File f, int offset, int limit, String q, List<Filter> filters, int sortCol, boolean sortDesc) throws Exception {
+        boolean hasFilters = filters != null && !filters.isEmpty();
+        boolean hasSort = sortCol >= 0;
+        if ((q == null || q.isEmpty()) && !hasFilters && !hasSort) return page(f, offset, limit, q);
+        Meta m = meta(f);
+        char d = delimChar(m);
+        String ql = q == null ? "" : q.toLowerCase();
+        Page p = new Page();
+        BufferedReader r = readerAt(f, m, 1L);
+        try {
+            if (!hasSort) {
+                String line; long matched = 0;
+                while ((line = r.readLine()) != null) {
+                    List<String> row = split(line, d);
+                    if (!matches(row, ql)) continue;
+                    if (!matchesFilters(row, filters)) continue;
+                    if (matched >= offset && p.rows.size() < limit) p.rows.add(row);
+                    matched++;
+                }
+                p.total = matched;
+            } else {
+                final int CAP = 300000;
+                List<List<String>> all = new ArrayList<List<String>>();
+                String line; long matched = 0;
+                while ((line = r.readLine()) != null) {
+                    List<String> row = split(line, d);
+                    if (!matches(row, ql)) continue;
+                    if (!matchesFilters(row, filters)) continue;
+                    matched++;
+                    if (all.size() < CAP) all.add(row); else p.sortTruncated = true;
+                }
+                java.util.Collections.sort(all, rowComparator(sortCol, sortDesc));
+                for (int i = offset; i < offset + limit && i < all.size(); i++) p.rows.add(all.get(i));
+                p.total = matched;
+            }
+        } finally { r.close(); }
+        return p;
+    }
+
+    private boolean matchesFilters(List<String> row, List<Filter> filters) {
+        if (filters == null) return true;
+        for (Filter ft : filters) {
+            String v = (ft.col >= 0 && ft.col < row.size()) ? row.get(ft.col) : "";
+            if (v == null) v = "";
+            if (ft.from != null && !ft.from.isEmpty() && cmpValue(v, ft.from) < 0) return false;
+            if (ft.to != null && !ft.to.isEmpty() && cmpValue(v, ft.to) > 0) return false;
+        }
+        return true;
+    }
+
+    /** Numeric comparison when both sides parse as numbers, else case-insensitive lexicographic. */
+    private static int cmpValue(String a, String b) {
+        try { return Double.compare(Double.parseDouble(a.trim()), Double.parseDouble(b.trim())); }
+        catch (Exception e) { return a.compareToIgnoreCase(b); }
+    }
+
+    private static java.util.Comparator<List<String>> rowComparator(final int col, final boolean desc) {
+        return new java.util.Comparator<List<String>>() {
+            public int compare(List<String> a, List<String> b) {
+                String va = (col >= 0 && col < a.size()) ? a.get(col) : "";
+                String vb = (col >= 0 && col < b.size()) ? b.get(col) : "";
+                if (va == null) va = ""; if (vb == null) vb = "";
+                int r = cmpValue(va, vb);
+                return desc ? -r : r;
+            }
+        };
     }
 
     /** Group-by aggregation with COUNT and DISTINCT-COUNT; results LRU-cached per (file, cols, filter). */

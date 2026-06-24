@@ -303,3 +303,15 @@ Any feed can be **locked** to block execution during maintenance. A locked feed 
 ### Variables in the home feed list
 
 Set **orchestrator.home-list-vars** (external application.properties) to a comma-separated list of workflow variable names (e.g. `recordBusinessDate,businessDate`). Each becomes a column in the home feed list showing that feed’s value, and the values are included in the list search box — so you can search feeds by, for example, Business Record Date. Leave it empty for the default layout.
+
+### CSV viewer: range search and sort
+
+In the CSV table view, build FROM/TO range filters: pick a column, type a from and/or to value, and "+ Add range" (add several; they combine with AND, and each is a removable chip). Comparison is numeric when the values are numbers, otherwise alphabetical (so dates/codes work). Click a column header to sort (ascending, then descending, then off). Filtering and sorting run server-side; sorting very large results is capped at the first 300k matching rows (a notice is shown).
+
+### JSON / XML viewer
+
+.json and .xml files are pretty-printed on open in the file viewer — no need to enter Edit. Use Edit to change and save them.
+
+### PROD badge
+
+Feeds set as production show a red PROD badge on the home feed list and on the Operations board.

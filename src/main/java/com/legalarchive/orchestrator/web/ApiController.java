@@ -1147,6 +1147,7 @@ public class ApiController {
                 }
                 m.put("running", running);
                 m.put("locked", def.locked);
+                m.put("production", def.production);
                 m.put("lastStatus", lastStatus);
                 m.put("lastRunTs", lastRunTs);
                 m.put("lastSuccessTs", lastSuccessTs);
@@ -2102,11 +2103,25 @@ public class ApiController {
     @GetMapping("/api/workflows/{feedId}/csv/page")
     public ResponseEntity<Map<String, Object>> csvPageF(@PathVariable String feedId, @RequestParam("path") String path,
             @RequestParam(defaultValue = "0") int offset, @RequestParam(defaultValue = "200") int limit,
-            @RequestParam(required = false) String q) { return csvPage(feedId, path, offset, limit, q); }
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) java.util.List<Integer> fc,
+            @RequestParam(required = false) java.util.List<String> ff,
+            @RequestParam(required = false) java.util.List<String> ft,
+            @RequestParam(defaultValue = "-1") int sortCol,
+            @RequestParam(defaultValue = "asc") String sortDir) {
+        return csvPage(feedId, path, offset, limit, q, fc, ff, ft, sortCol, sortDir);
+    }
     @GetMapping("/api/shared/csv/page")
     public ResponseEntity<Map<String, Object>> csvPageS(@RequestParam("path") String path,
             @RequestParam(defaultValue = "0") int offset, @RequestParam(defaultValue = "200") int limit,
-            @RequestParam(required = false) String q) { return csvPage(null, path, offset, limit, q); }
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) java.util.List<Integer> fc,
+            @RequestParam(required = false) java.util.List<String> ff,
+            @RequestParam(required = false) java.util.List<String> ft,
+            @RequestParam(defaultValue = "-1") int sortCol,
+            @RequestParam(defaultValue = "asc") String sortDir) {
+        return csvPage(null, path, offset, limit, q, fc, ff, ft, sortCol, sortDir);
+    }
 
     @GetMapping("/api/workflows/{feedId}/csv/aggregate")
     public ResponseEntity<Map<String, Object>> csvAggF(@PathVariable String feedId, @RequestParam("path") String path,
@@ -2187,12 +2202,28 @@ public class ApiController {
     }
 
     private ResponseEntity<Map<String, Object>> csvPage(String feedId, String path, int offset, int limit, String q) {
+        return csvPage(feedId, path, offset, limit, q, null, null, null, -1, "asc");
+    }
+
+    private ResponseEntity<Map<String, Object>> csvPage(String feedId, String path, int offset, int limit, String q,
+            java.util.List<Integer> fc, java.util.List<String> ff, java.util.List<String> ft, int sortCol, String sortDir) {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
         java.io.File f = csvFile(feedId, path, out);
         if (f == null) return badRequest(out, String.valueOf(out.get("error")));
         try {
-            CsvService.Page p = csv.page(f, offset, Math.min(limit, 1000), q);
+            java.util.List<CsvService.Filter> filters = new java.util.ArrayList<CsvService.Filter>();
+            if (fc != null) {
+                for (int i = 0; i < fc.size(); i++) {
+                    String from = (ff != null && i < ff.size()) ? ff.get(i) : null;
+                    String to = (ft != null && i < ft.size()) ? ft.get(i) : null;
+                    boolean empty = (from == null || from.isEmpty()) && (to == null || to.isEmpty());
+                    if (fc.get(i) != null && fc.get(i) >= 0 && !empty) filters.add(new CsvService.Filter(fc.get(i), from, to));
+                }
+            }
+            boolean desc = "desc".equalsIgnoreCase(sortDir);
+            CsvService.Page p = csv.page(f, offset, Math.min(limit, 1000), q, filters, sortCol, desc);
             out.put("ok", true); out.put("rows", p.rows); out.put("total", p.total);
+            if (p.sortTruncated) out.put("sortTruncated", true);
             return ResponseEntity.ok(out);
         } catch (Exception e) { return badRequest(out, e.getMessage()); }
     }

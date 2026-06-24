@@ -51,6 +51,53 @@
             var top = el('div', 'vwr-tools', host);
             var filter = el('input', 'search-box', top); filter.placeholder = '🔎 Filter (all columns)…';
             var info = el('span', 'dim small', top); info.style.marginLeft = '10px';
+            var ranges = [], sortCol = -1, sortDesc = false, sortArrows = [];
+            var rtop = el('div', 'vwr-tools', host);
+            var colSel = el('select', 'search-box', rtop); colSel.style.maxWidth = '240px';
+            var o0 = el('option', null, colSel); o0.value = ''; text(o0, '— column —');
+            columns.forEach(function (cn, ci) { var o = el('option', null, colSel); o.value = String(ci); text(o, cn); });
+            var fromIn = el('input', 'search-box', rtop); fromIn.placeholder = 'from'; fromIn.style.maxWidth = '140px';
+            var toIn = el('input', 'search-box', rtop); toIn.placeholder = 'to'; toIn.style.maxWidth = '140px';
+            var addBtn = el('button', 'btn sm', rtop); text(addBtn, '+ Add range');
+            var chips = el('div', 'vwr-tools', host);
+            function renderChips() {
+                chips.innerHTML = '';
+                ranges.forEach(function (rg, idx) {
+                    var ch = el('span', 'ms-chip', chips);
+                    text(ch, columns[rg.col] + ': ' + (rg.from || '*') + ' .. ' + (rg.to || '*') + ' ');
+                    var x = el('span', 'ms-x', ch); text(x, '✕');
+                    x.addEventListener('click', function () { ranges.splice(idx, 1); renderChips(); applyParams(); });
+                });
+            }
+            addBtn.addEventListener('click', function () {
+                if (colSel.value === '') return;
+                var fr = fromIn.value.trim(), to = toIn.value.trim();
+                if (!fr && !to) return;
+                ranges.push({ col: +colSel.value, from: fr, to: to });
+                fromIn.value = ''; toIn.value = ''; renderChips(); applyParams();
+            });
+            toIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') addBtn.click(); });
+            function paramsSuffix() {
+                var s = '';
+                if (q) s += '&q=' + encodeURIComponent(q);
+                for (var i = 0; i < ranges.length; i++) s += '&fc=' + ranges[i].col + '&ff=' + encodeURIComponent(ranges[i].from) + '&ft=' + encodeURIComponent(ranges[i].to);
+                if (sortCol >= 0) s += '&sortCol=' + sortCol + '&sortDir=' + (sortDesc ? 'desc' : 'asc');
+                return s;
+            }
+            function active() { return !!q || ranges.length > 0 || sortCol >= 0; }
+            function applyParams() {
+                cache = {}; inflight = {};
+                info.textContent = active() ? 'working…' : '';
+                fetch(api + 'csv/page?path=' + encodeURIComponent(path) + '&offset=0&limit=' + PAGE + paramsSuffix()).then(json).then(function (j) {
+                    if (j.ok) {
+                        cache[0] = j.rows;
+                        curTotal = active() ? j.total : totalRows;
+                        info.textContent = ((q || ranges.length) ? (j.total + ' / ' + totalRows + ' rows') : '') + (j.sortTruncated ? '  (sorted first 300k)' : '');
+                        vl.reset();
+                    } else { info.textContent = j.error || 'error'; }
+                }).catch(function (e) { info.textContent = 'error: ' + e; });
+            }
+            function updateSortArrows() { for (var i = 0; i < sortArrows.length; i++) sortArrows[i].textContent = (i === sortCol ? (sortDesc ? ' ▼' : ' ▲') : ''); }
             var tabs = el('div', 'vwr-tabs', host);
             var tT = el('button', 'vtab active', tabs); text(tT, 'Table');
             var tA = el('button', 'vtab', tabs); text(tA, 'Aggregate');
@@ -65,7 +112,18 @@
             var head = el('div', 'vgrid-head', paneT);
             var hr = el('div', 'vgrid-row', head); hr.style.width = rowWidthPx() + 'px';
             for (var c = 0; c < columns.length; c++) {
-                var hc = el('div', 'vgrid-cell head', hr); hc.style.width = colW[c] + 'px'; text(hc, columns[c]);
+                var hc = el('div', 'vgrid-cell head', hr); hc.style.width = colW[c] + 'px'; hc.style.cursor = 'pointer';
+                var lbl = el('span', null, hc); text(lbl, columns[c]);
+                var arr = el('span', 'sortarr', hc); sortArrows.push(arr);
+                (function (idx, cell) {
+                    cell.addEventListener('click', function (e) {
+                        if (e.target && e.target.className === 'vgrid-resizer') return;   // ignore the resize handle
+                        if (sortCol !== idx) { sortCol = idx; sortDesc = false; }
+                        else if (!sortDesc) { sortDesc = true; }
+                        else { sortCol = -1; sortDesc = false; }
+                        updateSortArrows(); applyParams();
+                    });
+                })(c, hc);
                 addResizer(hc, c);
             }
             var body = el('div', 'vwr-body vgrid', paneT);
@@ -109,21 +167,14 @@
             body.addEventListener('scroll', function () { head.scrollLeft = body.scrollLeft; });
             function ensure(pg) {
                 if (cache[pg] || inflight[pg]) return; inflight[pg] = true;
-                var url = api + 'csv/page?path=' + encodeURIComponent(path) + '&offset=' + (pg * PAGE) + '&limit=' + PAGE + (q ? ('&q=' + encodeURIComponent(q)) : '');
-                fetch(url).then(json).then(function (j) { delete inflight[pg]; if (j.ok) { cache[pg] = j.rows; if (q) curTotal = j.total; vl.redraw(); } }).catch(function () { delete inflight[pg]; });
+                var url = api + 'csv/page?path=' + encodeURIComponent(path) + '&offset=' + (pg * PAGE) + '&limit=' + PAGE + paramsSuffix();
+                fetch(url).then(json).then(function (j) { delete inflight[pg]; if (j.ok) { cache[pg] = j.rows; if (active()) curTotal = j.total; vl.redraw(); } }).catch(function () { delete inflight[pg]; });
             }
             vl.redraw();
             var deb;
             filter.addEventListener('input', function () {
                 clearTimeout(deb);
-                deb = setTimeout(function () {
-                    q = filter.value.trim(); cache = {}; inflight = {};
-                    if (!q) { curTotal = totalRows; info.textContent = ''; vl.reset(); return; }
-                    info.textContent = 'filtering…';
-                    fetch(api + 'csv/page?path=' + encodeURIComponent(path) + '&offset=0&limit=' + PAGE + '&q=' + encodeURIComponent(q)).then(json).then(function (j) {
-                        if (j.ok) { cache[0] = j.rows; curTotal = j.total; info.textContent = j.total + ' / ' + totalRows + ' rows'; vl.reset(); }
-                    });
-                }, 300);
+                deb = setTimeout(function () { q = filter.value.trim(); applyParams(); }, 300);
             });
             buildAgg(paneA, api, path, name, columns, function () { return q; });
         }
@@ -483,6 +534,18 @@
         var editBtn = el('button', 'btn sm', tools); text(editBtn, '✎ Edit');
         var info = el('span', 'dim small', tools); info.style.marginLeft = '10px';
         var body = el('div', 'vwr-body mono', host);
+        var isStructured = /\.(json|xml)$/i.test(name || '');
+        if (isStructured) {
+            var pre = el('pre', 'vwr-pre mono', body);
+            pre.style.margin = '0'; pre.style.whiteSpace = 'pre'; pre.style.padding = '10px'; pre.style.overflow = 'auto';
+            info.textContent = 'loading…';
+            fetch(src).then(function (r) { return r.text(); }).then(function (content) {
+                var rr = prettyFormat(content, name);
+                if (rr.ok) { pre.textContent = rr.text; meta.textContent = rr.kind + ' · formatted'; }
+                else { pre.textContent = content; meta.textContent = '(' + rr.error + ' \u2014 raw)'; }
+                info.textContent = '';
+            }).catch(function (e) { showErr(host, String(e)); });
+        } else {
         fetch(api + 'text/meta?path=' + encodeURIComponent(path)).then(json).then(function (j) {
             if (!j.ok) { showErr(host, j.error); return; }
             totalLines = j.totalLines; gutterW = String(totalLines).length + 1;
@@ -499,6 +562,7 @@
         function ensure(pg) {
             if (cache[pg] || inflight[pg]) return; inflight[pg] = true;
             fetch(api + 'text/page?path=' + encodeURIComponent(path) + '&offset=' + (pg * PAGE) + '&limit=' + PAGE).then(json).then(function (j) { delete inflight[pg]; if (j.ok) { cache[pg] = j.lines; vl.redraw(); } }).catch(function () { delete inflight[pg]; });
+        }
         }
         editBtn.addEventListener('click', function () {
             info.textContent = 'loading for edit…';

@@ -121,7 +121,7 @@
             <tr th:each="row : ${rows}" class="wf-row"
                 th:attr="data-search=${(row.wf.feedId + ' ' + (row.wf.sourceId ?: '') + ' ' + (row.wf.targetId ?: '') + ' ' + row.wf.name + ' ' + (row.wf.description ?: '') + ' ' + (row.wf.cron ?: 'manual') + ' ' + row.varSearch)},data-source=${(row.wf.sourceId == null or row.wf.sourceId.trim().isEmpty()) ? '—' : row.wf.sourceId.trim()}">
                 <td class="cbcol"><input type="checkbox" class="rowcb" th:attr="data-feed=${row.wf.feedId}" onclick="onRowCb()"></td>
-                <td class="mono"><span class="feed-id" th:text="${row.wf.feedId}"></span> <span th:if="${row.wf.locked}" class="chip sm" title="locked for maintenance">🔒</span></td>
+                <td class="mono"><span class="feed-id" th:text="${row.wf.feedId}"></span> <span th:if="${row.wf.production}" class="chip sm" style="background:#A8123A;color:#fff;border-color:#A8123A" title="production">PROD</span> <span th:if="${row.wf.locked}" class="chip sm" title="locked for maintenance">🔒</span></td>
                 <td class="mono small dim"><span th:if="${row.wf.sourceId}" th:text="${row.wf.sourceId}"></span><span th:if="${row.wf.sourceId == null}">—</span><div class="dim" style="font-size:11px" th:if="${row.wf.sourceDescription}" th:text="${row.wf.sourceDescription}"></div></td>
                 <td class="mono small dim"><span th:if="${row.wf.targetId}" th:text="${row.wf.targetId}"></span><span th:if="${row.wf.targetId == null}">—</span><div class="dim" style="font-size:11px" th:if="${row.wf.targetDescription}" th:text="${row.wf.targetDescription}"></div></td>
                 <td th:each="vv : ${row.varValues}" class="mono small" th:text="${vv}"></td>

@@ -29,7 +29,7 @@
         .res .metric .v { font-size:18px; font-weight:700; }
         .heapbar { height:10px; border-radius:5px; background:var(--bg-raise); border:1px solid var(--line); overflow:hidden; width:220px; margin-top:4px; }
         .heapbar > span { display:block; height:100%; background:var(--ok); }
-    </style>
+    .opprod{display:inline-block;background:#A8123A;color:#fff;font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;vertical-align:middle}</style>
 </head>
 <body>
 <div class="topbar">
@@ -183,7 +183,7 @@
         for (var i=0;i<list.length;i++){
             var f = list[i];
             h += '<tr>' +
-                '<td><span class="mono feed-id">' + esc(f.feedId) + '</span>' + (f.locked?' \uD83D\uDD12':'') + '<div class="dim small">' + esc(f.name||'') + '</div></td>' +
+                '<td><span class="mono feed-id">' + esc(f.feedId) + '</span>' + (f.production?' <span class="opprod">PROD</span>':'') + (f.locked?' \uD83D\uDD12':'') + '<div class="dim small">' + esc(f.name||'') + '</div></td>' +
                 '<td class="mono small dim">' + esc(f.source||'—') + '</td>' +
                 '<td class="mono small dim">' + esc(f.targetId||'—') + '</td>' +
                 '<td>' + statusChip(f.lastStatus) + ' <span class="mono small dim">' + esc(f.lastRunTs||'') + '</span></td>' +
@@ -218,7 +218,7 @@
             var last = statusChip(r.lastStatus) + ' <span class="mono small dim">' + esc(r.lastRunTs||'') + '</span>' +
                        '<div class="dim small">✓ ' + esc(r.lastSuccessTs||'—') + '</div>';
             h += '<tr>' +
-                '<td><span class="mono feed-id">' + esc(r.feedId) + '</span>' + (r.locked?' \uD83D\uDD12':'') + '<div class="dim small">' + esc(r.name||'') + '</div></td>' +
+                '<td><span class="mono feed-id">' + esc(r.feedId) + '</span>' + (r.production?' <span class="opprod">PROD</span>':'') + (r.locked?' \uD83D\uDD12':'') + '<div class="dim small">' + esc(r.name||'') + '</div></td>' +
                 '<td class="mono small dim">' + esc(r.source||'—') + '</td>' +
                 '<td class="mono small dim">' + esc(r.targetId||'—') + '</td>' +
                 '<td>' + statusChip(r.status) + (r.trigger==='TEST'?' <span class="dim small">test</span>':'') + '</td>' +
