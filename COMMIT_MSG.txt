@@ -1,11 +1,21 @@
-CLAUDE.md: modernize workflow, add executor rules and pre-commit checklist
+Validate: default business-date column to recordBusinessDate variable
 
-- Rewrite "Workflow di sviluppo" and "Deploy & commit" for Claude Code
-  direct git workflow (no zip/robocopy/deploy bat)
-- Reconcile ARX/anonymize: mark anonymize as placeholder, mask as active
-- Document missing executors: split, safecopy, dequote, csvsql, xlsx2csv
-- Add 4-location registration rule for new internal executors
-- Add build verification (mvn clean package) and pre-commit checklist
-- Add COMMIT_MSG.txt generation rule for every modification prompt
+The CSV-vs-DataSchema "Business date valued and well-formatted" check always
+verified a fixed column (e.g. END_OF_RELATIONSHIP_DATE) because the generation
+template hardcoded businessDateColumn as a literal instead of referencing the
+per-feed ${recordBusinessDate} variable. Every generated feed inherited that
+literal, so the check failed whenever the real business-date column differed.
 
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+- engine/InternalSteps.java (validate): when the businessDateColumn param is
+  blank, default to the recordBusinessDate workflow variable. An explicit param
+  still overrides. Templates can now omit businessDateColumn and rely on the
+  per-feed variable injected by the bulk generator.
+- workflows/SAMPLE-06-validate.xml: businessDateColumn now uses
+  ${recordBusinessDate} instead of the hardcoded END_OF_RELATIONSHIP_DATE.
+- templates/designer.html: the Business date column field placeholder suggests
+  ${recordBusinessDate} instead of a literal column name.
+
+Note: feeds already generated still carry the literal in the step param; fix
+them by clearing businessDateColumn (uses the new default) or setting it to
+${recordBusinessDate} — e.g. in one shot via the Variables page "Common steps"
+editor — or regenerate from the corrected template.

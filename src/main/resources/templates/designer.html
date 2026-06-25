@@ -880,7 +880,7 @@
                         '<option value="false"' + (nodeParam(n,'hasHeader') === 'false' ? ' selected' : '') + '>no</option></select></div></div>';
                     h += '<div class="form-row">' +
                         '<div class="field"><label>Expected rows</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'expectedRows')) + '" placeholder="${rowCount}" oninput="setNodeParam(' + i + ',\'expectedRows\',this.value)"></div>' +
-                        '<div class="field"><label>Business date column</label><input value="' + attresc(nodeParam(n,'businessDateColumn')) + '" placeholder="END_OF_RELATIONSHIP_DATE" oninput="setNodeParam(' + i + ',\'businessDateColumn\',this.value)"></div>' +
+                        '<div class="field"><label>Business date column</label><input value="' + attresc(nodeParam(n,'businessDateColumn')) + '" placeholder="${recordBusinessDate}" oninput="setNodeParam(' + i + ',\'businessDateColumn\',this.value)"></div>' +
                         '<div class="field"><label>Date format</label><input value="' + attresc(nodeParam(n,'dateFormat')) + '" placeholder="YYYY/MM/DD | YYYYMMDD" oninput="setNodeParam(' + i + ',\'dateFormat\',this.value)"></div></div>';
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>dataschema (uploaded JSON path or ${alias})</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'dataschema')) + '" placeholder="${dataschema_json}" oninput="setNodeParam(' + i + ',\'dataschema\',this.value)"></div>' +

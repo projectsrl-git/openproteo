@@ -1978,6 +1978,7 @@ public class InternalSteps {
         String dataschemaPath = blankToNull(params.get("dataschema"));
         String displayschemaPath = blankToNull(params.get("displayschema"));
         String bizCol = blankToNull(params.get("businessDateColumn"));
+        if (bizCol == null) bizCol = blankToNull(vars.get("recordBusinessDate"));   // default: per-feed business-date column
         String dateFormat = blankToNull(params.get("dateFormat"));
         Long expected = null;
         try { if (params.get("expectedRows") != null) expected = Long.parseLong(params.get("expectedRows").trim()); } catch (Exception ignore) {}
