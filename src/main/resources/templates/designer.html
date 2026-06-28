@@ -1083,6 +1083,8 @@
                         : 'Parameters (.ps1: -Name \'Value\'; .bat/.jar: positional values, in order)');
                     h += '<div class="subsection"><div class="sub-label">' + paramHint + '</div>';
                     n.params.forEach(function (p, j) {
+                        var pn0 = p.name || '';
+                        if (pn0 === 'deleteOnSuccess' || pn0 === 'deleteOnSuccessType' || pn0.indexOf('outputData.') === 0) return;
                         h += '<div class="kvrow">' +
                             '<input class="inline-input k" placeholder="Name" value="' + attresc(p.name) + '" oninput="updParam(' + i + ',' + j + ',\'name\',this.value)">' +
                             '<input class="inline-input sugin" list="pathsug" placeholder="${landingIn} | ${item}" value="' + attresc(p.value) + '" oninput="updParam(' + i + ',' + j + ',\'value\',this.value)">' +

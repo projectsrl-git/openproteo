@@ -166,7 +166,14 @@ public class StepExecutor {
         log.write(stream + "\t" + LocalDateTime.now().format(TS) + "\t" + content); log.newLine();
     }
 
-    private List<String> buildCommand(Kind kind, String scriptPath, Map<String, String> params) {
+    private List<String> buildCommand(Kind kind, String scriptPath, Map<String, String> paramsIn) {
+        // Strip orchestrator-internal params: they configure the engine, they are not script arguments.
+        Map<String, String> params = new LinkedHashMap<String, String>();
+        if (paramsIn != null) {
+            for (Map.Entry<String, String> e : paramsIn.entrySet()) {
+                if (!isReservedParam(e.getKey())) params.put(e.getKey(), e.getValue());
+            }
+        }
         List<String> command = new ArrayList<String>();
         if (kind == Kind.CMD) {
             command.add(cmdExe);
@@ -202,6 +209,15 @@ public class StepExecutor {
             command.add(encoded);
         }
         return command;
+    }
+
+    /** Orchestrator-internal step params that configure the engine and must never be
+     *  passed to the external script (deleteOnSuccess[Type] and outputData.* metadata). */
+    private static boolean isReservedParam(String name) {
+        if (name == null) return false;
+        return name.equals("deleteOnSuccess")
+            || name.equals("deleteOnSuccessType")
+            || name.startsWith("outputData.");
     }
 
     private static String esc(String s) {

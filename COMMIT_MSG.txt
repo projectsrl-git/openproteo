@@ -1,20 +1,20 @@
-Variables page: edit workflow tags (single and common feeds)
+Fix: never pass orchestrator-internal step params to the external script
 
-Workflow tags are now editable on the Variables page with the same name/value
-criterion as the other variables.
+deleteOnSuccess, deleteOnSuccessType and outputData.* are engine configuration
+stored as step params, but StepExecutor was forwarding every param to the
+script: PowerShell as -name 'value' (so -deleteOnSuccessType 'file' triggered
+"A parameter cannot be found that matches parameter name 'deleteOnSuccessType'"
+/ NamedParameterNotFound), CMD and JAR as positional values (shifting the real
+arguments).
 
-- web/ApiController: /api/var-catalog exposes each workflow's tags as a
-  comma-separated string; VarSaveReq.FeedEdit gains a tags field and
-  /api/variables/save applies it (comma-separated, ${var} allowed; null leaves
-  tags unchanged). Edits are validated by the parser before any file is written,
-  like the other edits.
-- templates/variables.html: a "tags" line in the Workflow variables section
-  (single feed) and a common "tags" line in the multi-feed view, wired into the
-  save payload.
+- engine/StepExecutor.buildCommand: filter out reserved params before building
+  the command line, for all kinds (POWERSHELL, CMD, JAR). New isReservedParam()
+  helper (deleteOnSuccess, deleteOnSuccessType, outputData.*).
+- templates/designer.html: hide those reserved params from the visible
+  PARAMETERS list (real indices preserved). They are still managed by their own
+  controls ("On success delete", "Output data") and still written to the XML.
 
-Output-data definitions were already editable here: they are stored as step
-params (outputData.<var> = description) and the Variables page already renders
-and saves step params, per feed and across common steps. No change needed for
-those.
+No feed change needed: existing workflows run correctly after redeploy; the
+internal params remain in the XML and keep configuring the engine.
 
-Compiles (104 classes); variables.html passes node --check.
+Compiles (104 classes); designer passes node --check.
