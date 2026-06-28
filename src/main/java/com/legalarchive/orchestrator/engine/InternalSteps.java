@@ -2104,20 +2104,21 @@ public class InternalSteps {
             // business date col index + regex
             Integer bizIdx = ((sel_biz || sel_bizMin) && bizCol != null) ? idx.get(bizCol) : null;
             java.util.regex.Pattern datePat = dateFormat != null ? java.util.regex.Pattern.compile(fmtToRegex(dateFormat)) : null;
-            // minimum business date: businessDateMin (resolved variable/literal) or, if absent, today
+            // minimum business date: only when businessDateMin is provided (otherwise the check is skipped)
             java.time.format.DateTimeFormatter bizFmt = null;
             java.time.LocalDate bizMinDate = null;
             String bizMinSpec = null, bizMinErr = null;
-            if (sel_bizMin && bizIdx != null) {
-                if (dateFormat == null) {
-                    bizMinErr = "dateFormat not provided";
-                } else {
-                    try { bizFmt = java.time.format.DateTimeFormatter.ofPattern(dateFormat); }
-                    catch (Exception e) { bizMinErr = "invalid dateFormat '" + dateFormat + "'"; }
-                    if (bizFmt != null) {
-                        String minRaw = blankToNull(params.get("businessDateMin"));
-                        if (minRaw == null) { bizMinDate = java.time.LocalDate.now(); bizMinSpec = "today (" + bizMinDate.format(bizFmt) + ")"; }
-                        else {
+            boolean bizMinSet = false;
+            if (sel_bizMin) {
+                String minRaw = blankToNull(params.get("businessDateMin"));
+                bizMinSet = (minRaw != null);
+                if (bizMinSet && bizIdx != null) {
+                    if (dateFormat == null) {
+                        bizMinErr = "dateFormat not provided";
+                    } else {
+                        try { bizFmt = java.time.format.DateTimeFormatter.ofPattern(dateFormat); }
+                        catch (Exception e) { bizMinErr = "invalid dateFormat '" + dateFormat + "'"; }
+                        if (bizFmt != null) {
                             try { bizMinDate = java.time.LocalDate.parse(minRaw.trim(), bizFmt); bizMinSpec = minRaw.trim(); }
                             catch (Exception e) { bizMinErr = "invalid businessDateMin '" + minRaw.trim() + "' for format " + dateFormat; }
                         }
@@ -2184,9 +2185,9 @@ public class InternalSteps {
                     } else if (bizMinDate != null) {
                         try {
                             java.time.LocalDate d = java.time.LocalDate.parse(v, bizFmt);
-                            if (d.isBefore(bizMinDate)) {
+                            if (!d.isAfter(bizMinDate)) {   // violation when value <= min; only strictly greater passes
                                 bizMinViol++;
-                                rep.add("businessDateNotBefore", lineNo, bizCol, "before " + bizMinSpec + ": " + snippet60(v));
+                                rep.add("businessDateNotBefore", lineNo, bizCol, "on or before " + bizMinSpec + ": " + snippet60(v));
                                 if (bizMinViolLines.size() < 5) bizMinViolLines.add("line " + lineNo + " ='" + v + "'");
                             }
                         } catch (Exception ignore) { /* unparseable despite regex: handled by businessDate check */ }
@@ -2240,12 +2241,12 @@ public class InternalSteps {
                 else set.accept("businessDate", new String[]{"FAIL", bizViol + " row(s) empty or malformed (" + join(bizViolLines, 5) + ")" + repNote});
             }
             if (sel_bizMin) {
-                if (bizCol == null) set.accept("businessDateNotBefore", new String[]{"SKIP", "businessDateColumn not provided"});
+                if (!bizMinSet) set.accept("businessDateNotBefore", new String[]{"SKIP", "businessDateMin not set"});
+                else if (bizCol == null) set.accept("businessDateNotBefore", new String[]{"SKIP", "businessDateColumn not provided"});
                 else if (bizIdx == null) set.accept("businessDateNotBefore", new String[]{"FAIL", "column '" + bizCol + "' not found"});
                 else if (bizMinErr != null) set.accept("businessDateNotBefore", new String[]{"FAIL", bizMinErr});
-                else if (bizMinDate == null) set.accept("businessDateNotBefore", new String[]{"SKIP", "no minimum date"});
-                else if (bizMinViol == 0) set.accept("businessDateNotBefore", new String[]{"PASS", "all rows on or after " + bizMinSpec});
-                else set.accept("businessDateNotBefore", new String[]{"FAIL", bizMinViol + " row(s) before " + bizMinSpec + " (" + join(bizMinViolLines, 5) + ")" + repNote});
+                else if (bizMinViol == 0) set.accept("businessDateNotBefore", new String[]{"PASS", "all rows after " + bizMinSpec});
+                else set.accept("businessDateNotBefore", new String[]{"FAIL", bizMinViol + " row(s) on or before " + bizMinSpec + " (" + join(bizMinViolLines, 5) + ")" + repNote});
             }
             if (sel_disp) {
                 if (displayschema == null) set.accept("displayDates", new String[]{"SKIP", "displayschema not provided"});

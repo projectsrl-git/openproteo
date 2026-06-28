@@ -1,19 +1,12 @@
-Validate: add businessDateNotBefore check (min date or today)
+Validate: businessDateNotBefore strictly after min, skip when unset
 
-New CSV-vs-DataSchema check "businessDateNotBefore": the business-date value must
-not be earlier than a minimum date. The minimum is the businessDateMin
-param/variable when set, otherwise today. Boundary inclusive: a value equal to the
-minimum passes; only earlier values fail.
+Adjust the businessDateNotBefore check semantics.
 
-- engine/InternalSteps.java (validate): parse the business-date column with the
-  configured dateFormat and compare each value against the minimum; count and list
-  the offending rows. SKIPs when there is no dateFormat or no business-date column;
-  FAILs with a clear reason on an invalid businessDateMin. Added to the default
-  checklist.
-- templates/designer.html: new "Business date min (var/date)" field on the validate
-  node (placeholder ${businessDateMin}, empty = today).
-- workflows/SAMPLE-06-validate.xml: businessDateMin param wired to ${businessDateMin}.
+- The minimum is no longer defaulted to today. When the businessDateMin
+  param/variable is absent the check is skipped (SKIP), not executed.
+- Comparison is now strict: a business-date value equal to or earlier than
+  businessDateMin is a violation; only a strictly later date passes
+  (e.g. 20251231 vs min 20251231 -> violation; 20260101 -> pass).
 
-The business-date column already defaults to the recordBusinessDate variable
-(previous commit), so this builds on top of it. Compiles (103 classes); date
-parse/compare verified.
+Only engine/InternalSteps.java changes; the designer field and SAMPLE-06 wiring
+are already in place. Compiles (103 classes); boundary verified.
