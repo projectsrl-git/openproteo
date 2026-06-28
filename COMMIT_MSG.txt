@@ -1,12 +1,16 @@
-Validate: businessDateNotBefore strictly after min, skip when unset
+Operations: show stop step, OPEN WORKFLOW + OPEN LAST RUN buttons
 
-Adjust the businessDateNotBefore check semantics.
+In the Operations drill-down feeds list:
 
-- The minimum is no longer defaulted to today. When the businessDateMin
-  param/variable is absent the check is skipped (SKIP), not executed.
-- Comparison is now strict: a business-date value equal to or earlier than
-  businessDateMin is a violation; only a strictly later date passes
-  (e.g. 20251231 vs min 20251231 -> violation; 20260101 -> pass).
+- The Last run cell now shows, next to a FAILED/ABORTED status chip, the step
+  where the run stopped (the failed step, or the step left running on abort).
+- The single "open" action is renamed "open workflow" (still links to the
+  workflow page).
+- A new "open last run" action links straight to the last run's page
+  (/run/{feedId}/{lastRunId}); shown only when a last run exists.
 
-Only engine/InternalSteps.java changes; the designer field and SAMPLE-06 wiring
-are already in place. Compiles (103 classes); boundary verified.
+web/ApiController.java: /api/overview/feeds now returns lastRunId and failedStep
+(computed from the most recent non-test run via a stoppedStepLabel helper).
+templates/overview.html: render the stop step and the two action buttons.
+
+Compiles (103 classes).

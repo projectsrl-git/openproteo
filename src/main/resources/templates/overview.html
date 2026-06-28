@@ -186,9 +186,9 @@
                 '<td><span class="mono feed-id">' + esc(f.feedId) + '</span>' + (f.production?' <span class="opprod">PROD</span>':'') + (f.locked?' \uD83D\uDD12':'') + '<div class="dim small">' + esc(f.name||'') + '</div></td>' +
                 '<td class="mono small dim">' + esc(f.source||'—') + '</td>' +
                 '<td class="mono small dim">' + esc(f.targetId||'—') + '</td>' +
-                '<td>' + statusChip(f.lastStatus) + ' <span class="mono small dim">' + esc(f.lastRunTs||'') + '</span></td>' +
+                '<td>' + statusChip(f.lastStatus) + (f.failedStep ? ' <span class="mono small">@ ' + esc(f.failedStep) + '</span>' : '') + ' <span class="mono small dim">' + esc(f.lastRunTs||'') + '</span></td>' +
                 '<td class="mono small dim">' + esc(f.lastSuccessTs||'—') + '</td>' +
-                '<td><a class="btn sm" href="' + CTX + 'workflow/' + encodeURIComponent(f.feedId) + '">open</a></td>' +
+                '<td style="white-space:nowrap"><a class="btn sm" href="' + CTX + 'workflow/' + encodeURIComponent(f.feedId) + '">open workflow</a>' + (f.lastRunId ? ' <a class="btn sm" href="' + CTX + 'run/' + encodeURIComponent(f.feedId) + '/' + encodeURIComponent(f.lastRunId) + '">open last run</a>' : '') + '</td>' +
                 '</tr>';
         }
         h += '</tbody></table>';

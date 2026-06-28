@@ -1117,6 +1117,19 @@ public class ApiController {
     private static final long FEEDS_TTL_MS = 10000L;
 
     /** Per-feed status list (latest real run + last success), powering the clickable rollup and drill-down. */
+    /** Label of the step where a non-successful run stopped (failed step, else the step left running on abort). */
+    private static String stoppedStepLabel(com.legalarchive.orchestrator.model.run.WorkflowRun r) {
+        if (r == null || r.steps == null) return null;
+        com.legalarchive.orchestrator.model.run.StepExec f = null;
+        for (com.legalarchive.orchestrator.model.run.StepExec se : r.steps)
+            if (se.status == com.legalarchive.orchestrator.model.run.StepStatus.FAILED) { f = se; break; }
+        if (f == null)
+            for (com.legalarchive.orchestrator.model.run.StepExec se : r.steps)
+                if (se.status == com.legalarchive.orchestrator.model.run.StepStatus.RUNNING) f = se;   // aborted mid-step
+        if (f == null) return null;
+        return (f.name != null && !f.name.isEmpty()) ? f.name : f.stepId;
+    }
+
     @GetMapping("/api/overview/feeds")
     public ResponseEntity<Map<String, Object>> overviewFeeds() {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
@@ -1134,13 +1147,21 @@ public class ApiController {
                 m.put("targetDescription", def.targetDescription);
                 String activeId = engine.activeRunId(def.feedId);
                 boolean running = activeId != null && !activeId.contains("_test_");
-                String lastStatus = null, lastRunTs = null, lastSuccessTs = null;
+                String lastStatus = null, lastRunTs = null, lastSuccessTs = null, lastRunId = null, failedStep = null;
                 FeedLayout layout = registry.layout(def.feedId);
                 if (layout != null) {
                     for (WorkflowRun r : store.list(layout, 25)) {
                         if (r.runId != null && r.runId.contains("_test_")) continue;   // ignore test runs
                         String ts = r.endTs != null ? r.endTs : r.startTs;
-                        if (lastStatus == null) { lastStatus = r.status != null ? r.status.name() : null; lastRunTs = ts; }
+                        if (lastStatus == null) {
+                            lastStatus = r.status != null ? r.status.name() : null;
+                            lastRunTs = ts;
+                            lastRunId = r.runId;
+                            if (r.status == com.legalarchive.orchestrator.model.run.RunStatus.FAILED
+                                    || r.status == com.legalarchive.orchestrator.model.run.RunStatus.ABORTED) {
+                                failedStep = stoppedStepLabel(r);
+                            }
+                        }
                         if (lastSuccessTs == null && r.status == com.legalarchive.orchestrator.model.run.RunStatus.SUCCESS) { lastSuccessTs = ts; }
                         if (lastStatus != null && lastSuccessTs != null) break;
                     }
@@ -1150,6 +1171,8 @@ public class ApiController {
                 m.put("production", def.production);
                 m.put("lastStatus", lastStatus);
                 m.put("lastRunTs", lastRunTs);
+                m.put("lastRunId", lastRunId);
+                m.put("failedStep", failedStep);
                 m.put("lastSuccessTs", lastSuccessTs);
                 m.put("bucket", bucketFor(running, lastStatus));
                 feeds.add(m);
