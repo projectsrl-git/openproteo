@@ -419,6 +419,7 @@
         updNode(i, f, v); renderNodes();
     }
     function nodeParam(n, name) { if (!n.params) return ''; for (var k = 0; k < n.params.length; k++) if (n.params[k].name === name) return n.params[k].value; return ''; }
+    function delDirOptions(i) { var o = ''; for (var k = 0; k < i; k++) { var nd = wf.nodes[k]; if (nd && nd.kind === 'STEP' && nd.id) { o += '<option value="' + attresc('${dir.' + nd.id + '}') + '">'; } } return o; }
     function setNodeParam(i, name, value) {
         var n = wf.nodes[i]; n.params = n.params || [];
         for (var k = 0; k < n.params.length; k++) if (n.params[k].name === name) { if (value === '') n.params.splice(k, 1); else n.params[k].value = value; preview(); return; }
@@ -757,7 +758,16 @@
                     '<input value="' + attresc(n.script) + '" placeholder="' + (isExternal(ex) ? 'Prepare-Feed.ps1 | tool.bat | app.jar' : '(not used for this executor)') + '" oninput="updNode(' + i + ',\'script\',this.value)"' + (isExternal(ex) ? '' : ' disabled') + '></div>' +
                     '<div class="field"><label>Timeout sec</label><input type="number" min="1" value="' + (n.timeoutSec || '') + '" oninput="updNode(' + i + ',\'timeoutSec\',this.value)"></div>' +
                     '<div class="field"><label>Retry</label><input type="number" min="0" value="' + (n.retry || '') + '" oninput="updNode(' + i + ',\'retry\',this.value)"></div>' +
-                    '<div class="field"><label>Retry delay sec</label><input type="number" min="1" value="' + (n.retryDelaySec || '') + '" oninput="updNode(' + i + ',\'retryDelaySec\',this.value)"></div>';
+                    '<div class="field"><label>Retry delay sec</label><input type="number" min="1" value="' + (n.retryDelaySec || '') + '" oninput="updNode(' + i + ',\'retryDelaySec\',this.value)"></div>' +
+                    '<div class="field"><label>On success delete</label>' +
+                      '<select onchange="setNodeParam(' + i + ',\'deleteOnSuccessType\',this.value)">' +
+                        '<option value="">(none)</option>' +
+                        '<option value="directory"' + (nodeParam(n,'deleteOnSuccessType')==='directory'?' selected':'') + '>directory</option>' +
+                        '<option value="file"' + (nodeParam(n,'deleteOnSuccessType')==='file'?' selected':'') + '>file</option>' +
+                      '</select>' +
+                      '<input list="delsug_' + i + '" value="' + attresc(nodeParam(n,'deleteOnSuccess')) + '" placeholder="${dir.previousStepId}" oninput="setNodeParam(' + i + ',\'deleteOnSuccess\',this.value)">' +
+                      '<datalist id="delsug_' + i + '">' + delDirOptions(i) + '</datalist>' +
+                    '</div>';
                 h += '</div>';
 
                 // ---- type-specific configuration ----

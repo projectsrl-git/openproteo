@@ -708,6 +708,59 @@ public class WorkflowEngine {
         try { return Integer.parseInt(s.trim()); } catch (Exception e) { return def; }
     }
 
+    /**
+     * Optional per-step cleanup: when the step succeeds, delete the file/directory named by the
+     * step param "deleteOnSuccess" (var-resolved; e.g. ${dir.previousStepId}). Lets a step free the
+     * working directory of an earlier step it consumed. Safety: the resolved path must live under a
+     * feeds base directory and be deeper than a feed root, so it can never remove an entire feed or
+     * anything outside the feeds area. Best-effort: failures are audited, never abort the run.
+     */
+    private void deleteOnSuccess(FeedLayout layout, WorkflowRun run, StepDef step) {
+        String raw = (step.params == null) ? null : step.params.get("deleteOnSuccess");
+        if (raw == null || raw.trim().isEmpty()) return;
+        String resolved = VarResolver.resolve(raw.trim(), run.vars);
+        if (resolved == null || resolved.trim().isEmpty()) return;
+        java.nio.file.Path target;
+        try { target = java.nio.file.Paths.get(resolved.trim()).toAbsolutePath().normalize(); }
+        catch (Exception e) { log.warn("[{}] deleteOnSuccess bad path '{}': {}", run.feedId, resolved, e.toString()); return; }
+        java.nio.file.Path base1 = layout.feedDir.getParent();
+        java.nio.file.Path base2 = null;
+        try { base2 = java.nio.file.Paths.get(props.getDefaultBaseDir()).toAbsolutePath().normalize(); } catch (Exception ignore) {}
+        boolean ok1 = base1 != null && target.startsWith(base1) && target.getNameCount() > base1.getNameCount() + 1;
+        boolean ok2 = base2 != null && target.startsWith(base2) && target.getNameCount() > base2.getNameCount() + 1;
+        if (!ok1 && !ok2) {
+            log.warn("[{}] deleteOnSuccess REFUSED (outside feeds base or too shallow): {}", run.feedId, target);
+            auditFeed(layout, run.feedId, run.runId, step.id, "DELETE_ON_SUCCESS_REFUSED", "system", kv("path", target.toString()));
+            return;
+        }
+        try {
+            if (!java.nio.file.Files.exists(target)) {
+                auditFeed(layout, run.feedId, run.runId, step.id, "DELETE_ON_SUCCESS_SKIP", "system", kv("path", target.toString(), "reason", "not found"));
+                return;
+            }
+            boolean isDir = java.nio.file.Files.isDirectory(target);
+            deleteRecursively(target);
+            log.info("[{}] deleteOnSuccess removed {} ({})", run.feedId, target, isDir ? "directory" : "file");
+            auditFeed(layout, run.feedId, run.runId, step.id, "DELETE_ON_SUCCESS", "system", kv("path", target.toString(), "type", isDir ? "directory" : "file"));
+        } catch (Exception e) {
+            log.warn("[{}] deleteOnSuccess error on '{}': {}", run.feedId, target, e.toString());
+            auditFeed(layout, run.feedId, run.runId, step.id, "DELETE_ON_SUCCESS_ERROR", "system", kv("path", target.toString(), "error", e.toString()));
+        }
+    }
+
+    private static void deleteRecursively(java.nio.file.Path root) throws java.io.IOException {
+        if (!java.nio.file.Files.exists(root)) return;
+        java.nio.file.Files.walkFileTree(root, new java.nio.file.SimpleFileVisitor<java.nio.file.Path>() {
+            public java.nio.file.FileVisitResult visitFile(java.nio.file.Path f, java.nio.file.attribute.BasicFileAttributes a) throws java.io.IOException {
+                java.nio.file.Files.delete(f); return java.nio.file.FileVisitResult.CONTINUE;
+            }
+            public java.nio.file.FileVisitResult postVisitDirectory(java.nio.file.Path d, java.io.IOException e) throws java.io.IOException {
+                if (e != null) throw e;
+                java.nio.file.Files.delete(d); return java.nio.file.FileVisitResult.CONTINUE;
+            }
+        });
+    }
+
     private boolean executeStep(WorkflowDef def, FeedLayout layout, WorkflowRun run, StepDef step) {
         StepExec se = run.step(step.id);
         se.status = StepStatus.RUNNING;
@@ -775,6 +828,7 @@ public class WorkflowEngine {
                     se.status = StepStatus.SUCCESS; se.endTs = now();
                     auditFeed(layout, run.feedId, run.runId, step.id, "STEP_COMPLETED", "system",
                             kv("exitCode", "0", "attempt", String.valueOf(attempt)));
+                    deleteOnSuccess(layout, run, step);
                     store.save(layout, run);
                     return true;
                 }

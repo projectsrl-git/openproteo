@@ -1,16 +1,21 @@
-Workflow tags: editable in designer, searchable column on home
+Step: optional "on success delete file/directory" cleanup
 
-Add free-form tags to a workflow, shown and searchable on the home dashboard.
+Each step can declare a file or directory to remove once it completes
+successfully, to reclaim space (e.g. delete the working directory of an earlier
+step consumed as input).
 
-- model/def/WorkflowDef + dto/WorkflowDto: new tags list.
-- parser/WorkflowXmlParser + parser/WorkflowXmlWriter: tags are stored on the
-  root <workflow> element as a comma-separated "tags" attribute.
-- web/ApiController.toDto: carry tags into the designer DTO.
-- templates/designer.html: new "Tags" field in the workflow settings
-  (comma-separated, ${var} placeholders allowed); loaded and saved with the rest.
-- web/PageController + templates/dashboard.html: new "Tags" column on the home
-  list; placeholder tags are resolved with the workflow variables for display,
-  and tags are included in the row search (filter by feed id, name, schedule or
-  tag).
+- engine/WorkflowEngine: after a step succeeds, if the step param deleteOnSuccess
+  is set, resolve it against the run variables and delete the target (file or
+  directory, recursively). Safety: the resolved path must live under a feeds base
+  directory and be deeper than a feed root, so it can never remove an entire feed
+  or anything outside the feeds area; violations are audited and skipped.
+  Best-effort: any failure is audited (DELETE_ON_SUCCESS / _REFUSED / _SKIP /
+  _ERROR) and never aborts the run. Applies to the standard step path (not the
+  parallel forEach fan-out).
+- templates/designer.html: new per-step "On success delete" control (type
+  file/directory + path) with autocomplete suggesting the ${dir.<stepId>} of the
+  preceding steps. Stored as the step params deleteOnSuccess / deleteOnSuccessType
+  (no model/parser/writer change needed).
 
-Compiles (103 classes); designer/dashboard scripts pass node --check.
+Compiles (104 classes; +1 is the anonymous file-visitor). Designer passes
+node --check.
