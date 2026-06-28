@@ -1,21 +1,20 @@
-Step: optional "on success delete file/directory" cleanup
+Operations: per-step output data column, read from the last run
 
-Each step can declare a file or directory to remove once it completes
-successfully, to reclaim space (e.g. delete the working directory of an earlier
-step consumed as input).
+Let each step declare named run variables to surface, each with a description,
+and show their values in an OUTPUT DATA column in the Operations feed list.
 
-- engine/WorkflowEngine: after a step succeeds, if the step param deleteOnSuccess
-  is set, resolve it against the run variables and delete the target (file or
-  directory, recursively). Safety: the resolved path must live under a feeds base
-  directory and be deeper than a feed root, so it can never remove an entire feed
-  or anything outside the feeds area; violations are audited and skipped.
-  Best-effort: any failure is audited (DELETE_ON_SUCCESS / _REFUSED / _SKIP /
-  _ERROR) and never aborts the run. Applies to the standard step path (not the
-  parallel forEach fan-out).
-- templates/designer.html: new per-step "On success delete" control (type
-  file/directory + path) with autocomplete suggesting the ${dir.<stepId>} of the
-  preceding steps. Stored as the step params deleteOnSuccess / deleteOnSuccessType
-  (no model/parser/writer change needed).
+The values are read straight from the last run's persisted record (run.vars),
+so they come from the run history with no extra capture: whatever the step put
+into ${...} is already saved in _runs/{runId}.json. The last run is used even
+when it failed.
 
-Compiles (104 classes; +1 is the anonymous file-visitor). Designer passes
-node --check.
+- templates/designer.html: new per-step "Output data" field (one per line:
+  variable = description). Stored as step params outputData.<variable> =
+  description (no model/parser/writer change).
+- web/ApiController (/api/overview/feeds): for each feed, read the most recent
+  non-test run and resolve each declared outputData.<var> against that run's
+  vars; expose an outputData list of {label, value}.
+- templates/overview.html: new "Output data" column in the drill-down feed list
+  rendering description: value pairs.
+
+Compiles (104 classes); overview/designer pass node --check.

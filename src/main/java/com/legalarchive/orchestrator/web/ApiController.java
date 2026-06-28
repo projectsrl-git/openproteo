@@ -1148,6 +1148,7 @@ public class ApiController {
                 String activeId = engine.activeRunId(def.feedId);
                 boolean running = activeId != null && !activeId.contains("_test_");
                 String lastStatus = null, lastRunTs = null, lastSuccessTs = null, lastRunId = null, failedStep = null;
+                WorkflowRun lastRun = null;
                 FeedLayout layout = registry.layout(def.feedId);
                 if (layout != null) {
                     for (WorkflowRun r : store.list(layout, 25)) {
@@ -1157,6 +1158,7 @@ public class ApiController {
                             lastStatus = r.status != null ? r.status.name() : null;
                             lastRunTs = ts;
                             lastRunId = r.runId;
+                            lastRun = r;
                             if (r.status == com.legalarchive.orchestrator.model.run.RunStatus.FAILED
                                     || r.status == com.legalarchive.orchestrator.model.run.RunStatus.ABORTED) {
                                 failedStep = stoppedStepLabel(r);
@@ -1174,6 +1176,23 @@ public class ApiController {
                 m.put("lastRunId", lastRunId);
                 m.put("failedStep", failedStep);
                 m.put("lastSuccessTs", lastSuccessTs);
+                java.util.List<Map<String, Object>> outputData = new java.util.ArrayList<Map<String, Object>>();
+                for (com.legalarchive.orchestrator.model.def.StepDef st : def.steps()) {
+                    if (st.params == null) continue;
+                    for (Map.Entry<String, String> pe : st.params.entrySet()) {
+                        String k = pe.getKey();
+                        if (k == null || !k.startsWith("outputData.")) continue;
+                        String varName = k.substring("outputData.".length()).trim();
+                        if (varName.isEmpty()) continue;
+                        String desc = pe.getValue();
+                        String val = (lastRun != null && lastRun.vars != null) ? lastRun.vars.get(varName) : null;
+                        Map<String, Object> od = new LinkedHashMap<String, Object>();
+                        od.put("label", (desc != null && !desc.trim().isEmpty()) ? desc.trim() : varName);
+                        od.put("value", val == null ? "" : val);
+                        outputData.add(od);
+                    }
+                }
+                m.put("outputData", outputData);
                 m.put("bucket", bucketFor(running, lastStatus));
                 feeds.add(m);
             }

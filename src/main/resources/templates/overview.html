@@ -179,7 +179,8 @@
         document.getElementById('drillPanel').style.display='block';
         document.getElementById('drillTitle').innerHTML = 'Feeds — ' + esc(bucketLabel(drill.bucket)) + (drill.source!=null ? ' · source ' + esc(drill.source) : '') + ' <span class="dim small">(' + list.length + ')</span>';
         if (list.length === 0){ document.getElementById('drillWrap').innerHTML='<div class="dim small">No feeds.</div>'; return; }
-        var h = '<table class="grid"><thead><tr><th>Feed</th><th>Source</th><th>Target</th><th>Last run</th><th>Last success</th><th></th></tr></thead><tbody>';
+        function odCell(f){ if(!f.outputData || !f.outputData.length) return '<span class="dim small">\u2014</span>'; var s=''; for(var q=0;q<f.outputData.length;q++){ s += '<div class="small"><span class="dim">' + esc(f.outputData[q].label) + ':</span> <span class="mono">' + esc(f.outputData[q].value||'') + '</span></div>'; } return s; }
+        var h = '<table class="grid"><thead><tr><th>Feed</th><th>Source</th><th>Target</th><th>Last run</th><th>Last success</th><th>Output data</th><th></th></tr></thead><tbody>';
         for (var i=0;i<list.length;i++){
             var f = list[i];
             h += '<tr>' +
@@ -188,6 +189,7 @@
                 '<td class="mono small dim">' + esc(f.targetId||'—') + '</td>' +
                 '<td>' + statusChip(f.lastStatus) + (f.failedStep ? ' <span class="mono small">@ ' + esc(f.failedStep) + '</span>' : '') + ' <span class="mono small dim">' + esc(f.lastRunTs||'') + '</span></td>' +
                 '<td class="mono small dim">' + esc(f.lastSuccessTs||'—') + '</td>' +
+                '<td>' + odCell(f) + '</td>' +
                 '<td style="white-space:nowrap"><a class="btn sm" href="' + CTX + 'workflow/' + encodeURIComponent(f.feedId) + '">open workflow</a>' + (f.lastRunId ? ' <a class="btn sm" href="' + CTX + 'run/' + encodeURIComponent(f.feedId) + '/' + encodeURIComponent(f.lastRunId) + '">open last run</a>' : '') + '</td>' +
                 '</tr>';
         }

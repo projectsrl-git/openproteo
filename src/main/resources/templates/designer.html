@@ -420,6 +420,8 @@
     }
     function nodeParam(n, name) { if (!n.params) return ''; for (var k = 0; k < n.params.length; k++) if (n.params[k].name === name) return n.params[k].value; return ''; }
     function delDirOptions(i) { var o = ''; for (var k = 0; k < i; k++) { var nd = wf.nodes[k]; if (nd && nd.kind === 'STEP' && nd.id) { o += '<option value="' + attresc('${dir.' + nd.id + '}') + '">'; } } return o; }
+    function outputDataText(n) { if (!n.params) return ''; var lines = []; for (var k = 0; k < n.params.length; k++) { var pn = n.params[k].name; if (pn && pn.indexOf('outputData.') === 0) lines.push(pn.substring(11) + ' = ' + (n.params[k].value || '')); } return lines.join(NL); }
+    function setOutputData(i, txt) { var n = wf.nodes[i]; if (!n.params) n.params = []; n.params = n.params.filter(function (p) { return !(p.name && p.name.indexOf('outputData.') === 0); }); var lines = String(txt).split(String.fromCharCode(10)); for (var k = 0; k < lines.length; k++) { var ln = lines[k].split(String.fromCharCode(13)).join('').trim(); if (!ln) continue; var eq = ln.indexOf('='); var vn = eq >= 0 ? ln.substring(0, eq).trim() : ln; var ds = eq >= 0 ? ln.substring(eq + 1).trim() : ''; if (!vn) continue; n.params.push({ name: 'outputData.' + vn, value: ds }); } preview(); }
     function setNodeParam(i, name, value) {
         var n = wf.nodes[i]; n.params = n.params || [];
         for (var k = 0; k < n.params.length; k++) if (n.params[k].name === name) { if (value === '') n.params.splice(k, 1); else n.params[k].value = value; preview(); return; }
@@ -767,7 +769,9 @@
                       '</select>' +
                       '<input list="delsug_' + i + '" value="' + attresc(nodeParam(n,'deleteOnSuccess')) + '" placeholder="${dir.previousStepId}" oninput="setNodeParam(' + i + ',\'deleteOnSuccess\',this.value)">' +
                       '<datalist id="delsug_' + i + '">' + delDirOptions(i) + '</datalist>' +
-                    '</div>';
+                    '</div>' +
+                    '<div class="field wide"><label>Output data (one per line: variable = description, shown in Operations)</label>' +
+                      '<textarea rows="2" placeholder="rowsWritten = Rows written" oninput="setOutputData(' + i + ',this.value)">' + esc(outputDataText(n)) + '</textarea></div>';
                 h += '</div>';
 
                 // ---- type-specific configuration ----
