@@ -68,7 +68,7 @@
     </div>
 
     <div class="toolbar">
-        <input id="wfSearch" class="search-box" type="text" placeholder="🔎 Filter by feed id, name or schedule…" oninput="onSearch()" autocomplete="off">
+        <input id="wfSearch" class="search-box" type="text" placeholder="🔎 Filter by feed id, name, schedule or tag…" oninput="onSearch()" autocomplete="off">
         <span id="srcFilterChip" class="chip" style="display:none">
             source: <b id="srcFilterVal"></b> <span class="x" onclick="clearSource()">✕</span>
         </span>
@@ -109,6 +109,7 @@
                 <th>Feed ID</th>
                 <th>Source</th>
                 <th>Target</th>
+                <th>Tags</th>
                 <th th:each="vn : ${homeVarNames}" th:text="${vn}"></th>
                 <th>Name</th>
                 <th>Schedule</th>
@@ -119,11 +120,12 @@
             </thead>
             <tbody id="wfRows">
             <tr th:each="row : ${rows}" class="wf-row"
-                th:attr="data-search=${(row.wf.feedId + ' ' + (row.wf.sourceId ?: '') + ' ' + (row.wf.targetId ?: '') + ' ' + row.wf.name + ' ' + (row.wf.description ?: '') + ' ' + (row.wf.cron ?: 'manual') + ' ' + row.varSearch)},data-source=${(row.wf.sourceId == null or row.wf.sourceId.trim().isEmpty()) ? '—' : row.wf.sourceId.trim()}">
+                th:attr="data-search=${(row.wf.feedId + ' ' + (row.wf.sourceId ?: '') + ' ' + (row.wf.targetId ?: '') + ' ' + row.wf.name + ' ' + (row.wf.description ?: '') + ' ' + (row.wf.cron ?: 'manual') + ' ' + row.varSearch + ' ' + row.tagSearch)},data-source=${(row.wf.sourceId == null or row.wf.sourceId.trim().isEmpty()) ? '—' : row.wf.sourceId.trim()}">
                 <td class="cbcol"><input type="checkbox" class="rowcb" th:attr="data-feed=${row.wf.feedId}" onclick="onRowCb()"></td>
                 <td class="mono"><span class="feed-id" th:text="${row.wf.feedId}"></span> <span th:if="${row.wf.production}" class="chip sm" style="background:#A8123A;color:#fff;border-color:#A8123A" title="production">PROD</span> <span th:if="${row.wf.locked}" class="chip sm" title="locked for maintenance">🔒</span></td>
                 <td class="mono small dim"><span th:if="${row.wf.sourceId}" th:text="${row.wf.sourceId}"></span><span th:if="${row.wf.sourceId == null}">—</span><div class="dim" style="font-size:11px" th:if="${row.wf.sourceDescription}" th:text="${row.wf.sourceDescription}"></div></td>
                 <td class="mono small dim"><span th:if="${row.wf.targetId}" th:text="${row.wf.targetId}"></span><span th:if="${row.wf.targetId == null}">—</span><div class="dim" style="font-size:11px" th:if="${row.wf.targetDescription}" th:text="${row.wf.targetDescription}"></div></td>
+                <td><span th:each="t : ${row.tags}" class="chip sm" th:text="${t}" style="margin:1px"></span></td>
                 <td th:each="vv : ${row.varValues}" class="mono small" th:text="${vv}"></td>
                 <td>
                     <span th:text="${row.wf.name}"></span>
@@ -160,9 +162,9 @@
                 </td>
             </tr>
             <tr th:if="${#lists.isEmpty(rows)}">
-                <td th:attr="colspan=${9 + #lists.size(homeVarNames)}" class="dim">No workflows found. Create one with the designer or drop XML files into the workflows/ directory and reload.</td>
+                <td th:attr="colspan=${10 + #lists.size(homeVarNames)}" class="dim">No workflows found. Create one with the designer or drop XML files into the workflows/ directory and reload.</td>
             </tr>
-            <tr id="noMatch" style="display:none"><td th:attr="colspan=${9 + #lists.size(homeVarNames)}" class="dim">No workflow matches the filter.</td></tr>
+            <tr id="noMatch" style="display:none"><td th:attr="colspan=${10 + #lists.size(homeVarNames)}" class="dim">No workflow matches the filter.</td></tr>
             </tbody>
         </table>
     </div>

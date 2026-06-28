@@ -1367,6 +1367,7 @@ public class ApiController {
         dto.name = def.name;
         dto.cron = def.cron;
         dto.baseDir = def.baseDir;
+        if (def.tags != null) dto.tags = new java.util.ArrayList<String>(def.tags);
         dto.description = def.description;
         for (Map.Entry<String, String> v : def.variables.entrySet()) {
             dto.variables.add(new WorkflowDto.KV(v.getKey(), v.getValue()));

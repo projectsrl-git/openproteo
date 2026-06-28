@@ -65,6 +65,10 @@
                         <label>Cron (6 fields, empty = manual only)</label>
                         <input id="f_cron" placeholder="0 30 6 * * MON-FRI" oninput="upd()">
                     </div>
+                    <div class="field">
+                        <label>Tags (comma-separated, ${var} allowed)</label>
+                        <input id="f_tags" placeholder="legalhold, ${recordBusinessDate}" oninput="upd()">
+                    </div>
                 </div>
                 <div class="form-row">
                     <div class="field">
@@ -207,7 +211,7 @@
     })();
     var NL = String.fromCharCode(10);   // never write a literal backslash-n in source: corporate proxies mangle it
 
-    var wf = { feedId: '', sourceId: '', targetId: '', sourceDescription: '', targetDescription: '', production: false, locked: false, name: '', cron: '', baseDir: '', description: '', variables: [], nodes: [] };
+    var wf = { feedId: '', sourceId: '', targetId: '', sourceDescription: '', targetDescription: '', production: false, locked: false, name: '', cron: '', baseDir: '', description: '', tags: [], variables: [], nodes: [] };
     var stepSeq = 0, gateSeq = 0, loopSeq = 0;
     var DATASOURCES = [];
     fetch(CTX + 'api/datasources').then(readJson).then(function(d){ DATASOURCES = d || []; renderNodes(); }).catch(function(e){ console.warn('datasources load failed:', e && e.message); });
@@ -275,6 +279,7 @@
         wf.targetDescription = val('f_targetDescription');
         wf.name = val('f_name');
         wf.cron = val('f_cron');
+        wf.tags = val('f_tags').split(',').map(function(s){return s.trim();}).filter(function(s){return s.length;});
         wf.baseDir = val('f_baseDir');
         wf.description = val('f_description');
         var prodEl = document.getElementById('f_production');
@@ -1476,6 +1481,7 @@
                 fill('f_sourceDescription', wf.sourceDescription);
                 fill('f_targetDescription', wf.targetDescription);
                 fill('f_cron', wf.cron);
+                fill('f_tags', (wf.tags||[]).join(', '));
                 fill('f_baseDir', wf.baseDir);
                 fill('f_description', wf.description);
                 var prodEl = document.getElementById('f_production'); if (prodEl) prodEl.checked = !!wf.production;

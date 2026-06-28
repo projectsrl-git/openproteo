@@ -20,6 +20,7 @@ public class WorkflowDto {
     public String cron;
     public String baseDir;
     public String description;
+    public List<String> tags = new ArrayList<String>();
     public List<KV> variables = new ArrayList<KV>();
     public List<NodeDto> nodes = new ArrayList<NodeDto>();
 

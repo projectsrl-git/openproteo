@@ -58,6 +58,8 @@ public class WorkflowXmlParser {
             wf.production = "true".equalsIgnoreCase(root.getAttribute("production"));
             wf.locked = "true".equalsIgnoreCase(root.getAttribute("locked"));
             wf.cron = trimToNull(root.getAttribute("cron"));
+            String tagsAttr = trimToNull(root.getAttribute("tags"));
+            if (tagsAttr != null) for (String t : tagsAttr.split(",")) { String tt = t.trim(); if (!tt.isEmpty()) wf.tags.add(tt); }
             wf.baseDir = trimToNull(root.getAttribute("baseDir"));
 
             if (!wf.feedId.matches("[A-Za-z0-9._-]+")) {

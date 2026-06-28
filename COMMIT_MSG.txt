@@ -1,16 +1,16 @@
-Operations: show stop step, OPEN WORKFLOW + OPEN LAST RUN buttons
+Workflow tags: editable in designer, searchable column on home
 
-In the Operations drill-down feeds list:
+Add free-form tags to a workflow, shown and searchable on the home dashboard.
 
-- The Last run cell now shows, next to a FAILED/ABORTED status chip, the step
-  where the run stopped (the failed step, or the step left running on abort).
-- The single "open" action is renamed "open workflow" (still links to the
-  workflow page).
-- A new "open last run" action links straight to the last run's page
-  (/run/{feedId}/{lastRunId}); shown only when a last run exists.
+- model/def/WorkflowDef + dto/WorkflowDto: new tags list.
+- parser/WorkflowXmlParser + parser/WorkflowXmlWriter: tags are stored on the
+  root <workflow> element as a comma-separated "tags" attribute.
+- web/ApiController.toDto: carry tags into the designer DTO.
+- templates/designer.html: new "Tags" field in the workflow settings
+  (comma-separated, ${var} placeholders allowed); loaded and saved with the rest.
+- web/PageController + templates/dashboard.html: new "Tags" column on the home
+  list; placeholder tags are resolved with the workflow variables for display,
+  and tags are included in the row search (filter by feed id, name, schedule or
+  tag).
 
-web/ApiController.java: /api/overview/feeds now returns lastRunId and failedStep
-(computed from the most recent non-test run via a stoppedStepLabel helper).
-templates/overview.html: render the stop step and the two action buttons.
-
-Compiles (103 classes).
+Compiles (103 classes); designer/dashboard scripts pass node --check.

@@ -35,6 +35,11 @@ public class WorkflowXmlWriter {
             if (dto.production) root.setAttribute("production", "true");
             if (dto.locked) root.setAttribute("locked", "true");
             attr(root, "cron", dto.cron);
+            if (dto.tags != null) {
+                StringBuilder tb = new StringBuilder();
+                for (String t : dto.tags) { if (t == null) continue; String tt = t.trim(); if (tt.isEmpty()) continue; if (tb.length() > 0) tb.append(", "); tb.append(tt); }
+                if (tb.length() > 0) root.setAttribute("tags", tb.toString());
+            }
             attr(root, "baseDir", dto.baseDir);
 
             if (notBlank(dto.description)) {

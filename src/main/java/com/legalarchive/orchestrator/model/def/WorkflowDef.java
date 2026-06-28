@@ -20,6 +20,8 @@ public class WorkflowDef {
     public String targetDescription;
     public boolean production;   // PROD environment flag: forces anonymize/mask to passthrough
     public boolean locked;       // maintenance lock: blocks manual/scheduled execution (testing still allowed)
+    /** Free-form tags shown/searchable on the home dashboard. Values may contain ${var} placeholders. */
+    public java.util.List<String> tags = new java.util.ArrayList<String>();
 
     /** Nome friendly del feed (es. "EORFULL verso Legal Archive"). */
     public String name;

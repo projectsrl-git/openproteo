@@ -61,6 +61,16 @@ public class PageController {
             }
             row.put("varValues", varValues);
             row.put("varSearch", varSearch.toString());
+            java.util.List<String> tagList = new java.util.ArrayList<String>();
+            StringBuilder tagSearch = new StringBuilder();
+            if (wf.tags != null) for (String t : wf.tags) {
+                String rt = com.legalarchive.orchestrator.engine.VarResolver.resolve(t, wf.variables);
+                if (rt == null) rt = "";
+                rt = rt.trim();
+                if (!rt.isEmpty()) { tagList.add(rt); tagSearch.append(' ').append(rt); }
+            }
+            row.put("tags", tagList);
+            row.put("tagSearch", tagSearch.toString());
             rows.add(row);
         }
         model.addAttribute("rows", rows);
