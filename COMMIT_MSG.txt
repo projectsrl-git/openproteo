@@ -1,21 +1,19 @@
-Validate: default business-date column to recordBusinessDate variable
+Validate: add businessDateNotBefore check (min date or today)
 
-The CSV-vs-DataSchema "Business date valued and well-formatted" check always
-verified a fixed column (e.g. END_OF_RELATIONSHIP_DATE) because the generation
-template hardcoded businessDateColumn as a literal instead of referencing the
-per-feed ${recordBusinessDate} variable. Every generated feed inherited that
-literal, so the check failed whenever the real business-date column differed.
+New CSV-vs-DataSchema check "businessDateNotBefore": the business-date value must
+not be earlier than a minimum date. The minimum is the businessDateMin
+param/variable when set, otherwise today. Boundary inclusive: a value equal to the
+minimum passes; only earlier values fail.
 
-- engine/InternalSteps.java (validate): when the businessDateColumn param is
-  blank, default to the recordBusinessDate workflow variable. An explicit param
-  still overrides. Templates can now omit businessDateColumn and rely on the
-  per-feed variable injected by the bulk generator.
-- workflows/SAMPLE-06-validate.xml: businessDateColumn now uses
-  ${recordBusinessDate} instead of the hardcoded END_OF_RELATIONSHIP_DATE.
-- templates/designer.html: the Business date column field placeholder suggests
-  ${recordBusinessDate} instead of a literal column name.
+- engine/InternalSteps.java (validate): parse the business-date column with the
+  configured dateFormat and compare each value against the minimum; count and list
+  the offending rows. SKIPs when there is no dateFormat or no business-date column;
+  FAILs with a clear reason on an invalid businessDateMin. Added to the default
+  checklist.
+- templates/designer.html: new "Business date min (var/date)" field on the validate
+  node (placeholder ${businessDateMin}, empty = today).
+- workflows/SAMPLE-06-validate.xml: businessDateMin param wired to ${businessDateMin}.
 
-Note: feeds already generated still carry the literal in the step param; fix
-them by clearing businessDateColumn (uses the new default) or setting it to
-${recordBusinessDate} — e.g. in one shot via the Variables page "Common steps"
-editor — or regenerate from the corrected template.
+The business-date column already defaults to the recordBusinessDate variable
+(previous commit), so this builds on top of it. Compiles (103 classes); date
+parse/compare verified.

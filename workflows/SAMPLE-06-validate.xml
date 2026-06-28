@@ -12,6 +12,7 @@
             <param name="dataschema" value="${feedDir}/dataschema.json"/>
             <param name="displayschema" value="${feedDir}/displayschema.json"/>
             <param name="businessDateColumn" value="${recordBusinessDate}"/>
+            <param name="businessDateMin" value="${businessDateMin}"/>
             <param name="dateFormat" value="${dateFmt}"/>
         </step>
         <gate id="g_ok" type="auto" condition="${checksFailed} == 0" onTrue="send" onFalse="END:REJECTED"/>

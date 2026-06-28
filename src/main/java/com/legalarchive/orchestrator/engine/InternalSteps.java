@@ -1950,6 +1950,7 @@ public class InternalSteps {
         if ("colNames".equals(id)) return "Column names match dataschema";
         if ("notNull".equals(id)) return "Non-nullable fields are valued";
         if ("businessDate".equals(id)) return "Business date valued and well-formatted";
+        if ("businessDateNotBefore".equals(id)) return "Business date not before the minimum date";
         if ("displayDates".equals(id)) return "Display-schema date columns well-formatted";
         return id;
     }
@@ -1959,7 +1960,7 @@ public class InternalSteps {
                              StepExecutor.Result res, java.util.function.Consumer<String> line,
                              com.legalarchive.orchestrator.model.run.StepExec se, Runnable onProgress) throws Exception {
         java.util.List<String> selected = (step.validateChecks == null || step.validateChecks.isEmpty())
-                ? java.util.Arrays.asList("rowCount", "colCount", "jsonSchema", "noQuotes", "colNames", "notNull", "businessDate", "displayDates")
+                ? java.util.Arrays.asList("rowCount", "colCount", "jsonSchema", "noQuotes", "colNames", "notNull", "businessDate", "businessDateNotBefore", "displayDates")
                 : step.validateChecks;
 
         // seed checklist (PENDING) so the UI shows the sub-steps immediately
@@ -2001,6 +2002,7 @@ public class InternalSteps {
         boolean sel_colNames = byId.containsKey("colNames");
         boolean sel_notNull = byId.containsKey("notNull");
         boolean sel_biz = byId.containsKey("businessDate");
+        boolean sel_bizMin = byId.containsKey("businessDateNotBefore");
         boolean sel_disp = byId.containsKey("displayDates");
 
         // --- parse schemas (also serves the jsonSchema well-formed check) ---
@@ -2100,8 +2102,28 @@ public class InternalSteps {
                 Integer ci = idx.get(schemaNames.get(i)); if (ci != null) nnIdx.add(ci);
             }
             // business date col index + regex
-            Integer bizIdx = (sel_biz && bizCol != null) ? idx.get(bizCol) : null;
+            Integer bizIdx = ((sel_biz || sel_bizMin) && bizCol != null) ? idx.get(bizCol) : null;
             java.util.regex.Pattern datePat = dateFormat != null ? java.util.regex.Pattern.compile(fmtToRegex(dateFormat)) : null;
+            // minimum business date: businessDateMin (resolved variable/literal) or, if absent, today
+            java.time.format.DateTimeFormatter bizFmt = null;
+            java.time.LocalDate bizMinDate = null;
+            String bizMinSpec = null, bizMinErr = null;
+            if (sel_bizMin && bizIdx != null) {
+                if (dateFormat == null) {
+                    bizMinErr = "dateFormat not provided";
+                } else {
+                    try { bizFmt = java.time.format.DateTimeFormatter.ofPattern(dateFormat); }
+                    catch (Exception e) { bizMinErr = "invalid dateFormat '" + dateFormat + "'"; }
+                    if (bizFmt != null) {
+                        String minRaw = blankToNull(params.get("businessDateMin"));
+                        if (minRaw == null) { bizMinDate = java.time.LocalDate.now(); bizMinSpec = "today (" + bizMinDate.format(bizFmt) + ")"; }
+                        else {
+                            try { bizMinDate = java.time.LocalDate.parse(minRaw.trim(), bizFmt); bizMinSpec = minRaw.trim(); }
+                            catch (Exception e) { bizMinErr = "invalid businessDateMin '" + minRaw.trim() + "' for format " + dateFormat; }
+                        }
+                    }
+                }
+            }
             // display-schema date columns
             java.util.List<Integer> dateIdx = new ArrayList<Integer>();
             java.util.List<String> dateColNames = new ArrayList<String>();
@@ -2114,10 +2136,11 @@ public class InternalSteps {
             }
 
             // single streaming pass
-            long rows = 0, colViol = 0, quoteViol = 0, bizViol = 0;
+            long rows = 0, colViol = 0, quoteViol = 0, bizViol = 0, bizMinViol = 0;
             java.util.List<String> colViolLines = new ArrayList<String>();
             java.util.List<String> quoteViolLines = new ArrayList<String>();
             java.util.List<String> bizViolLines = new ArrayList<String>();
+            java.util.List<String> bizMinViolLines = new ArrayList<String>();
             long[] nnViol = new long[nnIdx.size()];
             long[] dateViol = new long[dateIdx.size()];
             String line2;
@@ -2158,6 +2181,15 @@ public class InternalSteps {
                         bizViol++;
                         rep.add("businessDate", lineNo, bizCol, v.isEmpty() ? "empty" : ("malformed: " + snippet60(v)));
                         if (bizViolLines.size() < 5) bizViolLines.add("line " + lineNo + " ='" + v + "'");
+                    } else if (bizMinDate != null) {
+                        try {
+                            java.time.LocalDate d = java.time.LocalDate.parse(v, bizFmt);
+                            if (d.isBefore(bizMinDate)) {
+                                bizMinViol++;
+                                rep.add("businessDateNotBefore", lineNo, bizCol, "before " + bizMinSpec + ": " + snippet60(v));
+                                if (bizMinViolLines.size() < 5) bizMinViolLines.add("line " + lineNo + " ='" + v + "'");
+                            }
+                        } catch (Exception ignore) { /* unparseable despite regex: handled by businessDate check */ }
                     }
                 }
                 if (!dateIdx.isEmpty() && datePat != null) for (int k = 0; k < dateIdx.size(); k++) {
@@ -2206,6 +2238,14 @@ public class InternalSteps {
                 else if (bizIdx == null) set.accept("businessDate", new String[]{"FAIL", "column '" + bizCol + "' not found"});
                 else if (bizViol == 0) set.accept("businessDate", new String[]{"PASS", "all rows valued" + (dateFormat != null ? (" and matching " + dateFormat) : "")});
                 else set.accept("businessDate", new String[]{"FAIL", bizViol + " row(s) empty or malformed (" + join(bizViolLines, 5) + ")" + repNote});
+            }
+            if (sel_bizMin) {
+                if (bizCol == null) set.accept("businessDateNotBefore", new String[]{"SKIP", "businessDateColumn not provided"});
+                else if (bizIdx == null) set.accept("businessDateNotBefore", new String[]{"FAIL", "column '" + bizCol + "' not found"});
+                else if (bizMinErr != null) set.accept("businessDateNotBefore", new String[]{"FAIL", bizMinErr});
+                else if (bizMinDate == null) set.accept("businessDateNotBefore", new String[]{"SKIP", "no minimum date"});
+                else if (bizMinViol == 0) set.accept("businessDateNotBefore", new String[]{"PASS", "all rows on or after " + bizMinSpec});
+                else set.accept("businessDateNotBefore", new String[]{"FAIL", bizMinViol + " row(s) before " + bizMinSpec + " (" + join(bizMinViolLines, 5) + ")" + repNote});
             }
             if (sel_disp) {
                 if (displayschema == null) set.accept("displayDates", new String[]{"SKIP", "displayschema not provided"});
