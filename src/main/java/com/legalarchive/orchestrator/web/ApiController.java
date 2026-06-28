@@ -1493,6 +1493,7 @@ public class ApiController {
             w.put("targetId", dto.targetId == null ? "" : dto.targetId);
             w.put("sourceDescription", dto.sourceDescription == null ? "" : dto.sourceDescription);
             w.put("targetDescription", dto.targetDescription == null ? "" : dto.targetDescription);
+            w.put("tags", (dto.tags == null || dto.tags.isEmpty()) ? "" : String.join(", ", dto.tags));
             java.util.List<Map<String, String>> vars = new java.util.ArrayList<Map<String, String>>();
             for (WorkflowDto.KV kv : dto.variables) {
                 Map<String, String> m = new LinkedHashMap<String, String>();
@@ -1577,6 +1578,7 @@ public class ApiController {
             public String feedId;
             public java.util.List<WorkflowDto.KV> vars;     // workflow-level variables to set
             public java.util.List<StepEdit> steps;          // optional per-step param edits
+            public String tags;                              // optional: comma-separated workflow tags (null = unchanged)
         }
         public static class StepEdit {
             public String stepId;
@@ -1613,6 +1615,11 @@ public class ApiController {
                     for (WorkflowDto.KV ex : dto.variables) { if (kv.name.equals(ex.name)) { ex.value = kv.value; found = true; break; } }
                     if (!found) dto.variables.add(new WorkflowDto.KV(kv.name.trim(), kv.value == null ? "" : kv.value));
                 }
+            }
+            // apply workflow-level tag edits (comma-separated; null = leave unchanged)
+            if (fe.tags != null) {
+                dto.tags.clear();
+                for (String t : fe.tags.split(",")) { String tt = t.trim(); if (!tt.isEmpty()) dto.tags.add(tt); }
             }
             // apply per-step param edits
             if (fe.steps != null) {

@@ -1,20 +1,20 @@
-Operations: per-step output data column, read from the last run
+Variables page: edit workflow tags (single and common feeds)
 
-Let each step declare named run variables to surface, each with a description,
-and show their values in an OUTPUT DATA column in the Operations feed list.
+Workflow tags are now editable on the Variables page with the same name/value
+criterion as the other variables.
 
-The values are read straight from the last run's persisted record (run.vars),
-so they come from the run history with no extra capture: whatever the step put
-into ${...} is already saved in _runs/{runId}.json. The last run is used even
-when it failed.
+- web/ApiController: /api/var-catalog exposes each workflow's tags as a
+  comma-separated string; VarSaveReq.FeedEdit gains a tags field and
+  /api/variables/save applies it (comma-separated, ${var} allowed; null leaves
+  tags unchanged). Edits are validated by the parser before any file is written,
+  like the other edits.
+- templates/variables.html: a "tags" line in the Workflow variables section
+  (single feed) and a common "tags" line in the multi-feed view, wired into the
+  save payload.
 
-- templates/designer.html: new per-step "Output data" field (one per line:
-  variable = description). Stored as step params outputData.<variable> =
-  description (no model/parser/writer change).
-- web/ApiController (/api/overview/feeds): for each feed, read the most recent
-  non-test run and resolve each declared outputData.<var> against that run's
-  vars; expose an outputData list of {label, value}.
-- templates/overview.html: new "Output data" column in the drill-down feed list
-  rendering description: value pairs.
+Output-data definitions were already editable here: they are stored as step
+params (outputData.<var> = description) and the Variables page already renders
+and saves step params, per feed and across common steps. No change needed for
+those.
 
-Compiles (104 classes); overview/designer pass node --check.
+Compiles (104 classes); variables.html passes node --check.
