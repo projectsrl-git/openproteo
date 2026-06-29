@@ -339,8 +339,8 @@
     }
     function addLoop() {
         loopSeq++;
-        wf.nodes.push({ kind: 'LOOP', id: 'loop_' + loopSeq, name: 'Loop ' + loopSeq, over: '${csvFiles}',
-            loopDelimiter: ';', itemVar: 'item', indexVar: 'loopIndex', indexStringVar: 'loopIndexString', indexPad: '3', countVar: 'loopCount' });
+        wf.nodes.push({ kind: 'LOOP', id: 'loop_' + loopSeq, name: 'Loop ' + loopSeq, over: '${csvFiles}', over2: '',
+            loopDelimiter: ';', itemVar: 'item', itemVar2: 'item2', indexVar: 'loopIndex', indexStringVar: 'loopIndexString', indexPad: '3', countVar: 'loopCount' });
         wf.nodes.push({ kind: 'ENDLOOP', id: 'endloop_' + loopSeq, name: 'End loop ' + loopSeq });
         renderNodes(); preview();
     }
@@ -714,10 +714,12 @@
                     '</div>';
                 h += '<div class="form-row">' +
                     '<div class="field wide"><label>Over (list expression)</label><input value="' + attresc(n.over || '') + '" placeholder="${csvFiles}" oninput="updNode(' + i + ',\'over\',this.value)"></div>' +
+                    '<div class="field wide"><label>Over 2 — parallel list (optional)</label><input value="' + attresc(n.over2 || '') + '" placeholder="${csvRowCounts}" oninput="updNode(' + i + ',\'over2\',this.value)"></div>' +
                     '</div>';
                 h += '<div class="form-row">' +
                     '<div class="field"><label>Delimiter</label><input value="' + attresc(n.loopDelimiter || '') + '" placeholder=";" oninput="updNode(' + i + ',\'loopDelimiter\',this.value)"></div>' +
                     '<div class="field"><label>Item var</label><input value="' + attresc(n.itemVar || '') + '" placeholder="item" oninput="updNode(' + i + ',\'itemVar\',this.value)"></div>' +
+                    '<div class="field"><label>Item var 2 (for Over 2)</label><input value="' + attresc(n.itemVar2 || '') + '" placeholder="item2" oninput="updNode(' + i + ',\'itemVar2\',this.value)"></div>' +
                     '<div class="field"><label>Index var (1-based)</label><input value="' + attresc(n.indexVar || '') + '" placeholder="loopIndex" oninput="updNode(' + i + ',\'indexVar\',this.value)"></div>' +
                     '</div>';
                 h += '<div class="form-row">' +

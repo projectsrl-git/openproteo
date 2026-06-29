@@ -268,6 +268,7 @@ public class InternalSteps {
                 res.outVars.put("csvParts", String.valueOf(er.parts));
                 res.outVars.put("csvFile", er.files.isEmpty() ? out.getAbsolutePath() : er.files.get(0));
                 res.outVars.put("csvFiles", String.join(step.delimiter == null ? ";" : step.delimiter, er.files));
+                res.outVars.put("csvRowCounts", joinCounts(er.partRows, step.delimiter == null ? ";" : step.delimiter));
                 if (er.parts > 1) line.accept("exported " + er.rows + " row(s) into " + er.parts + " CSV part(s)");
                 else line.accept("exported " + er.rows + " row(s) to " + res.outVars.get("csvFile"));
                 for (String f : er.files) line.accept("  " + f);
@@ -499,6 +500,7 @@ public class InternalSteps {
             res.outVars.put("csvParts", String.valueOf(er.parts));
             res.outVars.put("csvFile", er.files.isEmpty() ? out.getAbsolutePath() : er.files.get(0));
             res.outVars.put("csvFiles", String.join(step.delimiter == null ? ";" : step.delimiter, er.files));
+            res.outVars.put("csvRowCounts", joinCounts(er.partRows, step.delimiter == null ? ";" : step.delimiter));
             if (er.parts > 1) line.accept("exported " + er.rows + " row(s) into " + er.parts + " CSV part(s)");
             else line.accept("exported " + er.rows + " row(s) to " + res.outVars.get("csvFile"));
             for (String f : er.files) line.accept("  " + f);
@@ -772,6 +774,13 @@ public class InternalSteps {
             line.accept("##VAR " + e.getKey() + "=" + value);
         }
         res.exitCode = 0;
+    }
+
+    /** Join per-part row counts with the same separator used for csvFiles, so the two lists stay aligned. */
+    private static String joinCounts(java.util.List<Long> xs, String sep) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < xs.size(); i++) { if (i > 0) b.append(sep); b.append(xs.get(i)); }
+        return b.toString();
     }
 
     /** Evaluate "A + B" or "A - B" as integers when both sides are integers; otherwise return as-is. */
@@ -1146,6 +1155,7 @@ public class InternalSteps {
         else line.accept("split: no row/byte limit set -> single output file");
 
         java.util.List<String> files = new java.util.ArrayList<String>();
+        java.util.List<Long> partRows = new java.util.ArrayList<Long>();
         long dataRows = 0;
         java.io.BufferedReader r = null;
         java.io.Writer w = null;
@@ -1169,7 +1179,7 @@ public class InternalSteps {
                         (maxRows > 0 && rowsInPart >= maxRows) ||
                         (maxBytes > 0 && bytesInPart + rb > maxBytes)));
                 if (rollover) {
-                    if (w != null) { w.close(); w = null; }
+                    if (w != null) { partRows.add(rowsInPart); w.close(); w = null; }
                     part++;
                     java.io.File f = split ? partName(base, part) : base;
                     if (f.getParentFile() != null) f.getParentFile().mkdirs();
@@ -1193,6 +1203,7 @@ public class InternalSteps {
                 if (headerLine != null) { w.write(headerLine); w.write("\r\n"); }
                 files.add(f.getAbsolutePath());
             }
+            partRows.add(rowsInPart);
             w.flush();
         } finally {
             if (w != null) try { w.close(); } catch (Exception ignore) {}
@@ -1203,6 +1214,7 @@ public class InternalSteps {
         res.outVars.put("csvParts", String.valueOf(files.size()));
         res.outVars.put("csvFile", files.isEmpty() ? base.getAbsolutePath() : files.get(0));
         res.outVars.put("csvFiles", String.join(sep, files));
+        res.outVars.put("csvRowCounts", joinCounts(partRows, sep));
         if (files.size() > 1) line.accept("split " + dataRows + " row(s) into " + files.size() + " part(s)");
         else line.accept("split: " + dataRows + " row(s) -> " + res.outVars.get("csvFile"));
         for (String f : files) line.accept("  " + f);

@@ -11,12 +11,14 @@ package com.legalarchive.orchestrator.model.def;
  */
 public class LoopDef extends NodeDef {
     public String over;                  // es. ${csvFiles}
+    public String over2;                 // optional parallel list, iterated in lockstep (e.g. ${csvRowCounts})
     public String delimiter;             // default ";"
     public String itemVar = "item";
     public String indexVar = "loopIndex";          // 1-based
     public String indexStringVar = "loopIndexString";
     public int indexPad = 3;                        // LPAD '0' width for indexStringVar
     public String countVar = "loopCount";
+    public String itemVar2 = "item2";              // current element of over2 (only set when over2 is present)
 
     @Override
     public String getKind() { return "LOOP"; }

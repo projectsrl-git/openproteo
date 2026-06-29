@@ -37,6 +37,8 @@ public class WorkflowDto {
         public String name;
         // loop (kind=LOOP)
         public String over;
+        public String over2;
+        public String itemVar2;
         public String loopDelimiter;
         public String itemVar;
         public String indexVar;

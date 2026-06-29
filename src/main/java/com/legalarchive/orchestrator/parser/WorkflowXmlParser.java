@@ -160,8 +160,10 @@ public class WorkflowXmlParser {
                     lp.id = req(el, "id", xmlFile);
                     lp.name = el.hasAttribute("name") ? el.getAttribute("name") : lp.id;
                     lp.over = trimToNull(el.getAttribute("over"));
+                    lp.over2 = trimToNull(el.getAttribute("over2"));
                     lp.delimiter = trimToNull(el.getAttribute("delimiter"));
                     if (el.hasAttribute("itemVar")) lp.itemVar = el.getAttribute("itemVar");
+                    if (el.hasAttribute("itemVar2")) lp.itemVar2 = el.getAttribute("itemVar2");
                     if (el.hasAttribute("indexVar")) lp.indexVar = el.getAttribute("indexVar");
                     if (el.hasAttribute("indexStringVar")) lp.indexStringVar = el.getAttribute("indexStringVar");
                     if (el.hasAttribute("indexPad")) {

@@ -112,6 +112,7 @@ public class SqlSupport {
 
     public static class ExportResult {
         public java.util.List<String> files = new java.util.ArrayList<String>();
+        public java.util.List<Long> partRows = new java.util.ArrayList<Long>();   // data rows per part, aligned with files
         public long rows;
         public int parts;
     }
@@ -187,6 +188,7 @@ public class SqlSupport {
         }
         ExportResult res = new ExportResult();
         res.files.addAll(cw.files);
+        res.partRows.addAll(cw.partRows);
         res.rows = cw.rows;
         res.parts = cw.parts;
         return res;

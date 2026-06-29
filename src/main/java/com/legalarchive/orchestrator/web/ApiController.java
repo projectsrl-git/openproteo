@@ -1450,8 +1450,10 @@ public class ApiController {
             } else if (n instanceof com.legalarchive.orchestrator.model.def.LoopDef) {
                 com.legalarchive.orchestrator.model.def.LoopDef lp = (com.legalarchive.orchestrator.model.def.LoopDef) n;
                 nd.over = lp.over;
+                nd.over2 = lp.over2;
                 nd.loopDelimiter = lp.delimiter;
                 nd.itemVar = lp.itemVar;
+                nd.itemVar2 = lp.itemVar2;
                 nd.indexVar = lp.indexVar;
                 nd.indexStringVar = lp.indexStringVar;
                 nd.indexPad = String.valueOf(lp.indexPad);

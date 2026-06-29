@@ -81,6 +81,10 @@ public class WorkflowXmlWriter {
                         attr(lp, "id", n.id);
                         attr(lp, "name", n.name);
                         attr(lp, "over", n.over);
+                        if (n.over2 != null && !n.over2.trim().isEmpty()) {
+                            attr(lp, "over2", n.over2);
+                            if (n.itemVar2 != null && !n.itemVar2.trim().isEmpty()) attr(lp, "itemVar2", n.itemVar2);
+                        }
                         attr(lp, "delimiter", n.loopDelimiter);
                         if (n.itemVar != null && !n.itemVar.trim().isEmpty()) attr(lp, "itemVar", n.itemVar);
                         if (n.indexVar != null && !n.indexVar.trim().isEmpty()) attr(lp, "indexVar", n.indexVar);

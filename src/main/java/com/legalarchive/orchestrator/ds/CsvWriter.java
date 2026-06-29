@@ -45,6 +45,7 @@ public class CsvWriter implements AutoCloseable {
     private char[] cbuf = new char[8192];
 
     public final List<String> files = new ArrayList<String>();
+    public final List<Long> partRows = new ArrayList<Long>();   // data rows per part, aligned with files
     public long rows = 0;
     public int parts = 0;
 
@@ -85,7 +86,7 @@ public class CsvWriter implements AutoCloseable {
     }
 
     private void openNext() throws IOException {
-        if (w != null) { w.close(); w = null; }
+        if (w != null) { partRows.add(rowsInPart); w.close(); w = null; }
         part++;
         File f = split ? partName(baseFile, part) : baseFile;
         if (f.getParentFile() != null) f.getParentFile().mkdirs();
@@ -99,7 +100,7 @@ public class CsvWriter implements AutoCloseable {
 
     public void close() throws IOException {
         if (w == null) openNext();
-        if (w != null) { w.flush(); w.close(); w = null; }
+        if (w != null) { partRows.add(rowsInPart); w.flush(); w.close(); w = null; }
         parts = files.size();
     }
 

@@ -552,6 +552,11 @@ public class WorkflowEngine {
                         run.vars.put(key + ".n", String.valueOf(items.size()));
                         run.vars.put(key + ".i", "0");
                         run.vars.put(lp.itemVar, items.get(0));
+                        if (lp.over2 != null && !lp.over2.trim().isEmpty()) {
+                            java.util.List<String> items2 = splitList(VarResolver.resolve(lp.over2, run.vars), delim);
+                            run.vars.put(key + ".items2", join(items2, "\u0001"));
+                            run.vars.put(lp.itemVar2, items2.isEmpty() ? "" : items2.get(0));
+                        }
                         setLoopIndexVars(run, lp, 0);
                         run.vars.put(lp.countVar, String.valueOf(items.size()));
                         store.save(layout, run);
@@ -571,11 +576,15 @@ public class WorkflowEngine {
                         java.util.List<String> items = splitList(run.vars.get(key + ".items"), "\u0001");
                         run.vars.put(key + ".i", String.valueOf(i));
                         run.vars.put(lp.itemVar, i < items.size() ? items.get(i) : "");
+                        if (lp.over2 != null && !lp.over2.trim().isEmpty()) {
+                            java.util.List<String> items2 = splitList(run.vars.get(key + ".items2"), "\u0001");
+                            run.vars.put(lp.itemVar2, i < items2.size() ? items2.get(i) : "");
+                        }
                         setLoopIndexVars(run, lp, i);
                         store.save(layout, run);
                         idx = startIdx + 1;   // re-enter loop body
                     } else {
-                        run.vars.remove(key + ".items"); run.vars.remove(key + ".n"); run.vars.remove(key + ".i");
+                        run.vars.remove(key + ".items"); run.vars.remove(key + ".n"); run.vars.remove(key + ".i"); run.vars.remove(key + ".items2");
                         auditFeed(layout, run.feedId, run.runId, lp.id, "LOOP_END", "system", kv("count", String.valueOf(n)));
                         idx++;
                     }

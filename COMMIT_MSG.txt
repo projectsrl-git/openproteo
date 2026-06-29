@@ -1,18 +1,27 @@
-Variables page: edit output-data and on-success-delete per step
+Per-part row counts (csvRowCounts) + optional parallel loop list
 
-Make the orchestrator-internal step settings editable from the Variables page
-with dedicated controls (mirroring the designer), instead of raw param lines.
+Expose per-part row counts from the SQL and SPLIT executors, and let a LOOP
+iterate a second list in lockstep, so a workflow can read each part's row count
+without re-reading the files. Fully backward compatible.
 
-- templates/variables.html: per step (single feed and Common steps) show an
-  "output data" textarea (one per line: variable = description), an
-  "on-success delete (path)" field and an "on-success delete (type)" field.
-  The raw deleteOnSuccess / deleteOnSuccessType / outputData.* params are hidden
-  from the generic param list to avoid duplication; Common steps use the usual
-  "all equal, else type to set for all" behaviour.
-- web/ApiController (/api/variables/save): StepEdit gains outputData,
-  deleteOnSuccess and deleteOnSuccessType (null = unchanged). outputData does a
-  full replace of the outputData.* params; the other two set/append, or remove
-  when blank. New setOrRemoveParam() helper. All edits keep going through the
-  parser validation before any file is written.
+Executors (new output variable, additive):
+- ds/CsvWriter: track data rows per part (partRows), aligned with files.
+- ds/SqlSupport.ExportResult: carry partRows from the writer.
+- engine/InternalSteps: sql, csvsql and split now also emit csvRowCounts -- the
+  per-part data-row counts, joined with the same delimiter and in the same order
+  as csvFiles (so sum(csvRowCounts) == rowCount by construction). New joinCounts
+  helper; split tracks per-part counts in its own loop.
 
-Compiles (104 classes); variables.html passes node --check.
+LOOP parallel list (opt-in, defaults preserve current behaviour):
+- model/def/LoopDef: optional over2 (parallel list) and itemVar2 (default
+  "item2", only set when over2 is present).
+- engine/WorkflowEngine: when over2 is set, split it with the loop delimiter and
+  expose itemVar2 per iteration, indexed in lockstep with the main list (empty
+  when shorter); the parallel list state is cleaned up at loop end. No over2 ->
+  identical to before.
+- parser reads over2/itemVar2; writer emits them only when over2 is set, so
+  existing workflow files stay byte-identical.
+- web/dto + toDto carry the two fields; designer adds an "Over 2" and
+  "Item var 2" field and seeds them on new loops.
+
+Compiles (104 classes); designer passes node --check.
