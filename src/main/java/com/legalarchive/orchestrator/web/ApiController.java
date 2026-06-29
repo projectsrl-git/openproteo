@@ -1535,6 +1535,17 @@ public class ApiController {
     public static class GlobalsSaveReq { public java.util.List<WorkflowDto.KV> vars; }
 
     /** Set a step core field on a node by name (used by the variables-page step editor). */
+    /** Set a single step param by name (update existing / append); blank value removes it. */
+    private static void setOrRemoveParam(WorkflowDto.NodeDto nd, String name, String value) {
+        if (nd.params == null) nd.params = new java.util.ArrayList<WorkflowDto.KV>();
+        String v = value == null ? "" : value.trim();
+        for (java.util.Iterator<WorkflowDto.KV> it = nd.params.iterator(); it.hasNext(); ) {
+            WorkflowDto.KV kv = it.next();
+            if (name.equals(kv.name)) { if (v.isEmpty()) it.remove(); else kv.value = v; return; }
+        }
+        if (!v.isEmpty()) nd.params.add(new WorkflowDto.KV(name, v));
+    }
+
     private static void applyStepField(WorkflowDto.NodeDto nd, String field, String value) {
         if (field == null) return;
         if ("query".equals(field)) nd.query = value;
@@ -1584,6 +1595,9 @@ public class ApiController {
             public String stepId;
             public java.util.List<WorkflowDto.KV> params;
             public java.util.List<WorkflowDto.KV> fields;   // step core fields (query/source/dest/...)
+            public String outputData;                       // null=unchanged; full replace of outputData.* (lines: var = description)
+            public String deleteOnSuccess;                  // null=unchanged; empty=remove
+            public String deleteOnSuccessType;              // null=unchanged; empty=remove
         }
     }
 
@@ -1635,6 +1649,25 @@ public class ApiController {
                         if (se.fields != null) {
                             for (WorkflowDto.KV kv : se.fields) applyStepField(nd, kv.name, kv.value);
                         }
+                        // output data: full replace of outputData.* params from the text (var = description per line)
+                        if (se.outputData != null) {
+                            if (nd.params == null) nd.params = new java.util.ArrayList<WorkflowDto.KV>();
+                            for (java.util.Iterator<WorkflowDto.KV> it = nd.params.iterator(); it.hasNext(); ) {
+                                WorkflowDto.KV kv = it.next();
+                                if (kv.name != null && kv.name.startsWith("outputData.")) it.remove();
+                            }
+                            for (String raw : se.outputData.split("\n")) {
+                                String line = raw.replace("\r", "").trim();
+                                if (line.isEmpty()) continue;
+                                int eq = line.indexOf('=');
+                                String vn = eq >= 0 ? line.substring(0, eq).trim() : line.trim();
+                                String ds = eq >= 0 ? line.substring(eq + 1).trim() : "";
+                                if (vn.isEmpty()) continue;
+                                nd.params.add(new WorkflowDto.KV("outputData." + vn, ds));
+                            }
+                        }
+                        if (se.deleteOnSuccess != null) setOrRemoveParam(nd, "deleteOnSuccess", se.deleteOnSuccess);
+                        if (se.deleteOnSuccessType != null) setOrRemoveParam(nd, "deleteOnSuccessType", se.deleteOnSuccessType);
                     }
                 }
             }

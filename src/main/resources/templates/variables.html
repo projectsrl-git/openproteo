@@ -209,6 +209,8 @@
     function commonFieldKeys(arr){ var c={}; arr.forEach(function(st){ var f=st.fields||{}; Object.keys(f).forEach(function(k){ c[k]=(c[k]||0)+1; }); }); return Object.keys(c).filter(function(k){ return c[k]===arr.length; }); }
     function commonParamKeys(arr){ var c={}; arr.forEach(function(st){ (st.params||[]).forEach(function(pp){ c[pp.name]=(c[pp.name]||0)+1; }); }); return Object.keys(c).filter(function(k){ return c[k]===arr.length; }); }
     function paramVal(st,name){ var v=''; (st.params||[]).forEach(function(pp){ if(pp.name===name) v=pp.value; }); return v; }
+    function isResParam(name){ return name==='deleteOnSuccess' || name==='deleteOnSuccessType' || (name && name.indexOf('outputData.')===0); }
+    function odText(st){ var lines=[]; (st.params||[]).forEach(function(p){ if(p.name && p.name.indexOf('outputData.')===0) lines.push(p.name.substring(11)+' = '+(p.value||'')); }); return lines.join(String.fromCharCode(10)); }
     function renderEditor(){
         var host=document.getElementById('editorWrap'); host.innerHTML='';
         document.getElementById('results').innerHTML='';
@@ -237,7 +239,10 @@
             sh.textContent='Step: '+st.id+(st.name?(' — '+st.name):'')+(st.exec?('  ['+st.exec+']'):'');
             var sb=el('div','vbody',ssec);
             fieldKeys.forEach(function(fk){ var inp=valLine(sb, fk, st.fields[fk], '', fk==='query'); inp.setAttribute('data-scope','field'); inp.setAttribute('data-step', st.id); });
-            if(hasParams) st.params.forEach(function(p){ var inp=valLine(sb, p.name, p.value, ''); inp.setAttribute('data-scope','param'); inp.setAttribute('data-step', st.id); });
+            if(hasParams) st.params.forEach(function(p){ if(isResParam(p.name)) return; var inp=valLine(sb, p.name, p.value, ''); inp.setAttribute('data-scope','param'); inp.setAttribute('data-step', st.id); });
+            var odi=valLine(sb, 'output data', odText(st), 'one per line: variable = description', true); odi.setAttribute('data-scope','outputData'); odi.setAttribute('data-step', st.id);
+            var dpi=valLine(sb, 'on-success delete (path)', paramVal(st,'deleteOnSuccess'), '${dir.<stepId>} or a file/dir path; empty = off'); dpi.setAttribute('data-scope','delPath'); dpi.setAttribute('data-step', st.id);
+            var dti=valLine(sb, 'on-success delete (type)', paramVal(st,'deleteOnSuccessType'), 'file | directory'); dti.setAttribute('data-scope','delType'); dti.setAttribute('data-step', st.id);
         });
     }
     function renderCommon(host, feeds){
@@ -277,11 +282,20 @@
                 inp.setAttribute('data-scope','field'); inp.setAttribute('data-step', id);
             });
             commonParamKeys(arr).forEach(function(pn){
+                if(isResParam(pn)) return;
                 var vals=arr.map(function(st){ return paramVal(st,pn); });
                 var allEq=vals.every(function(x){ return x===vals[0]; });
                 var inp=valLine(gb, pn, allEq?vals[0]:'', allEq?'':'(differs across feeds — type to set for all)');
                 inp.setAttribute('data-scope','param'); inp.setAttribute('data-step', id);
             });
+            (function(){
+                var ods=arr.map(odText); var odEq=ods.every(function(x){ return x===ods[0]; });
+                var odi=valLine(gb, 'output data', odEq?ods[0]:'', odEq?'one per line: variable = description':'(differs across feeds — type to set for all)', true); odi.setAttribute('data-scope','outputData'); odi.setAttribute('data-step', id);
+                var dps=arr.map(function(st){ return paramVal(st,'deleteOnSuccess'); }); var dpEq=dps.every(function(x){ return x===dps[0]; });
+                var dpi=valLine(gb, 'on-success delete (path)', dpEq?dps[0]:'', dpEq?'${dir.<stepId>} or path; empty = off':'(differs across feeds — type to set for all)'); dpi.setAttribute('data-scope','delPath'); dpi.setAttribute('data-step', id);
+                var dts=arr.map(function(st){ return paramVal(st,'deleteOnSuccessType'); }); var dtEq=dts.every(function(x){ return x===dts[0]; });
+                var dti=valLine(gb, 'on-success delete (type)', dtEq?dts[0]:'', dtEq?'file | directory':'(differs across feeds — type to set for all)'); dti.setAttribute('data-scope','delType'); dti.setAttribute('data-step', id);
+            })();
         });
     }
 
@@ -295,9 +309,14 @@
             for(var i=0;i<inputs.length;i++){ var inp=inputs[i]; var name=inp.getAttribute('data-name'); var scope=inp.getAttribute('data-scope');
                 if(scope==='var'){ vars.push({name:name,value:inp.value}); }
                 else if(scope==='tags'){ tags=inp.value; }
-                else { var sid=inp.getAttribute('data-step'); var e=stepsMap[sid]=stepsMap[sid]||{params:[],fields:[]}; if(scope==='field') e.fields.push({name:name,value:inp.value}); else e.params.push({name:name,value:inp.value}); }
+                else { var sid=inp.getAttribute('data-step'); var e=stepsMap[sid]=stepsMap[sid]||{params:[],fields:[]};
+                    if(scope==='field') e.fields.push({name:name,value:inp.value});
+                    else if(scope==='outputData') e.outputData=inp.value;
+                    else if(scope==='delPath') e.deleteOnSuccess=inp.value;
+                    else if(scope==='delType') e.deleteOnSuccessType=inp.value;
+                    else e.params.push({name:name,value:inp.value}); }
             }
-            var steps=Object.keys(stepsMap).map(function(sid){ return {stepId:sid, params:stepsMap[sid].params, fields:stepsMap[sid].fields}; });
+            var steps=Object.keys(stepsMap).map(function(sid){ var e=stepsMap[sid]; var o={stepId:sid, params:e.params, fields:e.fields}; if(e.outputData!==undefined)o.outputData=e.outputData; if(e.deleteOnSuccess!==undefined)o.deleteOnSuccess=e.deleteOnSuccess; if(e.deleteOnSuccessType!==undefined)o.deleteOnSuccessType=e.deleteOnSuccessType; return o; });
             return {vars:vars, steps:steps, tags:tags};
         }
         if(mode==='single'){

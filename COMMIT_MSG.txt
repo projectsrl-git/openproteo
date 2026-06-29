@@ -1,20 +1,18 @@
-Fix: never pass orchestrator-internal step params to the external script
+Variables page: edit output-data and on-success-delete per step
 
-deleteOnSuccess, deleteOnSuccessType and outputData.* are engine configuration
-stored as step params, but StepExecutor was forwarding every param to the
-script: PowerShell as -name 'value' (so -deleteOnSuccessType 'file' triggered
-"A parameter cannot be found that matches parameter name 'deleteOnSuccessType'"
-/ NamedParameterNotFound), CMD and JAR as positional values (shifting the real
-arguments).
+Make the orchestrator-internal step settings editable from the Variables page
+with dedicated controls (mirroring the designer), instead of raw param lines.
 
-- engine/StepExecutor.buildCommand: filter out reserved params before building
-  the command line, for all kinds (POWERSHELL, CMD, JAR). New isReservedParam()
-  helper (deleteOnSuccess, deleteOnSuccessType, outputData.*).
-- templates/designer.html: hide those reserved params from the visible
-  PARAMETERS list (real indices preserved). They are still managed by their own
-  controls ("On success delete", "Output data") and still written to the XML.
+- templates/variables.html: per step (single feed and Common steps) show an
+  "output data" textarea (one per line: variable = description), an
+  "on-success delete (path)" field and an "on-success delete (type)" field.
+  The raw deleteOnSuccess / deleteOnSuccessType / outputData.* params are hidden
+  from the generic param list to avoid duplication; Common steps use the usual
+  "all equal, else type to set for all" behaviour.
+- web/ApiController (/api/variables/save): StepEdit gains outputData,
+  deleteOnSuccess and deleteOnSuccessType (null = unchanged). outputData does a
+  full replace of the outputData.* params; the other two set/append, or remove
+  when blank. New setOrRemoveParam() helper. All edits keep going through the
+  parser validation before any file is written.
 
-No feed change needed: existing workflows run correctly after redeploy; the
-internal params remain in the XML and keep configuring the engine.
-
-Compiles (104 classes); designer passes node --check.
+Compiles (104 classes); variables.html passes node --check.
