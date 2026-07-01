@@ -1,27 +1,19 @@
-Per-part row counts (csvRowCounts) + optional parallel loop list
+Bulk actions: add lock/unlock/clear-history; enable them on Operations drill
 
-Expose per-part row counts from the SQL and SPLIT executors, and let a LOOP
-iterate a second list in lockstep, so a workflow can read each part's row count
-without re-reading the files. Fully backward compatible.
+Extend multi-select bulk actions and bring them to the Operations feed list.
 
-Executors (new output variable, additive):
-- ds/CsvWriter: track data rows per part (partRows), aligned with files.
-- ds/SqlSupport.ExportResult: carry partRows from the writer.
-- engine/InternalSteps: sql, csvsql and split now also emit csvRowCounts -- the
-  per-part data-row counts, joined with the same delimiter and in the same order
-  as csvFiles (so sum(csvRowCounts) == rowCount by construction). New joinCounts
-  helper; split tracks per-part counts in its own loop.
+- templates/dashboard.html: the selection bulk bar gains Lock, Unlock and
+  Clear history, alongside the existing Run and Delete. Each iterates the
+  selected feeds over the existing per-feed endpoints (/lock?locked=true|false,
+  /clear-history) via the existing runSeq helper, then reports ok/failed.
+- templates/overview.html: the drill-down feed list (opened from the rollup
+  totals) becomes multi-selectable -- a select-all header checkbox and per-row
+  checkboxes -- with a bulk bar offering Run, Lock, Unlock, Clear history and
+  Delete. The selection is kept in a small set so it survives the periodic
+  (20s) feed refresh that re-renders the list. Actions reuse the same per-feed
+  endpoints and refresh the view when done.
 
-LOOP parallel list (opt-in, defaults preserve current behaviour):
-- model/def/LoopDef: optional over2 (parallel list) and itemVar2 (default
-  "item2", only set when over2 is present).
-- engine/WorkflowEngine: when over2 is set, split it with the loop delimiter and
-  expose itemVar2 per iteration, indexed in lockstep with the main list (empty
-  when shorter); the parallel list state is cleaned up at loop end. No over2 ->
-  identical to before.
-- parser reads over2/itemVar2; writer emits them only when over2 is set, so
-  existing workflow files stay byte-identical.
-- web/dto + toDto carry the two fields; designer adds an "Over 2" and
-  "Item var 2" field and seeds them on new loops.
+No backend change: clear-history still refuses PRODUCTION feeds and feeds with
+an active run, and those are reported as skipped/failed in the summary.
 
-Compiles (104 classes); designer passes node --check.
+Both templates pass node --check; no literal \n/\r, no unsafe Thymeleaf inline.

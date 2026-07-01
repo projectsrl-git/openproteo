@@ -97,6 +97,9 @@
         <span id="bulkCount" class="mono"></span>
         <span class="spacer"></span>
         <button class="btn sm primary" onclick="bulkRun()">▶ Run selected</button>
+        <button class="btn sm" onclick="bulkLock()">🔒 Lock</button>
+        <button class="btn sm" onclick="bulkUnlock()">🔓 Unlock</button>
+        <button class="btn sm" onclick="bulkClearHistory()">🧹 Clear history</button>
         <button class="btn sm danger" onclick="bulkDelete()">🗑 Delete selected</button>
         <button class="btn sm" onclick="clearSel()">Clear</button>
     </div>
@@ -274,6 +277,31 @@
                     setTimeout(function () { window.location.reload(); }, 600);
                 });
         }, { danger: true, okText: 'Delete all' });
+    }
+
+    function bulkLock() {
+        var feeds = selectedFeeds();
+        if (!feeds.length) return;
+        opConfirm('Lock ' + feeds.length + ' selected workflow(s) for maintenance?', function () {
+            runSeq(feeds, function (f) { return CTX + 'api/workflows/' + encodeURIComponent(f) + '/lock?locked=true'; }, 'lock',
+                function (ok, fail) { opAlert('Locked: ' + ok + (fail ? ', failed: ' + fail : '') + '.'); setTimeout(function () { window.location.reload(); }, 600); });
+        }, { okText: 'Lock all' });
+    }
+    function bulkUnlock() {
+        var feeds = selectedFeeds();
+        if (!feeds.length) return;
+        opConfirm('Unlock ' + feeds.length + ' selected workflow(s)?', function () {
+            runSeq(feeds, function (f) { return CTX + 'api/workflows/' + encodeURIComponent(f) + '/lock?locked=false'; }, 'unlock',
+                function (ok, fail) { opAlert('Unlocked: ' + ok + (fail ? ', failed: ' + fail : '') + '.'); setTimeout(function () { window.location.reload(); }, 600); });
+        }, { okText: 'Unlock all' });
+    }
+    function bulkClearHistory() {
+        var feeds = selectedFeeds();
+        if (!feeds.length) return;
+        opConfirm('Clear run history for ' + feeds.length + ' selected workflow(s)? PRODUCTION feeds and feeds with an active run are skipped.', function () {
+            runSeq(feeds, function (f) { return CTX + 'api/workflows/' + encodeURIComponent(f) + '/clear-history'; }, 'clear',
+                function (ok, fail) { opAlert('History cleared: ' + ok + (fail ? ', skipped/failed: ' + fail : '') + '.'); setTimeout(function () { window.location.reload(); }, 600); });
+        }, { danger: true, okText: 'Clear all' });
     }
 
     // ---- view state: search + source filter + pagination ----

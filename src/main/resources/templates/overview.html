@@ -180,10 +180,11 @@
         document.getElementById('drillTitle').innerHTML = 'Feeds — ' + esc(bucketLabel(drill.bucket)) + (drill.source!=null ? ' · source ' + esc(drill.source) : '') + ' <span class="dim small">(' + list.length + ')</span>';
         if (list.length === 0){ document.getElementById('drillWrap').innerHTML='<div class="dim small">No feeds.</div>'; return; }
         function odCell(f){ if(!f.outputData || !f.outputData.length) return '<span class="dim small">\u2014</span>'; var s=''; for(var q=0;q<f.outputData.length;q++){ s += '<div class="small"><span class="dim">' + esc(f.outputData[q].label) + ':</span> <span class="mono">' + esc(f.outputData[q].value||'') + '</span></div>'; } return s; }
-        var h = '<table class="grid"><thead><tr><th>Feed</th><th>Source</th><th>Target</th><th>Last run</th><th>Last success</th><th>Output data</th><th></th></tr></thead><tbody>';
+        var h = '<table class="grid"><thead><tr><th style="width:1%"><input type="checkbox" id="drillSelAll" onclick="drillToggleAll(this)" title="select all"></th><th>Feed</th><th>Source</th><th>Target</th><th>Last run</th><th>Last success</th><th>Output data</th><th></th></tr></thead><tbody>';
         for (var i=0;i<list.length;i++){
             var f = list[i];
             h += '<tr>' +
+                '<td style="width:1%"><input type="checkbox" class="drillcb" data-feed="' + esc(f.feedId) + '"' + (drillSelSet[f.feedId] ? ' checked' : '') + ' onclick="drillOnCb(this)"></td>' +
                 '<td><span class="mono feed-id">' + esc(f.feedId) + '</span>' + (f.production?' <span class="opprod">PROD</span>':'') + (f.locked?' \uD83D\uDD12':'') + '<div class="dim small">' + esc(f.name||'') + '</div></td>' +
                 '<td class="mono small dim">' + esc(f.source||'—') + '</td>' +
                 '<td class="mono small dim">' + esc(f.targetId||'—') + '</td>' +
@@ -194,8 +195,34 @@
                 '</tr>';
         }
         h += '</tbody></table>';
-        document.getElementById('drillWrap').innerHTML = h;
+        var bar = '<div id="drillBulk" class="bulk-bar" style="display:none;margin-bottom:8px;gap:6px;align-items:center">' +
+            '<span id="drillBulkCount" class="mono" style="margin-right:8px"></span>' +
+            '<button class="btn sm primary" onclick="drillBulkRun()">\u25B6 Run</button> ' +
+            '<button class="btn sm" onclick="drillBulkLock()">\uD83D\uDD12 Lock</button> ' +
+            '<button class="btn sm" onclick="drillBulkUnlock()">\uD83D\uDD13 Unlock</button> ' +
+            '<button class="btn sm" onclick="drillBulkClear()">\uD83E\uDDF9 Clear history</button> ' +
+            '<button class="btn sm danger" onclick="drillBulkDelete()">\uD83D\uDDD1 Delete</button> ' +
+            '<button class="btn sm" onclick="drillClearSel()">Clear</button>' +
+            '</div>';
+        document.getElementById('drillWrap').innerHTML = bar + h;
+        drillBarUpdate();
     }
+
+    // ---- Operations drill: multi-select bulk actions (selection persists across refresh) ----
+    var drillSelSet = {};
+    function drillCbs(){ return Array.prototype.slice.call(document.querySelectorAll('#drillWrap .drillcb')); }
+    function drillOnCb(cb){ var f=cb.getAttribute('data-feed'); if(cb.checked) drillSelSet[f]=true; else delete drillSelSet[f]; drillBarUpdate(); }
+    function drillSelected(){ return drillCbs().filter(function(c){return c.checked;}).map(function(c){return c.getAttribute('data-feed');}); }
+    function drillToggleAll(m){ drillCbs().forEach(function(c){ c.checked=m.checked; var f=c.getAttribute('data-feed'); if(m.checked) drillSelSet[f]=true; else delete drillSelSet[f]; }); drillBarUpdate(); }
+    function drillClearSel(){ drillSelSet={}; drillCbs().forEach(function(c){ c.checked=false; }); var sa=document.getElementById('drillSelAll'); if(sa) sa.checked=false; drillBarUpdate(); }
+    function drillBarUpdate(){ var n=drillSelected().length; var bar=document.getElementById('drillBulk'); if(!bar) return; document.getElementById('drillBulkCount').textContent = n + (n===1?' feed selected':' feeds selected'); bar.style.display = n>0?'':'none'; }
+    function drillRunSeq(feeds, urlFn, done){ var i=0,ok=0,fail=0; (function next(){ if(i>=feeds.length){ done(ok,fail); return; } var f=feeds[i++]; fetch(urlFn(f),{method:'POST'}).then(function(r){ return r.json().catch(function(){ return {ok:r.ok}; }); }).then(function(j){ if(j&&j.ok)ok++; else fail++; }).catch(function(){ fail++; }).then(next); })(); }
+    function drillAfter(label){ return function(ok,fail){ alert(label+': '+ok+(fail?', skipped/failed: '+fail:'')+'.'); drillSelSet={}; loadFeeds(true); }; }
+    function drillBulkRun(){ var f=drillSelected(); if(!f.length) return; if(!confirm('Start a run for '+f.length+' selected feed(s)?')) return; drillRunSeq(f, function(x){ return CTX+'api/workflows/'+encodeURIComponent(x)+'/run'; }, drillAfter('Runs started')); }
+    function drillBulkLock(){ var f=drillSelected(); if(!f.length) return; if(!confirm('Lock '+f.length+' selected feed(s) for maintenance?')) return; drillRunSeq(f, function(x){ return CTX+'api/workflows/'+encodeURIComponent(x)+'/lock?locked=true'; }, drillAfter('Locked')); }
+    function drillBulkUnlock(){ var f=drillSelected(); if(!f.length) return; if(!confirm('Unlock '+f.length+' selected feed(s)?')) return; drillRunSeq(f, function(x){ return CTX+'api/workflows/'+encodeURIComponent(x)+'/lock?locked=false'; }, drillAfter('Unlocked')); }
+    function drillBulkClear(){ var f=drillSelected(); if(!f.length) return; if(!confirm('Clear run history for '+f.length+' feed(s)? PRODUCTION feeds and feeds with an active run are skipped.')) return; drillRunSeq(f, function(x){ return CTX+'api/workflows/'+encodeURIComponent(x)+'/clear-history'; }, drillAfter('History cleared')); }
+    function drillBulkDelete(){ var f=drillSelected(); if(!f.length) return; if(!confirm('Delete '+f.length+' feed(s) permanently? Definition files are removed (run history and data on disk are kept).')) return; drillRunSeq(f, function(x){ return CTX+'api/workflows/'+encodeURIComponent(x)+'/delete'; }, drillAfter('Deleted')); }
 
     function loadFeeds(force){
         fetch(CTX + 'api/overview/feeds').then(readJson).then(function(j){
