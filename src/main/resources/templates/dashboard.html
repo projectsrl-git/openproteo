@@ -85,6 +85,7 @@
         <a class="btn sm primary" th:href="@{/designer}">＋ New workflow</a>
         <a class="btn sm" th:href="@{/overview}">▦ Operations</a>
         <a class="btn sm" th:href="@{/bulk}">⧉ Bulk create</a>
+        <a class="btn sm" th:href="@{/import}">⇪ Import</a>
         <a class="btn sm" th:href="@{/datasources}">Data sources</a>
         <a class="btn sm" th:href="@{/files}">Shared files</a>
         <a class="btn sm" th:href="@{/pools}">Pool files</a>
@@ -97,6 +98,7 @@
         <span id="bulkCount" class="mono"></span>
         <span class="spacer"></span>
         <button class="btn sm primary" onclick="bulkRun()">▶ Run selected</button>
+        <button class="btn sm" onclick="bulkExport()">⤓ Export selected</button>
         <button class="btn sm" onclick="bulkLock()">🔒 Lock</button>
         <button class="btn sm" onclick="bulkUnlock()">🔓 Unlock</button>
         <button class="btn sm" onclick="bulkClearHistory()">🧹 Clear history</button>
@@ -277,6 +279,13 @@
                     setTimeout(function () { window.location.reload(); }, 600);
                 });
         }, { danger: true, okText: 'Delete all' });
+    }
+
+    function bulkExport() {
+        var feeds = selectedFeeds();
+        if (!feeds.length) return;
+        var url = CTX + 'api/workflows/export?feeds=' + encodeURIComponent(feeds.join(','));
+        window.location = url;
     }
 
     function bulkLock() {

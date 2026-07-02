@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenProteo — Import</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+    <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+    <style>
+        .selrow { display: -webkit-flex; display: flex; gap: 16px; flex-wrap: wrap; }
+        .selrow .field { min-width: 260px; -webkit-flex: 1; flex: 1; }
+        .selrow select[multiple] { width: 100%; min-height: 140px; }
+        .vsection { border: 1px solid var(--line); border-radius: 6px; margin: 12px 0; }
+        .vsection > .vhead { padding: 8px 12px; background: var(--bg-raise); border-bottom: 1px solid var(--line-soft);
+            font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--label); }
+        .vsection > .vbody { padding: 10px 12px; }
+        .vline { display: -webkit-flex; display: flex; gap: 10px; align-items: center; margin: 5px 0; }
+        .vline .vname { min-width: 240px; font-family: var(--mono); font-size: 12.5px; color: var(--ink); word-break: break-word; }
+        .vline input.vval, .vline select.vval { -webkit-flex: 1; flex: 1; }
+        .vline .vhint { font-size: 11px; color: var(--ink-faint); }
+        .dirty input.vval, .dirty select.vval { border-color: var(--accent); }
+        .feedlist { font-size: 12px; color: var(--ink-dim); margin: 4px 0 10px; }
+        .rolabel { font-size: 11px; color: var(--ink-faint); }
+        .res-ok { color: var(--ok); } .res-fail { color: var(--fail); }
+        .identity > .vhead { color: var(--accent); }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub">Import</span>
+    <span class="spacer"></span>
+    <a class="btn sm" th:href="@{/}">← Dashboard</a>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap" style="max-width:1200px">
+    <div id="banner"></div>
+
+    <h1>Import workflows</h1>
+    <p class="page-sub">Upload a ZIP exported from OpenProteo. Workflows are <b>created</b>, or <b>updated</b> when a
+        feed id already exists here. Before writing, retune the variables shared by the selected workflows and — unlike
+        the Variables page — change the <b>targetId</b> and the <b>production</b> flag to move a feed from test to prod.
+        Every workflow is validated by the parser before anything is written; nothing is imported if any fails.</p>
+
+    <!-- ===================== upload ===================== -->
+    <div class="panel">
+        <div class="form-row">
+            <div class="field">
+                <label>Export ZIP</label>
+                <input type="file" id="zipFile" accept=".zip,application/zip">
+            </div>
+        </div>
+        <div class="addline" style="margin-top:6px">
+            <button class="btn sm primary" onclick="uploadZip()">⇪ Upload &amp; inspect</button>
+            <span class="dim small">The ZIP is only staged; nothing is written until you press Import.</span>
+        </div>
+    </div>
+
+    <div id="afterUpload" style="display:none">
+        <div id="assetPanel"></div>
+
+        <h2 style="margin-top:22px">Workflows in this package</h2>
+        <div id="feedSummary" class="panel"></div>
+
+        <h2 style="margin-top:22px">Edit &amp; import</h2>
+        <p class="page-sub">Pick workflows with the three filters (multi-select, they narrow each other). One selected =
+            edit everything; several selected = edit only what they have in common. With no filter, all workflows in the
+            package are selected.</p>
+        <div class="panel">
+            <div class="selrow">
+                <div class="field">
+                    <label>Source <span class="rolabel">(sourceId — description)</span></label>
+                    <select id="selSource" multiple onchange="onSel()"></select>
+                </div>
+                <div class="field">
+                    <label>Target <span class="rolabel">(targetId — description)</span></label>
+                    <select id="selTarget" multiple onchange="onSel()"></select>
+                </div>
+                <div class="field">
+                    <label>Feed <span class="rolabel">(feedId — name)</span></label>
+                    <select id="selFeed" multiple onchange="onSel()"></select>
+                </div>
+            </div>
+            <div class="addline" style="margin-top:6px">
+                <button class="btn sm" onclick="clearSel()">✕ Clear selection</button>
+                <span class="dim small" id="selCount"></span>
+            </div>
+        </div>
+
+        <div id="editorWrap"></div>
+        <div class="addline" id="applyBar" style="display:none;margin-top:10px">
+            <button class="btn sm primary" onclick="applyImport()">⇪ Import selected workflows</button>
+            <span class="dim small">All XML is validated before any of it is written.</span>
+        </div>
+        <div id="results" style="margin-top:10px"></div>
+    </div>
+</div>
+
+<script th:src="@{/js/modal.js}"></script>
+<script th:src="@{/js/theme.js}"></script>
+<script th:inline="none">
+    function tick(){ var c=document.getElementById('clock'); if(c) c.textContent=new Date().toLocaleString('it-IT'); }
+    tick(); setInterval(tick,1000);
+    var CTX = (function(){ var b=document.querySelector('.brand'); var h=b?b.getAttribute('href'):'/'; return h.charAt(h.length-1)==='/'?h:h+'/'; })();
+    function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+    function el(tag,cls,parent){ var e=document.createElement(tag); if(cls)e.className=cls; if(parent)parent.appendChild(e); return e; }
+    function banner(ok,msg){ var b=document.getElementById('banner'); b.innerHTML='<div class="banner '+(ok?'ok':'error')+'">'+msg+'</div>'; }
+    function readJson(r){ var ct=r.headers.get('content-type')||''; if(ct.indexOf('application/json')<0){ return r.text().then(function(t){ return { ok:false, error:(t&&t.length<300)?t:('HTTP '+r.status) }; }); } return r.json(); }
+
+    var IMPORT = null;   // {token, workflows[], manifest, assets}
+    var selSrc={}, selTgt={}, selFeed={};
+
+    // ---------------- upload ----------------
+    function uploadZip(){
+        var inp=document.getElementById('zipFile');
+        if(!inp.files || !inp.files.length){ banner(false,'Choose a ZIP file first.'); return; }
+        var fd=new FormData(); fd.append('file', inp.files[0]);
+        banner(true,'Uploading &amp; inspecting…');
+        fetch(CTX+'api/workflows/import/inspect',{method:'POST',body:fd})
+            .then(readJson).then(function(j){
+                if(!j.ok){ banner(false, esc(j.error||'inspect failed')); return; }
+                IMPORT=j; selSrc={}; selTgt={}; selFeed={};
+                document.getElementById('afterUpload').style.display='';
+                renderAssets(); renderFeedSummary(); populateAll(); renderEditor();
+                banner(true,'Loaded '+(j.workflows?j.workflows.length:0)+' workflow(s). Review and import below.');
+            }).catch(function(e){ banner(false,'Error: '+esc(e)); });
+    }
+
+    // ---------------- asset + feed summary ----------------
+    function renderAssets(){
+        var host=document.getElementById('assetPanel'); host.innerHTML='';
+        var a=IMPORT.assets||{};
+        var sec=el('div','panel',host);
+        var t=el('div','sub-label',sec); t.textContent='Bundled files (imported non-destructively — existing items are kept, never overwritten)';
+        sec.appendChild(assetLine('Scripts → scripts dir', a.scripts, 'name'));
+        sec.appendChild(assetLine('Datasources (passwords blank)', a.datasources, 'id'));
+        sec.appendChild(assetLine('Global variables', a.globals, 'name'));
+    }
+    function assetLine(label, arr, key){
+        var d=document.createElement('div'); d.className='dim small'; d.style.margin='3px 0';
+        arr=arr||[];
+        if(!arr.length){ d.innerHTML='<b>'+esc(label)+':</b> none'; return d; }
+        var parts=arr.map(function(it){ var nm=it[key]; return esc(nm)+(it.exists?' <span class="res-ok">(exists)</span>':' <span class="chip sm">new</span>'); });
+        d.innerHTML='<b>'+esc(label)+':</b> '+parts.join(' · ');
+        return d;
+    }
+    function renderFeedSummary(){
+        var host=document.getElementById('feedSummary'); host.innerHTML='';
+        var h='<table class="grid"><thead><tr><th>Feed ID</th><th>Name</th><th>Source</th><th>Target</th><th>Prod</th><th>Action</th></tr></thead><tbody>';
+        (IMPORT.workflows||[]).forEach(function(w){
+            if(w.error){ h+='<tr><td class="mono">'+esc(w.feedId)+'</td><td colspan="5" class="res-fail">'+esc(w.error)+'</td></tr>'; return; }
+            h+='<tr><td class="mono">'+esc(w.feedId)+'</td><td>'+esc(w.name)+'</td>'+
+               '<td class="mono small dim">'+esc(w.sourceId)+'</td>'+
+               '<td class="mono small dim">'+esc(w.targetId)+'</td>'+
+               '<td>'+(w.production?'<span class="chip sm">PROD</span>':'')+'</td>'+
+               '<td>'+(w.exists?'<span class="chip sm">update</span>':'<span class="chip sm res-ok">new</span>')+'</td></tr>';
+        });
+        h+='</tbody></table>';
+        host.innerHTML=h;
+    }
+    function goodFeeds(){ return (IMPORT.workflows||[]).filter(function(w){ return !w.error; }); }
+
+    // ---------------- selectors (cascading) ----------------
+    function matches(wf, useSrc, useTgt, useFeed){
+        if(useSrc && Object.keys(selSrc).length && !selSrc[wf.sourceId]) return false;
+        if(useTgt && Object.keys(selTgt).length && !selTgt[wf.targetId]) return false;
+        if(useFeed && Object.keys(selFeed).length && !selFeed[wf.feedId]) return false;
+        return true;
+    }
+    function fillSelect(sel, items, chosen){
+        sel.innerHTML='';
+        items.forEach(function(it){
+            var o=document.createElement('option'); o.value=it.value; o.textContent=it.label;
+            if(chosen[it.value]) o.selected=true;
+            sel.appendChild(o);
+        });
+    }
+    function distinct(kind){
+        var map={}; var order=[];
+        goodFeeds().forEach(function(wf){
+            var useSrc=(kind!=='source'), useTgt=(kind!=='target'), useFeed=(kind!=='feed');
+            if(!matches(wf,useSrc,useTgt,useFeed)) return;
+            var val,label;
+            if(kind==='source'){ val=wf.sourceId; label=(val||'(none)')+(wf.sourceDescription?(' — '+wf.sourceDescription):''); }
+            else if(kind==='target'){ val=wf.targetId; label=(val||'(none)')+(wf.targetDescription?(' — '+wf.targetDescription):''); }
+            else { val=wf.feedId; label=val+(wf.name?(' — '+wf.name):''); }
+            if(!(val in map)){ map[val]=label; order.push(val); }
+        });
+        return order.map(function(v){ return {value:v,label:map[v]}; });
+    }
+    function populateAll(){
+        fillSelect(document.getElementById('selSource'), distinct('source'), selSrc);
+        fillSelect(document.getElementById('selTarget'), distinct('target'), selTgt);
+        fillSelect(document.getElementById('selFeed'), distinct('feed'), selFeed);
+    }
+    function readSel(id){ var s=document.getElementById(id); var m={}; for(var i=0;i<s.options.length;i++){ if(s.options[i].selected) m[s.options[i].value]=true; } return m; }
+    function onSel(){ selSrc=readSel('selSource'); selTgt=readSel('selTarget'); selFeed=readSel('selFeed'); populateAll(); renderEditor(); }
+    function clearSel(){ selSrc={}; selTgt={}; selFeed={}; populateAll(); renderEditor(); }
+    function effectiveFeeds(){ return goodFeeds().filter(function(wf){ return matches(wf,true,true,true); }); }
+
+    // ---------------- editor ----------------
+    function markDirty(inp){ var line=inp.parentNode; line.className=line.className.replace(/\bdirty\b/,'').trim()+' dirty'; inp.setAttribute('data-dirty','1'); }
+    function valLine(host, name, value, hint, multi){
+        var line=el('div','vline',host);
+        var n=el('div','vname',line); n.textContent=name;
+        var inp;
+        if(multi){ inp=el('textarea','vval',line); inp.rows=4; inp.style.width='100%'; inp.style.fontFamily='monospace'; }
+        else { inp=el('input','vval',line); }
+        inp.value=(value==null?'':value); inp.setAttribute('data-name',name);
+        inp.addEventListener('input',function(){ markDirty(inp); });
+        if(hint){ var h=el('span','vhint',line); h.textContent=hint; }
+        return inp;
+    }
+    function commonFieldKeys(arr){ var c={}; arr.forEach(function(st){ var f=st.fields||{}; Object.keys(f).forEach(function(k){ c[k]=(c[k]||0)+1; }); }); return Object.keys(c).filter(function(k){ return c[k]===arr.length; }); }
+    function commonParamKeys(arr){ var c={}; arr.forEach(function(st){ (st.params||[]).forEach(function(pp){ c[pp.name]=(c[pp.name]||0)+1; }); }); return Object.keys(c).filter(function(k){ return c[k]===arr.length; }); }
+    function paramVal(st,name){ var v=''; (st.params||[]).forEach(function(pp){ if(pp.name===name) v=pp.value; }); return v; }
+    function isResParam(name){ return name==='deleteOnSuccess' || name==='deleteOnSuccessType' || (name && name.indexOf('outputData.')===0); }
+    function odText(st){ var lines=[]; (st.params||[]).forEach(function(p){ if(p.name && p.name.indexOf('outputData.')===0) lines.push(p.name.substring(11)+' = '+(p.value||'')); }); return lines.join(String.fromCharCode(10)); }
+
+    function identityBlock(host, feeds){
+        var single = feeds.length===1;
+        var sec=el('div','vsection identity',host); var hd=el('div','vhead',sec);
+        hd.textContent='Feed identity — applies to '+(single?'this feed':('the '+feeds.length+' selected feeds'));
+        var bd=el('div','vbody',sec);
+        var tvals=feeds.map(function(f){ return f.targetId||''; }); var tEq=tvals.every(function(x){ return x===tvals[0]; });
+        var tinp=valLine(bd,'targetId', tEq?tvals[0]:'', single?'change the target to move test → prod':'(differ across feeds — type to set the same for all)');
+        tinp.setAttribute('data-scope','identity');
+        // production select
+        var line=el('div','vline',bd);
+        var n=el('div','vname',line); n.textContent='production';
+        var sel=el('select','vval',line);
+        var opts=[]; opts.push({v:'',t:'— leave unchanged —'}); opts.push({v:'true',t:'production (PROD)'}); opts.push({v:'false',t:'test (non-prod)'});
+        opts.forEach(function(o){ var op=document.createElement('option'); op.value=o.v; op.textContent=o.t; sel.appendChild(op); });
+        var pvals=feeds.map(function(f){ return !!f.production; }); var pEq=pvals.every(function(x){ return x===pvals[0]; });
+        sel.value = single ? (pvals[0]?'true':'false') : '';
+        sel.setAttribute('data-scope','identity'); sel.setAttribute('data-name','production');
+        sel.addEventListener('change',function(){ markDirty(sel); });
+        var h=el('span','vhint',line); h.textContent = single ? '' : (pEq?'':'(differ across feeds)');
+    }
+
+    function renderEditor(){
+        var host=document.getElementById('editorWrap'); host.innerHTML='';
+        document.getElementById('results').innerHTML='';
+        var feeds=effectiveFeeds();
+        document.getElementById('selCount').textContent=feeds.length+' workflow(s) selected';
+        document.getElementById('applyBar').style.display = feeds.length? '' : 'none';
+        if(!feeds.length){ var d=el('div','dim',host); d.textContent='Select one or more workflows above (or clear the filters to import all).'; return; }
+        if(feeds.length===1){ renderSingle(host, feeds[0]); }
+        else { renderCommon(host, feeds); }
+    }
+    function renderSingle(host, wf){
+        var fl=el('div','feedlist',host); fl.innerHTML='Importing <b>'+esc(wf.feedId)+'</b>'+(wf.name?(' — '+esc(wf.name)):'')+' — '+(wf.exists?'will UPDATE existing feed':'will CREATE new feed');
+        host.setAttribute('data-mode','single'); host.setAttribute('data-feed', wf.feedId);
+        identityBlock(host,[wf]);
+        var sec=el('div','vsection',host); var hd=el('div','vhead',sec); hd.textContent='Workflow variables';
+        var bd=el('div','vbody',sec);
+        var tgs=valLine(bd, 'tags', wf.tags||'', 'comma-separated tags, ${var} allowed'); tgs.setAttribute('data-scope','tags');
+        if(!wf.vars.length){ el('div','dim small',bd).textContent='No workflow variables.'; }
+        wf.vars.forEach(function(v){ var inp=valLine(bd, v.name, v.value, ''); inp.setAttribute('data-scope','var'); });
+        wf.steps.forEach(function(st){
+            var fieldKeys=st.fields?Object.keys(st.fields):[];
+            var hasParams=st.params&&st.params.length;
+            if(!fieldKeys.length && !hasParams) return;
+            var ssec=el('div','vsection',host); var sh=el('div','vhead',ssec);
+            sh.textContent='Step: '+st.id+(st.name?(' — '+st.name):'')+(st.exec?('  ['+st.exec+']'):'');
+            var sb=el('div','vbody',ssec);
+            fieldKeys.forEach(function(fk){ var inp=valLine(sb, fk, st.fields[fk], '', fk==='query'); inp.setAttribute('data-scope','field'); inp.setAttribute('data-step', st.id); });
+            if(hasParams) st.params.forEach(function(p){ if(isResParam(p.name)) return; var inp=valLine(sb, p.name, p.value, ''); inp.setAttribute('data-scope','param'); inp.setAttribute('data-step', st.id); });
+            var odi=valLine(sb, 'output data', odText(st), 'one per line: variable = description', true); odi.setAttribute('data-scope','outputData'); odi.setAttribute('data-step', st.id);
+            var dpi=valLine(sb, 'on-success delete (path)', paramVal(st,'deleteOnSuccess'), '${dir.<stepId>} or a file/dir path; empty = off'); dpi.setAttribute('data-scope','delPath'); dpi.setAttribute('data-step', st.id);
+            var dti=valLine(sb, 'on-success delete (type)', paramVal(st,'deleteOnSuccessType'), 'file | directory'); dti.setAttribute('data-scope','delType'); dti.setAttribute('data-step', st.id);
+        });
+    }
+    function renderCommon(host, feeds){
+        host.setAttribute('data-mode','multi');
+        var fl=el('div','feedlist',host);
+        fl.innerHTML='Importing <b>'+feeds.length+'</b> workflows, editing what they share: '+esc(feeds.map(function(f){return f.feedId;}).join(', '));
+        identityBlock(host, feeds);
+        var counts={}, valuesByName={};
+        feeds.forEach(function(f){ var seen={}; f.vars.forEach(function(v){ if(seen[v.name])return; seen[v.name]=1; counts[v.name]=(counts[v.name]||0)+1; (valuesByName[v.name]=valuesByName[v.name]||[]).push(v.value); }); });
+        var common=Object.keys(counts).filter(function(n){ return counts[n]===feeds.length; });
+        var sec=el('div','vsection',host); var hd=el('div','vhead',sec); hd.textContent='Common workflow variables ('+common.length+')';
+        var bd=el('div','vbody',sec);
+        var tvals=feeds.map(function(f){ return f.tags||''; }); var tEq=tvals.every(function(x){ return x===tvals[0]; });
+        var tgs=valLine(bd, 'tags', tEq?tvals[0]:'', tEq?'comma-separated tags, ${var} allowed':'(differ across feeds — type to set for all)'); tgs.setAttribute('data-scope','tags');
+        if(!common.length){ el('div','dim small',bd).textContent='These workflows share no variable names.'; }
+        common.forEach(function(n){
+            var vals=valuesByName[n]; var allEqual=vals.every(function(x){ return x===vals[0]; });
+            var inp=valLine(bd, n, allEqual? vals[0] : '', allEqual? '' : '(values differ across feeds — type to set the same value for all)');
+            inp.setAttribute('data-scope','var');
+        });
+        var stepCount={}, stepById={};
+        feeds.forEach(function(f){ var seen={}; (f.steps||[]).forEach(function(st){ if(seen[st.id])return; seen[st.id]=1; stepCount[st.id]=(stepCount[st.id]||0)+1; (stepById[st.id]=stepById[st.id]||[]).push(st); }); });
+        var commonSteps=Object.keys(stepCount).filter(function(id){ return stepCount[id]===feeds.length; });
+        var ssec=el('div','vsection',host); var sh=el('div','vhead',ssec); sh.textContent='Common steps ('+commonSteps.length+')';
+        var sbd=el('div','vbody',ssec);
+        el('div','dim small',sbd).textContent='Steps with the same id in every selected feed. Editing a field applies the same value to all selected feeds.';
+        if(!commonSteps.length){ el('div','dim small',sbd).textContent='These workflows share no step id.'; }
+        commonSteps.forEach(function(id){
+            var arr=stepById[id];
+            var grp=el('div','vsection',sbd); var gh=el('div','vhead',grp); gh.textContent='Step: '+id;
+            var gb=el('div','vbody',grp);
+            commonFieldKeys(arr).forEach(function(fk){
+                var vals=arr.map(function(st){ return st.fields[fk]; });
+                var allEq=vals.every(function(x){ return x===vals[0]; });
+                var inp=valLine(gb, fk, allEq?vals[0]:'', allEq?'':'(differs across feeds — type to set for all)', fk==='query');
+                inp.setAttribute('data-scope','field'); inp.setAttribute('data-step', id);
+            });
+            commonParamKeys(arr).forEach(function(pn){
+                if(isResParam(pn)) return;
+                var vals=arr.map(function(st){ return paramVal(st,pn); });
+                var allEq=vals.every(function(x){ return x===vals[0]; });
+                var inp=valLine(gb, pn, allEq?vals[0]:'', allEq?'':'(differs across feeds — type to set for all)');
+                inp.setAttribute('data-scope','param'); inp.setAttribute('data-step', id);
+            });
+            (function(){
+                var ods=arr.map(odText); var odEq=ods.every(function(x){ return x===ods[0]; });
+                var odi=valLine(gb, 'output data', odEq?ods[0]:'', odEq?'one per line: variable = description':'(differs across feeds — type to set for all)', true); odi.setAttribute('data-scope','outputData'); odi.setAttribute('data-step', id);
+                var dps=arr.map(function(st){ return paramVal(st,'deleteOnSuccess'); }); var dpEq=dps.every(function(x){ return x===dps[0]; });
+                var dpi=valLine(gb, 'on-success delete (path)', dpEq?dps[0]:'', dpEq?'${dir.<stepId>} or path; empty = off':'(differs across feeds — type to set for all)'); dpi.setAttribute('data-scope','delPath'); dpi.setAttribute('data-step', id);
+                var dts=arr.map(function(st){ return paramVal(st,'deleteOnSuccessType'); }); var dtEq=dts.every(function(x){ return x===dts[0]; });
+                var dti=valLine(gb, 'on-success delete (type)', dtEq?dts[0]:'', dtEq?'file | directory':'(differs across feeds — type to set for all)'); dti.setAttribute('data-scope','delType'); dti.setAttribute('data-step', id);
+            })();
+        });
+    }
+
+    // ---------------- collect + apply ----------------
+    function collect(scopeHost){
+        var vars=[], stepsMap={}, tags;
+        var inputs=scopeHost.querySelectorAll('.vval[data-dirty="1"]');
+        for(var i=0;i<inputs.length;i++){ var inp=inputs[i]; var name=inp.getAttribute('data-name'); var scope=inp.getAttribute('data-scope');
+            if(scope==='identity'){ continue; }
+            if(scope==='var'){ vars.push({name:name,value:inp.value}); }
+            else if(scope==='tags'){ tags=inp.value; }
+            else { var sid=inp.getAttribute('data-step'); var e=stepsMap[sid]=stepsMap[sid]||{params:[],fields:[]};
+                if(scope==='field') e.fields.push({name:name,value:inp.value});
+                else if(scope==='outputData') e.outputData=inp.value;
+                else if(scope==='delPath') e.deleteOnSuccess=inp.value;
+                else if(scope==='delType') e.deleteOnSuccessType=inp.value;
+                else e.params.push({name:name,value:inp.value}); }
+        }
+        var steps=Object.keys(stepsMap).map(function(sid){ var e=stepsMap[sid]; var o={stepId:sid, params:e.params, fields:e.fields}; if(e.outputData!==undefined)o.outputData=e.outputData; if(e.deleteOnSuccess!==undefined)o.deleteOnSuccess=e.deleteOnSuccess; if(e.deleteOnSuccessType!==undefined)o.deleteOnSuccessType=e.deleteOnSuccessType; return o; });
+        return {vars:vars, steps:steps, tags:tags};
+    }
+    function collectIdentity(host){
+        var o={};
+        var ti=host.querySelector('input[data-scope="identity"][data-dirty="1"]');
+        if(ti) o.targetId=ti.value;
+        var pr=host.querySelector('select[data-scope="identity"][data-dirty="1"]');
+        if(pr){ if(pr.value==='true') o.production=true; else if(pr.value==='false') o.production=false; }
+        return o;
+    }
+    function applyImport(){
+        if(!IMPORT || !IMPORT.token){ banner(false,'Upload a ZIP first.'); window.scrollTo(0,0); return; }
+        var host=document.getElementById('editorWrap'); var mode=host.getAttribute('data-mode');
+        var feeds=effectiveFeeds();
+        if(!feeds.length){ banner(false,'Select at least one workflow to import.'); window.scrollTo(0,0); return; }
+        var ident=collectIdentity(host);
+        var edits=[];
+        if(mode==='single'){
+            var c=collect(host);
+            var e={feedId:host.getAttribute('data-feed'), vars:c.vars, steps:c.steps, tags:c.tags};
+            if('targetId' in ident) e.targetId=ident.targetId;
+            if('production' in ident) e.production=ident.production;
+            edits.push(e);
+        } else {
+            var c2=collect(host);
+            feeds.forEach(function(f){
+                var e2={feedId:f.feedId, vars:c2.vars, steps:c2.steps, tags:c2.tags};
+                if('targetId' in ident) e2.targetId=ident.targetId;
+                if('production' in ident) e2.production=ident.production;
+                edits.push(e2);
+            });
+        }
+        opConfirm('Import '+edits.length+' workflow(s)? Existing feeds with the same id are UPDATED (overwritten).', function(){
+            fetch(CTX+'api/workflows/import/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:IMPORT.token, edits:edits})})
+                .then(readJson).then(function(j){
+                    renderResults(j.results||[]); renderMerge(j);
+                    if(j.ok){ banner(true,'Imported '+j.imported+' workflow(s). Schema files written: '+(j.schemasWritten||0)+'. Go to the dashboard to see them.'); IMPORT=null; document.getElementById('applyBar').style.display='none'; }
+                    else banner(false, esc(j.error||'import failed'));
+                    window.scrollTo(0,0);
+                }).catch(function(e){ banner(false,'Error: '+esc(e)); });
+        }, { okText:'Import' });
+    }
+    function renderResults(results){
+        var host=document.getElementById('results'); host.innerHTML='';
+        if(!results.length) return;
+        var sec=el('div','vsection',host); var hd=el('div','vhead',sec); hd.textContent='Import results';
+        var bd=el('div','vbody',sec);
+        results.forEach(function(r){
+            var line=el('div','vline',bd);
+            var n=el('div','vname',line); n.textContent=r.feedId;
+            var st=el('span', r.ok?'res-ok':'res-fail', line); st.textContent=r.ok?(r.mode||'ok'):('FAILED: '+(r.error||''));
+        });
+    }
+    function renderMerge(j){
+        if(!j || !j.ok) return;
+        var host=document.getElementById('results');
+        var sec=el('div','vsection',host); var hd=el('div','vhead',sec); hd.textContent='Bundled files merged';
+        var bd=el('div','vbody',sec);
+        function mergeRow(label, r, addedKey, otherKey){
+            var added=(r&&r[addedKey])||[], other=(r&&r[otherKey])||[];
+            var d=el('div','dim small',bd);
+            d.innerHTML='<b>'+esc(label)+':</b> '+added.length+' new'+(other.length?(', '+other.length+' kept ('+esc(other.join(', '))+')'):'')+(added.length?(' — '+esc(added.join(', '))):'');
+        }
+        mergeRow('Scripts', j.scripts, 'written', 'skipped');
+        mergeRow('Datasources', j.datasources, 'created', 'skipped');
+        mergeRow('Global variables', j.globals, 'added', 'skipped');
+    }
+</script>
+</body>
+</html>

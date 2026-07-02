@@ -294,3 +294,28 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * run.html: LOOP_IDS captured from def; refresh() reads __loop.<id>.i/.n from run.vars and
   calls setLoopState (iter = i+1, count = n); clears when absent. Internal __ vars hidden in
   the variables dump.
+
+## Workflow export / import (port/WorkflowPorter)
+* New package `port/` with `WorkflowPorter` (@Component): packs workflows + every file they
+  need into one ZIP and unpacks it on import. JDK + Jackson only. See
+  `.claude/workflow-export-import.md`.
+* Export: bulk-select on the dashboard → **⤓ Export selected** → `GET /api/workflows/export?feeds=a,b,c`
+  streams a ZIP. Layout: `manifest.json`, `workflows/<feedId>.xml` (copied verbatim, byte-stable),
+  `schemas/<feedId>/{dataschema,displayschema}.json`, `scripts/<name>` (step `script` attrs
+  resolved vs scripts-dir, deduped), `datasources/datasources.json` (referenced defs, **passwords
+  blanked**), `globals/global-vars.properties` (referenced ${name} file-globals, secret-looking
+  keys redacted). Secrets never leave: masking-secret and application.properties globals omitted.
+* Import page `/import` (import.html): upload ZIP → `POST /api/workflows/import/inspect` (multipart)
+  extracts to a token-keyed staging dir (zip-slip guarded, TTL-swept) and returns a Variables-page-
+  shaped view per workflow + `exists` (create/update) + bundled-asset summary. Editor reuses the
+  Variables selection model (SOURCE/TARGET/FEED cascading multiselects; single=full, multi=common)
+  and adds a **Feed identity** block editing **targetId** and the **production** flag (the test→prod
+  switch) — dirty-tracked, applied only when changed.
+* `POST /api/workflows/import/apply` {token, edits[]}: per selected feed the staged XML is parsed →
+  toDto → edits applied (targetId/production via new fields; vars/tags/steps via the shared
+  `applyEditsToDto`, refactored out of the variables-save path) → `xmlWriter.toXml` → validated with
+  `xmlParser` before ANY write; nothing imported if any feed fails or has an active run. On update
+  the existing file (by its real sourceFile name) is overwritten. Then reload, schemas → feedDir,
+  scripts → scripts-dir (skip existing), datasources merged (create-if-missing, blank pwd),
+  globals merged (add-if-missing) — all non-destructive and reported; then reschedule + cleanup.
+* Dashboard: **⇪ Import** toolbar link + **⤓ Export selected** bulk-bar button (`bulkExport()`).

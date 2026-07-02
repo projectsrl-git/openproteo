@@ -192,6 +192,11 @@ public class PageController {
         return "variables";
     }
 
+    @GetMapping("/import")
+    public String importPage() {
+        return "import";
+    }
+
     @GetMapping("/overview")
     public String overview() {
         return "overview";

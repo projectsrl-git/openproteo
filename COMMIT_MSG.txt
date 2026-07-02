@@ -1,19 +1,47 @@
-Bulk actions: add lock/unlock/clear-history; enable them on Operations drill
+Add workflow export (ZIP) and import with test->prod editor
 
-Extend multi-select bulk actions and bring them to the Operations feed list.
+Export one or many workflows from the dashboard as a single ZIP that carries
+the workflow XML plus every file needed to run them on another instance;
+import such a ZIP back, creating or updating feeds by feedId.
 
-- templates/dashboard.html: the selection bulk bar gains Lock, Unlock and
-  Clear history, alongside the existing Run and Delete. Each iterates the
-  selected feeds over the existing per-feed endpoints (/lock?locked=true|false,
-  /clear-history) via the existing runSeq helper, then reports ok/failed.
-- templates/overview.html: the drill-down feed list (opened from the rollup
-  totals) becomes multi-selectable -- a select-all header checkbox and per-row
-  checkboxes -- with a bulk bar offering Run, Lock, Unlock, Clear history and
-  Delete. The selection is kept in a small set so it survives the periodic
-  (20s) feed refresh that re-renders the list. Actions reuse the same per-feed
-  endpoints and refresh the view when done.
+New port/WorkflowPorter (@Component, JDK + Jackson only) builds and unpacks the
+package. ZIP layout: manifest.json, workflows/<feedId>.xml (copied verbatim),
+schemas/<feedId>/{dataschema,displayschema}.json, scripts/<name> (step script
+attrs resolved vs scripts-dir, deduped), datasources/datasources.json
+(referenced defs, passwords blanked) and globals/global-vars.properties
+(referenced ${name} file-globals, secret-looking keys redacted). Secrets never
+leave: the masking secret and application.properties globals are omitted.
 
-No backend change: clear-history still refuses PRODUCTION feeds and feeds with
-an active run, and those are reported as skipped/failed in the summary.
+Dashboard: "Export selected" bulk-bar button -> GET /api/workflows/export?feeds
+streams the ZIP; new "Import" toolbar link.
 
-Both templates pass node --check; no literal \n/\r, no unsafe Thymeleaf inline.
+Import page /import (import.html): upload -> POST /api/workflows/import/inspect
+(multipart) extracts to a token-keyed staging dir (zip-slip guarded, TTL-swept)
+and returns a Variables-page-shaped view per workflow plus create/update and a
+bundled-asset summary. The editor reuses the Variables selection model
+(SOURCE/TARGET/FEED cascading multiselects; single = full, multi = common) and
+adds a Feed identity block that edits targetId and the production flag (the
+test -> prod switch), dirty-tracked and applied only when changed.
+
+POST /api/workflows/import/apply parses each staged XML -> DTO -> applies edits
+(targetId/production plus vars/tags/steps via applyEditsToDto, refactored out of
+the variables-save path) -> re-serialises and validates with the parser before
+any write; nothing is imported if any feed fails or has an active run. On update
+the existing file is overwritten by its real name. Then reload, schemas ->
+feedDir, scripts -> scripts-dir (skip existing), datasources merged
+(create-if-missing, blank password) and globals merged (add-if-missing) - all
+non-destructive and reported - then reschedule and cleanup.
+
+Files: new port/WorkflowPorter.java, templates/import.html,
+.claude/workflow-export-import.md; edited web/ApiController.java (inject porter;
+export/import endpoints; feedView/importAssets helpers; applyEditsToDto
+refactor), web/PageController.java (/import route), templates/dashboard.html
+(export button + import link), CLAUDE.md.
+
+Backward compatible: additive only; no XML schema, parser/writer or executor
+change; unreferenced features stay byte-stable.
+
+Verification: mvn -o clean package builds (BUILD SUCCESS, openproteo.war
+produced); inline <script> blocks of import.html and dashboard.html pass a
+Nashorn compile check (node unavailable in this environment); templates contain
+no '[[' / '[(' outside inlining and no literal newline escapes in JS.

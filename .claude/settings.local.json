@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep -l \"variables\")",
+      "Bash(xargs grep -l \"datasources.json\\\\|datasource\")",
+      "Bash(xargs grep -l \"dataschema\\\\|displayschema\\\\|sourceSchema\\\\|targetSchema\")",
+      "Bash(xargs grep -l \"\\\\.properties\\\\|variables.json\\\\|per-feed\\\\|per feed\")",
+      "Bash(xargs grep -l \"export\\\\|zip\\\\|archive\")",
+      "PowerShell(mvn -o clean package -DskipTests -q 2>&1)",
+      "PowerShell($env:JAVA_HOME=\"D:\\\\Programmi\\\\Java\\\\openjdk8\"; $env:PATH=\"$env:JAVA_HOME\\\\bin;$env:PATH\"; & \"D:\\\\SVILUPPO\\\\apache-maven-3.9.12\\\\bin\\\\mvn.cmd\" -o clean package -DskipTests -q 2>&1 | Select-Object -Last 70)",
+      "PowerShell($env:JAVA_HOME=\"D:\\\\Programmi\\\\Java\\\\openjdk8\"; $env:PATH=\"$env:JAVA_HOME\\\\bin;$env:PATH\"; & \"D:\\\\SVILUPPO\\\\apache-maven-3.9.12\\\\bin\\\\mvn.cmd\" -o clean package -DskipTests -q 2>&1 | Select-Object -Last 40)",
+      "PowerShell($node = Get-Command node -ErrorAction SilentlyContinue; if\\($node\\){ \"node: $\\($node.Source\\)\"; node --version } else { \"node not found\" })",
+      "PowerShell($env:JAVA_HOME=\"D:\\\\Programmi\\\\Java\\\\openjdk8\"; $env:PATH=\"$env:JAVA_HOME\\\\bin;$env:PATH\"; & \"D:\\\\SVILUPPO\\\\apache-maven-3.9.12\\\\bin\\\\mvn.cmd\" -o clean package -DskipTests -q 2>&1 | Select-Object -Last 30; \"BUILD_EXIT=$LASTEXITCODE\")"
+    ]
+  }
+}

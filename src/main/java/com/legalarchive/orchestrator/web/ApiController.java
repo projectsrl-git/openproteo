@@ -57,6 +57,7 @@ public class ApiController {
     private final SqlSupport sql;
     private final AssetStore assets;
     private final CsvService csv;
+    private final com.legalarchive.orchestrator.port.WorkflowPorter porter;
     private final ObjectMapper mapper = new ObjectMapper();
     private final WorkflowXmlWriter xmlWriter = new WorkflowXmlWriter();
     private final WorkflowXmlParser xmlParser = new WorkflowXmlParser();
@@ -64,7 +65,8 @@ public class ApiController {
     public ApiController(WorkflowRegistry registry, WorkflowEngine engine, RunStore store,
                          AuditLogger audit, WorkflowScheduler scheduler, AppProperties props,
                          DataSourceStore dataSources, SqlSupport sql, AssetStore assets, CsvService csv,
-                         com.legalarchive.orchestrator.store.GlobalVarsStore globalVars) {
+                         com.legalarchive.orchestrator.store.GlobalVarsStore globalVars,
+                         com.legalarchive.orchestrator.port.WorkflowPorter porter) {
         this.registry = registry;
         this.engine = engine;
         this.store = store;
@@ -76,6 +78,7 @@ public class ApiController {
         this.assets = assets;
         this.csv = csv;
         this.globalVars = globalVars;
+        this.porter = porter;
     }
 
     // ----------------------------------------------------------- datasources
@@ -616,6 +619,258 @@ public class ApiController {
             f = new java.io.File(props.getWorkflowsDir(), new java.io.File(tpl.sourceFile).getName());
         }
         return new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+    }
+
+    // ============================ export / import =============================
+
+    /** Stream a ZIP with the selected workflows and every file they reference. */
+    @GetMapping("/api/workflows/export")
+    public void exportWorkflows(@RequestParam("feeds") String feeds,
+                                javax.servlet.http.HttpServletResponse resp) throws java.io.IOException {
+        java.util.List<String> ids = new java.util.ArrayList<String>();
+        if (feeds != null) for (String s : feeds.split(",")) { String t = s.trim(); if (!t.isEmpty()) ids.add(t); }
+        if (ids.isEmpty()) {
+            resp.setStatus(HttpStatus.BAD_REQUEST.value());
+            resp.setContentType("text/plain;charset=UTF-8");
+            resp.getWriter().write("No feeds requested");
+            return;
+        }
+        String fname = "openproteo-workflows-" + (ids.size() == 1 ? ids.get(0) : (ids.size() + "-feeds")) + ".zip";
+        fname = fname.replaceAll("[^A-Za-z0-9._-]", "_");
+        resp.setContentType("application/zip");
+        resp.setHeader("Content-Disposition", "attachment; filename=\"" + fname + "\"");
+        porter.writeZip(ids, resp.getOutputStream());
+        resp.getOutputStream().flush();
+    }
+
+    /** Upload an export ZIP: extract to staging and return an editable view of every workflow. */
+    @PostMapping("/api/workflows/import/inspect")
+    public ResponseEntity<Map<String, Object>> importInspect(
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        try {
+            if (file == null || file.isEmpty()) return badRequest(out, "No file uploaded");
+            String token = porter.extractToStaging(file.getBytes());
+            java.util.List<Map<String, Object>> feeds = new java.util.ArrayList<Map<String, Object>>();
+            for (Path p : porter.stagedWorkflowXmls(token)) {
+                try {
+                    WorkflowDef def = xmlParser.parse(p.toFile());
+                    feeds.add(feedView(def, registry.get(def.feedId) != null));
+                } catch (Exception pe) {
+                    Map<String, Object> bad = new LinkedHashMap<String, Object>();
+                    bad.put("feedId", p.getFileName().toString());
+                    bad.put("error", "invalid workflow XML: " + pe.getMessage());
+                    feeds.add(bad);
+                }
+            }
+            if (feeds.isEmpty()) { porter.cleanup(token); return badRequest(out, "The ZIP contains no workflows/*.xml"); }
+            out.put("ok", true);
+            out.put("token", token);
+            out.put("workflows", feeds);
+            out.put("manifest", porter.manifest(token));
+            out.put("assets", importAssets(token));
+            return ResponseEntity.ok(out);
+        } catch (Exception e) {
+            return badRequest(out, e.getMessage() == null ? e.toString() : e.getMessage());
+        }
+    }
+
+    /** Build the Variables-page-shaped view of a workflow (plus production + exists). */
+    private Map<String, Object> feedView(WorkflowDef def, boolean exists) {
+        WorkflowDto dto = toDto(def);
+        Map<String, Object> w = new LinkedHashMap<String, Object>();
+        w.put("feedId", dto.feedId);
+        w.put("name", dto.name == null ? "" : dto.name);
+        w.put("sourceId", dto.sourceId == null ? "" : dto.sourceId);
+        w.put("targetId", dto.targetId == null ? "" : dto.targetId);
+        w.put("sourceDescription", dto.sourceDescription == null ? "" : dto.sourceDescription);
+        w.put("targetDescription", dto.targetDescription == null ? "" : dto.targetDescription);
+        w.put("production", dto.production);
+        w.put("exists", exists);
+        w.put("tags", (dto.tags == null || dto.tags.isEmpty()) ? "" : String.join(", ", dto.tags));
+        java.util.List<Map<String, String>> vars = new java.util.ArrayList<Map<String, String>>();
+        for (WorkflowDto.KV kv : dto.variables) {
+            Map<String, String> m = new LinkedHashMap<String, String>();
+            m.put("name", kv.name); m.put("value", kv.value == null ? "" : kv.value);
+            vars.add(m);
+        }
+        w.put("vars", vars);
+        java.util.List<Map<String, Object>> steps = new java.util.ArrayList<Map<String, Object>>();
+        for (WorkflowDto.NodeDto nd : dto.nodes) {
+            if (!"STEP".equals(nd.kind)) continue;
+            Map<String, Object> sm = new LinkedHashMap<String, Object>();
+            sm.put("id", nd.id); sm.put("name", nd.name == null ? "" : nd.name); sm.put("exec", nd.exec == null ? "" : nd.exec);
+            java.util.List<Map<String, String>> ps = new java.util.ArrayList<Map<String, String>>();
+            if (nd.params != null) for (WorkflowDto.KV kv : nd.params) {
+                Map<String, String> m = new LinkedHashMap<String, String>();
+                m.put("name", kv.name); m.put("value", kv.value == null ? "" : kv.value);
+                ps.add(m);
+            }
+            sm.put("params", ps);
+            Map<String, Object> fields = new LinkedHashMap<String, Object>();
+            if (nd.query != null) fields.put("query", nd.query);
+            if (nd.source != null) fields.put("source", nd.source);
+            if (nd.dest != null) fields.put("dest", nd.dest);
+            if (nd.datasource != null) fields.put("datasource", nd.datasource);
+            if (nd.ifsPath != null) fields.put("ifsPath", nd.ifsPath);
+            if (nd.csvFile != null) fields.put("csvFile", nd.csvFile);
+            if (nd.delimiter != null) fields.put("delimiter", nd.delimiter);
+            sm.put("fields", fields);
+            steps.add(sm);
+        }
+        w.put("steps", steps);
+        return w;
+    }
+
+    /** Summarise the bundled assets and whether each already exists on this instance. */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> importAssets(String token) {
+        Map<String, Object> manifest = porter.manifest(token);
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        java.util.List<Map<String, Object>> scripts = new java.util.ArrayList<Map<String, Object>>();
+        Object sc = manifest.get("scripts");
+        if (sc instanceof java.util.List) for (Object o : (java.util.List<Object>) sc) {
+            String n = String.valueOf(o);
+            Map<String, Object> m = new LinkedHashMap<String, Object>();
+            m.put("name", n); m.put("exists", new java.io.File(props.getScriptsDir(), n).isFile());
+            scripts.add(m);
+        }
+        out.put("scripts", scripts);
+        java.util.List<Map<String, Object>> dss = new java.util.ArrayList<Map<String, Object>>();
+        Object ds = manifest.get("datasources");
+        if (ds instanceof java.util.List) for (Object o : (java.util.List<Object>) ds) {
+            String id = String.valueOf(o);
+            Map<String, Object> m = new LinkedHashMap<String, Object>();
+            m.put("id", id); m.put("exists", dataSources.get(id) != null);
+            dss.add(m);
+        }
+        out.put("datasources", dss);
+        java.util.List<Map<String, Object>> gls = new java.util.ArrayList<Map<String, Object>>();
+        Object gl = manifest.get("globals");
+        Map<String, String> curGlobals = globalVars.fileVars();
+        if (gl instanceof java.util.List) for (Object o : (java.util.List<Object>) gl) {
+            String k = String.valueOf(o);
+            Map<String, Object> m = new LinkedHashMap<String, Object>();
+            m.put("name", k); m.put("exists", curGlobals.containsKey(k));
+            gls.add(m);
+        }
+        out.put("globals", gls);
+        return out;
+    }
+
+    public static class ImportApplyReq {
+        public String token;
+        public java.util.List<FeedImport> edits;
+        public static class FeedImport {
+            public String feedId;
+            public String targetId;     // null = unchanged
+            public Boolean production;  // null = unchanged
+            public java.util.List<WorkflowDto.KV> vars;
+            public java.util.List<VarSaveReq.StepEdit> steps;
+            public String tags;
+        }
+    }
+
+    /**
+     * Apply a staged import. Each selected feed's XML is edited (targetId / production / common
+     * vars / step params), re-serialised and validated with the parser BEFORE anything is written;
+     * if any feed fails, nothing is imported. Then schemas, scripts, datasources and globals from
+     * the ZIP are merged (non-destructively) and the registry is reloaded.
+     */
+    @PostMapping("/api/workflows/import/apply")
+    public ResponseEntity<Map<String, Object>> importApply(@RequestBody ImportApplyReq body) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        if (body == null || body.token == null || porter.stagingDir(body.token) == null)
+            return badRequest(out, "Missing or invalid import token (re-upload the ZIP)");
+        if (body.edits == null || body.edits.isEmpty()) return badRequest(out, "No workflows selected to import");
+
+        Map<String, Path> staged = new LinkedHashMap<String, Path>();
+        try {
+            for (Path p : porter.stagedWorkflowXmls(body.token)) {
+                try { WorkflowDef d = xmlParser.parse(p.toFile()); staged.put(d.feedId, p); } catch (Exception ignore) {}
+            }
+        } catch (Exception e) { return badRequest(out, "Cannot read import staging: " + e.getMessage()); }
+
+        java.util.List<Map<String, Object>> results = new java.util.ArrayList<Map<String, Object>>();
+        java.util.List<String[]> toWrite = new java.util.ArrayList<String[]>(); // {feedId, fileName, xml}
+        boolean allOk = true;
+
+        for (ImportApplyReq.FeedImport fe : body.edits) {
+            Map<String, Object> r = new LinkedHashMap<String, Object>();
+            r.put("feedId", fe.feedId);
+            Path src = fe.feedId == null ? null : staged.get(fe.feedId);
+            if (src == null) { r.put("ok", false); r.put("error", "not found in ZIP"); results.add(r); allOk = false; continue; }
+            if (registry.get(fe.feedId) != null && engine.activeRunId(fe.feedId) != null) {
+                r.put("ok", false); r.put("error", "a run is currently active for this feed"); results.add(r); allOk = false; continue;
+            }
+            Path tmp = null;
+            try {
+                WorkflowDef def = xmlParser.parse(src.toFile());
+                WorkflowDto dto = toDto(def);
+                if (fe.targetId != null) dto.targetId = fe.targetId.trim().isEmpty() ? null : fe.targetId.trim();
+                if (fe.production != null) dto.production = fe.production.booleanValue();
+                applyEditsToDto(dto, fe.vars, fe.tags, fe.steps);
+                String xml = xmlWriter.toXml(dto);
+                java.io.File dir = new java.io.File(props.getWorkflowsDir());
+                if (!dir.isDirectory()) dir.mkdirs();
+                tmp = Files.createTempFile(dir.toPath(), "_import_", ".tmp");
+                Files.write(tmp, xml.getBytes(StandardCharsets.UTF_8));
+                xmlParser.parse(tmp.toFile());  // validate with the real parser
+                WorkflowDef existing = registry.get(def.feedId);
+                String fileName = def.feedId + ".xml";
+                if (existing != null && existing.sourceFile != null) fileName = new java.io.File(existing.sourceFile).getName();
+                toWrite.add(new String[]{def.feedId, fileName, xml});
+                r.put("ok", true); r.put("mode", existing != null ? "updated" : "created");
+            } catch (Exception e) {
+                r.put("ok", false); r.put("error", e.getMessage() == null ? e.toString() : e.getMessage()); allOk = false;
+            } finally {
+                if (tmp != null) try { Files.deleteIfExists(tmp); } catch (Exception ignore) {}
+            }
+            results.add(r);
+        }
+
+        if (!allOk) {
+            out.put("ok", false);
+            out.put("error", "Nothing was imported: one or more workflows failed validation.");
+            out.put("results", results);
+            return ResponseEntity.badRequest().body(out);
+        }
+
+        java.io.File dir = new java.io.File(props.getWorkflowsDir());
+        try {
+            for (String[] s : toWrite) Files.write(dir.toPath().resolve(s[1]), s[2].getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            return badRequest(out, "Validation passed but writing failed: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+        }
+        registry.reload();
+
+        int schemasWritten = 0;
+        for (String[] s : toWrite) {
+            try {
+                FeedLayout layout = registry.layout(s[0]);
+                if (layout == null) continue;
+                layout.provision();
+                schemasWritten += porter.writeSchemas(body.token, s[0], layout.feedDir).size();
+            } catch (Exception ignore) {}
+        }
+
+        Map<String, Object> scriptsRes;
+        try { scriptsRes = porter.writeScripts(body.token); }
+        catch (Exception e) { scriptsRes = new LinkedHashMap<String, Object>(); }
+        Map<String, Object> dsRes = porter.mergeDatasources(body.token);
+        Map<String, Object> globalsRes = porter.mergeGlobals(body.token);
+
+        scheduler.reschedule();
+        porter.cleanup(body.token);
+
+        out.put("ok", true);
+        out.put("imported", toWrite.size());
+        out.put("schemasWritten", schemasWritten);
+        out.put("scripts", scriptsRes);
+        out.put("datasources", dsRes);
+        out.put("globals", globalsRes);
+        out.put("results", results);
+        return ResponseEntity.ok(out);
     }
 
     /** Lock or unlock a feed for maintenance. Locked feeds refuse manual and scheduled runs
@@ -1559,6 +1814,59 @@ public class ApiController {
         else if ("delimiter".equals(field)) nd.delimiter = value;
     }
 
+    /** Apply workflow variable / tag / step-param edits onto a DTO in place (shared by the
+        variables page and the import page). Null sub-lists / tags leave that facet unchanged. */
+    private static void applyEditsToDto(WorkflowDto dto, java.util.List<WorkflowDto.KV> vars,
+                                        String tags, java.util.List<VarSaveReq.StepEdit> steps) {
+        if (vars != null) {
+            for (WorkflowDto.KV kv : vars) {
+                if (kv.name == null || kv.name.trim().isEmpty()) continue;
+                boolean found = false;
+                for (WorkflowDto.KV ex : dto.variables) { if (kv.name.equals(ex.name)) { ex.value = kv.value; found = true; break; } }
+                if (!found) dto.variables.add(new WorkflowDto.KV(kv.name.trim(), kv.value == null ? "" : kv.value));
+            }
+        }
+        if (tags != null) {
+            dto.tags.clear();
+            for (String t : tags.split(",")) { String tt = t.trim(); if (!tt.isEmpty()) dto.tags.add(tt); }
+        }
+        if (steps != null) {
+            for (VarSaveReq.StepEdit se : steps) {
+                if (se.stepId == null) continue;
+                for (WorkflowDto.NodeDto nd : dto.nodes) {
+                    if (!"STEP".equals(nd.kind) || !se.stepId.equals(nd.id)) continue;
+                    if (se.params != null && nd.params != null) {
+                        for (WorkflowDto.KV kv : se.params) {
+                            for (WorkflowDto.KV ex : nd.params) { if (kv.name != null && kv.name.equals(ex.name)) { ex.value = kv.value; break; } }
+                        }
+                    }
+                    if (se.fields != null) {
+                        for (WorkflowDto.KV kv : se.fields) applyStepField(nd, kv.name, kv.value);
+                    }
+                    // output data: full replace of outputData.* params from the text (var = description per line)
+                    if (se.outputData != null) {
+                        if (nd.params == null) nd.params = new java.util.ArrayList<WorkflowDto.KV>();
+                        for (java.util.Iterator<WorkflowDto.KV> it = nd.params.iterator(); it.hasNext(); ) {
+                            WorkflowDto.KV kv = it.next();
+                            if (kv.name != null && kv.name.startsWith("outputData.")) it.remove();
+                        }
+                        for (String raw : se.outputData.split("\n")) {
+                            String line = raw.replace("\r", "").trim();
+                            if (line.isEmpty()) continue;
+                            int eq = line.indexOf('=');
+                            String vn = eq >= 0 ? line.substring(0, eq).trim() : line.trim();
+                            String ds = eq >= 0 ? line.substring(eq + 1).trim() : "";
+                            if (vn.isEmpty()) continue;
+                            nd.params.add(new WorkflowDto.KV("outputData." + vn, ds));
+                        }
+                    }
+                    if (se.deleteOnSuccess != null) setOrRemoveParam(nd, "deleteOnSuccess", se.deleteOnSuccess);
+                    if (se.deleteOnSuccessType != null) setOrRemoveParam(nd, "deleteOnSuccessType", se.deleteOnSuccessType);
+                }
+            }
+        }
+    }
+
     /** Save the file-based global variables (application.properties globals are read-only). */
     @PostMapping("/api/globals/save")
     public ResponseEntity<Map<String, Object>> saveGlobals(@RequestBody GlobalsSaveReq body) {
@@ -1623,56 +1931,7 @@ public class ApiController {
             WorkflowDef def = fe.feedId == null ? null : registry.get(fe.feedId);
             if (def == null) { r.put("ok", false); r.put("error", "workflow not found"); results.add(r); allOk = false; continue; }
             WorkflowDto dto = toDto(def);
-            // apply workflow-level variable edits
-            if (fe.vars != null) {
-                for (WorkflowDto.KV kv : fe.vars) {
-                    if (kv.name == null || kv.name.trim().isEmpty()) continue;
-                    boolean found = false;
-                    for (WorkflowDto.KV ex : dto.variables) { if (kv.name.equals(ex.name)) { ex.value = kv.value; found = true; break; } }
-                    if (!found) dto.variables.add(new WorkflowDto.KV(kv.name.trim(), kv.value == null ? "" : kv.value));
-                }
-            }
-            // apply workflow-level tag edits (comma-separated; null = leave unchanged)
-            if (fe.tags != null) {
-                dto.tags.clear();
-                for (String t : fe.tags.split(",")) { String tt = t.trim(); if (!tt.isEmpty()) dto.tags.add(tt); }
-            }
-            // apply per-step param edits
-            if (fe.steps != null) {
-                for (VarSaveReq.StepEdit se : fe.steps) {
-                    if (se.stepId == null) continue;
-                    for (WorkflowDto.NodeDto nd : dto.nodes) {
-                        if (!"STEP".equals(nd.kind) || !se.stepId.equals(nd.id)) continue;
-                        if (se.params != null && nd.params != null) {
-                            for (WorkflowDto.KV kv : se.params) {
-                                for (WorkflowDto.KV ex : nd.params) { if (kv.name != null && kv.name.equals(ex.name)) { ex.value = kv.value; break; } }
-                            }
-                        }
-                        if (se.fields != null) {
-                            for (WorkflowDto.KV kv : se.fields) applyStepField(nd, kv.name, kv.value);
-                        }
-                        // output data: full replace of outputData.* params from the text (var = description per line)
-                        if (se.outputData != null) {
-                            if (nd.params == null) nd.params = new java.util.ArrayList<WorkflowDto.KV>();
-                            for (java.util.Iterator<WorkflowDto.KV> it = nd.params.iterator(); it.hasNext(); ) {
-                                WorkflowDto.KV kv = it.next();
-                                if (kv.name != null && kv.name.startsWith("outputData.")) it.remove();
-                            }
-                            for (String raw : se.outputData.split("\n")) {
-                                String line = raw.replace("\r", "").trim();
-                                if (line.isEmpty()) continue;
-                                int eq = line.indexOf('=');
-                                String vn = eq >= 0 ? line.substring(0, eq).trim() : line.trim();
-                                String ds = eq >= 0 ? line.substring(eq + 1).trim() : "";
-                                if (vn.isEmpty()) continue;
-                                nd.params.add(new WorkflowDto.KV("outputData." + vn, ds));
-                            }
-                        }
-                        if (se.deleteOnSuccess != null) setOrRemoveParam(nd, "deleteOnSuccess", se.deleteOnSuccess);
-                        if (se.deleteOnSuccessType != null) setOrRemoveParam(nd, "deleteOnSuccessType", se.deleteOnSuccessType);
-                    }
-                }
-            }
+            applyEditsToDto(dto, fe.vars, fe.tags, fe.steps);
             // regenerate + validate
             String fileName = def.sourceFile != null ? def.sourceFile : def.feedId + ".xml";
             Path tmp = null;
