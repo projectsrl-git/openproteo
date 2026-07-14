@@ -195,6 +195,7 @@ function mountFilesPanel(container, apiBase, ctx, onChange, opts) {
     }
 
     var allFiles = [];
+    var scopeDir = '';
     var fState = { q: '', key: 'path', dir: 1 };
     var shellBound = false;
 
@@ -212,6 +213,7 @@ function mountFilesPanel(container, apiBase, ctx, onChange, opts) {
             .then(function (j) {
                 if (!j.ok) { listBox.innerHTML = '<span class="dim small">' + esc(j.error || 'error') + '</span>'; return; }
                 allFiles = j.files || [];
+                scopeDir = j.dir || '';
                 renderFiles();
                 if (typeof onChange === 'function') onChange(allFiles);
             })
@@ -253,9 +255,11 @@ function mountFilesPanel(container, apiBase, ctx, onChange, opts) {
             '<th data-sort="alias" class="sortable">Alias' + sortIcon('alias') + '</th>' +
             '<th data-sort="size" class="sortable" style="width:90px">Size' + sortIcon('size') + '</th>' +
             '<th data-sort="modified" class="sortable" style="width:150px">Modified' + sortIcon('modified') + '</th>' +
-            '<th style="width:260px"></th></tr></thead><tbody>';
+            '<th style="width:330px"></th></tr></thead><tbody>';
         rows.forEach(function (f) {
             var dl = apiBase + 'download?path=' + encodeURIComponent(f.path);
+            var absPath = normAbs(f.path);
+            var shareUrl = absUrl(dl);
             var kindLabel = f.kind === 'script' ? 'executable' : (f.kind === 'output' ? 'output' : 'document');
             var viewBtn = '';
             if (ctx && viewable(f.path)) {
@@ -269,7 +273,8 @@ function mountFilesPanel(container, apiBase, ctx, onChange, opts) {
                 '<td class="mono small dim">' + fmt(f.size) + '</td>' +
                 '<td class="mono small dim">' + esc(fmtDate(f.modified)) + '</td>' +
                 '<td>' + viewBtn + '<a class="btn sm" href="' + dl + '">\u2B07 Download</a> ' +
-                '<button class="btn sm" data-copy="' + esc(f.path) + '" title="Copy the feed-relative path (use it as a csvsql/xlsx2csv source)">\uD83D\uDCCB Copy path</button> ' +
+                '<button class="btn sm" data-share="' + esc(shareUrl) + '" title="Copy a direct download link to this file (paste in mail/chat)">\uD83D\uDD17 Share</button> ' +
+                '<button class="btn sm" data-copy="' + esc(absPath) + '" title="Copy the absolute path (reference this file from any feed step, across feeds)">\uD83D\uDCCB Copy path</button> ' +
                 '<button class="btn sm danger" data-del="' + esc(f.path) + '">Delete</button></td>' +
                 '</tr>';
         });
@@ -281,6 +286,9 @@ function mountFilesPanel(container, apiBase, ctx, onChange, opts) {
         host.querySelectorAll('[data-copy]').forEach(function (b) {
             b.addEventListener('click', function () { copyPath(b.getAttribute('data-copy'), b); });
         });
+        host.querySelectorAll('[data-share]').forEach(function (b) {
+            b.addEventListener('click', function () { copyPath(b.getAttribute('data-share'), b); });
+        });
         host.querySelectorAll('[data-sort]').forEach(function (th) {
             th.addEventListener('click', function () {
                 var k = th.getAttribute('data-sort');
@@ -290,6 +298,8 @@ function mountFilesPanel(container, apiBase, ctx, onChange, opts) {
         });
     }
 
+    function normAbs(rel) { var d = String(scopeDir || '').split('\\').join('/'); if (d && d.charAt(d.length - 1) !== '/') d += '/'; return d + rel; }
+    function absUrl(u) { try { return new URL(u, window.location.href).href; } catch (e) { return u; } }
     function copyPath(path, btn) {
         var done = function () {
             if (!btn) return;

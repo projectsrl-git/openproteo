@@ -70,8 +70,14 @@
     <div class="panel" id="drillPanel" style="display:none">
         <h3 style="display:flex;align-items:center;justify-content:space-between">
             <span id="drillTitle">Feeds</span>
-            <button class="btn sm" onclick="clearDrill()">✕ Close</button>
+            <button class="btn sm" onclick="clearDrill()">✕ Show all</button>
         </h3>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+            <input id="drillQuery" placeholder="Filter feeds by id, name, source, target…" oninput="renderDrill()" style="flex:1;min-width:220px">
+            <button class="btn sm" onclick="exportDisplayed()" title="Download the filtered rows as CSV">⤓ CSV (displayed)</button>
+            <button class="btn sm" onclick="exportSelected()" title="Download the checkbox-selected rows as CSV">⤓ CSV (selected)</button>
+            <button class="btn sm" onclick="copyDisplayed()" title="Copy the filtered rows as CSV to the clipboard">⧉ Copy</button>
+        </div>
         <div id="drillWrap"></div>
     </div>
 
@@ -94,7 +100,8 @@
     (function clock(){ var c=document.getElementById('clock'); function t(){ if(c) c.textContent=new Date().toLocaleString(); } t(); setInterval(t,1000); })();
 
     var FEEDS = [];
-    var drill = null;
+    var drill = { bucket:'total', source:null };
+    var drillDisplayed = [];
 
     function renderResources(j){
         if (!j || !j.ok){ document.getElementById('resWrap').innerHTML='<div class="dim small">unavailable</div>'; return; }
@@ -167,15 +174,18 @@
     }
 
     function setDrill(bucket, source){ drill = { bucket:bucket, source:source }; renderRollup(); renderDrill(); }
-    function clearDrill(){ drill = null; document.getElementById('drillPanel').style.display='none'; renderRollup(); }
+    function clearDrill(){ drill = { bucket:'total', source:null }; var q=document.getElementById('drillQuery'); if(q) q.value=''; renderRollup(); renderDrill(); }
     function bucketLabel(b){ return ({total:'all',notRun:'not run',running:'running',success:'success',failed:'failed',aborted:'aborted',other:'other'})[b] || b; }
     function renderDrill(){
         if (!drill){ document.getElementById('drillPanel').style.display='none'; return; }
+        var q = ((document.getElementById('drillQuery')||{}).value || '').trim().toLowerCase();
         var list = FEEDS.filter(function(f){
             if (drill.source != null && (f.source||'—') !== drill.source) return false;
             if (drill.bucket !== 'total' && f.bucket !== drill.bucket) return false;
+            if (q){ var hay = ((f.feedId||'')+' '+(f.name||'')+' '+(f.source||'')+' '+(f.targetId||'')+' '+(f.lastStatus||'')).toLowerCase(); if (hay.indexOf(q) < 0) return false; }
             return true;
         });
+        drillDisplayed = list;
         document.getElementById('drillPanel').style.display='block';
         document.getElementById('drillTitle').innerHTML = 'Feeds — ' + esc(bucketLabel(drill.bucket)) + (drill.source!=null ? ' · source ' + esc(drill.source) : '') + ' <span class="dim small">(' + list.length + ')</span>';
         if (list.length === 0){ document.getElementById('drillWrap').innerHTML='<div class="dim small">No feeds.</div>'; return; }
@@ -213,6 +223,16 @@
     function drillCbs(){ return Array.prototype.slice.call(document.querySelectorAll('#drillWrap .drillcb')); }
     function drillOnCb(cb){ var f=cb.getAttribute('data-feed'); if(cb.checked) drillSelSet[f]=true; else delete drillSelSet[f]; drillBarUpdate(); }
     function drillSelected(){ return drillCbs().filter(function(c){return c.checked;}).map(function(c){return c.getAttribute('data-feed');}); }
+    function selectedFeedObjs(){ var ids=drillSelected(); var set={}; ids.forEach(function(x){ set[x]=1; }); return FEEDS.filter(function(f){ return set[f.feedId]; }); }
+    function csvCell(v){ v=(v==null?'':String(v)); if(v.indexOf(',')>=0 || v.indexOf('"')>=0 || v.indexOf(String.fromCharCode(10))>=0 || v.indexOf(String.fromCharCode(13))>=0){ v='"'+v.split('"').join('""')+'"'; } return v; }
+    function feedCsvRows(feeds){ var rows=[]; rows.push(['feedId','name','source','target','production','locked','lastStatus','failedStep','lastRunTs','lastSuccessTs','lastRunId','outputData']); feeds.forEach(function(f){ var od=(f.outputData||[]).map(function(o){ return o.label+'='+(o.value==null?'':o.value); }).join(' | '); rows.push([f.feedId||'', f.name||'', f.source||'', f.targetId||'', f.production?'yes':'no', f.locked?'yes':'no', f.lastStatus||'', f.failedStep||'', f.lastRunTs||'', f.lastSuccessTs||'', f.lastRunId||'', od]); }); return rows; }
+    function toCsv(rows){ var nl=String.fromCharCode(13)+String.fromCharCode(10); return rows.map(function(r){ return r.map(csvCell).join(','); }).join(nl); }
+    function downloadCsv(name, csv){ try{ var blob=new Blob([csv],{type:'text/csv;charset=utf-8'}); var url=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(function(){ URL.revokeObjectURL(url); },1000); }catch(e){ alert('Export failed: '+e); } }
+    function copyFallback(text){ var ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.top='-2000px'; document.body.appendChild(ta); ta.focus(); ta.select(); try{ document.execCommand('copy'); }catch(e){} document.body.removeChild(ta); }
+    function opsToast(m){ var el=document.getElementById('rollupHint'); if(!el) return; var old=el.getAttribute('data-base')||el.textContent; el.setAttribute('data-base', old); el.textContent='· '+m; setTimeout(function(){ el.textContent=old; },1500); }
+    function exportDisplayed(){ if(!drillDisplayed.length) return; downloadCsv('operations-displayed-'+drillDisplayed.length+'.csv', toCsv(feedCsvRows(drillDisplayed))); }
+    function exportSelected(){ var f=selectedFeedObjs(); if(!f.length){ alert('No feeds selected.'); return; } downloadCsv('operations-selected-'+f.length+'.csv', toCsv(feedCsvRows(f))); }
+    function copyDisplayed(){ if(!drillDisplayed.length) return; var csv=toCsv(feedCsvRows(drillDisplayed)); if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(csv).then(function(){ opsToast('Copied '+drillDisplayed.length+' row(s) as CSV'); }, function(){ copyFallback(csv); opsToast('Copied as CSV'); }); } else { copyFallback(csv); opsToast('Copied as CSV'); } }
     function drillToggleAll(m){ drillCbs().forEach(function(c){ c.checked=m.checked; var f=c.getAttribute('data-feed'); if(m.checked) drillSelSet[f]=true; else delete drillSelSet[f]; }); drillBarUpdate(); }
     function drillClearSel(){ drillSelSet={}; drillCbs().forEach(function(c){ c.checked=false; }); var sa=document.getElementById('drillSelAll'); if(sa) sa.checked=false; drillBarUpdate(); }
     function drillBarUpdate(){ var n=drillSelected().length; var bar=document.getElementById('drillBulk'); if(!bar) return; document.getElementById('drillBulkCount').textContent = n + (n===1?' feed selected':' feeds selected'); bar.style.display = n>0?'':'none'; }

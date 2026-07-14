@@ -319,3 +319,21 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   scripts → scripts-dir (skip existing), datasources merged (create-if-missing, blank pwd),
   globals merged (add-if-missing) — all non-destructive and reported; then reschedule + cleanup.
 * Dashboard: **⇪ Import** toolbar link + **⤓ Export selected** bulk-bar button (`bulkExport()`).
+
+## Operations inline detail + CSV, and Files share/abs-path
+* Operations (overview.html): the per-feed detail table is now **always visible**;
+  the rollup tiles act as a filter, not a show/hide toggle (`drill` defaults to
+  `{total,null}`, "Show all" resets it). An **inline feed filter** and the CSV/Copy
+  buttons live in the static panel header (survive the 20s auto-refresh);
+  `renderDrill` applies the text filter and records the visible list in
+  `drillDisplayed`. **⤓ CSV (displayed)** and **⤓ CSV (selected)** download the
+  filtered vs checkbox-selected rows; **⧉ Copy** copies the displayed rows as CSV.
+  CSV is built client-side with `String.fromCharCode` line ends and `rows.push([…])`
+  (no `[[`), UBS-safe. Multi-select bulk bar (Run/Lock/Unlock/Clear history/Delete)
+  unchanged. See `.claude/2026-07-14-operations-inline-detail-csv.md`.
+* Files panel (filespanel.js, used by workflow page / shared / pools): each row
+  gains a **🔗 Share** button (copies an absolute direct-download URL via
+  `new URL(dl, location.href)`), and **📋 Copy path** now copies the **absolute**
+  path (`scopeDir` from the list response's `dir` + relative), so a step can
+  reference a file across feeds. No backend change. See
+  `.claude/2026-07-14-files-share-abspath.md`.
