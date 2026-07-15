@@ -1,23 +1,24 @@
-Fix diff CSV_KEY performance: materialise ag/bg instead of CTEs
+diff CSV_KEY: substring L/R on match columns
 
-CSV_KEY reconciliation was extremely slow at scale. runDiffKey ran the whole
-comparison as one WITH ag/bg ... SELECT ... UNION ALL ... statement that
-references ag and bg twice each (LEFT JOIN + anti-join). H2 does not materialise
-non-recursive CTEs, so each per-side GROUP BY ... COUNT(DISTINCT) ran about four
-times and the two grouped subqueries were joined without an index; cost grew
-super-linearly (about 44 s on 20k x 20k rows).
+Batch 5 added the COL:L<n> / COL:R<n> substring only on key columns. This extends
+the exact same syntax to match columns (A and B sides), so an attribute can be
+compared on a slice -- e.g. an initial (firstName:L1) or the last digits of an
+account (iban:R4).
 
-Fix: materialise the two grouped sides into indexed temporary tables, then join:
-- CREATE LOCAL TEMPORARY TABLE ag AS <agSelect> / bg AS <bgSelect> (each GROUP BY
-  runs once),
-- CREATE INDEX ix_ag ON ag(k) / ix_bg ON bg(k) (the key join is an index lookup),
-- the final query drops the WITH and selects from the ag/bg tables.
-Temp tables are session-scoped on the per-run in-memory H2 connection, so they
-need no cleanup and cannot collide.
+- runDiffKey: each match column token now goes through the existing keyColSql
+  (bare column, or LEFT(col,n) / RIGHT(col,n)), like key columns, and the
+  resulting expressions build the match CONCAT_WS. Invalid tokens are rejected
+  with the same message. The label default still uses the raw tokens
+  (e.g. firstName:L1+lastName) so the report stays audit-readable.
+- For numeric matches the substring is applied on the text first, then compared
+  numerically (BigDecimal), e.g. RIGHT(iban,4) compared as a number.
+- Designer: the matches hint documents the :L<n> / :R<n> suffix on match columns
+  too; fields stay free-text, no new widget.
 
-Same output (the 5-key sample still reports DIFFERENCES(4) with identical
-categories). 20k x 20k now runs in about 2 s through the real runDiffKey, roughly
-20-30x faster and roughly linear.
+Docs: .claude/2026-07-15-diff-csvkey-match-substring.md and CLAUDE.md.
 
-Verify: the patched runDiffKey was run against real H2 2.1.214 -- correctness
-sample unchanged; timing 44 s -> ~2 s. Full Maven build to be confirmed on deploy.
+Verify: the patched runDiffKey was run against real H2 2.1.214 -- firstName:L1 vs
+initial (text) and iban:R4 vs last4 (numeric) produced the expected two
+mismatches (id2 initial J/X, id3 last4 9999/9998), keysCompared=3. designer.html
+passes node --check; no literal \n/\r; no unsafe Thymeleaf. Full Maven build to be
+confirmed on deploy.

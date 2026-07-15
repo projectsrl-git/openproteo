@@ -437,3 +437,13 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   index on k, then join (query drops the WITH). Same output; 20k×20k ~44 s → ~2 s.
   Verified on real H2 (correctness sample unchanged; timing measured). Note in
   `.claude/2026-07-15-diff-csvkey-perf-materialize.md`.
+
+## diff CSV_KEY — substring L/R on match columns
+* The key-column substring syntax (COL:L<n> / COL:R<n>) now also works on match
+  columns (A and B). runDiffKey runs each match column token through keyColSql
+  (bare / LEFT / RIGHT) before the match CONCAT_WS; label still shows raw tokens.
+  For numeric matches the substring is applied first, then the slice is compared
+  numerically (e.g. RIGHT(iban,4) as a number). Designer matches hint updated;
+  fields stay free-text. Verified on real H2 (firstName:L1 vs initial text;
+  iban:R4 vs last4 numeric -> expected mismatches). Note in
+  `.claude/2026-07-15-diff-csvkey-match-substring.md`.

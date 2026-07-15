@@ -464,15 +464,17 @@ public class InternalSteps {
             List<String> ac = splitCols(a);
             List<String> bc = splitCols(b == null ? "" : b);
             if (ac.isEmpty() || bc.isEmpty()) { line.accept("diff CSV_KEY: match " + n + " needs at least one A column and one B column"); res.exitCode = 2; return; }
-            for (String cc : ac) if (!isIdent(cc)) { line.accept("diff CSV_KEY: invalid A column '" + cc + "' in match " + n); res.exitCode = 2; return; }
-            for (String cc : bc) if (!isIdent(cc)) { line.accept("diff CSV_KEY: invalid B column '" + cc + "' in match " + n); res.exitCode = 2; return; }
+            List<String> acExpr = new ArrayList<String>();
+            for (String cc : ac) { String e = keyColSql(cc); if (e == null) { line.accept("diff CSV_KEY: invalid A column '" + cc + "' in match " + n + " (use COL, COL:L<n> or COL:R<n>)"); res.exitCode = 2; return; } acExpr.add(e); }
+            List<String> bcExpr = new ArrayList<String>();
+            for (String cc : bc) { String e = keyColSql(cc); if (e == null) { line.accept("diff CSV_KEY: invalid B column '" + cc + "' in match " + n + " (use COL, COL:L<n> or COL:R<n>)"); res.exitCode = 2; return; } bcExpr.add(e); }
             String sep = params.get("match." + n + ".sep"); if (sep == null) sep = " ";
             boolean num = "numeric".equalsIgnoreCase(params.get("match." + n + ".type"));
             String label = blankToNull(params.get("match." + n + ".label"));
             if (label == null) label = String.join("+", ac);
             mLabel.add(label);
-            mAexpr.add(concatExpr(ac, sqlStr(sep)));
-            mBexpr.add(concatExpr(bc, sqlStr(sep)));
+            mAexpr.add(concatExpr(acExpr, sqlStr(sep)));
+            mBexpr.add(concatExpr(bcExpr, sqlStr(sep)));
             mNum.add(num);
         }
         if (mLabel.isEmpty()) { line.accept("diff CSV_KEY: at least one match is required"); res.exitCode = 2; return; }

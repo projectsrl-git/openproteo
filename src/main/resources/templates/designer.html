@@ -1097,7 +1097,7 @@
                             '<div class="field wide"><label>Key columns — A *</label><input value="' + attresc(nodeParam(n, 'keysA')) + '" placeholder="NDG | NDG,BRANCH" list="diffcolsA_' + i + '" oninput="setNodeParam(' + i + ',\'keysA\',this.value)"></div>' +
                             '<div class="field wide"><label>Key columns — B *</label><input value="' + attresc(nodeParam(n, 'keysB')) + '" placeholder="CODCLI | CODCLI,FIL" list="diffcolsB_' + i + '" oninput="setNodeParam(' + i + ',\'keysB\',this.value)"></div></div>' +
                             '<div class="dim small" style="margin-top:4px">Optional per-column substring to normalise keys: <code>NDG:L8</code> (first 8 chars), <code>CODCLI:R4</code> (last 4). Plain names compare in full.</div></div>';
-                        h += '<div class="subsection"><div class="sub-label">Attribute matches — each compares A vs B (multiple columns are concatenated with the separator)</div>';
+                        h += '<div class="subsection"><div class="sub-label">Attribute matches — each compares A vs B (multiple columns are concatenated with the separator; per-column substring works here too, e.g. <code>firstName:L1</code>, <code>iban:R4</code>)</div>';
                         diffMatches(n).forEach(function (mm) {
                             var k = mm._k;
                             h += '<div class="form-row">' +
