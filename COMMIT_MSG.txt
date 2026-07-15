@@ -1,26 +1,23 @@
-diff executor (Batch 6): CSV_KEY column preview / autocomplete
+Fix diff CSV_KEY performance: materialise ag/bg instead of CTEs
 
-Implements the last design item (column dropdowns from a header-preview endpoint).
-Applies on top of Batch 1-5 (all on main). With this the whole DIFF_EXECUTOR.md
-design is implemented.
+CSV_KEY reconciliation was extremely slow at scale. runDiffKey ran the whole
+comparison as one WITH ag/bg ... SELECT ... UNION ALL ... statement that
+references ag and bg twice each (LEFT JOIN + anti-join). H2 does not materialise
+non-recursive CTEs, so each per-side GROUP BY ... COUNT(DISTINCT) ran about four
+times and the two grouped subqueries were joined without an index; cost grew
+super-linearly (about 44 s on 20k x 20k rows).
 
-- Backend: new GET /api/workflows/{feedId}/diff/columns?path=&delimiter= ->
-  {ok, columns, path}. Mirrors the xlsx/sheets endpoint's path resolution
-  (feedVars -> VarResolver -> rebaseRel), then reads the file's first line, strips
-  a BOM, and splits it quote-aware into column names. Absolute paths (e.g. from
-  the cross-workflow picker) resolve as-is.
-- Designer (CSV_KEY panel): a "Load columns from File A / File B" button fetches
-  both headers, shows them as a reference line, and fills two datalists
-  (diffcolsA_<i>, diffcolsB_<i>). The Key A / Key B inputs and each match's
-  A-columns / B-columns inputs are wired to those datalists via list=, so column
-  names autocomplete. Fields stay free-text; this is assistance, not a constraint.
+Fix: materialise the two grouped sides into indexed temporary tables, then join:
+- CREATE LOCAL TEMPORARY TABLE ag AS <agSelect> / bg AS <bgSelect> (each GROUP BY
+  runs once),
+- CREATE INDEX ix_ag ON ag(k) / ix_bg ON bg(k) (the key join is an index lookup),
+- the final query drops the WITH and selects from the ag/bg tables.
+Temp tables are session-scoped on the per-run in-memory H2 connection, so they
+need no cleanup and cannot collide.
 
-Docs: .claude/2026-07-14-diff-executor-batch6-column-preview.md and CLAUDE.md.
+Same output (the 5-key sample still reports DIFFERENCES(4) with identical
+categories). 20k x 20k now runs in about 2 s through the real runDiffKey, roughly
+20-30x faster and roughly linear.
 
-Verify: the endpoint's header-split was exercised standalone (BOM stripped;
-quoted "full name" and embedded-delimiter "c,d" handled). The endpoint mirrors the
-existing xlsx/sheets resolution + badRequest handling. designer.html passes
-node --check; no literal \n/\r; no unsafe Thymeleaf. The designer's async load
-flow could not be live-tested in the chat sandbox; it mirrors the existing
-xlsx-sheets / cross-workflow async patterns. Full Maven build to be confirmed on
-deploy.
+Verify: the patched runDiffKey was run against real H2 2.1.214 -- correctness
+sample unchanged; timing 44 s -> ~2 s. Full Maven build to be confirmed on deploy.

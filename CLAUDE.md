@@ -428,3 +428,12 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   DIFF_EXECUTOR.md design — all three modes, matches, multi-occurrence, key
   substring L/R, cross-workflow picking + run correlation, and column autocomplete
   are implemented.**
+
+## diff CSV_KEY performance fix (materialise ag/bg)
+* runDiffKey was slow at scale because the reconciliation ran as one WITH-CTE
+  query referencing ag/bg twice (LEFT JOIN + anti-join); H2 re-evaluates
+  non-recursive CTEs, so the per-side GROUP BY ran ~4x and the join had no index
+  (~44 s at 20k×20k). Fix: materialise ag/bg into LOCAL TEMPORARY tables with an
+  index on k, then join (query drops the WITH). Same output; 20k×20k ~44 s → ~2 s.
+  Verified on real H2 (correctness sample unchanged; timing measured). Note in
+  `.claude/2026-07-15-diff-csvkey-perf-materialize.md`.

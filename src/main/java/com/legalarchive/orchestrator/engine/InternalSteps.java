@@ -495,8 +495,7 @@ public class InternalSteps {
             sel2.append(", CAST(NULL AS INT) ad").append(m).append(", CAST(NULL AS VARCHAR) av").append(m)
                 .append(", bg.d").append(m).append(" bd").append(m).append(", bg.v").append(m).append(" bv").append(m);
         }
-        String query = "WITH ag AS (" + ag + "), bg AS (" + bg + ") "
-                + sel1 + " FROM ag LEFT JOIN bg ON ag.k=bg.k "
+        String query = sel1 + " FROM ag LEFT JOIN bg ON ag.k=bg.k "
                 + "UNION ALL " + sel2 + " FROM bg LEFT JOIN ag ON ag.k=bg.k WHERE ag.k IS NULL";
 
         try { Class.forName("org.h2.Driver"); }
@@ -510,6 +509,10 @@ public class InternalSteps {
             java.sql.Statement st = conn.createStatement();
             st.executeUpdate("CREATE TABLE ta AS SELECT * FROM CSVREAD(" + sqlStr(fa.getAbsolutePath().replace('\\', '/')) + ", NULL, " + sqlStr(opts) + ")");
             st.executeUpdate("CREATE TABLE tb AS SELECT * FROM CSVREAD(" + sqlStr(fb.getAbsolutePath().replace('\\', '/')) + ", NULL, " + sqlStr(opts) + ")");
+            st.executeUpdate("CREATE LOCAL TEMPORARY TABLE ag AS " + ag);
+            st.executeUpdate("CREATE LOCAL TEMPORARY TABLE bg AS " + bg);
+            st.executeUpdate("CREATE INDEX ix_ag ON ag(k)");
+            st.executeUpdate("CREATE INDEX ix_bg ON bg(k)");
             dw.write("key,match,valueA,valueB,category"); dw.write("\r\n");
             long[] mDiff = new long[mLabel.size()];
             long keysCompared = 0, valueMismatch = 0, inconsistent = 0, missingInA = 0, missingInB = 0;
