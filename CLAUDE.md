@@ -403,3 +403,15 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   chat sandbox (mirrors the xlsx-sheets pattern). Note in
   `.claude/2026-07-14-diff-executor-batch4-crossworkflow.md`. Remaining (optional):
   key SUBSTRING L/R; CSV_KEY column dropdowns from a header-preview endpoint.
+
+## diff executor — Batch 5 (CSV_KEY key substring L/R)
+* CSV_KEY key columns accept an optional per-column substring suffix in the
+  existing keysA/keysB fields (no new widget, backward compatible): `NDG:L8` →
+  `LEFT(NDG,8)` (first 8), `CODCLI:R4` → `RIGHT(CODCLI,4)` (last 4); plain names
+  compare in full. Lets feeds whose keys differ by padding/prefix reconcile
+  (e.g. A `AB1234` ↔ B `1234` via `code:R4`). runDiffKey parses each token via
+  keyColSql into an SQL expr for the key CONCAT_WS; raw tokens are still echoed in
+  the report. Designer shows a syntax hint under the key inputs. Verified on real
+  H2 (LEFT/RIGHT + substring-keyed alignment). Note in
+  `.claude/2026-07-14-diff-executor-batch5-key-substring.md`. Only remaining
+  (optional QoL): CSV_KEY column dropdowns from a header-preview endpoint.

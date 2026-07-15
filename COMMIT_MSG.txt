@@ -1,31 +1,30 @@
-diff executor (Batch 4): cross-workflow file picker + run correlation
+diff executor (Batch 5): CSV_KEY key substring L/R
 
-Practical core of the design's §7 (cross-workflow reconciliation) for this
-codebase. Applies on top of Batch 1-3 (all on main).
+Implements the design's Substring L/R on key columns (section 5.1). Applies on
+top of Batch 1-4 (all on main).
 
-A feed's produced files live in stable directories overwritten each run, so a
-stable absolute path already resolves to the latest run's output. Cross-workflow
-referencing therefore reduces to picking another workflow's file (store its
-absolute path) and stamping the file's produced time in the report.
+The design referred to reusing a grouping widget's substring control, which does
+not exist in this codebase. Instead the substring is a compact per-column suffix
+inside the existing keysA / keysB fields, so it is fully backward compatible
+(plain names unchanged) with no model change:
+- NDG          -> whole column
+- NDG:L8       -> first 8 chars  -> LEFT(NDG, 8)
+- CODCLI:R4    -> last 4 chars   -> RIGHT(CODCLI, 4)
 
-- Backend: new GET /api/workflows/catalog -> {ok, workflows:[{feedId,name}]} from
-  registry.all(), for the workflow dropdown. The file dropdown reuses the existing
-  GET /api/workflows/{feedId}/files (files[].path + dir).
-- Designer: under File A and File B, a "...or from a workflow" row with a workflow
-  select (lazy-loaded from the catalog on focus) and a file select (loaded from
-  that workflow's files). Picking a file writes the absolute path (dir + relative,
-  backslashes normalised) into the field and the fileA/fileB param. Free-text
-  paths still work.
-- Run correlation: every mode's report now stamps
-  "Sources produced: A @ <mtime>, B @ <mtime>" in the config echo (the produced
-  instant of each compared file; given stable overwritten paths, mtime is the
-  faithful produced-instance stamp).
+This lets two feeds whose keys differ only by padding/prefix reconcile (e.g. A
+stores AB1234, B stores 1234, via code:R4 <-> code).
 
-Docs: .claude/2026-07-14-diff-executor-batch4-crossworkflow.md and CLAUDE.md.
+- runDiffKey: each key column token is parsed by keyColSql into an SQL expression
+  (bare column, or LEFT(col,n) / RIGHT(col,n)); these build the key CONCAT_WS.
+  Invalid tokens are rejected with a clear message. Raw tokens are still echoed
+  verbatim in the report's Key A / Key B lines.
+- Designer: a hint under the key inputs documents the :L<n> / :R<n> syntax; keys
+  stay free-text (no new widget).
 
-Verify: the actual updated runDiffKey was run standalone -- the report shows the
-Sources stamp and the exit code is correct. designer.html passes node --check; no
-literal \n/\r; no unsafe Thymeleaf. The catalog endpoint mirrors the existing
-/active and /queue GETs. The designer's async picker flow could not be live-tested
-in the chat sandbox (no running app); it mirrors the existing xlsx-sheets
-async-select pattern. Full Maven build to be confirmed on deploy.
+Docs: .claude/2026-07-14-diff-executor-batch5-key-substring.md and CLAUDE.md.
+
+Verify: the actual updated runDiffKey was run standalone against real H2 2.1.214
+with keysA=code:R4, keysB=code -- keys aligned (AB1234->1234, XY5678->5678), the
+value mismatch on 5678 was reported, keysCompared=2. LEFT/RIGHT and short-string
+behaviour were probed on H2 first. designer.html passes node --check; no literal
+\n/\r; no unsafe Thymeleaf. Full Maven build to be confirmed on deploy.

@@ -443,8 +443,10 @@ public class InternalSteps {
         List<String> kaCols = splitCols(keysA);
         List<String> kbCols = splitCols(keysB);
         if (kaCols.isEmpty() || kbCols.isEmpty()) { line.accept("diff CSV_KEY: keysA and keysB must name at least one column"); res.exitCode = 2; return; }
-        for (String cc : kaCols) if (!isIdent(cc)) { line.accept("diff CSV_KEY: invalid key column '" + cc + "'"); res.exitCode = 2; return; }
-        for (String cc : kbCols) if (!isIdent(cc)) { line.accept("diff CSV_KEY: invalid key column '" + cc + "'"); res.exitCode = 2; return; }
+        List<String> kaExpr = new ArrayList<String>();
+        for (String cc : kaCols) { String e = keyColSql(cc); if (e == null) { line.accept("diff CSV_KEY: invalid key column '" + cc + "' (use COL, COL:L<n> or COL:R<n>)"); res.exitCode = 2; return; } kaExpr.add(e); }
+        List<String> kbExpr = new ArrayList<String>();
+        for (String cc : kbCols) { String e = keyColSql(cc); if (e == null) { line.accept("diff CSV_KEY: invalid key column '" + cc + "' (use COL, COL:L<n> or COL:R<n>)"); res.exitCode = 2; return; } kbExpr.add(e); }
         List<String> mLabel = new ArrayList<String>();
         List<String> mAexpr = new ArrayList<String>();
         List<String> mBexpr = new ArrayList<String>();
@@ -475,8 +477,8 @@ public class InternalSteps {
         }
         if (mLabel.isEmpty()) { line.accept("diff CSV_KEY: at least one match is required"); res.exitCode = 2; return; }
 
-        String keyExprA = concatExpr(kaCols, "CHAR(1)");
-        String keyExprB = concatExpr(kbCols, "CHAR(1)");
+        String keyExprA = concatExpr(kaExpr, "CHAR(1)");
+        String keyExprB = concatExpr(kbExpr, "CHAR(1)");
         StringBuilder ag = new StringBuilder("SELECT (" + keyExprA + ") k");
         StringBuilder bg = new StringBuilder("SELECT (" + keyExprB + ") k");
         for (int m = 0; m < mLabel.size(); m++) {
@@ -590,6 +592,21 @@ public class InternalSteps {
         return out;
     }
     private static boolean isIdent(String s) { return s != null && s.matches("[A-Za-z_][A-Za-z0-9_]*"); }
+    private static String keyColSql(String tok) {
+        if (tok == null) return null;
+        int c = tok.indexOf(':');
+        if (c < 0) return isIdent(tok) ? tok : null;
+        String col = tok.substring(0, c).trim();
+        String suf = tok.substring(c + 1).trim();
+        if (!isIdent(col) || suf.length() < 2) return null;
+        char side = Character.toUpperCase(suf.charAt(0));
+        int nlen;
+        try { nlen = Integer.parseInt(suf.substring(1).trim()); } catch (NumberFormatException e) { return null; }
+        if (nlen < 1) return null;
+        if (side == 'L') return "LEFT(" + col + ", " + nlen + ")";
+        if (side == 'R') return "RIGHT(" + col + ", " + nlen + ")";
+        return null;
+    }
     private static String concatExpr(List<String> cols, String sepSql) {
         if (cols.size() == 1) return cols.get(0);
         return "CONCAT_WS(" + sepSql + ", " + String.join(", ", cols) + ")";
