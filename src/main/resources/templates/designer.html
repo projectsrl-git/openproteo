@@ -464,6 +464,20 @@
         var abs = (dir && dir.charAt(dir.length - 1) !== '/') ? dir + '/' + rel : dir + rel;
         fld.value = abs; setNodeParam(i, side, abs);
     }
+    function diffColsFeedId() { return (typeof EDIT_FEED_ID !== 'undefined' && EDIT_FEED_ID) ? EDIT_FEED_ID : wf.feedId; }
+    function diffFillCols(i, side, cols) { var dl = document.getElementById('diffcols' + side + '_' + i); if (dl) dl.innerHTML = (cols || []).map(function (c) { return '<option value="' + attresc(c) + '"></option>'; }).join(''); }
+    function diffLoadCols(i) {
+        var n = wf.nodes[i], fid = diffColsFeedId(), box = document.getElementById('diffcols_' + i);
+        if (!fid) { if (box) box.textContent = 'Save the workflow first.'; return; }
+        var delim = nodeParam(n, 'delimiter') || ';', a = nodeParam(n, 'fileA'), b = nodeParam(n, 'fileB');
+        if (!a && !b) { if (box) box.textContent = 'Set File A / File B first.'; return; }
+        if (box) box.textContent = 'Loading…';
+        var url = function (path) { return CTX + 'api/workflows/' + encodeURIComponent(fid) + '/diff/columns?delimiter=' + encodeURIComponent(delim) + '&path=' + encodeURIComponent(path); };
+        var msgs = [];
+        var pa = a ? fetch(url(a)).then(readJson).then(function (j) { if (j && j.ok) { diffFillCols(i, 'A', j.columns); msgs.push('A: ' + (j.columns || []).join(', ')); } else { msgs.push('A: ' + ((j && j.error) || 'error')); } }).catch(function () { msgs.push('A: error'); }) : Promise.resolve();
+        var pb = b ? fetch(url(b)).then(readJson).then(function (j) { if (j && j.ok) { diffFillCols(i, 'B', j.columns); msgs.push('B: ' + (j.columns || []).join(', ')); } else { msgs.push('B: ' + ((j && j.error) || 'error')); } }).catch(function () { msgs.push('B: error'); }) : Promise.resolve();
+        Promise.all([pa, pb]).then(function () { if (box) box.textContent = msgs.join('  |  '); });
+    }
     function setNodeParam(i, name, value) {
         var n = wf.nodes[i]; n.params = n.params || [];
         for (var k = 0; k < n.params.length; k++) if (n.params[k].name === name) { if (value === '') n.params.splice(k, 1); else n.params[k].value = value; preview(); return; }
@@ -1077,16 +1091,18 @@
                     }
                     if (dmode === 'CSV_KEY') {
                         h += '<div class="subsection"><div class="sub-label">Key columns (rows align when the A key equals the B key)</div>';
+                        h += '<datalist id="diffcolsA_' + i + '"></datalist><datalist id="diffcolsB_' + i + '"></datalist>';
+                        h += '<div class="form-row"><div class="field wide"><button class="ghost-btn" onclick="diffLoadCols(' + i + ')">⟳ Load columns from File A / File B</button> <span id="diffcols_' + i + '" class="dim small"></span></div></div>';
                         h += '<div class="form-row">' +
-                            '<div class="field wide"><label>Key columns — A *</label><input value="' + attresc(nodeParam(n, 'keysA')) + '" placeholder="NDG | NDG,BRANCH" oninput="setNodeParam(' + i + ',\'keysA\',this.value)"></div>' +
-                            '<div class="field wide"><label>Key columns — B *</label><input value="' + attresc(nodeParam(n, 'keysB')) + '" placeholder="CODCLI | CODCLI,FIL" oninput="setNodeParam(' + i + ',\'keysB\',this.value)"></div></div>' +
+                            '<div class="field wide"><label>Key columns — A *</label><input value="' + attresc(nodeParam(n, 'keysA')) + '" placeholder="NDG | NDG,BRANCH" list="diffcolsA_' + i + '" oninput="setNodeParam(' + i + ',\'keysA\',this.value)"></div>' +
+                            '<div class="field wide"><label>Key columns — B *</label><input value="' + attresc(nodeParam(n, 'keysB')) + '" placeholder="CODCLI | CODCLI,FIL" list="diffcolsB_' + i + '" oninput="setNodeParam(' + i + ',\'keysB\',this.value)"></div></div>' +
                             '<div class="dim small" style="margin-top:4px">Optional per-column substring to normalise keys: <code>NDG:L8</code> (first 8 chars), <code>CODCLI:R4</code> (last 4). Plain names compare in full.</div></div>';
                         h += '<div class="subsection"><div class="sub-label">Attribute matches — each compares A vs B (multiple columns are concatenated with the separator)</div>';
                         diffMatches(n).forEach(function (mm) {
                             var k = mm._k;
                             h += '<div class="form-row">' +
-                                '<div class="field"><label>A columns</label><input value="' + attresc(mm.a || '') + '" placeholder="firstName,lastName" oninput="setNodeParam(' + i + ',\'match.' + k + '.a\',this.value)"></div>' +
-                                '<div class="field"><label>B columns</label><input value="' + attresc(mm.b || '') + '" placeholder="fullName" oninput="setNodeParam(' + i + ',\'match.' + k + '.b\',this.value)"></div>' +
+                                '<div class="field"><label>A columns</label><input value="' + attresc(mm.a || '') + '" placeholder="firstName,lastName" list="diffcolsA_' + i + '" oninput="setNodeParam(' + i + ',\'match.' + k + '.a\',this.value)"></div>' +
+                                '<div class="field"><label>B columns</label><input value="' + attresc(mm.b || '') + '" placeholder="fullName" list="diffcolsB_' + i + '" oninput="setNodeParam(' + i + ',\'match.' + k + '.b\',this.value)"></div>' +
                                 '<div class="field" style="max-width:80px"><label>Sep</label><input value="' + attresc(mm.sep == null ? ' ' : mm.sep) + '" placeholder="(space)" oninput="setNodeParam(' + i + ',\'match.' + k + '.sep\',this.value)"></div>' +
                                 '<div class="field" style="max-width:110px"><label>Type</label><select onchange="setNodeParam(' + i + ',\'match.' + k + '.type\',this.value)">' +
                                 '<option value="text"' + ((mm.type || 'text') === 'text' ? ' selected' : '') + '>text</option>' +

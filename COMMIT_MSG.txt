@@ -1,30 +1,26 @@
-diff executor (Batch 5): CSV_KEY key substring L/R
+diff executor (Batch 6): CSV_KEY column preview / autocomplete
 
-Implements the design's Substring L/R on key columns (section 5.1). Applies on
-top of Batch 1-4 (all on main).
+Implements the last design item (column dropdowns from a header-preview endpoint).
+Applies on top of Batch 1-5 (all on main). With this the whole DIFF_EXECUTOR.md
+design is implemented.
 
-The design referred to reusing a grouping widget's substring control, which does
-not exist in this codebase. Instead the substring is a compact per-column suffix
-inside the existing keysA / keysB fields, so it is fully backward compatible
-(plain names unchanged) with no model change:
-- NDG          -> whole column
-- NDG:L8       -> first 8 chars  -> LEFT(NDG, 8)
-- CODCLI:R4    -> last 4 chars   -> RIGHT(CODCLI, 4)
+- Backend: new GET /api/workflows/{feedId}/diff/columns?path=&delimiter= ->
+  {ok, columns, path}. Mirrors the xlsx/sheets endpoint's path resolution
+  (feedVars -> VarResolver -> rebaseRel), then reads the file's first line, strips
+  a BOM, and splits it quote-aware into column names. Absolute paths (e.g. from
+  the cross-workflow picker) resolve as-is.
+- Designer (CSV_KEY panel): a "Load columns from File A / File B" button fetches
+  both headers, shows them as a reference line, and fills two datalists
+  (diffcolsA_<i>, diffcolsB_<i>). The Key A / Key B inputs and each match's
+  A-columns / B-columns inputs are wired to those datalists via list=, so column
+  names autocomplete. Fields stay free-text; this is assistance, not a constraint.
 
-This lets two feeds whose keys differ only by padding/prefix reconcile (e.g. A
-stores AB1234, B stores 1234, via code:R4 <-> code).
+Docs: .claude/2026-07-14-diff-executor-batch6-column-preview.md and CLAUDE.md.
 
-- runDiffKey: each key column token is parsed by keyColSql into an SQL expression
-  (bare column, or LEFT(col,n) / RIGHT(col,n)); these build the key CONCAT_WS.
-  Invalid tokens are rejected with a clear message. Raw tokens are still echoed
-  verbatim in the report's Key A / Key B lines.
-- Designer: a hint under the key inputs documents the :L<n> / :R<n> syntax; keys
-  stay free-text (no new widget).
-
-Docs: .claude/2026-07-14-diff-executor-batch5-key-substring.md and CLAUDE.md.
-
-Verify: the actual updated runDiffKey was run standalone against real H2 2.1.214
-with keysA=code:R4, keysB=code -- keys aligned (AB1234->1234, XY5678->5678), the
-value mismatch on 5678 was reported, keysCompared=2. LEFT/RIGHT and short-string
-behaviour were probed on H2 first. designer.html passes node --check; no literal
-\n/\r; no unsafe Thymeleaf. Full Maven build to be confirmed on deploy.
+Verify: the endpoint's header-split was exercised standalone (BOM stripped;
+quoted "full name" and embedded-delimiter "c,d" handled). The endpoint mirrors the
+existing xlsx/sheets resolution + badRequest handling. designer.html passes
+node --check; no literal \n/\r; no unsafe Thymeleaf. The designer's async load
+flow could not be live-tested in the chat sandbox; it mirrors the existing
+xlsx-sheets / cross-workflow async patterns. Full Maven build to be confirmed on
+deploy.

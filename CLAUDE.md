@@ -415,3 +415,16 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   H2 (LEFT/RIGHT + substring-keyed alignment). Note in
   `.claude/2026-07-14-diff-executor-batch5-key-substring.md`. Only remaining
   (optional QoL): CSV_KEY column dropdowns from a header-preview endpoint.
+
+## diff executor — Batch 6 (CSV_KEY column preview / autocomplete)
+* New `GET /api/workflows/{feedId}/diff/columns?path=&delimiter=` → {ok, columns}
+  (mirrors xlsx/sheets path resolution; reads the header, strips BOM, quote-aware
+  split). Designer CSV_KEY panel gains a "⟳ Load columns" button that fills two
+  datalists (diffcolsA/diffcolsB); Key A/B and each match's A/B column inputs are
+  wired via `list=` so column names autocomplete, with a reference line for the
+  multi-column cases. Fields stay free-text. Endpoint header-split verified
+  standalone; designer passes node --check. Note in
+  `.claude/2026-07-14-diff-executor-batch6-column-preview.md`. **This completes the
+  DIFF_EXECUTOR.md design — all three modes, matches, multi-occurrence, key
+  substring L/R, cross-workflow picking + run correlation, and column autocomplete
+  are implemented.**

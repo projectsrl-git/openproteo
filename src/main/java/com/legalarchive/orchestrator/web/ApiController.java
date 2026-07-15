@@ -264,6 +264,49 @@ public class ApiController {
     }
 
     /** List the sheet names of an .xlsx (for the xlsx2csv sheet dropdown). */
+    /** Header columns of a CSV file (for the diff CSV_KEY column autocomplete). Resolves ${vars} against the feed. */
+    @GetMapping("/api/workflows/{feedId}/diff/columns")
+    public ResponseEntity<Map<String, Object>> diffColumns(@PathVariable String feedId,
+                                                           @RequestParam("path") String path,
+                                                           @RequestParam(value = "delimiter", required = false) String delimiter) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        WorkflowDef def = registry.get(feedId);
+        if (def == null) return badRequest(out, "Unknown workflow: " + feedId);
+        Map<String, String> fv = feedVars(def, feedId);
+        String resolved = com.legalarchive.orchestrator.engine.VarResolver.resolve(path, fv);
+        if (resolved == null || resolved.trim().isEmpty()) return badRequest(out, "path is required");
+        resolved = rebaseRel(resolved, fv);
+        java.io.File f = new java.io.File(resolved);
+        if (!f.isFile()) return badRequest(out, "file not found: " + resolved);
+        char delim = (delimiter != null && !delimiter.isEmpty()) ? delimiter.charAt(0) : ';';
+        try {
+            String header;
+            java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(f), java.nio.charset.StandardCharsets.UTF_8));
+            try { header = r.readLine(); } finally { r.close(); }
+            if (header == null) header = "";
+            if (!header.isEmpty() && header.charAt(0) == '\uFEFF') header = header.substring(1);
+            java.util.List<String> cols = new java.util.ArrayList<String>();
+            StringBuilder cur = new StringBuilder();
+            boolean inQ = false;
+            for (int i = 0; i < header.length(); i++) {
+                char ch = header.charAt(i);
+                if (inQ) {
+                    if (ch == '"') { if (i + 1 < header.length() && header.charAt(i + 1) == '"') { cur.append('"'); i++; } else inQ = false; }
+                    else cur.append(ch);
+                } else {
+                    if (ch == '"') inQ = true;
+                    else if (ch == delim) { cols.add(cur.toString()); cur.setLength(0); }
+                    else cur.append(ch);
+                }
+            }
+            cols.add(cur.toString());
+            out.put("ok", true); out.put("columns", cols); out.put("path", resolved);
+            return ResponseEntity.ok(out);
+        } catch (Throwable t) {
+            return badRequest(out, t.getMessage() == null ? t.toString() : t.getMessage());
+        }
+    }
+
     @GetMapping("/api/workflows/{feedId}/xlsx/sheets")
     public ResponseEntity<Map<String, Object>> xlsxSheets(@PathVariable String feedId,
                                                           @RequestParam("path") String path) {
