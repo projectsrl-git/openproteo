@@ -422,6 +422,17 @@
     function delDirOptions(i) { var o = ''; for (var k = 0; k < i; k++) { var nd = wf.nodes[k]; if (nd && nd.kind === 'STEP' && nd.id) { o += '<option value="' + attresc('${dir.' + nd.id + '}') + '">'; } } return o; }
     function outputDataText(n) { if (!n.params) return ''; var lines = []; for (var k = 0; k < n.params.length; k++) { var pn = n.params[k].name; if (pn && pn.indexOf('outputData.') === 0) lines.push(pn.substring(11) + ' = ' + (n.params[k].value || '')); } return lines.join(NL); }
     function setOutputData(i, txt) { var n = wf.nodes[i]; if (!n.params) n.params = []; n.params = n.params.filter(function (p) { return !(p.name && p.name.indexOf('outputData.') === 0); }); var lines = String(txt).split(String.fromCharCode(10)); for (var k = 0; k < lines.length; k++) { var ln = lines[k].split(String.fromCharCode(13)).join('').trim(); if (!ln) continue; var eq = ln.indexOf('='); var vn = eq >= 0 ? ln.substring(0, eq).trim() : ln; var ds = eq >= 0 ? ln.substring(eq + 1).trim() : ''; if (!vn) continue; n.params.push({ name: 'outputData.' + vn, value: ds }); } preview(); }
+    function diffSetMode(i, v) { setNodeParam(i, 'mode', v); renderNodes(); }
+    function diffMatches(n) {
+        var byIdx = {};
+        if (n.params) n.params.forEach(function (p) {
+            var parts = p.name.split('.');
+            if (parts.length === 3 && parts[0] === 'match') { var k = parseInt(parts[1], 10); if (!isNaN(k)) { byIdx[k] = byIdx[k] || {}; byIdx[k][parts[2]] = p.value; } }
+        });
+        return Object.keys(byIdx).map(Number).sort(function (x, y) { return x - y; }).map(function (k) { var o = byIdx[k]; o._k = k; return o; });
+    }
+    function diffAddMatch(i) { var n = wf.nodes[i]; n.params = n.params || []; var nx = 0; diffMatches(n).forEach(function (o) { if (o._k >= nx) nx = o._k + 1; }); n.params.push({ name: 'match.' + nx + '.type', value: 'text' }); n.params.push({ name: 'match.' + nx + '.sep', value: ' ' }); renderNodes(); }
+    function diffDelMatch(i, k) { var n = wf.nodes[i]; n.params = (n.params || []).filter(function (p) { return p.name.indexOf('match.' + k + '.') !== 0; }); renderNodes(); preview(); }
     function setNodeParam(i, name, value) {
         var n = wf.nodes[i]; n.params = n.params || [];
         for (var k = 0; k < n.params.length; k++) if (n.params[k].name === name) { if (value === '') n.params.splice(k, 1); else n.params[k].value = value; preview(); return; }
@@ -1011,10 +1022,12 @@
                         '<option value="true"' + (nodeParam(n,'bom') === 'true' ? ' selected' : '') + '>yes (UTF-8 BOM)</option></select></div></div>';
                     h += '<div class="dim small" style="margin-top:6px">Removes double quotes from the chosen text columns: CSV wrapping quotes and escaped <code>&quot;&quot;</code> are parsed away, then any remaining <code>&quot;</code> is stripped. Output is re-quoted only when a field still contains the delimiter or a newline (set quoting to &quot;never quote&quot; to force a quote-free file, at the risk of breaking columns that contain the delimiter). Output is UTF-8, CRLF. Outputs <code>${outputFile}</code>, <code>${dataRows}</code>, <code>${columns}</code>, <code>${quotesRemoved}</code>.</div>';
                 } else if (ex === 'diff') {
-                    h += '<div class="subsection"><div class="sub-label">Reconcile two CSV files (positional: shared columns, row-by-row by position)</div>';
+                    var dmode = nodeParam(n, 'mode') || 'CSV_POSITIONAL';
+                    h += '<div class="subsection"><div class="sub-label">Reconcile two CSV files</div>';
                     h += '<div class="form-row">' +
-                        '<div class="field"><label>Mode</label><select onchange="setNodeParam(' + i + ',\'mode\',this.value)">' +
-                        '<option value="CSV_POSITIONAL"' + (nodeParam(n, 'mode') === 'CSV_POSITIONAL' || !nodeParam(n, 'mode') ? ' selected' : '') + '>CSV positional</option>' +
+                        '<div class="field"><label>Mode</label><select onchange="diffSetMode(' + i + ',this.value)">' +
+                        '<option value="CSV_POSITIONAL"' + (dmode === 'CSV_POSITIONAL' ? ' selected' : '') + '>CSV positional (by row order)</option>' +
+                        '<option value="CSV_KEY"' + (dmode === 'CSV_KEY' ? ' selected' : '') + '>CSV key (align rows by key)</option>' +
                         '</select></div>' +
                         '<div class="field"><label>Delimiter</label><input value="' + attresc(nodeParam(n, 'delimiter')) + '" placeholder=";" oninput="setNodeParam(' + i + ',\'delimiter\',this.value)"></div>' +
                         '<div class="field"><label>Report name</label><input value="' + attresc(nodeParam(n, 'reportName')) + '" placeholder="(step id)" oninput="setNodeParam(' + i + ',\'reportName\',this.value)"></div></div>';
@@ -1022,8 +1035,28 @@
                         '<input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'fileA')) + '" placeholder="${extract.csvFile} | ${landingOut}/a.csv" oninput="setNodeParam(' + i + ',\'fileA\',this.value)"></div></div>';
                     h += '<div class="form-row"><div class="field wide"><label>File B *</label>' +
                         '<input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'fileB')) + '" placeholder="${other.csvFile} | ${landingOut}/b.csv" oninput="setNodeParam(' + i + ',\'fileB\',this.value)"></div></div>';
+                    if (dmode === 'CSV_KEY') {
+                        h += '<div class="subsection"><div class="sub-label">Key columns (rows align when the A key equals the B key)</div>';
+                        h += '<div class="form-row">' +
+                            '<div class="field wide"><label>Key columns — A *</label><input value="' + attresc(nodeParam(n, 'keysA')) + '" placeholder="NDG | NDG,BRANCH" oninput="setNodeParam(' + i + ',\'keysA\',this.value)"></div>' +
+                            '<div class="field wide"><label>Key columns — B *</label><input value="' + attresc(nodeParam(n, 'keysB')) + '" placeholder="CODCLI | CODCLI,FIL" oninput="setNodeParam(' + i + ',\'keysB\',this.value)"></div></div></div>';
+                        h += '<div class="subsection"><div class="sub-label">Attribute matches — each compares A vs B (multiple columns are concatenated with the separator)</div>';
+                        diffMatches(n).forEach(function (mm) {
+                            var k = mm._k;
+                            h += '<div class="form-row">' +
+                                '<div class="field"><label>A columns</label><input value="' + attresc(mm.a || '') + '" placeholder="firstName,lastName" oninput="setNodeParam(' + i + ',\'match.' + k + '.a\',this.value)"></div>' +
+                                '<div class="field"><label>B columns</label><input value="' + attresc(mm.b || '') + '" placeholder="fullName" oninput="setNodeParam(' + i + ',\'match.' + k + '.b\',this.value)"></div>' +
+                                '<div class="field" style="max-width:80px"><label>Sep</label><input value="' + attresc(mm.sep == null ? ' ' : mm.sep) + '" placeholder="(space)" oninput="setNodeParam(' + i + ',\'match.' + k + '.sep\',this.value)"></div>' +
+                                '<div class="field" style="max-width:110px"><label>Type</label><select onchange="setNodeParam(' + i + ',\'match.' + k + '.type\',this.value)">' +
+                                '<option value="text"' + ((mm.type || 'text') === 'text' ? ' selected' : '') + '>text</option>' +
+                                '<option value="numeric"' + (mm.type === 'numeric' ? ' selected' : '') + '>numeric</option></select></div>' +
+                                '<div class="field"><label>Label</label><input value="' + attresc(mm.label || '') + '" placeholder="(A columns)" oninput="setNodeParam(' + i + ',\'match.' + k + '.label\',this.value)"></div>' +
+                                '<div class="field" style="max-width:50px"><label>&nbsp;</label><button class="btn sm danger" onclick="diffDelMatch(' + i + ',' + k + ')">✕</button></div></div>';
+                        });
+                        h += '<button class="ghost-btn" onclick="diffAddMatch(' + i + ')">＋ Match</button></div>';
+                    }
                     h += '<div class="form-row"><div class="field wide"><label><input type="checkbox"' + (nodeParam(n, 'failOnDifferences') === 'true' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'failOnDifferences\',this.checked?\'true\':\'\')"> Fail the step if any difference is found</label></div></div>';
-                    h += '<div class="dim small" style="margin-top:6px">Compares columns present in both headers, row-by-row by position. Outputs: <b>${' + esc(n.id) + '.diffResult}</b> (PERFECT_MATCH|DIFFERENCES), <b>diffCount</b>, and two files under the step dir: <code>&lt;name&gt;_recon_report.md</code> and <code>&lt;name&gt;_recon_differences.csv</code>. TEXT and key-based modes arrive in later batches.</div>';
+                    h += '<div class="dim small" style="margin-top:6px">Outputs: <b>${' + esc(n.id) + '.diffResult}</b> (PERFECT_MATCH|DIFFERENCES), <b>diffCount</b>, and two files under the step dir: <code>&lt;name&gt;_recon_report.md</code> + <code>&lt;name&gt;_recon_differences.csv</code>.</div>';
                 } else if (ex === 'split') {
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Input file *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${anonymize.outputFile} | ${landingOut}/data.csv" oninput="updNode(' + i + ',\'source\',this.value)"></div></div>';
@@ -1287,6 +1320,12 @@
                 if (ex === 'diff') {
                     if (!nodeParam(n, 'fileA')) errs.push(label + ' (' + n.id + '): diff needs File A');
                     if (!nodeParam(n, 'fileB')) errs.push(label + ' (' + n.id + '): diff needs File B');
+                    if ((nodeParam(n, 'mode') || 'CSV_POSITIONAL') === 'CSV_KEY') {
+                        if (!nodeParam(n, 'keysA')) errs.push(label + ' (' + n.id + '): CSV_KEY needs key columns for A');
+                        if (!nodeParam(n, 'keysB')) errs.push(label + ' (' + n.id + '): CSV_KEY needs key columns for B');
+                        var dm = diffMatches(n).filter(function (mm) { return mm.a && mm.a.trim() && mm.b && mm.b.trim(); });
+                        if (!dm.length) errs.push(label + ' (' + n.id + '): CSV_KEY needs at least one match with A and B columns');
+                    }
                 }
                 if (ex === 'csvsql') {
                     if (!n.inputs || !n.inputs.length) errs.push(label + ' (' + n.id + '): at least one input CSV is required');

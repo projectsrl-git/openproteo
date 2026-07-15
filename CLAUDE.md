@@ -359,3 +359,20 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   `.claude/2026-07-14-diff-executor-batch1-positional.md`. Next batches: report
   metrics polish, CSV_KEY (keys+matches+H2), ADD MATCH UI, cross-workflow file
   selection, TEXT mode.
+
+## diff executor — Batch 2 (CSV_KEY)
+* `runDiff` dispatches by `mode`; new **CSV_KEY** mode (`runDiffKey`) aligns rows
+  by declared keys and compares attribute matches. H2 pipeline (reuses the csvsql
+  CSVREAD loader): per-side GROUP BY keyExpr with COUNT(DISTINCT)+MAX per match,
+  full-outer emulated via LEFT JOIN + UNION ALL anti-join. Categories
+  value_mismatch / missing_in_A / missing_in_B / inconsistent_key (multi-occurrence
+  agreement). Numeric matches compared via BigDecimal (0100==100). CONCAT_WS is
+  used only for 2+ columns (H2 rejects single-arg CONCAT_WS); key sep = CHAR(1).
+  Column names validated as identifiers; separators SQL-escaped; match indices are
+  scanned from params (gap-tolerant). Config via params keysA/keysB + match.N.a/.b/
+  .sep/.type/.label; designer mode dropdown + ADD MATCH repeater bound with
+  nodeParam/setNodeParam; clientValidate requires keys + one complete match.
+  Verified by running the real runDiffKey against H2 on sample CSVs (all four
+  categories, duplicate collapse, numeric leading-zero, gap-tolerant indices).
+  Note in `.claude/2026-07-14-diff-executor-batch2-csvkey.md`. Deferred: key
+  SUBSTRING L/R, header-dropdown column pickers, cross-workflow selection, TEXT.

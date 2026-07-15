@@ -1,28 +1,36 @@
-diff executor (Batch 1): CSV_POSITIONAL reconciliation + reports
+diff executor (Batch 2): CSV_KEY key-aligned reconciliation
 
-First end-to-end slice of the diff / reconciliation-as-workflow design
-(.claude/DIFF_EXECUTOR.md): a new internal step "diff", CSV_POSITIONAL mode only.
+Second slice of the diff / reconciliation design (.claude/DIFF_EXECUTOR.md):
+adds CSV_KEY mode. Depends on Batch 1 (apply that first).
 
-- Registration (four locations): parser exec whitelist + internal set,
-  WorkflowEngine.internalKind, InternalSteps dispatch; parser error message
-  updated.
-- runDiff (CSV_POSITIONAL): streaming, constant memory; compares the columns
-  present in both headers (by name) row-by-row by position; surplus rows reported
-  as missing_in_A / missing_in_B. Adds a minimal CSV line parser (quotes + ""
-  escaping) since no CSV reader existed.
-- Reports to the step dir: <name>_recon_report.md (PERFECT MATCH / DIFFERENCES,
-  config echo, summary, totals with % over checked cells, per-attribute table)
-  and <name>_recon_differences.csv (rowIndex, attribute, valueA, valueB,
-  category). Output vars: diffResult, diffCount, rowsCompared,
-  attributesCompared, valueMismatches, missingInA, missingInB, reportFile,
-  differencesFile. Optional failOnDifferences flips the exit code.
-- Designer: "diff" in the exec dropdown, a dedicated editor branch (mode / fileA
-  / fileB / delimiter / report name / fail-on-diff) bound via nodeParam /
-  setNodeParam, plus a clientValidate rule. Config is params-only: no model, DTO
+- runDiff now dispatches on mode; new runDiffKey runs an H2 pipeline reusing the
+  csvsql CSVREAD loader: both files load as all-VARCHAR tables, each side is
+  grouped by the key expression with COUNT(DISTINCT)+MAX per match, and the two
+  sides are full-outer-joined (emulated as LEFT JOIN + UNION ALL anti-join, since
+  H2 2.1.214 does not accept FULL OUTER JOIN here).
+- Categories: value_mismatch, missing_in_A, missing_in_B, and inconsistent_key
+  (a match has more than one distinct value within one side for a key -- the
+  multi-occurrence agreement rule). Numeric matches compare via BigDecimal so
+  0100 == 100; text compares by string equality.
+- CONCAT_WS is used only when a key or match spans 2+ columns (H2 rejects
+  single-arg CONCAT_WS); a single column is used bare; the key separator is
+  CHAR(1). Column names are validated as identifiers and match separators are
+  SQL-escaped. Match indices are scanned from the params (gap-tolerant).
+- Reports: KEY-flavoured <name>_recon_report.md (config echo with keys+matches,
+  summary, totals with % over checked cells, per-match table) and
+  <name>_recon_differences.csv (key, match, valueA, valueB, category). Output
+  vars add keysCompared and inconsistentKeys.
+- Designer: mode dropdown gains CSV_KEY; when selected, Key A / Key B inputs and
+  an ADD MATCH repeater (A columns / B columns / separator / type / label /
+  remove) appear, bound via nodeParam/setNodeParam; clientValidate requires the
+  keys and at least one complete match. Config stays params-only: no model, DTO
   or writer change.
 
-Docs: .claude/DIFF_EXECUTOR.md (design), .claude/2026-07-14-diff-executor-batch1-positional.md, CLAUDE.md.
+Docs: .claude/2026-07-14-diff-executor-batch2-csvkey.md and CLAUDE.md.
 
-Verify: diff algorithm executed standalone on sample CSVs (correct metrics and
-differences output); designer.html passes node --check; no literal \n/\r; no
-unsafe Thymeleaf. Full Maven build to be confirmed on deploy.
+Verify: the actual runDiffKey source was executed against a real H2 2.1.214 on
+sample CSVs -- all four categories correct, identical duplicates collapse,
+numeric leading-zero equality holds, non-contiguous match indices tolerated (two
+real H2-syntax bugs, single-arg CONCAT_WS and FULL OUTER JOIN, were caught and
+fixed this way). designer.html passes node --check; no literal \n/\r; no unsafe
+Thymeleaf. Full Maven build to be confirmed on deploy.

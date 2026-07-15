@@ -310,9 +310,6 @@ public class InternalSteps {
         if (fileA == null || fileA.trim().isEmpty() || fileB == null || fileB.trim().isEmpty()) {
             line.accept("diff: both fileA and fileB are required"); res.exitCode = 2; return;
         }
-        if (!"CSV_POSITIONAL".equalsIgnoreCase(mode)) {
-            line.accept("diff: mode '" + mode + "' not implemented yet (this build supports CSV_POSITIONAL)"); res.exitCode = 2; return;
-        }
         java.io.File fa = new java.io.File(fileA.trim());
         java.io.File fb = new java.io.File(fileB.trim());
         if (!fa.isFile()) { line.accept("diff: file A not found: " + fa.getAbsolutePath()); res.exitCode = 2; return; }
@@ -328,6 +325,9 @@ public class InternalSteps {
         if (outDir != null) outDir.mkdirs();
         java.io.File reportMd = new java.io.File(outDir, reportName + "_recon_report.md");
         java.io.File diffCsv = new java.io.File(outDir, reportName + "_recon_differences.csv");
+
+        if ("CSV_KEY".equalsIgnoreCase(mode)) { runDiffKey(params, fa, fb, delim, reportName, reportMd, diffCsv, failOnDiff, res, line); return; }
+        if (!"CSV_POSITIONAL".equalsIgnoreCase(mode)) { line.accept("diff: mode '" + mode + "' not implemented yet"); res.exitCode = 2; return; }
 
         java.io.BufferedReader ra = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(fa), java.nio.charset.StandardCharsets.UTF_8));
         java.io.BufferedReader rb = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(fb), java.nio.charset.StandardCharsets.UTF_8));
@@ -428,6 +428,174 @@ public class InternalSteps {
         if (!s.isEmpty() && s.charAt(0) == '\uFEFF') return s.substring(1);
         return s;
     }
+    private void runDiffKey(Map<String, String> params, java.io.File fa, java.io.File fb, char delim,
+                            String reportName, java.io.File reportMd, java.io.File diffCsv, boolean failOnDiff,
+                            StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        String keysA = blankToNull(params.get("keysA"));
+        String keysB = blankToNull(params.get("keysB"));
+        if (keysA == null || keysB == null) { line.accept("diff CSV_KEY: keysA and keysB are required"); res.exitCode = 2; return; }
+        List<String> kaCols = splitCols(keysA);
+        List<String> kbCols = splitCols(keysB);
+        if (kaCols.isEmpty() || kbCols.isEmpty()) { line.accept("diff CSV_KEY: keysA and keysB must name at least one column"); res.exitCode = 2; return; }
+        for (String cc : kaCols) if (!isIdent(cc)) { line.accept("diff CSV_KEY: invalid key column '" + cc + "'"); res.exitCode = 2; return; }
+        for (String cc : kbCols) if (!isIdent(cc)) { line.accept("diff CSV_KEY: invalid key column '" + cc + "'"); res.exitCode = 2; return; }
+        List<String> mLabel = new ArrayList<String>();
+        List<String> mAexpr = new ArrayList<String>();
+        List<String> mBexpr = new ArrayList<String>();
+        List<Boolean> mNum = new ArrayList<Boolean>();
+        java.util.TreeSet<Integer> midx = new java.util.TreeSet<Integer>();
+        for (String key : params.keySet()) {
+            if (key.startsWith("match.") && key.endsWith(".a")) {
+                try { midx.add(Integer.parseInt(key.substring(6, key.length() - 2))); } catch (NumberFormatException ignore) {}
+            }
+        }
+        for (Integer n : midx) {
+            String a = params.get("match." + n + ".a");
+            if (a == null) continue;
+            String b = params.get("match." + n + ".b");
+            List<String> ac = splitCols(a);
+            List<String> bc = splitCols(b == null ? "" : b);
+            if (ac.isEmpty() || bc.isEmpty()) { line.accept("diff CSV_KEY: match " + n + " needs at least one A column and one B column"); res.exitCode = 2; return; }
+            for (String cc : ac) if (!isIdent(cc)) { line.accept("diff CSV_KEY: invalid A column '" + cc + "' in match " + n); res.exitCode = 2; return; }
+            for (String cc : bc) if (!isIdent(cc)) { line.accept("diff CSV_KEY: invalid B column '" + cc + "' in match " + n); res.exitCode = 2; return; }
+            String sep = params.get("match." + n + ".sep"); if (sep == null) sep = " ";
+            boolean num = "numeric".equalsIgnoreCase(params.get("match." + n + ".type"));
+            String label = blankToNull(params.get("match." + n + ".label"));
+            if (label == null) label = String.join("+", ac);
+            mLabel.add(label);
+            mAexpr.add(concatExpr(ac, sqlStr(sep)));
+            mBexpr.add(concatExpr(bc, sqlStr(sep)));
+            mNum.add(num);
+        }
+        if (mLabel.isEmpty()) { line.accept("diff CSV_KEY: at least one match is required"); res.exitCode = 2; return; }
+
+        String keyExprA = concatExpr(kaCols, "CHAR(1)");
+        String keyExprB = concatExpr(kbCols, "CHAR(1)");
+        StringBuilder ag = new StringBuilder("SELECT (" + keyExprA + ") k");
+        StringBuilder bg = new StringBuilder("SELECT (" + keyExprB + ") k");
+        for (int m = 0; m < mLabel.size(); m++) {
+            ag.append(", COUNT(DISTINCT (").append(mAexpr.get(m)).append(")) d").append(m).append(", MAX(").append(mAexpr.get(m)).append(") v").append(m);
+            bg.append(", COUNT(DISTINCT (").append(mBexpr.get(m)).append(")) d").append(m).append(", MAX(").append(mBexpr.get(m)).append(") v").append(m);
+        }
+        ag.append(" FROM ta GROUP BY (").append(keyExprA).append(")");
+        bg.append(" FROM tb GROUP BY (").append(keyExprB).append(")");
+        StringBuilder sel1 = new StringBuilder("SELECT ag.k k, ag.k ak, bg.k bk");
+        StringBuilder sel2 = new StringBuilder("SELECT bg.k k, CAST(NULL AS VARCHAR) ak, bg.k bk");
+        for (int m = 0; m < mLabel.size(); m++) {
+            sel1.append(", ag.d").append(m).append(" ad").append(m).append(", ag.v").append(m).append(" av").append(m)
+                .append(", bg.d").append(m).append(" bd").append(m).append(", bg.v").append(m).append(" bv").append(m);
+            sel2.append(", CAST(NULL AS INT) ad").append(m).append(", CAST(NULL AS VARCHAR) av").append(m)
+                .append(", bg.d").append(m).append(" bd").append(m).append(", bg.v").append(m).append(" bv").append(m);
+        }
+        String query = "WITH ag AS (" + ag + "), bg AS (" + bg + ") "
+                + sel1 + " FROM ag LEFT JOIN bg ON ag.k=bg.k "
+                + "UNION ALL " + sel2 + " FROM bg LEFT JOIN ag ON ag.k=bg.k WHERE ag.k IS NULL";
+
+        try { Class.forName("org.h2.Driver"); }
+        catch (Throwable t) { line.accept("diff CSV_KEY: H2 driver not on classpath - add com.h2database:h2 (see h2/README_H2.md)"); res.exitCode = 2; return; }
+        String url = "jdbc:h2:mem:diff_" + System.nanoTime() + ";DB_CLOSE_DELAY=0";
+        String opts = "fieldSeparator=" + delim + " charset=UTF-8";
+        java.sql.Connection conn = null;
+        java.io.BufferedWriter dw = new java.io.BufferedWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(diffCsv), java.nio.charset.StandardCharsets.UTF_8));
+        try {
+            conn = java.sql.DriverManager.getConnection(url, "sa", "");
+            java.sql.Statement st = conn.createStatement();
+            st.executeUpdate("CREATE TABLE ta AS SELECT * FROM CSVREAD(" + sqlStr(fa.getAbsolutePath().replace('\\', '/')) + ", NULL, " + sqlStr(opts) + ")");
+            st.executeUpdate("CREATE TABLE tb AS SELECT * FROM CSVREAD(" + sqlStr(fb.getAbsolutePath().replace('\\', '/')) + ", NULL, " + sqlStr(opts) + ")");
+            dw.write("key,match,valueA,valueB,category"); dw.write("\r\n");
+            long[] mDiff = new long[mLabel.size()];
+            long keysCompared = 0, valueMismatch = 0, inconsistent = 0, missingInA = 0, missingInB = 0;
+            java.sql.ResultSet r = st.executeQuery(query);
+            while (r.next()) {
+                String k = r.getString("k");
+                String ak = r.getString("ak");
+                String bk = r.getString("bk");
+                if (ak == null) { missingInA++; diffRow2(dw, k, "(key)", "", "", "missing_in_A"); continue; }
+                if (bk == null) { missingInB++; diffRow2(dw, k, "(key)", "", "", "missing_in_B"); continue; }
+                keysCompared++;
+                for (int m = 0; m < mLabel.size(); m++) {
+                    int ad = r.getInt("ad" + m), bd = r.getInt("bd" + m);
+                    String av = r.getString("av" + m), bv = r.getString("bv" + m);
+                    if (ad > 1 || bd > 1) { inconsistent++; mDiff[m]++; diffRow2(dw, k, mLabel.get(m), av == null ? "" : av, bv == null ? "" : bv, "inconsistent_key"); continue; }
+                    boolean eq = mNum.get(m) ? numEq(av, bv) : java.util.Objects.equals(av, bv);
+                    if (!eq) { valueMismatch++; mDiff[m]++; diffRow2(dw, k, mLabel.get(m), av == null ? "" : av, bv == null ? "" : bv, "value_mismatch"); }
+                }
+            }
+            dw.flush();
+            long totalDiff = valueMismatch + inconsistent + missingInA + missingInB;
+            long cells = keysCompared * (long) mLabel.size();
+            StringBuilder md = new StringBuilder();
+            md.append("# Reconciliation report - ").append(reportName).append("\n\n");
+            md.append(totalDiff == 0 ? "**PERFECT MATCH**\n\n" : "**DIFFERENCES**\n\n");
+            md.append("## Configuration\n\n");
+            md.append("- Mode: `CSV_KEY`\n");
+            md.append("- File A: `").append(fa.getAbsolutePath()).append("`\n");
+            md.append("- File B: `").append(fb.getAbsolutePath()).append("`\n");
+            md.append("- Key A: `").append(String.join(", ", kaCols)).append("`\n");
+            md.append("- Key B: `").append(String.join(", ", kbCols)).append("`\n");
+            md.append("- Matches:\n");
+            for (int m = 0; m < mLabel.size(); m++) md.append("  - ").append(mLabel.get(m)).append(" (").append(mNum.get(m) ? "numeric" : "text").append(")\n");
+            md.append("\n## Summary\n\n");
+            md.append("- Keys compared (present on both sides): ").append(keysCompared).append("\n");
+            md.append("- Attributes compared (matches): ").append(mLabel.size()).append("\n\n");
+            md.append("## Totals\n\n");
+            md.append("- Value mismatches: ").append(valueMismatch);
+            if (cells > 0) md.append(" (").append(pct(valueMismatch, cells)).append("% of ").append(cells).append(" checked cells)");
+            md.append("\n");
+            md.append("- Inconsistent keys (a match differs within one side): ").append(inconsistent).append("\n");
+            md.append("- Keys only in A (missing in B): ").append(missingInB).append("\n");
+            md.append("- Keys only in B (missing in A): ").append(missingInA).append("\n");
+            md.append("- Total differences: ").append(totalDiff).append("\n\n");
+            md.append("## Per-match\n\n");
+            md.append("| Match | Differing keys | % of keys compared |\n| --- | ---: | ---: |\n");
+            for (int m = 0; m < mLabel.size(); m++) md.append("| ").append(mLabel.get(m)).append(" | ").append(mDiff[m]).append(" | ").append(keysCompared > 0 ? pct(mDiff[m], keysCompared) : "0.00").append(" |\n");
+            java.nio.file.Files.write(reportMd.toPath(), md.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+            res.outVars.put("diffResult", totalDiff == 0 ? "PERFECT_MATCH" : "DIFFERENCES");
+            res.outVars.put("diffCount", String.valueOf(totalDiff));
+            res.outVars.put("keysCompared", String.valueOf(keysCompared));
+            res.outVars.put("attributesCompared", String.valueOf(mLabel.size()));
+            res.outVars.put("valueMismatches", String.valueOf(valueMismatch));
+            res.outVars.put("inconsistentKeys", String.valueOf(inconsistent));
+            res.outVars.put("missingInA", String.valueOf(missingInA));
+            res.outVars.put("missingInB", String.valueOf(missingInB));
+            res.outVars.put("reportFile", reportMd.getAbsolutePath());
+            res.outVars.put("differencesFile", diffCsv.getAbsolutePath());
+            line.accept("diff CSV_KEY: " + (totalDiff == 0 ? "PERFECT MATCH" : ("DIFFERENCES (" + totalDiff + ")")) + " over " + keysCompared + " key(s), " + mLabel.size() + " match(es)");
+            line.accept("diff: report " + reportMd.getAbsolutePath());
+            for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
+            res.exitCode = (failOnDiff && totalDiff > 0) ? 1 : 0;
+        } finally {
+            try { dw.close(); } catch (Exception ignored) {}
+            if (conn != null) try { conn.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    private static boolean numEq(String a, String b) {
+        if (a == null || b == null) return false;
+        try { return new java.math.BigDecimal(a.trim()).compareTo(new java.math.BigDecimal(b.trim())) == 0; }
+        catch (Exception e) { return false; }
+    }
+    private static List<String> splitCols(String csv) {
+        List<String> out = new ArrayList<String>();
+        if (csv == null) return out;
+        for (String p : csv.split(",")) { String t = p.trim(); if (!t.isEmpty()) out.add(t); }
+        return out;
+    }
+    private static boolean isIdent(String s) { return s != null && s.matches("[A-Za-z_][A-Za-z0-9_]*"); }
+    private static String concatExpr(List<String> cols, String sepSql) {
+        if (cols.size() == 1) return cols.get(0);
+        return "CONCAT_WS(" + sepSql + ", " + String.join(", ", cols) + ")";
+    }
+    private static String sqlStr(String s) { return "'" + (s == null ? "" : s.replace("'", "''")) + "'"; }
+    private static void diffRow2(java.io.BufferedWriter w, String key, String match, String va, String vb, String cat) throws java.io.IOException {
+        w.write(dq(key)); w.write(',');
+        w.write(dq(match)); w.write(',');
+        w.write(dq(va)); w.write(',');
+        w.write(dq(vb)); w.write(',');
+        w.write(dq(cat)); w.write("\r\n");
+    }
+
     private static java.util.List<String> parseCsvLine(String line, char delim) {
         java.util.List<String> out = new java.util.ArrayList<String>();
         if (line == null) return out;
