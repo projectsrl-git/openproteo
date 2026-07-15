@@ -376,3 +376,17 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   categories, duplicate collapse, numeric leading-zero, gap-tolerant indices).
   Note in `.claude/2026-07-14-diff-executor-batch2-csvkey.md`. Deferred: key
   SUBSTRING L/R, header-dropdown column pickers, cross-workflow selection, TEXT.
+
+## diff executor — Batch 3 (TEXT mode)
+* `runDiff` dispatches TEXT → `runDiffText`, the third comparison mode (all three
+  now exist). Small files (both <= textMaxLines, default 2000) use a real LCS diff
+  (only_in_A / only_in_B with line numbers); larger files fall back to a streaming
+  positional line comparison (line_changed + surplus), noted in the report. Same
+  report pair; output vars linesA/linesB/commonLines/onlyInA/onlyInB
+  (+changedLines in fallback). Config via params (fileA/fileB/reportName/
+  failOnDifferences/textMaxLines); designer adds TEXT to the mode dropdown + a
+  Max-lines field (delimiter ignored in TEXT). No model/DTO/writer change.
+  Verified by running the real runDiffText on sample files (LCS + fallback both
+  correct). Note in `.claude/2026-07-14-diff-executor-batch3-text.md`. Remaining
+  (UX/plumbing): key SUBSTRING L/R, header-dropdown pickers, cross-workflow file
+  selection + run correlation.

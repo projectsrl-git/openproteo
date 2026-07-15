@@ -1,36 +1,28 @@
-diff executor (Batch 2): CSV_KEY key-aligned reconciliation
+diff executor (Batch 3): TEXT line-diff mode
 
-Second slice of the diff / reconciliation design (.claude/DIFF_EXECUTOR.md):
-adds CSV_KEY mode. Depends on Batch 1 (apply that first).
+Third and final comparison mode of the diff / reconciliation design
+(.claude/DIFF_EXECUTOR.md). Applies on top of Batch 1+2 (already on main).
 
-- runDiff now dispatches on mode; new runDiffKey runs an H2 pipeline reusing the
-  csvsql CSVREAD loader: both files load as all-VARCHAR tables, each side is
-  grouped by the key expression with COUNT(DISTINCT)+MAX per match, and the two
-  sides are full-outer-joined (emulated as LEFT JOIN + UNION ALL anti-join, since
-  H2 2.1.214 does not accept FULL OUTER JOIN here).
-- Categories: value_mismatch, missing_in_A, missing_in_B, and inconsistent_key
-  (a match has more than one distinct value within one side for a key -- the
-  multi-occurrence agreement rule). Numeric matches compare via BigDecimal so
-  0100 == 100; text compares by string equality.
-- CONCAT_WS is used only when a key or match spans 2+ columns (H2 rejects
-  single-arg CONCAT_WS); a single column is used bare; the key separator is
-  CHAR(1). Column names are validated as identifiers and match separators are
-  SQL-escaped. Match indices are scanned from the params (gap-tolerant).
-- Reports: KEY-flavoured <name>_recon_report.md (config echo with keys+matches,
-  summary, totals with % over checked cells, per-match table) and
-  <name>_recon_differences.csv (key, match, valueA, valueB, category). Output
-  vars add keysCompared and inconsistentKeys.
-- Designer: mode dropdown gains CSV_KEY; when selected, Key A / Key B inputs and
-  an ADD MATCH repeater (A columns / B columns / separator / type / label /
-  remove) appear, bound via nodeParam/setNodeParam; clientValidate requires the
-  keys and at least one complete match. Config stays params-only: no model, DTO
+- runDiff dispatches TEXT to runDiffText (line-oriented). Small files (both
+  <= textMaxLines, default 2000) get a real LCS diff (bottom-up DP + forward
+  walk) reporting only_in_A / only_in_B lines with their line numbers. Larger
+  files fall back to a streaming positional line comparison (line_changed, plus
+  surplus as only_in_A / only_in_B), with the degradation noted in the report --
+  TEXT is intended for small control files, CSV_POSITIONAL / CSV_KEY stay the
+  scalable paths. (Resolves the open cap/fallback question in the design.)
+- Same report pair: <name>_recon_report.md (headline, config incl. fallback note,
+  summary lines A/B/common, totals with % over the larger file) and
+  <name>_recon_differences.csv (line, label, valueA, valueB, category). Output
+  vars: diffResult, diffCount, linesA, linesB, commonLines, onlyInA, onlyInB
+  (+ changedLines in fallback), reportFile, differencesFile.
+- Designer: TEXT added to the mode dropdown; when selected, a Max-lines field and
+  a note that the delimiter is ignored. Config stays params-only: no model, DTO
   or writer change.
 
-Docs: .claude/2026-07-14-diff-executor-batch2-csvkey.md and CLAUDE.md.
+Docs: .claude/2026-07-14-diff-executor-batch3-text.md and CLAUDE.md.
 
-Verify: the actual runDiffKey source was executed against a real H2 2.1.214 on
-sample CSVs -- all four categories correct, identical duplicates collapse,
-numeric leading-zero equality holds, non-contiguous match indices tolerated (two
-real H2-syntax bugs, single-arg CONCAT_WS and FULL OUTER JOIN, were caught and
-fixed this way). designer.html passes node --check; no literal \n/\r; no unsafe
-Thymeleaf. Full Maven build to be confirmed on deploy.
+Verify: the actual runDiffText source was executed standalone on sample files --
+LCS path (common 4, only_in_A 1, only_in_B 2, 33.33% over the larger file) and
+positional fallback (textMaxLines=3 -> common 3, changed 2, only_in_B 1, 50%),
+with failOnDifferences flipping the exit code. designer.html passes node --check;
+no literal \n/\r; no unsafe Thymeleaf. Full Maven build to be confirmed on deploy.

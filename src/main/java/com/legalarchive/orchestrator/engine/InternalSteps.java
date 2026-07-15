@@ -326,6 +326,7 @@ public class InternalSteps {
         java.io.File reportMd = new java.io.File(outDir, reportName + "_recon_report.md");
         java.io.File diffCsv = new java.io.File(outDir, reportName + "_recon_differences.csv");
 
+        if ("TEXT".equalsIgnoreCase(mode)) { runDiffText(params, fa, fb, reportName, reportMd, diffCsv, failOnDiff, res, line); return; }
         if ("CSV_KEY".equalsIgnoreCase(mode)) { runDiffKey(params, fa, fb, delim, reportName, reportMd, diffCsv, failOnDiff, res, line); return; }
         if (!"CSV_POSITIONAL".equalsIgnoreCase(mode)) { line.accept("diff: mode '" + mode + "' not implemented yet"); res.exitCode = 2; return; }
 
@@ -594,6 +595,95 @@ public class InternalSteps {
         w.write(dq(va)); w.write(',');
         w.write(dq(vb)); w.write(',');
         w.write(dq(cat)); w.write("\r\n");
+    }
+
+    private void runDiffText(Map<String, String> params, java.io.File fa, java.io.File fb,
+                             String reportName, java.io.File reportMd, java.io.File diffCsv, boolean failOnDiff,
+                             StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        int cap = 2000;
+        try { String cc = blankToNull(params.get("textMaxLines")); if (cc != null) cap = Integer.parseInt(cc.trim()); } catch (NumberFormatException ignore) {}
+        if (cap < 1) cap = 1;
+        List<String> a = readLines(fa);
+        List<String> b = readLines(fb);
+        int n = a.size(), m = b.size();
+        boolean fallback = (n > cap || m > cap);
+        java.io.BufferedWriter dw = new java.io.BufferedWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(diffCsv), java.nio.charset.StandardCharsets.UTF_8));
+        long onlyInA = 0, onlyInB = 0, changed = 0, common = 0;
+        try {
+            dw.write("line,label,valueA,valueB,category"); dw.write("\r\n");
+            if (!fallback) {
+                int[][] dp = new int[n + 1][m + 1];
+                for (int i = n - 1; i >= 0; i--) for (int j = m - 1; j >= 0; j--)
+                    dp[i][j] = a.get(i).equals(b.get(j)) ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+                common = dp[0][0];
+                int i = 0, j = 0;
+                while (i < n && j < m) {
+                    if (a.get(i).equals(b.get(j))) { i++; j++; }
+                    else if (dp[i + 1][j] >= dp[i][j + 1]) { onlyInA++; diffRow2(dw, String.valueOf(i + 1), "(line)", a.get(i), "", "only_in_A"); i++; }
+                    else { onlyInB++; diffRow2(dw, String.valueOf(j + 1), "(line)", "", b.get(j), "only_in_B"); j++; }
+                }
+                while (i < n) { onlyInA++; diffRow2(dw, String.valueOf(i + 1), "(line)", a.get(i), "", "only_in_A"); i++; }
+                while (j < m) { onlyInB++; diffRow2(dw, String.valueOf(j + 1), "(line)", "", b.get(j), "only_in_B"); j++; }
+            } else {
+                int min = Math.min(n, m);
+                for (int i = 0; i < min; i++) {
+                    if (a.get(i).equals(b.get(i))) common++;
+                    else { changed++; diffRow2(dw, String.valueOf(i + 1), "(line)", a.get(i), b.get(i), "line_changed"); }
+                }
+                for (int i = min; i < n; i++) { onlyInA++; diffRow2(dw, String.valueOf(i + 1), "(line)", a.get(i), "", "only_in_A"); }
+                for (int j = min; j < m; j++) { onlyInB++; diffRow2(dw, String.valueOf(j + 1), "(line)", "", b.get(j), "only_in_B"); }
+            }
+            dw.flush();
+            long totalDiff = onlyInA + onlyInB + changed;
+            int larger = Math.max(n, m);
+            String pctd = larger > 0 ? pct(larger - (int) common, larger) : "0.00";
+            StringBuilder md = new StringBuilder();
+            md.append("# Reconciliation report - ").append(reportName).append("\n\n");
+            md.append(totalDiff == 0 ? "**PERFECT MATCH**\n\n" : "**DIFFERENCES**\n\n");
+            md.append("## Configuration\n\n");
+            md.append("- Mode: `TEXT`").append(fallback ? " (streaming positional fallback: a file exceeds textMaxLines=" + cap + ")" : "").append("\n");
+            md.append("- File A: `").append(fa.getAbsolutePath()).append("`\n");
+            md.append("- File B: `").append(fb.getAbsolutePath()).append("`\n\n");
+            md.append("## Summary\n\n");
+            md.append("- Lines in A: ").append(n).append("\n");
+            md.append("- Lines in B: ").append(m).append("\n");
+            md.append("- Common lines: ").append(common).append("\n\n");
+            md.append("## Totals\n\n");
+            md.append("- Lines only in A: ").append(onlyInA).append("\n");
+            md.append("- Lines only in B: ").append(onlyInB).append("\n");
+            if (fallback) md.append("- Changed lines (same position): ").append(changed).append("\n");
+            md.append("- Total differing lines: ").append(totalDiff);
+            if (larger > 0) md.append(" (").append(pctd).append("% over the larger file)");
+            md.append("\n");
+            java.nio.file.Files.write(reportMd.toPath(), md.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+            res.outVars.put("diffResult", totalDiff == 0 ? "PERFECT_MATCH" : "DIFFERENCES");
+            res.outVars.put("diffCount", String.valueOf(totalDiff));
+            res.outVars.put("linesA", String.valueOf(n));
+            res.outVars.put("linesB", String.valueOf(m));
+            res.outVars.put("commonLines", String.valueOf(common));
+            res.outVars.put("onlyInA", String.valueOf(onlyInA));
+            res.outVars.put("onlyInB", String.valueOf(onlyInB));
+            if (fallback) res.outVars.put("changedLines", String.valueOf(changed));
+            res.outVars.put("reportFile", reportMd.getAbsolutePath());
+            res.outVars.put("differencesFile", diffCsv.getAbsolutePath());
+            line.accept("diff TEXT: " + (totalDiff == 0 ? "PERFECT MATCH" : ("DIFFERENCES (" + totalDiff + ")")) + " - A=" + n + " B=" + m + " common=" + common + (fallback ? " [positional fallback]" : ""));
+            line.accept("diff: report " + reportMd.getAbsolutePath());
+            for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
+            res.exitCode = (failOnDiff && totalDiff > 0) ? 1 : 0;
+        } finally {
+            try { dw.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    private static List<String> readLines(java.io.File f) throws java.io.IOException {
+        List<String> out = new ArrayList<String>();
+        java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(f), java.nio.charset.StandardCharsets.UTF_8));
+        try {
+            String ln; boolean first = true;
+            while ((ln = r.readLine()) != null) { if (first) { ln = stripBom(ln); first = false; } out.add(ln); }
+        } finally { try { r.close(); } catch (Exception ignored) {} }
+        return out;
     }
 
     private static java.util.List<String> parseCsvLine(String line, char delim) {

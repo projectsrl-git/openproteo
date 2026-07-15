@@ -1028,6 +1028,7 @@
                         '<div class="field"><label>Mode</label><select onchange="diffSetMode(' + i + ',this.value)">' +
                         '<option value="CSV_POSITIONAL"' + (dmode === 'CSV_POSITIONAL' ? ' selected' : '') + '>CSV positional (by row order)</option>' +
                         '<option value="CSV_KEY"' + (dmode === 'CSV_KEY' ? ' selected' : '') + '>CSV key (align rows by key)</option>' +
+                        '<option value="TEXT"' + (dmode === 'TEXT' ? ' selected' : '') + '>TEXT (line-by-line)</option>' +
                         '</select></div>' +
                         '<div class="field"><label>Delimiter</label><input value="' + attresc(nodeParam(n, 'delimiter')) + '" placeholder=";" oninput="setNodeParam(' + i + ',\'delimiter\',this.value)"></div>' +
                         '<div class="field"><label>Report name</label><input value="' + attresc(nodeParam(n, 'reportName')) + '" placeholder="(step id)" oninput="setNodeParam(' + i + ',\'reportName\',this.value)"></div></div>';
@@ -1035,6 +1036,10 @@
                         '<input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'fileA')) + '" placeholder="${extract.csvFile} | ${landingOut}/a.csv" oninput="setNodeParam(' + i + ',\'fileA\',this.value)"></div></div>';
                     h += '<div class="form-row"><div class="field wide"><label>File B *</label>' +
                         '<input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'fileB')) + '" placeholder="${other.csvFile} | ${landingOut}/b.csv" oninput="setNodeParam(' + i + ',\'fileB\',this.value)"></div></div>';
+                    if (dmode === 'TEXT') {
+                        h += '<div class="form-row"><div class="field"><label>Max lines (LCS cap; above it uses positional fallback)</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'textMaxLines')) + '" placeholder="2000" oninput="setNodeParam(' + i + ',\'textMaxLines\',this.value)"></div>' +
+                            '<div class="field"><label>&nbsp;</label><span class="dim small">Line-based diff; the Delimiter above is ignored. Intended for small control files.</span></div></div>';
+                    }
                     if (dmode === 'CSV_KEY') {
                         h += '<div class="subsection"><div class="sub-label">Key columns (rows align when the A key equals the B key)</div>';
                         h += '<div class="form-row">' +
