@@ -1,23 +1,10 @@
-Operations inline detail + CSV; Files share link + absolute path
+Operations drill: add per-feed EDIT (open in designer) action
 
-Operations page (templates/overview.html):
-- the per-feed detail is always visible; the rollup tiles now filter it instead
-  of toggling a hidden panel ("Show all" resets the filter).
-- inline feed filter (id/name/source/target/status) plus CSV/Copy buttons live
-  in the static panel header, so the 20s auto-refresh never steals focus or
-  clears typed text; the visible list is recorded as drillDisplayed.
-- CSV export of the displayed (filtered) rows and of the selected (checkbox)
-  rows -- two separate downloads -- and Copy-as-CSV to the clipboard. CSV is
-  built client-side with String.fromCharCode line ends (no literal newline
-  escapes) and rows.push([...]) (no [[ for Thymeleaf).
+In the Operations detail rows, add a "✎ edit" link next to "open workflow" /
+"open last run" pointing at the existing GET /designer/{feedId} route, so a
+failing feed can be opened straight in the designer to fix it.
 
-Files panel (static/js/filespanel.js, shared by workflow/shared/pools):
-- new Share button copies an absolute direct-download link (new URL against the
-  page URL); Copy path now copies the absolute path (scopeDir from the list
-  response's dir + relative) so files can be referenced across feeds.
+Docs: .claude/2026-07-14-operations-drill-edit-button.md and CLAUDE.md updated.
 
-Docs: .claude/2026-07-14-operations-inline-detail-csv.md,
-.claude/2026-07-14-files-share-abspath.md, and CLAUDE.md updated.
-
-Frontend only; no endpoint/model change. overview.html and filespanel.js pass
-node --check; no literal \n/\r; no unsafe Thymeleaf inline.
+Frontend only; no endpoint/model change. overview.html passes node --check; no
+literal \n/\r; no unsafe Thymeleaf inline.

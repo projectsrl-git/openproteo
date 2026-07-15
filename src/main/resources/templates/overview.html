@@ -201,7 +201,7 @@
                 '<td>' + statusChip(f.lastStatus) + (f.failedStep ? ' <span class="mono small">@ ' + esc(f.failedStep) + '</span>' : '') + ' <span class="mono small dim">' + esc(f.lastRunTs||'') + '</span></td>' +
                 '<td class="mono small dim">' + esc(f.lastSuccessTs||'—') + '</td>' +
                 '<td>' + odCell(f) + '</td>' +
-                '<td style="white-space:nowrap"><a class="btn sm" href="' + CTX + 'workflow/' + encodeURIComponent(f.feedId) + '">open workflow</a>' + (f.lastRunId ? ' <a class="btn sm" href="' + CTX + 'run/' + encodeURIComponent(f.feedId) + '/' + encodeURIComponent(f.lastRunId) + '">open last run</a>' : '') + '</td>' +
+                '<td style="white-space:nowrap"><a class="btn sm" href="' + CTX + 'workflow/' + encodeURIComponent(f.feedId) + '">open workflow</a>' + ' <a class="btn sm" href="' + CTX + 'designer/' + encodeURIComponent(f.feedId) + '">\u270E edit</a>' + (f.lastRunId ? ' <a class="btn sm" href="' + CTX + 'run/' + encodeURIComponent(f.feedId) + '/' + encodeURIComponent(f.lastRunId) + '">open last run</a>' : '') + '</td>' +
                 '</tr>';
         }
         h += '</tbody></table>';

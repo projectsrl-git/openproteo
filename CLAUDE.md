@@ -337,3 +337,9 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   path (`scopeDir` from the list response's `dir` + relative), so a step can
   reference a file across feeds. No backend change. See
   `.claude/2026-07-14-files-share-abspath.md`.
+
+## Operations drill: per-feed EDIT button
+* overview.html: the drill-down row actions now include a "✎ edit" link to
+  `/designer/{feedId}` (the existing designer-edit route), next to "open
+  workflow" / "open last run", so a failing feed can be opened straight in the
+  designer. Pure UI. See `.claude/2026-07-14-operations-drill-edit-button.md`.
