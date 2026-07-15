@@ -433,6 +433,37 @@
     }
     function diffAddMatch(i) { var n = wf.nodes[i]; n.params = n.params || []; var nx = 0; diffMatches(n).forEach(function (o) { if (o._k >= nx) nx = o._k + 1; }); n.params.push({ name: 'match.' + nx + '.type', value: 'text' }); n.params.push({ name: 'match.' + nx + '.sep', value: ' ' }); renderNodes(); }
     function diffDelMatch(i, k) { var n = wf.nodes[i]; n.params = (n.params || []).filter(function (p) { return p.name.indexOf('match.' + k + '.') !== 0; }); renderNodes(); preview(); }
+    function diffCat(cb) {
+        if (window.DIFF_CAT) { cb(window.DIFF_CAT); return; }
+        fetch(CTX + 'api/workflows/catalog').then(readJson).then(function (j) { window.DIFF_CAT = (j && j.ok && j.workflows) ? j.workflows : []; cb(window.DIFF_CAT); }).catch(function () { cb([]); });
+    }
+    function diffLoadWf(i, side) {
+        var sel = document.getElementById('diffwf_' + i + '_' + side);
+        if (!sel || sel.getAttribute('data-loaded')) return;
+        diffCat(function (list) {
+            sel.innerHTML = '<option value="">(select workflow)</option>' + list.map(function (w) { return '<option value="' + attresc(w.feedId) + '">' + esc(w.name || w.feedId) + '</option>'; }).join('');
+            sel.setAttribute('data-loaded', '1');
+        });
+    }
+    function diffWfChosen(i, side, wfId) {
+        var fsel = document.getElementById('difffile_' + i + '_' + side); if (!fsel) return;
+        if (!wfId) { fsel.innerHTML = '<option value="">(select a workflow first)</option>'; return; }
+        fsel.innerHTML = '<option value="">(loading…)</option>';
+        fetch(CTX + 'api/workflows/' + encodeURIComponent(wfId) + '/files').then(readJson).then(function (j) {
+            var dir = (j && j.dir) ? String(j.dir).split('\\').join('/') : '';
+            fsel.setAttribute('data-dir', dir);
+            var files = (j && j.files) ? j.files : [];
+            fsel.innerHTML = '<option value="">(select file)</option>' + files.map(function (f) { return '<option value="' + attresc(f.path) + '">' + esc(f.path) + '</option>'; }).join('');
+        }).catch(function () { fsel.innerHTML = '<option value="">(error)</option>'; });
+    }
+    function diffFileChosen(i, side) {
+        var fsel = document.getElementById('difffile_' + i + '_' + side), fld = document.getElementById('difffld_' + i + '_' + side);
+        if (!fsel || !fld) return;
+        var rel = fsel.value; if (!rel) return;
+        var dir = fsel.getAttribute('data-dir') || '';
+        var abs = (dir && dir.charAt(dir.length - 1) !== '/') ? dir + '/' + rel : dir + rel;
+        fld.value = abs; setNodeParam(i, side, abs);
+    }
     function setNodeParam(i, name, value) {
         var n = wf.nodes[i]; n.params = n.params || [];
         for (var k = 0; k < n.params.length; k++) if (n.params[k].name === name) { if (value === '') n.params.splice(k, 1); else n.params[k].value = value; preview(); return; }
@@ -1033,9 +1064,13 @@
                         '<div class="field"><label>Delimiter</label><input value="' + attresc(nodeParam(n, 'delimiter')) + '" placeholder=";" oninput="setNodeParam(' + i + ',\'delimiter\',this.value)"></div>' +
                         '<div class="field"><label>Report name</label><input value="' + attresc(nodeParam(n, 'reportName')) + '" placeholder="(step id)" oninput="setNodeParam(' + i + ',\'reportName\',this.value)"></div></div>';
                     h += '<div class="form-row"><div class="field wide"><label>File A *</label>' +
-                        '<input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'fileA')) + '" placeholder="${extract.csvFile} | ${landingOut}/a.csv" oninput="setNodeParam(' + i + ',\'fileA\',this.value)"></div></div>';
+                        '<input id="difffld_' + i + '_fileA" class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'fileA')) + '" placeholder="${extract.csvFile} | ${landingOut}/a.csv" oninput="setNodeParam(' + i + ',\'fileA\',this.value)"></div></div>';
+                    h += '<div class="form-row"><div class="field"><label>…or from a workflow</label><select id="diffwf_' + i + '_fileA" onfocus="diffLoadWf(' + i + ',\'fileA\')" onchange="diffWfChosen(' + i + ',\'fileA\',this.value)"><option value="">(select workflow)</option></select></div>' +
+                        '<div class="field wide"><label>&nbsp;file</label><select id="difffile_' + i + '_fileA" onchange="diffFileChosen(' + i + ',\'fileA\')"><option value="">(select file)</option></select></div></div>';
                     h += '<div class="form-row"><div class="field wide"><label>File B *</label>' +
-                        '<input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'fileB')) + '" placeholder="${other.csvFile} | ${landingOut}/b.csv" oninput="setNodeParam(' + i + ',\'fileB\',this.value)"></div></div>';
+                        '<input id="difffld_' + i + '_fileB" class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'fileB')) + '" placeholder="${other.csvFile} | ${landingOut}/b.csv" oninput="setNodeParam(' + i + ',\'fileB\',this.value)"></div></div>';
+                    h += '<div class="form-row"><div class="field"><label>…or from a workflow</label><select id="diffwf_' + i + '_fileB" onfocus="diffLoadWf(' + i + ',\'fileB\')" onchange="diffWfChosen(' + i + ',\'fileB\',this.value)"><option value="">(select workflow)</option></select></div>' +
+                        '<div class="field wide"><label>&nbsp;file</label><select id="difffile_' + i + '_fileB" onchange="diffFileChosen(' + i + ',\'fileB\')"><option value="">(select file)</option></select></div></div>';
                     if (dmode === 'TEXT') {
                         h += '<div class="form-row"><div class="field"><label>Max lines (LCS cap; above it uses positional fallback)</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'textMaxLines')) + '" placeholder="2000" oninput="setNodeParam(' + i + ',\'textMaxLines\',this.value)"></div>' +
                             '<div class="field"><label>&nbsp;</label><span class="dim small">Line-based diff; the Delimiter above is ignored. Intended for small control files.</span></div></div>';

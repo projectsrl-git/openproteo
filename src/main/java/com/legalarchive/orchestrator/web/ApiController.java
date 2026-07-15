@@ -392,6 +392,22 @@ public class ApiController {
         return ResponseEntity.ok(out);
     }
 
+    /** Lightweight catalog of all workflows (feedId + name) for the diff cross-workflow picker. */
+    @GetMapping("/api/workflows/catalog")
+    public ResponseEntity<Map<String, Object>> workflowCatalog() {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        java.util.List<Map<String, Object>> wfs = new java.util.ArrayList<Map<String, Object>>();
+        for (WorkflowDef wf : registry.all()) {
+            Map<String, Object> m = new LinkedHashMap<String, Object>();
+            m.put("feedId", wf.feedId);
+            m.put("name", wf.name);
+            wfs.add(m);
+        }
+        out.put("ok", true);
+        out.put("workflows", wfs);
+        return ResponseEntity.ok(out);
+    }
+
     /** FIFO execution queue snapshot for the dashboard (running + queued; may be empty). */
     @GetMapping("/api/queue")
     public ResponseEntity<Map<String, Object>> queue() {

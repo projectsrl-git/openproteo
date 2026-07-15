@@ -378,6 +378,7 @@ public class InternalSteps {
             md.append("- Mode: `CSV_POSITIONAL`\n");
             md.append("- File A: `").append(fa.getAbsolutePath()).append("`\n");
             md.append("- File B: `").append(fb.getAbsolutePath()).append("`\n");
+            md.append("- Sources produced: A @ ").append(fileStamp(fa)).append(", B @ ").append(fileStamp(fb)).append("\n");
             md.append("- Delimiter: `").append(delim).append("`\n\n");
             md.append("## Summary\n\n");
             md.append("- Rows compared (aligned by position): ").append(rowsCompared).append("\n");
@@ -420,6 +421,10 @@ public class InternalSteps {
         }
     }
 
+    private static String fileStamp(java.io.File f) {
+        try { return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date(f.lastModified())); }
+        catch (Exception e) { return "?"; }
+    }
     private static String pct(long n, long d) {
         if (d <= 0) return "0.00";
         return String.format(java.util.Locale.ROOT, "%.2f", (100.0 * n) / d);
@@ -532,6 +537,7 @@ public class InternalSteps {
             md.append("- Mode: `CSV_KEY`\n");
             md.append("- File A: `").append(fa.getAbsolutePath()).append("`\n");
             md.append("- File B: `").append(fb.getAbsolutePath()).append("`\n");
+            md.append("- Sources produced: A @ ").append(fileStamp(fa)).append(", B @ ").append(fileStamp(fb)).append("\n");
             md.append("- Key A: `").append(String.join(", ", kaCols)).append("`\n");
             md.append("- Key B: `").append(String.join(", ", kbCols)).append("`\n");
             md.append("- Matches:\n");
@@ -643,7 +649,8 @@ public class InternalSteps {
             md.append("## Configuration\n\n");
             md.append("- Mode: `TEXT`").append(fallback ? " (streaming positional fallback: a file exceeds textMaxLines=" + cap + ")" : "").append("\n");
             md.append("- File A: `").append(fa.getAbsolutePath()).append("`\n");
-            md.append("- File B: `").append(fb.getAbsolutePath()).append("`\n\n");
+            md.append("- File B: `").append(fb.getAbsolutePath()).append("`\n");
+            md.append("- Sources produced: A @ ").append(fileStamp(fa)).append(", B @ ").append(fileStamp(fb)).append("\n\n");
             md.append("## Summary\n\n");
             md.append("- Lines in A: ").append(n).append("\n");
             md.append("- Lines in B: ").append(m).append("\n");

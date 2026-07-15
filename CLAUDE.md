@@ -390,3 +390,16 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   correct). Note in `.claude/2026-07-14-diff-executor-batch3-text.md`. Remaining
   (UX/plumbing): key SUBSTRING L/R, header-dropdown pickers, cross-workflow file
   selection + run correlation.
+
+## diff executor — Batch 4 (cross-workflow picker + run correlation)
+* Because a feed's outputs live in stable dirs overwritten each run, a stable
+  absolute path already = the latest run's output. New `GET /api/workflows/catalog`
+  ({feedId,name}) feeds a designer picker under File A/B: a workflow select
+  (lazy-loaded) + a file select (reuses `/api/workflows/{id}/files`); choosing a
+  file writes the absolute path (dir + rel) into fileA/fileB. Free-text still
+  works. Every mode's report now stamps `Sources produced: A @ <mtime>, B @
+  <mtime>` (run correlation). Verified: updated runDiffKey run standalone shows the
+  stamp; designer passes node --check. Async picker flow not live-testable in the
+  chat sandbox (mirrors the xlsx-sheets pattern). Note in
+  `.claude/2026-07-14-diff-executor-batch4-crossworkflow.md`. Remaining (optional):
+  key SUBSTRING L/R; CSV_KEY column dropdowns from a header-preview endpoint.

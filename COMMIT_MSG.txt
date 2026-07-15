@@ -1,28 +1,31 @@
-diff executor (Batch 3): TEXT line-diff mode
+diff executor (Batch 4): cross-workflow file picker + run correlation
 
-Third and final comparison mode of the diff / reconciliation design
-(.claude/DIFF_EXECUTOR.md). Applies on top of Batch 1+2 (already on main).
+Practical core of the design's §7 (cross-workflow reconciliation) for this
+codebase. Applies on top of Batch 1-3 (all on main).
 
-- runDiff dispatches TEXT to runDiffText (line-oriented). Small files (both
-  <= textMaxLines, default 2000) get a real LCS diff (bottom-up DP + forward
-  walk) reporting only_in_A / only_in_B lines with their line numbers. Larger
-  files fall back to a streaming positional line comparison (line_changed, plus
-  surplus as only_in_A / only_in_B), with the degradation noted in the report --
-  TEXT is intended for small control files, CSV_POSITIONAL / CSV_KEY stay the
-  scalable paths. (Resolves the open cap/fallback question in the design.)
-- Same report pair: <name>_recon_report.md (headline, config incl. fallback note,
-  summary lines A/B/common, totals with % over the larger file) and
-  <name>_recon_differences.csv (line, label, valueA, valueB, category). Output
-  vars: diffResult, diffCount, linesA, linesB, commonLines, onlyInA, onlyInB
-  (+ changedLines in fallback), reportFile, differencesFile.
-- Designer: TEXT added to the mode dropdown; when selected, a Max-lines field and
-  a note that the delimiter is ignored. Config stays params-only: no model, DTO
-  or writer change.
+A feed's produced files live in stable directories overwritten each run, so a
+stable absolute path already resolves to the latest run's output. Cross-workflow
+referencing therefore reduces to picking another workflow's file (store its
+absolute path) and stamping the file's produced time in the report.
 
-Docs: .claude/2026-07-14-diff-executor-batch3-text.md and CLAUDE.md.
+- Backend: new GET /api/workflows/catalog -> {ok, workflows:[{feedId,name}]} from
+  registry.all(), for the workflow dropdown. The file dropdown reuses the existing
+  GET /api/workflows/{feedId}/files (files[].path + dir).
+- Designer: under File A and File B, a "...or from a workflow" row with a workflow
+  select (lazy-loaded from the catalog on focus) and a file select (loaded from
+  that workflow's files). Picking a file writes the absolute path (dir + relative,
+  backslashes normalised) into the field and the fileA/fileB param. Free-text
+  paths still work.
+- Run correlation: every mode's report now stamps
+  "Sources produced: A @ <mtime>, B @ <mtime>" in the config echo (the produced
+  instant of each compared file; given stable overwritten paths, mtime is the
+  faithful produced-instance stamp).
 
-Verify: the actual runDiffText source was executed standalone on sample files --
-LCS path (common 4, only_in_A 1, only_in_B 2, 33.33% over the larger file) and
-positional fallback (textMaxLines=3 -> common 3, changed 2, only_in_B 1, 50%),
-with failOnDifferences flipping the exit code. designer.html passes node --check;
-no literal \n/\r; no unsafe Thymeleaf. Full Maven build to be confirmed on deploy.
+Docs: .claude/2026-07-14-diff-executor-batch4-crossworkflow.md and CLAUDE.md.
+
+Verify: the actual updated runDiffKey was run standalone -- the report shows the
+Sources stamp and the exit code is correct. designer.html passes node --check; no
+literal \n/\r; no unsafe Thymeleaf. The catalog endpoint mirrors the existing
+/active and /queue GETs. The designer's async picker flow could not be live-tested
+in the chat sandbox (no running app); it mirrors the existing xlsx-sheets
+async-select pattern. Full Maven build to be confirmed on deploy.
