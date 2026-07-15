@@ -97,6 +97,8 @@ public class InternalSteps {
                 runCsvSql(step, resolvedParams, vars, res, line, control);
             } else if ("xlsx2csv".equals(kind)) {
                 runXlsx2Csv(step, resolvedParams, vars, res, line);
+            } else if ("diff".equals(kind)) {
+                runDiff(step, resolvedParams, vars, res, line);
             } else {
                 line.accept("unknown internal step kind: " + kind);
                 res.exitCode = -996;
@@ -299,6 +301,166 @@ public class InternalSteps {
      * deterministically (see {@link com.legalarchive.orchestrator.xlsx.XlsxSheetReader}). Output has
      * no BOM so it drops straight into a {@code csvsql} {@code <input>}.
      */
+    private void runDiff(StepDef step, Map<String, String> params, Map<String, String> vars,
+                         StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        String mode = blankToNull(params.get("mode"));
+        if (mode == null) mode = "CSV_POSITIONAL";
+        String fileA = params.get("fileA");
+        String fileB = params.get("fileB");
+        if (fileA == null || fileA.trim().isEmpty() || fileB == null || fileB.trim().isEmpty()) {
+            line.accept("diff: both fileA and fileB are required"); res.exitCode = 2; return;
+        }
+        if (!"CSV_POSITIONAL".equalsIgnoreCase(mode)) {
+            line.accept("diff: mode '" + mode + "' not implemented yet (this build supports CSV_POSITIONAL)"); res.exitCode = 2; return;
+        }
+        java.io.File fa = new java.io.File(fileA.trim());
+        java.io.File fb = new java.io.File(fileB.trim());
+        if (!fa.isFile()) { line.accept("diff: file A not found: " + fa.getAbsolutePath()); res.exitCode = 2; return; }
+        if (!fb.isFile()) { line.accept("diff: file B not found: " + fb.getAbsolutePath()); res.exitCode = 2; return; }
+        String dl = params.get("delimiter");
+        char delim = (dl != null && dl.length() > 0) ? dl.charAt(0) : ';';
+        String reportName = blankToNull(params.get("reportName"));
+        if (reportName == null) reportName = step.id;
+        boolean failOnDiff = "true".equalsIgnoreCase(params.get("failOnDifferences"));
+
+        String stepDir = vars.get("stepDir");
+        java.io.File outDir = (stepDir != null && !stepDir.trim().isEmpty()) ? new java.io.File(stepDir) : fa.getParentFile();
+        if (outDir != null) outDir.mkdirs();
+        java.io.File reportMd = new java.io.File(outDir, reportName + "_recon_report.md");
+        java.io.File diffCsv = new java.io.File(outDir, reportName + "_recon_differences.csv");
+
+        java.io.BufferedReader ra = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(fa), java.nio.charset.StandardCharsets.UTF_8));
+        java.io.BufferedReader rb = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(fb), java.nio.charset.StandardCharsets.UTF_8));
+        java.io.BufferedWriter dw = new java.io.BufferedWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(diffCsv), java.nio.charset.StandardCharsets.UTF_8));
+        try {
+            List<String> colsA = parseCsvLine(stripBom(ra.readLine()), delim);
+            List<String> colsB = parseCsvLine(stripBom(rb.readLine()), delim);
+            Map<String, Integer> idxB = new java.util.LinkedHashMap<String, Integer>();
+            for (int i = 0; i < colsB.size(); i++) if (!idxB.containsKey(colsB.get(i))) idxB.put(colsB.get(i), i);
+            List<String> shared = new ArrayList<String>();
+            List<int[]> pairs = new ArrayList<int[]>();
+            for (int i = 0; i < colsA.size(); i++) {
+                String c = colsA.get(i);
+                if (idxB.containsKey(c)) { shared.add(c); pairs.add(new int[]{ i, idxB.get(c) }); }
+            }
+            if (shared.isEmpty()) { line.accept("diff: the two files share no column names - nothing to compare"); res.exitCode = 2; return; }
+            long[] attrDiff = new long[shared.size()];
+            long rowsCompared = 0, valueMismatch = 0, missingInA = 0, missingInB = 0;
+            dw.write("rowIndex,attribute,valueA,valueB,category"); dw.write("\r\n");
+            long idx = 0;
+            while (true) {
+                String la = ra.readLine();
+                String lb = rb.readLine();
+                if (la == null && lb == null) break;
+                idx++;
+                if (la != null && lb != null) {
+                    rowsCompared++;
+                    List<String> rowA = parseCsvLine(la, delim);
+                    List<String> rowB = parseCsvLine(lb, delim);
+                    for (int k = 0; k < pairs.size(); k++) {
+                        int ai = pairs.get(k)[0], bi = pairs.get(k)[1];
+                        String va = ai < rowA.size() ? rowA.get(ai) : "";
+                        String vb = bi < rowB.size() ? rowB.get(bi) : "";
+                        if (!va.equals(vb)) { valueMismatch++; attrDiff[k]++; diffRow(dw, idx, shared.get(k), va, vb, "value_mismatch"); }
+                    }
+                } else if (la != null) { missingInB++; diffRow(dw, idx, "(row)", la, "", "missing_in_B"); }
+                else { missingInA++; diffRow(dw, idx, "(row)", "", lb, "missing_in_A"); }
+            }
+            long totalDiff = valueMismatch + missingInA + missingInB;
+            long cells = rowsCompared * (long) shared.size();
+            dw.flush();
+
+            StringBuilder md = new StringBuilder();
+            md.append("# Reconciliation report - ").append(reportName).append("\n\n");
+            md.append(totalDiff == 0 ? "**PERFECT MATCH**\n\n" : "**DIFFERENCES**\n\n");
+            md.append("## Configuration\n\n");
+            md.append("- Mode: `CSV_POSITIONAL`\n");
+            md.append("- File A: `").append(fa.getAbsolutePath()).append("`\n");
+            md.append("- File B: `").append(fb.getAbsolutePath()).append("`\n");
+            md.append("- Delimiter: `").append(delim).append("`\n\n");
+            md.append("## Summary\n\n");
+            md.append("- Rows compared (aligned by position): ").append(rowsCompared).append("\n");
+            md.append("- Attributes compared (shared columns): ").append(shared.size()).append("\n");
+            md.append("- Shared columns: ").append(String.join(", ", shared)).append("\n\n");
+            md.append("## Totals\n\n");
+            md.append("- Cell mismatches: ").append(valueMismatch);
+            if (cells > 0) md.append(" (").append(pct(valueMismatch, cells)).append("% of ").append(cells).append(" checked cells)");
+            md.append("\n");
+            md.append("- Rows only in A (missing in B): ").append(missingInB).append("\n");
+            md.append("- Rows only in B (missing in A): ").append(missingInA).append("\n");
+            md.append("- Total differences: ").append(totalDiff).append("\n\n");
+            md.append("## Per-attribute\n\n");
+            md.append("| Attribute | Differing rows | % of rows compared |\n");
+            md.append("| --- | ---: | ---: |\n");
+            for (int k = 0; k < shared.size(); k++) {
+                md.append("| ").append(shared.get(k)).append(" | ").append(attrDiff[k]).append(" | ")
+                  .append(rowsCompared > 0 ? pct(attrDiff[k], rowsCompared) : "0.00").append(" |\n");
+            }
+            java.nio.file.Files.write(reportMd.toPath(), md.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+            res.outVars.put("diffResult", totalDiff == 0 ? "PERFECT_MATCH" : "DIFFERENCES");
+            res.outVars.put("diffCount", String.valueOf(totalDiff));
+            res.outVars.put("rowsCompared", String.valueOf(rowsCompared));
+            res.outVars.put("attributesCompared", String.valueOf(shared.size()));
+            res.outVars.put("valueMismatches", String.valueOf(valueMismatch));
+            res.outVars.put("missingInA", String.valueOf(missingInA));
+            res.outVars.put("missingInB", String.valueOf(missingInB));
+            res.outVars.put("reportFile", reportMd.getAbsolutePath());
+            res.outVars.put("differencesFile", diffCsv.getAbsolutePath());
+            line.accept("diff: " + (totalDiff == 0 ? "PERFECT MATCH" : ("DIFFERENCES (" + totalDiff + ")"))
+                    + " over " + rowsCompared + " aligned row(s), " + shared.size() + " shared column(s)");
+            line.accept("diff: report " + reportMd.getAbsolutePath());
+            for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
+            res.exitCode = (failOnDiff && totalDiff > 0) ? 1 : 0;
+        } finally {
+            try { ra.close(); } catch (Exception ignored) {}
+            try { rb.close(); } catch (Exception ignored) {}
+            try { dw.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    private static String pct(long n, long d) {
+        if (d <= 0) return "0.00";
+        return String.format(java.util.Locale.ROOT, "%.2f", (100.0 * n) / d);
+    }
+    private static String stripBom(String s) {
+        if (s == null) return "";
+        if (!s.isEmpty() && s.charAt(0) == '\uFEFF') return s.substring(1);
+        return s;
+    }
+    private static java.util.List<String> parseCsvLine(String line, char delim) {
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        if (line == null) return out;
+        StringBuilder cur = new StringBuilder();
+        boolean inQ = false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (inQ) {
+                if (c == '"') { if (i + 1 < line.length() && line.charAt(i + 1) == '"') { cur.append('"'); i++; } else inQ = false; }
+                else cur.append(c);
+            } else {
+                if (c == '"') inQ = true;
+                else if (c == delim) { out.add(cur.toString()); cur.setLength(0); }
+                else cur.append(c);
+            }
+        }
+        out.add(cur.toString());
+        return out;
+    }
+    private static void diffRow(java.io.BufferedWriter w, long idx, String attr, String va, String vb, String cat) throws java.io.IOException {
+        w.write(dq(String.valueOf(idx))); w.write(',');
+        w.write(dq(attr)); w.write(',');
+        w.write(dq(va)); w.write(',');
+        w.write(dq(vb)); w.write(',');
+        w.write(dq(cat)); w.write("\r\n");
+    }
+    private static String dq(String v) {
+        if (v == null) v = "";
+        boolean q = v.indexOf(',') >= 0 || v.indexOf('"') >= 0 || v.indexOf('\n') >= 0 || v.indexOf('\r') >= 0;
+        if (q) return "\"" + v.replace("\"", "\"\"") + "\"";
+        return v;
+    }
+
     private void runXlsx2Csv(StepDef step, Map<String, String> params, Map<String, String> vars,
                              StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
         String source = VarResolver.resolve(step.source, vars);

@@ -343,3 +343,19 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   `/designer/{feedId}` (the existing designer-edit route), next to "open
   workflow" / "open last run", so a failing feed can be opened straight in the
   designer. Pure UI. See `.claude/2026-07-14-operations-drill-edit-button.md`.
+
+## diff executor — Batch 1 (CSV_POSITIONAL)
+* New internal step `diff` (reconcile two CSVs), registered in the four locations
+  (parser whitelist + internal set, WorkflowEngine.internalKind, InternalSteps
+  dispatch). Batch 1 = **CSV_POSITIONAL** only: shared columns (by header name)
+  compared row-by-row by position, streaming; surplus rows → missing_in_A/B.
+  Writes `<name>_recon_report.md` + `<name>_recon_differences.csv` to the step
+  dir; outputs `${id.diffResult}` (PERFECT_MATCH|DIFFERENCES), diffCount, etc.;
+  optional `failOnDifferences`. Config is via step params (fileA/fileB/mode/
+  delimiter/reportName/failOnDifferences) — designer branch bound with
+  nodeParam/setNodeParam, no model/DTO/writer change. A small CSV line parser was
+  added (no CSV reader existed). Master design + roadmap in
+  `.claude/DIFF_EXECUTOR.md`; batch note in
+  `.claude/2026-07-14-diff-executor-batch1-positional.md`. Next batches: report
+  metrics polish, CSV_KEY (keys+matches+H2), ADD MATCH UI, cross-workflow file
+  selection, TEXT mode.

@@ -757,6 +757,7 @@
                     '<option value="split"' + (ex === 'split' ? ' selected' : '') + '>split (file → parts by rows/MB)</option>' +
                     '<option value="csvsql"' + (ex === 'csvsql' ? ' selected' : '') + '>csvsql (H2 SQL/joins across CSVs)</option>' +
                     '<option value="xlsx2csv"' + (ex === 'xlsx2csv' ? ' selected' : '') + '>xlsx2csv (Excel sheet → CSV)</option>' +
+                    '<option value="diff"' + (ex === 'diff' ? ' selected' : '') + '>diff (reconcile two CSVs)</option>' +
                     '</select></div>';
                 h += '<div class="field wide"><label>Script / executable (relative to scripts dir or absolute)' + (isExternal(ex) ? ' *' : '') + '</label>' +
                     '<input value="' + attresc(n.script) + '" placeholder="' + (isExternal(ex) ? 'Prepare-Feed.ps1 | tool.bat | app.jar' : '(not used for this executor)') + '" oninput="updNode(' + i + ',\'script\',this.value)"' + (isExternal(ex) ? '' : ' disabled') + '></div>' +
@@ -1009,6 +1010,20 @@
                         '<option value="false"' + (nodeParam(n,'bom') !== 'true' ? ' selected' : '') + '>no</option>' +
                         '<option value="true"' + (nodeParam(n,'bom') === 'true' ? ' selected' : '') + '>yes (UTF-8 BOM)</option></select></div></div>';
                     h += '<div class="dim small" style="margin-top:6px">Removes double quotes from the chosen text columns: CSV wrapping quotes and escaped <code>&quot;&quot;</code> are parsed away, then any remaining <code>&quot;</code> is stripped. Output is re-quoted only when a field still contains the delimiter or a newline (set quoting to &quot;never quote&quot; to force a quote-free file, at the risk of breaking columns that contain the delimiter). Output is UTF-8, CRLF. Outputs <code>${outputFile}</code>, <code>${dataRows}</code>, <code>${columns}</code>, <code>${quotesRemoved}</code>.</div>';
+                } else if (ex === 'diff') {
+                    h += '<div class="subsection"><div class="sub-label">Reconcile two CSV files (positional: shared columns, row-by-row by position)</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Mode</label><select onchange="setNodeParam(' + i + ',\'mode\',this.value)">' +
+                        '<option value="CSV_POSITIONAL"' + (nodeParam(n, 'mode') === 'CSV_POSITIONAL' || !nodeParam(n, 'mode') ? ' selected' : '') + '>CSV positional</option>' +
+                        '</select></div>' +
+                        '<div class="field"><label>Delimiter</label><input value="' + attresc(nodeParam(n, 'delimiter')) + '" placeholder=";" oninput="setNodeParam(' + i + ',\'delimiter\',this.value)"></div>' +
+                        '<div class="field"><label>Report name</label><input value="' + attresc(nodeParam(n, 'reportName')) + '" placeholder="(step id)" oninput="setNodeParam(' + i + ',\'reportName\',this.value)"></div></div>';
+                    h += '<div class="form-row"><div class="field wide"><label>File A *</label>' +
+                        '<input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'fileA')) + '" placeholder="${extract.csvFile} | ${landingOut}/a.csv" oninput="setNodeParam(' + i + ',\'fileA\',this.value)"></div></div>';
+                    h += '<div class="form-row"><div class="field wide"><label>File B *</label>' +
+                        '<input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'fileB')) + '" placeholder="${other.csvFile} | ${landingOut}/b.csv" oninput="setNodeParam(' + i + ',\'fileB\',this.value)"></div></div>';
+                    h += '<div class="form-row"><div class="field wide"><label><input type="checkbox"' + (nodeParam(n, 'failOnDifferences') === 'true' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'failOnDifferences\',this.checked?\'true\':\'\')"> Fail the step if any difference is found</label></div></div>';
+                    h += '<div class="dim small" style="margin-top:6px">Compares columns present in both headers, row-by-row by position. Outputs: <b>${' + esc(n.id) + '.diffResult}</b> (PERFECT_MATCH|DIFFERENCES), <b>diffCount</b>, and two files under the step dir: <code>&lt;name&gt;_recon_report.md</code> and <code>&lt;name&gt;_recon_differences.csv</code>. TEXT and key-based modes arrive in later batches.</div>';
                 } else if (ex === 'split') {
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Input file *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${anonymize.outputFile} | ${landingOut}/data.csv" oninput="updNode(' + i + ',\'source\',this.value)"></div></div>';
@@ -1269,6 +1284,10 @@
                 }
                 if (ex === 'setvar' && (!n.params || !n.params.length)) errs.push(label + ' (' + n.id + '): at least one assignment is required');
                 if (ex === 'split' && !n.source) errs.push(label + ' (' + n.id + '): input file (source) is required');
+                if (ex === 'diff') {
+                    if (!nodeParam(n, 'fileA')) errs.push(label + ' (' + n.id + '): diff needs File A');
+                    if (!nodeParam(n, 'fileB')) errs.push(label + ' (' + n.id + '): diff needs File B');
+                }
                 if (ex === 'csvsql') {
                     if (!n.inputs || !n.inputs.length) errs.push(label + ' (' + n.id + '): at least one input CSV is required');
                     var tnames = {};

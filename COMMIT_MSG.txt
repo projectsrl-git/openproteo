@@ -1,10 +1,28 @@
-Operations drill: add per-feed EDIT (open in designer) action
+diff executor (Batch 1): CSV_POSITIONAL reconciliation + reports
 
-In the Operations detail rows, add a "✎ edit" link next to "open workflow" /
-"open last run" pointing at the existing GET /designer/{feedId} route, so a
-failing feed can be opened straight in the designer to fix it.
+First end-to-end slice of the diff / reconciliation-as-workflow design
+(.claude/DIFF_EXECUTOR.md): a new internal step "diff", CSV_POSITIONAL mode only.
 
-Docs: .claude/2026-07-14-operations-drill-edit-button.md and CLAUDE.md updated.
+- Registration (four locations): parser exec whitelist + internal set,
+  WorkflowEngine.internalKind, InternalSteps dispatch; parser error message
+  updated.
+- runDiff (CSV_POSITIONAL): streaming, constant memory; compares the columns
+  present in both headers (by name) row-by-row by position; surplus rows reported
+  as missing_in_A / missing_in_B. Adds a minimal CSV line parser (quotes + ""
+  escaping) since no CSV reader existed.
+- Reports to the step dir: <name>_recon_report.md (PERFECT MATCH / DIFFERENCES,
+  config echo, summary, totals with % over checked cells, per-attribute table)
+  and <name>_recon_differences.csv (rowIndex, attribute, valueA, valueB,
+  category). Output vars: diffResult, diffCount, rowsCompared,
+  attributesCompared, valueMismatches, missingInA, missingInB, reportFile,
+  differencesFile. Optional failOnDifferences flips the exit code.
+- Designer: "diff" in the exec dropdown, a dedicated editor branch (mode / fileA
+  / fileB / delimiter / report name / fail-on-diff) bound via nodeParam /
+  setNodeParam, plus a clientValidate rule. Config is params-only: no model, DTO
+  or writer change.
 
-Frontend only; no endpoint/model change. overview.html passes node --check; no
-literal \n/\r; no unsafe Thymeleaf inline.
+Docs: .claude/DIFF_EXECUTOR.md (design), .claude/2026-07-14-diff-executor-batch1-positional.md, CLAUDE.md.
+
+Verify: diff algorithm executed standalone on sample CSVs (correct metrics and
+differences output); designer.html passes node --check; no literal \n/\r; no
+unsafe Thymeleaf. Full Maven build to be confirmed on deploy.
