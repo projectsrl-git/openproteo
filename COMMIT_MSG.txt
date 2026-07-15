@@ -1,24 +1,29 @@
-diff CSV_KEY: substring L/R on match columns
+Fix diff cross-workflow picker: File A/B not set on selection
 
-Batch 5 added the COL:L<n> / COL:R<n> substring only on key columns. This extends
-the exact same syntax to match columns (A and B sides), so an attribute can be
-compared on a slice -- e.g. an initial (firstName:L1) or the last digits of an
-account (iban:R4).
+Selecting File A / File B from the "...or from a workflow" dropdowns sometimes
+left the File A / File B validation still complaining that the boxes are required.
 
-- runDiffKey: each match column token now goes through the existing keyColSql
-  (bare column, or LEFT(col,n) / RIGHT(col,n)), like key columns, and the
-  resulting expressions build the match CONCAT_WS. Invalid tokens are rejected
-  with the same message. The label default still uses the raw tokens
-  (e.g. firstName:L1+lastName) so the report stays audit-readable.
-- For numeric matches the substring is applied on the text first, then compared
-  numerically (BigDecimal), e.g. RIGHT(iban,4) compared as a number.
-- Designer: the matches hint documents the :L<n> / :R<n> suffix on match columns
-  too; fields stay free-text, no new widget.
+Two fragilities in the designer picker:
+- diffFileChosen returned early if the File input element was not found at that
+  instant (if (!fsel || !fld) return), so setNodeParam was never called and the
+  fileA/fileB param stayed empty.
+- the absolute path was rebuilt from a data-dir attribute stored on the file
+  <select>; any editor re-render (e.g. adding a match) rebuilds that select and
+  drops data-dir, so a later selection could resolve to a wrong or relative path.
 
-Docs: .claude/2026-07-15-diff-csvkey-match-substring.md and CLAUDE.md.
+Fix (designer only):
+- diffWfChosen bakes the absolute path (dir + path) straight into each file
+  option's value, so selection no longer depends on data-dir surviving.
+- diffFileChosen guards only on the select, reads the already-absolute value, and
+  calls setNodeParam unconditionally (updating the input only if present), so
+  picking a file always sets fileA/fileB.
 
-Verify: the patched runDiffKey was run against real H2 2.1.214 -- firstName:L1 vs
-initial (text) and iban:R4 vs last4 (numeric) produced the expected two
-mismatches (id2 initial J/X, id3 last4 9999/9998), keysCompared=3. designer.html
-passes node --check; no literal \n/\r; no unsafe Thymeleaf. Full Maven build to be
-confirmed on deploy.
+Picking from a workflow fills the File A/B box with the resolved absolute path by
+design (the box shows what will be compared); the user types nothing.
+
+Docs: .claude/2026-07-15-diff-crossworkflow-picker-fix.md and CLAUDE.md.
+
+Verify: the real diffFileChosen / setNodeParam / nodeParam were executed with a
+mock DOM, including the worst case where the File input element is absent -- the
+param is still set and validation passes. designer.html passes node --check; no
+literal \n/\r; no unsafe Thymeleaf.

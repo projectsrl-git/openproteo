@@ -451,18 +451,18 @@
         fsel.innerHTML = '<option value="">(loading…)</option>';
         fetch(CTX + 'api/workflows/' + encodeURIComponent(wfId) + '/files').then(readJson).then(function (j) {
             var dir = (j && j.dir) ? String(j.dir).split('\\').join('/') : '';
-            fsel.setAttribute('data-dir', dir);
+            if (dir && dir.charAt(dir.length - 1) !== '/') dir += '/';
             var files = (j && j.files) ? j.files : [];
-            fsel.innerHTML = '<option value="">(select file)</option>' + files.map(function (f) { return '<option value="' + attresc(f.path) + '">' + esc(f.path) + '</option>'; }).join('');
+            fsel.innerHTML = '<option value="">(select file)</option>' + files.map(function (f) { return '<option value="' + attresc(dir + f.path) + '">' + esc(f.path) + '</option>'; }).join('');
         }).catch(function () { fsel.innerHTML = '<option value="">(error)</option>'; });
     }
     function diffFileChosen(i, side) {
-        var fsel = document.getElementById('difffile_' + i + '_' + side), fld = document.getElementById('difffld_' + i + '_' + side);
-        if (!fsel || !fld) return;
-        var rel = fsel.value; if (!rel) return;
-        var dir = fsel.getAttribute('data-dir') || '';
-        var abs = (dir && dir.charAt(dir.length - 1) !== '/') ? dir + '/' + rel : dir + rel;
-        fld.value = abs; setNodeParam(i, side, abs);
+        var fsel = document.getElementById('difffile_' + i + '_' + side);
+        if (!fsel) return;
+        var abs = fsel.value; if (!abs) return;
+        var fld = document.getElementById('difffld_' + i + '_' + side);
+        if (fld) fld.value = abs;
+        setNodeParam(i, side, abs);
     }
     function diffColsFeedId() { return (typeof EDIT_FEED_ID !== 'undefined' && EDIT_FEED_ID) ? EDIT_FEED_ID : wf.feedId; }
     function diffFillCols(i, side, cols) { var dl = document.getElementById('diffcols' + side + '_' + i); if (dl) dl.innerHTML = (cols || []).map(function (c) { return '<option value="' + attresc(c) + '"></option>'; }).join(''); }

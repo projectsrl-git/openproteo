@@ -447,3 +447,13 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   fields stay free-text. Verified on real H2 (firstName:L1 vs initial text;
   iban:R4 vs last4 numeric -> expected mismatches). Note in
   `.claude/2026-07-15-diff-csvkey-match-substring.md`.
+
+## diff cross-workflow picker fix (File A/B population)
+* Picking File A/B from the "…or from a workflow" dropdowns could leave the
+  fileA/fileB param unset (validation still asked for the boxes). Two fragilities
+  fixed in the designer: diffFileChosen returned early if the File input element
+  wasn't found (param never set) — now it sets the param unconditionally; and the
+  absolute path was rebuilt from a data-dir attribute that a re-render could drop —
+  now the absolute path is baked into each file option's value in diffWfChosen.
+  Verified with a mock DOM (param set even when the input is absent). Note in
+  `.claude/2026-07-15-diff-crossworkflow-picker-fix.md`.
