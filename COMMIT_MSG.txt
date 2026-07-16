@@ -1,29 +1,31 @@
-Fix diff cross-workflow picker: File A/B not set on selection
+diff: TEXT_SET mode, CSV_KEY match aggregates, attributes-checked total
 
-Selecting File A / File B from the "...or from a workflow" dropdowns sometimes
-left the File A / File B validation still complaining that the boxes are required.
+Three additions to the diff executor.
 
-Two fragilities in the designer picker:
-- diffFileChosen returned early if the File input element was not found at that
-  instant (if (!fsel || !fld) return), so setNodeParam was never called and the
-  fileA/fileB param stayed empty.
-- the absolute path was rebuilt from a data-dir attribute stored on the file
-  <select>; any editor re-render (e.g. adding a match) rebuilds that select and
-  drops data-dir, so a later selection could resolve to a wrong or relative path.
+1) New mode TEXT_SET: line membership, order-independent. Treats each file as a
+   set of lines and reports lines only in A (A->B: in A, not in B) and only in B
+   (B->A). Uses hash sets (O(n+m), scales), unlike the ordered LCS TEXT mode. One
+   differences file carries both directions (category only_in_A / only_in_B).
 
-Fix (designer only):
-- diffWfChosen bakes the absolute path (dir + path) straight into each file
-  option's value, so selection no longer depends on data-dir surviving.
-- diffFileChosen guards only on the select, reads the already-absolute value, and
-  calls setNodeParam unconditionally (updating the input only if present), so
-  picking a file always sets fileA/fileB.
+2) CSV_KEY match aggregates: each match gains a per-match agg
+   (value | sum | count | count_distinct; default value = current behaviour). For
+   a key group the aggregate is computed and compared A vs B: sum over the numeric
+   value (empty cells ignored; compared with BigDecimal), count of rows, or count
+   of distinct values. The multi-occurrence inconsistent_key check is bypassed for
+   aggregates and the comparison is numeric. Designer gains an Aggregate dropdown
+   per match; the report echoes agg per match. H2 2.1.214 has no TRY_CAST, so sum
+   requires numeric columns (a non-numeric value surfaces a clear H2 error).
 
-Picking from a workflow fills the File A/B box with the resolved absolute path by
-design (the box shows what will be compared); the user types nothing.
+3) Summary total attributes checked: POSITIONAL and CSV_KEY reports now show, and
+   expose as attributesChecked, the sum over both files of
+   (checked attributes x rows of that file) = attributesCompared x (rowsA + rowsB),
+   and also print rows in A / rows in B. Not applicable to TEXT modes.
 
-Docs: .claude/2026-07-15-diff-crossworkflow-picker-fix.md and CLAUDE.md.
+Docs: .claude/2026-07-15-diff-textset-aggregates-checked.md and CLAUDE.md.
 
-Verify: the real diffFileChosen / setNodeParam / nodeParam were executed with a
-mock DOM, including the worst case where the File input element is absent -- the
-param is still set and validation passes. designer.html passes node --check; no
-literal \n/\r; no unsafe Thymeleaf.
+Verify: real runDiffKey / runDiffTextSet executed against real H2 2.1.214 and
+standalone -- aggregates give the expected diffs (sum matches the equal-sum key,
+count/distinct differ; 5 diffs), attributesChecked = 3 x (3+3) = 18 in the report;
+TEXT_SET only_in_A=1, only_in_B=2, common=4. SUM/COUNT/COUNT(DISTINCT) per group
+and the DECIMAL cast probed on H2 first. designer.html passes node --check; no
+literal \n/\r; no unsafe Thymeleaf. Full Maven build to be confirmed on deploy.

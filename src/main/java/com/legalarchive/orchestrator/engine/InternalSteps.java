@@ -326,6 +326,7 @@ public class InternalSteps {
         java.io.File reportMd = new java.io.File(outDir, reportName + "_recon_report.md");
         java.io.File diffCsv = new java.io.File(outDir, reportName + "_recon_differences.csv");
 
+        if ("TEXT_SET".equalsIgnoreCase(mode)) { runDiffTextSet(params, fa, fb, reportName, reportMd, diffCsv, failOnDiff, res, line); return; }
         if ("TEXT".equalsIgnoreCase(mode)) { runDiffText(params, fa, fb, reportName, reportMd, diffCsv, failOnDiff, res, line); return; }
         if ("CSV_KEY".equalsIgnoreCase(mode)) { runDiffKey(params, fa, fb, delim, reportName, reportMd, diffCsv, failOnDiff, res, line); return; }
         if (!"CSV_POSITIONAL".equalsIgnoreCase(mode)) { line.accept("diff: mode '" + mode + "' not implemented yet"); res.exitCode = 2; return; }
@@ -383,7 +384,9 @@ public class InternalSteps {
             md.append("## Summary\n\n");
             md.append("- Rows compared (aligned by position): ").append(rowsCompared).append("\n");
             md.append("- Attributes compared (shared columns): ").append(shared.size()).append("\n");
-            md.append("- Shared columns: ").append(String.join(", ", shared)).append("\n\n");
+            md.append("- Shared columns: ").append(String.join(", ", shared)).append("\n");
+            md.append("- Rows in A: ").append(rowsCompared + missingInB).append(", rows in B: ").append(rowsCompared + missingInA).append("\n");
+            md.append("- Total attributes checked (shared columns x rows, summed over both files): ").append((long) shared.size() * (2 * rowsCompared + missingInA + missingInB)).append("\n\n");
             md.append("## Totals\n\n");
             md.append("- Cell mismatches: ").append(valueMismatch);
             if (cells > 0) md.append(" (").append(pct(valueMismatch, cells)).append("% of ").append(cells).append(" checked cells)");
@@ -404,6 +407,7 @@ public class InternalSteps {
             res.outVars.put("diffCount", String.valueOf(totalDiff));
             res.outVars.put("rowsCompared", String.valueOf(rowsCompared));
             res.outVars.put("attributesCompared", String.valueOf(shared.size()));
+            res.outVars.put("attributesChecked", String.valueOf((long) shared.size() * (2 * rowsCompared + missingInA + missingInB)));
             res.outVars.put("valueMismatches", String.valueOf(valueMismatch));
             res.outVars.put("missingInA", String.valueOf(missingInA));
             res.outVars.put("missingInB", String.valueOf(missingInB));
@@ -451,6 +455,7 @@ public class InternalSteps {
         List<String> mAexpr = new ArrayList<String>();
         List<String> mBexpr = new ArrayList<String>();
         List<Boolean> mNum = new ArrayList<Boolean>();
+        List<String> mAgg = new ArrayList<String>();
         java.util.TreeSet<Integer> midx = new java.util.TreeSet<Integer>();
         for (String key : params.keySet()) {
             if (key.startsWith("match.") && key.endsWith(".a")) {
@@ -469,13 +474,16 @@ public class InternalSteps {
             List<String> bcExpr = new ArrayList<String>();
             for (String cc : bc) { String e = keyColSql(cc); if (e == null) { line.accept("diff CSV_KEY: invalid B column '" + cc + "' in match " + n + " (use COL, COL:L<n> or COL:R<n>)"); res.exitCode = 2; return; } bcExpr.add(e); }
             String sep = params.get("match." + n + ".sep"); if (sep == null) sep = " ";
-            boolean num = "numeric".equalsIgnoreCase(params.get("match." + n + ".type"));
+            String agg = blankToNull(params.get("match." + n + ".agg")); if (agg == null) agg = "value"; agg = agg.toLowerCase();
+            if (!agg.equals("value") && !agg.equals("sum") && !agg.equals("count") && !agg.equals("count_distinct")) { line.accept("diff CSV_KEY: match " + n + " has unknown agg '" + agg + "' (value|sum|count|count_distinct)"); res.exitCode = 2; return; }
+            boolean num = "numeric".equalsIgnoreCase(params.get("match." + n + ".type")) || !agg.equals("value");
             String label = blankToNull(params.get("match." + n + ".label"));
             if (label == null) label = String.join("+", ac);
             mLabel.add(label);
             mAexpr.add(concatExpr(acExpr, sqlStr(sep)));
             mBexpr.add(concatExpr(bcExpr, sqlStr(sep)));
             mNum.add(num);
+            mAgg.add(agg);
         }
         if (mLabel.isEmpty()) { line.accept("diff CSV_KEY: at least one match is required"); res.exitCode = 2; return; }
 
@@ -484,8 +492,10 @@ public class InternalSteps {
         StringBuilder ag = new StringBuilder("SELECT (" + keyExprA + ") k");
         StringBuilder bg = new StringBuilder("SELECT (" + keyExprB + ") k");
         for (int m = 0; m < mLabel.size(); m++) {
-            ag.append(", COUNT(DISTINCT (").append(mAexpr.get(m)).append(")) d").append(m).append(", MAX(").append(mAexpr.get(m)).append(") v").append(m);
-            bg.append(", COUNT(DISTINCT (").append(mBexpr.get(m)).append(")) d").append(m).append(", MAX(").append(mBexpr.get(m)).append(") v").append(m);
+            String[] eA = aggExprs(mAexpr.get(m), mAgg.get(m));
+            String[] eB = aggExprs(mBexpr.get(m), mAgg.get(m));
+            ag.append(", ").append(eA[0]).append(" d").append(m).append(", ").append(eA[1]).append(" v").append(m);
+            bg.append(", ").append(eB[0]).append(" d").append(m).append(", ").append(eB[1]).append(" v").append(m);
         }
         ag.append(" FROM ta GROUP BY (").append(keyExprA).append(")");
         bg.append(" FROM tb GROUP BY (").append(keyExprB).append(")");
@@ -515,6 +525,9 @@ public class InternalSteps {
             st.executeUpdate("CREATE LOCAL TEMPORARY TABLE bg AS " + bg);
             st.executeUpdate("CREATE INDEX ix_ag ON ag(k)");
             st.executeUpdate("CREATE INDEX ix_bg ON bg(k)");
+            long rowsA = 0, rowsB = 0;
+            { java.sql.ResultSet rc = st.executeQuery("SELECT COUNT(*) FROM ta"); if (rc.next()) rowsA = rc.getLong(1); }
+            { java.sql.ResultSet rc = st.executeQuery("SELECT COUNT(*) FROM tb"); if (rc.next()) rowsB = rc.getLong(1); }
             dw.write("key,match,valueA,valueB,category"); dw.write("\r\n");
             long[] mDiff = new long[mLabel.size()];
             long keysCompared = 0, valueMismatch = 0, inconsistent = 0, missingInA = 0, missingInB = 0;
@@ -548,10 +561,12 @@ public class InternalSteps {
             md.append("- Key A: `").append(String.join(", ", kaCols)).append("`\n");
             md.append("- Key B: `").append(String.join(", ", kbCols)).append("`\n");
             md.append("- Matches:\n");
-            for (int m = 0; m < mLabel.size(); m++) md.append("  - ").append(mLabel.get(m)).append(" (").append(mNum.get(m) ? "numeric" : "text").append(")\n");
+            for (int m = 0; m < mLabel.size(); m++) md.append("  - ").append(mLabel.get(m)).append(" (").append(mAgg.get(m)).append(", ").append(mNum.get(m) ? "numeric" : "text").append(")\n");
             md.append("\n## Summary\n\n");
             md.append("- Keys compared (present on both sides): ").append(keysCompared).append("\n");
-            md.append("- Attributes compared (matches): ").append(mLabel.size()).append("\n\n");
+            md.append("- Attributes compared (matches): ").append(mLabel.size()).append("\n");
+            md.append("- Rows in A: ").append(rowsA).append(", rows in B: ").append(rowsB).append("\n");
+            md.append("- Total attributes checked (matches x rows, summed over both files): ").append(mLabel.size() * (rowsA + rowsB)).append("\n\n");
             md.append("## Totals\n\n");
             md.append("- Value mismatches: ").append(valueMismatch);
             if (cells > 0) md.append(" (").append(pct(valueMismatch, cells)).append("% of ").append(cells).append(" checked cells)");
@@ -568,6 +583,7 @@ public class InternalSteps {
             res.outVars.put("diffResult", totalDiff == 0 ? "PERFECT_MATCH" : "DIFFERENCES");
             res.outVars.put("diffCount", String.valueOf(totalDiff));
             res.outVars.put("keysCompared", String.valueOf(keysCompared));
+            res.outVars.put("attributesChecked", String.valueOf(mLabel.size() * (rowsA + rowsB)));
             res.outVars.put("attributesCompared", String.valueOf(mLabel.size()));
             res.outVars.put("valueMismatches", String.valueOf(valueMismatch));
             res.outVars.put("inconsistentKeys", String.valueOf(inconsistent));
@@ -616,6 +632,12 @@ public class InternalSteps {
         if (cols.size() == 1) return cols.get(0);
         return "CONCAT_WS(" + sepSql + ", " + String.join(", ", cols) + ")";
     }
+    private static String[] aggExprs(String expr, String agg) {
+        if ("sum".equals(agg)) return new String[]{ "1", "CAST(SUM(CAST(NULLIF(TRIM(" + expr + "), '') AS DECIMAL(38,10))) AS VARCHAR)" };
+        if ("count".equals(agg)) return new String[]{ "1", "CAST(COUNT(*) AS VARCHAR)" };
+        if ("count_distinct".equals(agg)) return new String[]{ "1", "CAST(COUNT(DISTINCT (" + expr + ")) AS VARCHAR)" };
+        return new String[]{ "COUNT(DISTINCT (" + expr + "))", "MAX(" + expr + ")" };
+    }
     private static String sqlStr(String s) { return "'" + (s == null ? "" : s.replace("'", "''")) + "'"; }
     private static void diffRow2(java.io.BufferedWriter w, String key, String match, String va, String vb, String cat) throws java.io.IOException {
         w.write(dq(key)); w.write(',');
@@ -623,6 +645,65 @@ public class InternalSteps {
         w.write(dq(va)); w.write(',');
         w.write(dq(vb)); w.write(',');
         w.write(dq(cat)); w.write("\r\n");
+    }
+
+    private void runDiffTextSet(Map<String, String> params, java.io.File fa, java.io.File fb,
+                                String reportName, java.io.File reportMd, java.io.File diffCsv, boolean failOnDiff,
+                                StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        List<String> a = readLines(fa);
+        List<String> b = readLines(fb);
+        int n = a.size(), m = b.size();
+        java.util.HashSet<String> setA = new java.util.HashSet<String>(a);
+        java.util.HashSet<String> setB = new java.util.HashSet<String>(b);
+        java.util.LinkedHashSet<String> onlyA = new java.util.LinkedHashSet<String>();
+        for (String ln : a) if (!setB.contains(ln)) onlyA.add(ln);
+        java.util.LinkedHashSet<String> onlyB = new java.util.LinkedHashSet<String>();
+        for (String ln : b) if (!setA.contains(ln)) onlyB.add(ln);
+        long common = 0;
+        for (String ln : setA) if (setB.contains(ln)) common++;
+        java.io.BufferedWriter dw = new java.io.BufferedWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(diffCsv), java.nio.charset.StandardCharsets.UTF_8));
+        try {
+            dw.write("line,label,valueA,valueB,category"); dw.write("\r\n");
+            for (String ln : onlyA) diffRow2(dw, "", "(line)", ln, "", "only_in_A");
+            for (String ln : onlyB) diffRow2(dw, "", "(line)", "", ln, "only_in_B");
+            dw.flush();
+            long totalDiff = onlyA.size() + onlyB.size();
+            StringBuilder md = new StringBuilder();
+            md.append("# Reconciliation report - ").append(reportName).append("\n\n");
+            md.append(totalDiff == 0 ? "**PERFECT MATCH**\n\n" : "**DIFFERENCES**\n\n");
+            md.append("## Configuration\n\n");
+            md.append("- Mode: `TEXT_SET` (line membership, order-independent)\n");
+            md.append("- File A: `").append(fa.getAbsolutePath()).append("`\n");
+            md.append("- File B: `").append(fb.getAbsolutePath()).append("`\n");
+            md.append("- Sources produced: A @ ").append(fileStamp(fa)).append(", B @ ").append(fileStamp(fb)).append("\n\n");
+            md.append("## Summary\n\n");
+            md.append("- Lines in A: ").append(n).append(" (distinct ").append(setA.size()).append(")\n");
+            md.append("- Lines in B: ").append(m).append(" (distinct ").append(setB.size()).append(")\n");
+            md.append("- Common distinct lines: ").append(common).append("\n\n");
+            md.append("## Totals\n\n");
+            md.append("- Lines only in A (A -> B, not present in B): ").append(onlyA.size()).append("\n");
+            md.append("- Lines only in B (B -> A, not present in A): ").append(onlyB.size()).append("\n");
+            md.append("- Total differing lines: ").append(totalDiff).append("\n");
+            java.nio.file.Files.write(reportMd.toPath(), md.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+            res.outVars.put("diffResult", totalDiff == 0 ? "PERFECT_MATCH" : "DIFFERENCES");
+            res.outVars.put("diffCount", String.valueOf(totalDiff));
+            res.outVars.put("linesA", String.valueOf(n));
+            res.outVars.put("linesB", String.valueOf(m));
+            res.outVars.put("distinctA", String.valueOf(setA.size()));
+            res.outVars.put("distinctB", String.valueOf(setB.size()));
+            res.outVars.put("commonLines", String.valueOf(common));
+            res.outVars.put("onlyInA", String.valueOf(onlyA.size()));
+            res.outVars.put("onlyInB", String.valueOf(onlyB.size()));
+            res.outVars.put("reportFile", reportMd.getAbsolutePath());
+            res.outVars.put("differencesFile", diffCsv.getAbsolutePath());
+            line.accept("diff TEXT_SET: " + (totalDiff == 0 ? "PERFECT MATCH" : ("DIFFERENCES (" + totalDiff + ")")) + " - only_in_A=" + onlyA.size() + " only_in_B=" + onlyB.size());
+            line.accept("diff: report " + reportMd.getAbsolutePath());
+            for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
+            res.exitCode = (failOnDiff && totalDiff > 0) ? 1 : 0;
+        } finally {
+            try { dw.close(); } catch (Exception ignored) {}
+        }
     }
 
     private void runDiffText(Map<String, String> params, java.io.File fa, java.io.File fb,

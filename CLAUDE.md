@@ -457,3 +457,16 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   now the absolute path is baked into each file option's value in diffWfChosen.
   Verified with a mock DOM (param set even when the input is absent). Note in
   `.claude/2026-07-15-diff-crossworkflow-picker-fix.md`.
+
+## diff: TEXT_SET mode, match aggregates, attributes-checked total
+* **TEXT_SET** mode: line membership (order-independent) — lines only in A (A->B)
+  and only in B (B->A), via hash sets (scales, no LCS). Complements ordered TEXT.
+* **CSV_KEY match aggregates**: per-match `agg` = value|sum|count|count_distinct.
+  sum/count/count_distinct aggregate over the key group and compare A vs B
+  numerically (sum via SUM(CAST(NULLIF(TRIM(expr),'') AS DECIMAL)); multi-occurrence
+  inconsistent_key check bypassed for aggregates). Designer: Aggregate dropdown per
+  match. (H2 2.1.214 has no TRY_CAST; sum needs numeric columns.)
+* **Summary total attributes checked**: POSITIONAL & CSV_KEY reports show and
+  expose `attributesChecked` = attributesCompared x (rowsA + rowsB), plus rows in
+  A / rows in B. Verified on real H2/standalone. Note in
+  `.claude/2026-07-15-diff-textset-aggregates-checked.md`.

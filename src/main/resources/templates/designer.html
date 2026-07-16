@@ -1073,7 +1073,8 @@
                         '<div class="field"><label>Mode</label><select onchange="diffSetMode(' + i + ',this.value)">' +
                         '<option value="CSV_POSITIONAL"' + (dmode === 'CSV_POSITIONAL' ? ' selected' : '') + '>CSV positional (by row order)</option>' +
                         '<option value="CSV_KEY"' + (dmode === 'CSV_KEY' ? ' selected' : '') + '>CSV key (align rows by key)</option>' +
-                        '<option value="TEXT"' + (dmode === 'TEXT' ? ' selected' : '') + '>TEXT (line-by-line)</option>' +
+                        '<option value="TEXT"' + (dmode === 'TEXT' ? ' selected' : '') + '>TEXT (line-by-line, ordered)</option>' +
+                        '<option value="TEXT_SET"' + (dmode === 'TEXT_SET' ? ' selected' : '') + '>TEXT set (A-only / B-only lines, unordered)</option>' +
                         '</select></div>' +
                         '<div class="field"><label>Delimiter</label><input value="' + attresc(nodeParam(n, 'delimiter')) + '" placeholder=";" oninput="setNodeParam(' + i + ',\'delimiter\',this.value)"></div>' +
                         '<div class="field"><label>Report name</label><input value="' + attresc(nodeParam(n, 'reportName')) + '" placeholder="(step id)" oninput="setNodeParam(' + i + ',\'reportName\',this.value)"></div></div>';
@@ -1107,6 +1108,11 @@
                                 '<div class="field" style="max-width:110px"><label>Type</label><select onchange="setNodeParam(' + i + ',\'match.' + k + '.type\',this.value)">' +
                                 '<option value="text"' + ((mm.type || 'text') === 'text' ? ' selected' : '') + '>text</option>' +
                                 '<option value="numeric"' + (mm.type === 'numeric' ? ' selected' : '') + '>numeric</option></select></div>' +
+                                '<div class="field" style="max-width:130px"><label>Aggregate</label><select onchange="setNodeParam(' + i + ',\'match.' + k + '.agg\',this.value)">' +
+                                '<option value="value"' + (!mm.agg || mm.agg === 'value' ? ' selected' : '') + '>value</option>' +
+                                '<option value="sum"' + (mm.agg === 'sum' ? ' selected' : '') + '>sum (numeric)</option>' +
+                                '<option value="count"' + (mm.agg === 'count' ? ' selected' : '') + '>count</option>' +
+                                '<option value="count_distinct"' + (mm.agg === 'count_distinct' ? ' selected' : '') + '>distinct count</option></select></div>' +
                                 '<div class="field"><label>Label</label><input value="' + attresc(mm.label || '') + '" placeholder="(A columns)" oninput="setNodeParam(' + i + ',\'match.' + k + '.label\',this.value)"></div>' +
                                 '<div class="field" style="max-width:50px"><label>&nbsp;</label><button class="btn sm danger" onclick="diffDelMatch(' + i + ',' + k + ')">✕</button></div></div>';
                         });
