@@ -577,3 +577,12 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   --check on both templates. Note in `.claude/2026-07-15-onhold-ui-F3.md`.
   **This completes the whole request (1.x, 2.x, 4, 5.x).** Maven build still to be
   run on deploy for the Java-touching batches (C, D, E, F1, F2, and this F3 line).
+
+## Operations: weather icons per source (fancy)
+* The per-source rollup table gains a "Sky" column: a weather emoji per source via
+  weatherFor(s) — shining sun (all success), storm / heavy thunderstorm (some /
+  all failed), white clouds (all to-run), sun+cloud (success+to-run mix), and
+  (my choice) sun-behind-small-cloud (running), fog (on hold), sun-behind-rain
+  (aborted). Any-failed takes priority. Title tooltips + a legend under the table.
+  Emojis as \uXXXX escapes. overview.html only; node --check + mapping verified.
+  Note in `.claude/2026-07-15-operations-weather-icons.md`.

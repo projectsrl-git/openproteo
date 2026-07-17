@@ -1,23 +1,23 @@
-ON HOLD UI: run page status/counts/PLAY + Operations column/PLAY (5.3.1-5.3.3)
+Operations: weather icons per source row (fancy)
 
-Completes ON HOLD on top of F2 (engine + /resume endpoint).
+Adds a "Sky" column to the per-source rollup table in the Operations overview: a
+weather emoji summarising each source's feeds.
 
-5.3.1 Run page: ON_HOLD renders as a blue status chip (new .chip.ON_HOLD in
-      app.css). A dedicated on-hold panel shows the held step and the partial
-      success count "N of TOT steps successful so far"; partial outputs are the
-      run.vars already listed under Variables. A "Continue (resume)" button
-      (resumeRun -> POST /resume -> refresh) plus Stop; ON_HOLD counts as active so
-      Stop stays available.
-5.3.2 Operations: ON_HOLD shows as the blue chip in the grid; bucketFor maps
-      ON_HOLD to a new "onhold" bucket rendered as an "On hold" rollup tile
-      (clickable drill).
-5.3.3 PLAY/CONTINUE: the run-page Continue button, and a "Continue" button on
-      Operations grid rows whose last status is ON_HOLD (resumeRun(feedId,runId) ->
-      POST /resume -> reload).
+- all successful          -> shining sun
+- some failed             -> storm
+- all failed              -> heavy thunderstorm (meaner)
+- all still to run        -> white clouds
+- success + to-run only   -> sun behind cloud
+- running (my choice)     -> sun behind small cloud
+- on hold (my choice)     -> fog
+- aborted / mixed         -> sun behind rain / sun behind cloud
 
-Docs: .claude/2026-07-15-onhold-ui-F3.md and CLAUDE.md.
+Any-failed takes priority (storm), then all-success, then all-to-run, then the
+success+to-run mix, then running / on-hold / aborted / mixed. Each icon carries a
+title tooltip with counts and a compact legend sits under the table. Emojis are
+written as \uXXXX escapes (proxy-safe, consistent with the codebase).
 
-Verify: run.html and overview.html pass node --check (no literal \n/\r, no unsafe
-Thymeleaf). resumeRun mirrors the existing decide()/drillRunSeq patterns; the
-backend change is one line in bucketFor. Full Maven build to be confirmed on deploy
-(with F2).
+Docs: .claude/2026-07-15-operations-weather-icons.md and CLAUDE.md.
+
+Verify: overview.html passes node --check (no literal \n/\r, no unsafe Thymeleaf).
+The weatherFor mapping was exercised in Node across every case. Frontend only.

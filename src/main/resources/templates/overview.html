@@ -144,6 +144,22 @@
         if (!n) return '<td class="num dim">0</td>';
         return '<td class="num clk" style="' + (style||'') + '" onclick="setDrill(\'' + bucket + '\',\'' + esc(src).replace(/'/g,"\\'") + '\')">' + num(n) + '</td>';
     }
+    function weatherFor(s){
+        var tot = s.total || 0;
+        if (tot === 0) return { ic:'\u2601\uFE0F', t:'no feeds' };
+        var fail = s.failed||0, succ = s.success||0, nr = s.notRun||0, run = s.running||0, ab = s.aborted||0, oh = s.onhold||0;
+        if (fail > 0) {
+            if (fail === tot) return { ic:'\u26C8\uFE0F', t:'all ' + tot + ' failed' };            // heavy thunderstorm
+            return { ic:'\uD83C\uDF29\uFE0F', t:fail + ' of ' + tot + ' failed' };                // storm
+        }
+        if (succ === tot) return { ic:'\uD83C\uDF1E', t:'all ' + tot + ' successful' };            // shining sun
+        if (nr === tot) return { ic:'\u2601\uFE0F', t:'all ' + tot + ' still to run' };            // white clouds
+        if (succ > 0 && nr > 0 && (succ + nr === tot)) return { ic:'\u26C5', t:succ + ' done, ' + nr + ' to run' }; // sun + clouds
+        if (oh > 0) return { ic:'\uD83C\uDF2B\uFE0F', t:oh + ' on hold' };                         // fog (paused)
+        if (run > 0) return { ic:'\uD83C\uDF24\uFE0F', t:run + ' running' };                       // sun behind small cloud
+        if (ab > 0) return { ic:'\uD83C\uDF26\uFE0F', t:ab + ' aborted' };                         // sun behind rain
+        return { ic:'\u26C5', t:'mixed' };
+    }
     function renderRollup(){
         var r = rollup(FEEDS), t = r.tot;
         document.getElementById('tiles').innerHTML =
@@ -153,14 +169,15 @@
             tileEl('onhold','On hold',t.onhold,'run') +
             tileEl('other','Other',t.other,'');
         if (r.order.length === 0){ document.getElementById('rollupWrap').innerHTML='<div class="dim small">No feeds.</div>'; return; }
-        var h = '<table class="grid"><thead><tr><th>Source</th><th class="num">Total</th><th class="num">Not run</th>' +
+        var h = '<table class="grid"><thead><tr><th title="aggregate weather for the source">Sky</th><th>Source</th><th class="num">Total</th><th class="num">Not run</th>' +
                 '<th class="num">Running</th><th class="num">Success</th><th class="num">Failed</th><th class="num">Aborted</th><th class="num">Other</th><th>Mix</th></tr></thead><tbody>';
         for (var i=0;i<r.order.length;i++){
             var s = r.bySrc[r.order[i]];
             var bar = '<div class="bar">' + seg('seg-run',s.running,s.total,'running') + seg('seg-ok',s.success,s.total,'success') +
                 seg('seg-fail',s.failed,s.total,'failed') + seg('seg-abort',s.aborted,s.total,'aborted') + seg('seg-other',s.other,s.total,'other') + '</div>';
             var label = '<span class="mono">' + esc(s.source) + '</span>' + (s.sourceDescription ? '<div class="dim small">' + esc(s.sourceDescription) + '</div>' : '');
-            h += '<tr><td>' + label + '</td>' +
+            var wx = weatherFor(s);
+            h += '<tr><td style="font-size:20px;text-align:center;line-height:1" title="' + esc(wx.t) + '">' + wx.ic + '</td><td>' + label + '</td>' +
                 cell('total', s.source, s.total, '') +
                 cell('notRun', s.source, s.notRun, '') +
                 cell('running', s.source, s.running, 'color:var(--run)') +
@@ -171,6 +188,7 @@
                 '<td>' + bar + '</td></tr>';
         }
         h += '</tbody></table>';
+        h += '<div class="dim small" style="margin-top:6px">Sky \u2014 \uD83C\uDF1E all success \u00B7 \u26C5 success + to-run \u00B7 \u2601\uFE0F all to-run \u00B7 \uD83C\uDF24\uFE0F running \u00B7 \uD83C\uDF2B\uFE0F on hold \u00B7 \uD83C\uDF26\uFE0F aborted \u00B7 \uD83C\uDF29\uFE0F some failed \u00B7 \u26C8\uFE0F all failed</div>';
         document.getElementById('rollupWrap').innerHTML = h;
     }
 
