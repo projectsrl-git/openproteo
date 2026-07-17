@@ -827,6 +827,7 @@ public class ApiController {
             public java.util.List<WorkflowDto.KV> vars;
             public java.util.List<VarSaveReq.StepEdit> steps;
             public String tags;
+            public String outputData;
         }
     }
 
@@ -868,7 +869,7 @@ public class ApiController {
                 WorkflowDto dto = toDto(def);
                 if (fe.targetId != null) dto.targetId = fe.targetId.trim().isEmpty() ? null : fe.targetId.trim();
                 if (fe.production != null) dto.production = fe.production.booleanValue();
-                applyEditsToDto(dto, fe.vars, fe.tags, fe.steps);
+                applyEditsToDto(dto, fe.vars, fe.tags, fe.steps, fe.outputData);
                 String xml = xmlWriter.toXml(dto);
                 java.io.File dir = new java.io.File(props.getWorkflowsDir());
                 if (!dir.isDirectory()) dir.mkdirs();
@@ -1506,6 +1507,12 @@ public class ApiController {
                         odVars.add(new String[]{ varName, label });
                     }
                 }
+                if (def.outputData != null) for (Map.Entry<String, String> oe : def.outputData.entrySet()) {
+                    String varName = oe.getKey() == null ? "" : oe.getKey().trim();
+                    if (varName.isEmpty()) continue;
+                    String desc = oe.getValue();
+                    odVars.add(new String[]{ varName, (desc != null && !desc.trim().isEmpty()) ? desc.trim() : varName });
+                }
                 java.util.List<Map<String, Object>> outputData = new java.util.ArrayList<Map<String, Object>>();
                 for (String[] v : odVars) {
                     Map<String, Object> od = new LinkedHashMap<String, Object>();
@@ -1737,6 +1744,9 @@ public class ApiController {
         for (Map.Entry<String, String> v : def.variables.entrySet()) {
             dto.variables.add(new WorkflowDto.KV(v.getKey(), v.getValue()));
         }
+        if (def.outputData != null) for (Map.Entry<String, String> v : def.outputData.entrySet()) {
+            dto.outputData.add(new WorkflowDto.KV(v.getKey(), v.getValue()));
+        }
         for (NodeDef n : def.nodes) {
             WorkflowDto.NodeDto nd = new WorkflowDto.NodeDto();
             nd.kind = n.getKind();
@@ -1842,6 +1852,9 @@ public class ApiController {
             w.put("sourceDescription", dto.sourceDescription == null ? "" : dto.sourceDescription);
             w.put("targetDescription", dto.targetDescription == null ? "" : dto.targetDescription);
             w.put("tags", (dto.tags == null || dto.tags.isEmpty()) ? "" : String.join(", ", dto.tags));
+            StringBuilder odb = new StringBuilder();
+            if (dto.outputData != null) for (WorkflowDto.KV kv : dto.outputData) { if (kv.name == null || kv.name.trim().isEmpty()) continue; odb.append(kv.name.trim()).append(" = ").append(kv.value == null ? "" : kv.value).append("\n"); }
+            w.put("outputData", odb.toString());
             java.util.List<Map<String, String>> vars = new java.util.ArrayList<Map<String, String>>();
             for (WorkflowDto.KV kv : dto.variables) {
                 Map<String, String> m = new LinkedHashMap<String, String>();
@@ -1908,7 +1921,7 @@ public class ApiController {
     /** Apply workflow variable / tag / step-param edits onto a DTO in place (shared by the
         variables page and the import page). Null sub-lists / tags leave that facet unchanged. */
     private static void applyEditsToDto(WorkflowDto dto, java.util.List<WorkflowDto.KV> vars,
-                                        String tags, java.util.List<VarSaveReq.StepEdit> steps) {
+                                        String tags, java.util.List<VarSaveReq.StepEdit> steps, String workflowOutputData) {
         if (vars != null) {
             for (WorkflowDto.KV kv : vars) {
                 if (kv.name == null || kv.name.trim().isEmpty()) continue;
@@ -1920,6 +1933,18 @@ public class ApiController {
         if (tags != null) {
             dto.tags.clear();
             for (String t : tags.split(",")) { String tt = t.trim(); if (!tt.isEmpty()) dto.tags.add(tt); }
+        }
+        if (workflowOutputData != null) {
+            dto.outputData.clear();
+            for (String raw : workflowOutputData.split("\n")) {
+                String line = raw.replace("\r", "").trim();
+                if (line.isEmpty()) continue;
+                int eq = line.indexOf('=');
+                String vn = eq >= 0 ? line.substring(0, eq).trim() : line.trim();
+                String ds = eq >= 0 ? line.substring(eq + 1).trim() : "";
+                if (vn.isEmpty()) continue;
+                dto.outputData.add(new WorkflowDto.KV(vn, ds));
+            }
         }
         if (steps != null) {
             for (VarSaveReq.StepEdit se : steps) {
@@ -1991,6 +2016,7 @@ public class ApiController {
             public java.util.List<WorkflowDto.KV> vars;     // workflow-level variables to set
             public java.util.List<StepEdit> steps;          // optional per-step param edits
             public String tags;                              // optional: comma-separated workflow tags (null = unchanged)
+            public String outputData;                        // null=unchanged; workflow-level output data (lines: var = description)
         }
         public static class StepEdit {
             public String stepId;
@@ -2022,7 +2048,7 @@ public class ApiController {
             WorkflowDef def = fe.feedId == null ? null : registry.get(fe.feedId);
             if (def == null) { r.put("ok", false); r.put("error", "workflow not found"); results.add(r); allOk = false; continue; }
             WorkflowDto dto = toDto(def);
-            applyEditsToDto(dto, fe.vars, fe.tags, fe.steps);
+            applyEditsToDto(dto, fe.vars, fe.tags, fe.steps, fe.outputData);
             // regenerate + validate
             String fileName = def.sourceFile != null ? def.sourceFile : def.feedId + ".xml";
             Path tmp = null;

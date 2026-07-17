@@ -38,6 +38,9 @@ public class WorkflowDef {
     /** Variabili statiche definite nel workflow (sovrascrivibili a runtime). */
     public Map<String, String> variables = new LinkedHashMap<String, String>();
 
+    /** Workflow-level output data definitions: variable name -> description (surfaced in Operations). */
+    public Map<String, String> outputData = new LinkedHashMap<String, String>();
+
     /** Sequenza ordinata di nodi: StepDef e GateDef. */
     public List<NodeDef> nodes = new ArrayList<NodeDef>();
 

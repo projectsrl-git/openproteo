@@ -504,3 +504,15 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   Node (render + search). Note in
   `.claude/2026-07-15-operations-all-runs-output-data.md`. (Batch B; remaining:
   1.5 workflow-level output data; 2.1/2.2; 4; 5.x.)
+
+## Workflow-level output data (req 1.5)
+* Output data can now be defined at the WORKFLOW level, not only per step.
+  WorkflowDef gains Map<String,String> outputData; XML `<outputData><var name desc
+  /></outputData>` (mirrors <variables>) round-trips through parser/writer/DTO/
+  toDto. Variables page gets a "workflow output data" textarea (var = description,
+  single + multi-feed, differ-aware); var-catalog exposes it; VarSaveReq.FeedEdit +
+  applyEditsToDto handle it (full replace, like step-level). /api/overview/feeds
+  folds the workflow-level defs into the output-data var set (feeds last-run and
+  all-runs display). DOM round-trip verified standalone; UIs pass node --check.
+  Note in `.claude/2026-07-15-workflow-level-output-data.md`. (Batch C; remaining:
+  2.1/2.2 history delete; 4 PROD mass-edit; 5.x SKIP/ON HOLD.)

@@ -1,25 +1,26 @@
-Operations: show OUTPUT DATA of all runs in history (1.4)
+Workflow-level OUTPUT DATA (1.5)
 
-The OUTPUT DATA column showed only the last run's values; it now shows the output
-data of every run in the feed's history (most recent first).
+Output data could only be defined per step (step params outputData.*). It can now
+also be defined at the workflow level, with the same "variable = description"
+textbox on the Variables page.
 
-Backend (/api/overview/feeds): the run list (store.list(layout, 25)) is captured
-once and reused. The output-data variable set (varName + label) is built once from
-the steps' outputData.* params; then for each run a runsOutputData entry is
-produced {runId, runTs, status, outputData:[{label, value from that run's vars}]}.
-Runs with no non-empty output value are skipped and test runs are ignored. The
-existing outputData (last run) is kept for backward compatibility.
+- Model: WorkflowDef gains Map<String,String> outputData (var -> description).
+- XML round-trip: a <outputData><var name=".." desc=".."/></outputData> section
+  (mirrors <variables>); parser reads it, writer writes it from
+  WorkflowDto.outputData (populated in toDto). DOM round-trip verified standalone.
+- Save + display: the Variables page gets a "workflow output data" textarea (one
+  var = description per line) at the workflow level, in both the single-feed and
+  the multi-feed common editor (differ-across-feeds aware, like tags). var-catalog
+  exposes it as text; VarSaveReq.FeedEdit (and FeedImport) gain outputData;
+  applyEditsToDto parses the text into dto.outputData (full replace), exactly like
+  the step-level output-data parsing. /api/overview/feeds folds the workflow-level
+  definitions into the output-data variable set, so they feed the last-run and
+  all-runs output-data display.
 
-Frontend (overview.html): odCell renders each run as a compact line
-"<runTs> [<status>] label=value; ..." (falls back to the single last-run
-outputData when runsOutputData is empty). The free search now also covers every
-run's timestamp, status and output labels/values. CSV export gains an
-allRunsOutputData column.
+Docs: .claude/2026-07-15-workflow-level-output-data.md and CLAUDE.md.
 
-Docs: .claude/2026-07-15-operations-all-runs-output-data.md and CLAUDE.md.
-
-Verify: overview.html passes node --check (no literal \n/\r, no unsafe Thymeleaf).
-odCell and the search hay were exercised in Node -- both runs render and search
-matches an older run's date, a FAILED status and a value/label from any run.
-Backend mirrors the existing feed-loop patterns. Full Maven build to be confirmed
-on deploy.
+Verify: DOM round-trip of the <outputData> element verified standalone
+(parse -> map -> write). variables.html and overview.html pass node --check (no
+literal \n/\r, no unsafe Thymeleaf). The var=description parsing mirrors the proven
+step-level path; the backend mirrors the existing tags/variables round-trip. Full
+Maven build to be confirmed on deploy.

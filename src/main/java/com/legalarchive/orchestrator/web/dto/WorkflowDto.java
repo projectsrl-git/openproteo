@@ -22,6 +22,7 @@ public class WorkflowDto {
     public String description;
     public List<String> tags = new ArrayList<String>();
     public List<KV> variables = new ArrayList<KV>();
+    public List<KV> outputData = new ArrayList<KV>();
     public List<NodeDto> nodes = new ArrayList<NodeDto>();
 
     public static class KV {

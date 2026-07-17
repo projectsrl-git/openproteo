@@ -73,6 +73,10 @@ public class WorkflowXmlParser {
                 wf.variables.put(req(var, "name", xmlFile), var.getAttribute("value"));
             }
 
+            for (Element var : children(root, "outputData", "var")) {
+                wf.outputData.put(req(var, "name", xmlFile), var.getAttribute("desc"));
+            }
+
             Set<String> ids = new HashSet<String>();
             for (Element el : children(root, "steps", null)) {
                 String tag = el.getTagName();

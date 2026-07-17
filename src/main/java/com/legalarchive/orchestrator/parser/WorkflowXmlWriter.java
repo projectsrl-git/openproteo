@@ -59,6 +59,17 @@ public class WorkflowXmlWriter {
                     vars.appendChild(var);
                 }
             }
+            if (dto.outputData != null && !dto.outputData.isEmpty()) {
+                Element ods = doc.createElement("outputData");
+                root.appendChild(ods);
+                for (WorkflowDto.KV v : dto.outputData) {
+                    if (v == null || !notBlank(v.name)) continue;
+                    Element var = doc.createElement("var");
+                    var.setAttribute("name", v.name.trim());
+                    var.setAttribute("desc", v.value == null ? "" : v.value);
+                    ods.appendChild(var);
+                }
+            }
 
             Element steps = doc.createElement("steps");
             root.appendChild(steps);

@@ -228,6 +228,7 @@
         var sec=el('div','vsection',host); var hd=el('div','vhead',sec); hd.textContent='Workflow variables';
         var bd=el('div','vbody',sec);
         var tgs=valLine(bd, 'tags', wf.tags||'', 'comma-separated tags, ${var} allowed'); tgs.setAttribute('data-scope','tags');
+        var wod=valLine(bd, 'workflow output data', wf.outputData||'', 'one per line: variable = description', true); wod.setAttribute('data-scope','wfOutputData');
         if(!wf.vars.length){ el('div','dim small',bd).textContent='No workflow variables.'; }
         wf.vars.forEach(function(v){ var inp=valLine(bd, v.name, v.value, ''); inp.setAttribute('data-scope','var'); });
         // steps (core fields like the SQL query, plus params)
@@ -257,6 +258,8 @@
         var bd=el('div','vbody',sec);
         var tvals=feeds.map(function(f){ return f.tags||''; }); var tEq=tvals.every(function(x){ return x===tvals[0]; });
         var tgs=valLine(bd, 'tags', tEq?tvals[0]:'', tEq?'comma-separated tags, ${var} allowed':'(differ across feeds — type to set for all)'); tgs.setAttribute('data-scope','tags');
+        var wodvals=feeds.map(function(f){ return f.outputData||''; }); var wodEq=wodvals.every(function(x){ return x===wodvals[0]; });
+        var wod=valLine(bd, 'workflow output data', wodEq?wodvals[0]:'', wodEq?'one per line: variable = description':'(differ across feeds — type to set for all)', true); wod.setAttribute('data-scope','wfOutputData');
         if(!common.length){ el('div','dim small',bd).textContent='These workflows share no variable names.'; }
         common.forEach(function(n){
             var vals=valuesByName[n]; var allEqual=vals.every(function(x){ return x===vals[0]; });
@@ -304,11 +307,12 @@
         var host=document.getElementById('editorWrap'); var mode=host.getAttribute('data-mode');
         var edits=[];
         function collect(scopeHost){
-            var vars=[], stepsMap={}, tags;
+            var vars=[], stepsMap={}, tags, wfod;
             var inputs=scopeHost.querySelectorAll('.vval[data-dirty="1"]');
             for(var i=0;i<inputs.length;i++){ var inp=inputs[i]; var name=inp.getAttribute('data-name'); var scope=inp.getAttribute('data-scope');
                 if(scope==='var'){ vars.push({name:name,value:inp.value}); }
                 else if(scope==='tags'){ tags=inp.value; }
+                else if(scope==='wfOutputData'){ wfod=inp.value; }
                 else { var sid=inp.getAttribute('data-step'); var e=stepsMap[sid]=stepsMap[sid]||{params:[],fields:[]};
                     if(scope==='field') e.fields.push({name:name,value:inp.value});
                     else if(scope==='outputData') e.outputData=inp.value;
@@ -317,17 +321,17 @@
                     else e.params.push({name:name,value:inp.value}); }
             }
             var steps=Object.keys(stepsMap).map(function(sid){ var e=stepsMap[sid]; var o={stepId:sid, params:e.params, fields:e.fields}; if(e.outputData!==undefined)o.outputData=e.outputData; if(e.deleteOnSuccess!==undefined)o.deleteOnSuccess=e.deleteOnSuccess; if(e.deleteOnSuccessType!==undefined)o.deleteOnSuccessType=e.deleteOnSuccessType; return o; });
-            return {vars:vars, steps:steps, tags:tags};
+            return {vars:vars, steps:steps, tags:tags, outputData:wfod};
         }
         if(mode==='single'){
             var feedId=host.getAttribute('data-feed');
             var c=collect(host);
-            if(!c.vars.length && !c.steps.length && c.tags===undefined){ banner(false,'No changes to save.'); window.scrollTo(0,0); return; }
-            edits.push({feedId:feedId, vars:c.vars, steps:c.steps, tags:c.tags});
+            if(!c.vars.length && !c.steps.length && c.tags===undefined && c.outputData===undefined){ banner(false,'No changes to save.'); window.scrollTo(0,0); return; }
+            edits.push({feedId:feedId, vars:c.vars, steps:c.steps, tags:c.tags, outputData:c.outputData});
         } else if(mode==='multi'){
             var c2=collect(host);
-            if(!c2.vars.length && !c2.steps.length && c2.tags===undefined){ banner(false,'No changes to save.'); window.scrollTo(0,0); return; }
-            effectiveFeeds().forEach(function(f){ edits.push({feedId:f.feedId, vars:c2.vars, steps:c2.steps, tags:c2.tags}); });
+            if(!c2.vars.length && !c2.steps.length && c2.tags===undefined && c2.outputData===undefined){ banner(false,'No changes to save.'); window.scrollTo(0,0); return; }
+            effectiveFeeds().forEach(function(f){ edits.push({feedId:f.feedId, vars:c2.vars, steps:c2.steps, tags:c2.tags, outputData:c2.outputData}); });
         } else { return; }
 
         fetch(CTX+'api/variables/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({edits:edits})})
