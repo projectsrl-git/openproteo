@@ -177,7 +177,7 @@
                 seg('seg-fail',s.failed,s.total,'failed') + seg('seg-abort',s.aborted,s.total,'aborted') + seg('seg-other',s.other,s.total,'other') + '</div>';
             var label = '<span class="mono">' + esc(s.source) + '</span>' + (s.sourceDescription ? '<div class="dim small">' + esc(s.sourceDescription) + '</div>' : '');
             var wx = weatherFor(s);
-            h += '<tr><td style="font-size:20px;text-align:center;line-height:1" title="' + esc(wx.t) + '">' + wx.ic + '</td><td>' + label + '</td>' +
+            h += '<tr><td style="font-size:30px;text-align:center;line-height:1;width:44px" title="' + esc(wx.t) + '">' + wx.ic + '</td><td>' + label + '</td>' +
                 cell('total', s.source, s.total, '') +
                 cell('notRun', s.source, s.notRun, '') +
                 cell('running', s.source, s.running, 'color:var(--run)') +

@@ -1,23 +1,4 @@
-Operations: weather icons per source row (fancy)
+Operations: larger weather icons in the source rollup
 
-Adds a "Sky" column to the per-source rollup table in the Operations overview: a
-weather emoji summarising each source's feeds.
-
-- all successful          -> shining sun
-- some failed             -> storm
-- all failed              -> heavy thunderstorm (meaner)
-- all still to run        -> white clouds
-- success + to-run only   -> sun behind cloud
-- running (my choice)     -> sun behind small cloud
-- on hold (my choice)     -> fog
-- aborted / mixed         -> sun behind rain / sun behind cloud
-
-Any-failed takes priority (storm), then all-success, then all-to-run, then the
-success+to-run mix, then running / on-hold / aborted / mixed. Each icon carries a
-title tooltip with counts and a compact legend sits under the table. Emojis are
-written as \uXXXX escapes (proxy-safe, consistent with the codebase).
-
-Docs: .claude/2026-07-15-operations-weather-icons.md and CLAUDE.md.
-
-Verify: overview.html passes node --check (no literal \n/\r, no unsafe Thymeleaf).
-The weatherFor mapping was exercised in Node across every case. Frontend only.
+Bump the "Sky" column emoji from 20px to 30px and give the column a fixed 44px
+width so the icons read at a glance.
