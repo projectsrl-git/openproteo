@@ -1,31 +1,29 @@
-diff: TEXT_SET mode, CSV_KEY match aggregates, attributes-checked total
+diff: make it cancellable + query timeout (Stop now works on diff)
 
-Three additions to the diff executor.
+A running diff step could not be stopped. runDiff* was invoked without the
+RunControl, so it never checked the abort flag and -- critically for CSV_KEY --
+never registered its H2 Statement, so an operator Stop had nothing to cancel; a
+diff could hang with Stop ineffective.
 
-1) New mode TEXT_SET: line membership, order-independent. Treats each file as a
-   set of lines and reports lines only in A (A->B: in A, not in B) and only in B
-   (B->A). Uses hash sets (O(n+m), scales), unlike the ordered LCS TEXT mode. One
-   differences file carries both directions (category only_in_A / only_in_B).
+Fix (mirrors the csvsql cancellation pattern):
+- run() now passes control to runDiff, which threads it to runDiffKey /
+  runDiffText / runDiffTextSet and the positional path.
+- CSV_KEY (runDiffKey): right after creating the H2 Statement it sets
+  setQueryTimeout(qto) (qto = the step timeout via stepTimeoutSec, same source as
+  csvsql) and registers control.statement = st; the finally clears it. So an
+  operator Stop calls statement.cancel() on the live diff query (WorkflowEngine
+  already does this for csvsql), and a step timeout bounds the query even without
+  Stop. An aborted check runs before the heavy query.
+- Streaming paths: POSITIONAL checks control.aborted periodically in the row loop
+  (returns cleanly via the existing try/finally); TEXT and TEXT_SET check aborted
+  before starting.
 
-2) CSV_KEY match aggregates: each match gains a per-match agg
-   (value | sum | count | count_distinct; default value = current behaviour). For
-   a key group the aggregate is computed and compared A vs B: sum over the numeric
-   value (empty cells ignored; compared with BigDecimal), count of rows, or count
-   of distinct values. The multi-occurrence inconsistent_key check is bypassed for
-   aggregates and the comparison is numeric. Designer gains an Aggregate dropdown
-   per match; the report echoes agg per match. H2 2.1.214 has no TRY_CAST, so sum
-   requires numeric columns (a non-numeric value surfaces a clear H2 error).
+Docs: .claude/2026-07-15-diff-cancellable-query-timeout.md and CLAUDE.md.
 
-3) Summary total attributes checked: POSITIONAL and CSV_KEY reports now show, and
-   expose as attributesChecked, the sum over both files of
-   (checked attributes x rows of that file) = attributesCompared x (rowsA + rowsB),
-   and also print rows in A / rows in B. Not applicable to TEXT modes.
-
-Docs: .claude/2026-07-15-diff-textset-aggregates-checked.md and CLAUDE.md.
-
-Verify: real runDiffKey / runDiffTextSet executed against real H2 2.1.214 and
-standalone -- aggregates give the expected diffs (sum matches the equal-sum key,
-count/distinct differ; 5 diffs), attributesChecked = 3 x (3+3) = 18 in the report;
-TEXT_SET only_in_A=1, only_in_B=2, common=4. SUM/COUNT/COUNT(DISTINCT) per group
-and the DECIMAL cast probed on H2 first. designer.html passes node --check; no
-literal \n/\r; no unsafe Thymeleaf. Full Maven build to be confirmed on deploy.
+Verify: the real runDiffKey was run with a mock RunControl -- a normal run
+(control live, query timeout 30 s) gives the correct diffCount and clears
+control.statement in the finally; an aborted run returns exit -997. The
+cancellation mechanism is the one csvsql uses (WorkflowEngine cancels
+control.statement), which is proven; the mid-query cancel itself needs a
+concurrent canceller and was not live-tested here. Full Maven build to be
+confirmed on deploy.

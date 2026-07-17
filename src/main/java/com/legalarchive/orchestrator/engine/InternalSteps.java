@@ -98,7 +98,7 @@ public class InternalSteps {
             } else if ("xlsx2csv".equals(kind)) {
                 runXlsx2Csv(step, resolvedParams, vars, res, line);
             } else if ("diff".equals(kind)) {
-                runDiff(step, resolvedParams, vars, res, line);
+                runDiff(step, resolvedParams, vars, res, line, control);
             } else {
                 line.accept("unknown internal step kind: " + kind);
                 res.exitCode = -996;
@@ -302,7 +302,7 @@ public class InternalSteps {
      * no BOM so it drops straight into a {@code csvsql} {@code <input>}.
      */
     private void runDiff(StepDef step, Map<String, String> params, Map<String, String> vars,
-                         StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+                         StepExecutor.Result res, java.util.function.Consumer<String> line, RunControl control) throws Exception {
         String mode = blankToNull(params.get("mode"));
         if (mode == null) mode = "CSV_POSITIONAL";
         String fileA = params.get("fileA");
@@ -326,9 +326,11 @@ public class InternalSteps {
         java.io.File reportMd = new java.io.File(outDir, reportName + "_recon_report.md");
         java.io.File diffCsv = new java.io.File(outDir, reportName + "_recon_differences.csv");
 
-        if ("TEXT_SET".equalsIgnoreCase(mode)) { runDiffTextSet(params, fa, fb, reportName, reportMd, diffCsv, failOnDiff, res, line); return; }
-        if ("TEXT".equalsIgnoreCase(mode)) { runDiffText(params, fa, fb, reportName, reportMd, diffCsv, failOnDiff, res, line); return; }
-        if ("CSV_KEY".equalsIgnoreCase(mode)) { runDiffKey(params, fa, fb, delim, reportName, reportMd, diffCsv, failOnDiff, res, line); return; }
+        if (control != null && control.aborted) { line.accept("diff: aborted before start"); res.exitCode = -997; return; }
+        int qto = stepTimeoutSec(step.id, step.timeoutSec, vars, props != null ? props.getDefaultStepTimeoutSec() : 0);
+        if ("TEXT_SET".equalsIgnoreCase(mode)) { runDiffTextSet(params, fa, fb, reportName, reportMd, diffCsv, failOnDiff, res, line, control); return; }
+        if ("TEXT".equalsIgnoreCase(mode)) { runDiffText(params, fa, fb, reportName, reportMd, diffCsv, failOnDiff, res, line, control); return; }
+        if ("CSV_KEY".equalsIgnoreCase(mode)) { runDiffKey(params, fa, fb, delim, reportName, reportMd, diffCsv, failOnDiff, res, line, qto, control); return; }
         if (!"CSV_POSITIONAL".equalsIgnoreCase(mode)) { line.accept("diff: mode '" + mode + "' not implemented yet"); res.exitCode = 2; return; }
 
         java.io.BufferedReader ra = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(fa), java.nio.charset.StandardCharsets.UTF_8));
@@ -355,6 +357,7 @@ public class InternalSteps {
                 String lb = rb.readLine();
                 if (la == null && lb == null) break;
                 idx++;
+                if (control != null && control.aborted && (idx & 8191L) == 0L) { line.accept("diff: aborted"); res.exitCode = -997; return; }
                 if (la != null && lb != null) {
                     rowsCompared++;
                     List<String> rowA = parseCsvLine(la, delim);
@@ -440,7 +443,7 @@ public class InternalSteps {
     }
     private void runDiffKey(Map<String, String> params, java.io.File fa, java.io.File fb, char delim,
                             String reportName, java.io.File reportMd, java.io.File diffCsv, boolean failOnDiff,
-                            StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+                            StepExecutor.Result res, java.util.function.Consumer<String> line, int qto, RunControl control) throws Exception {
         String keysA = blankToNull(params.get("keysA"));
         String keysB = blankToNull(params.get("keysB"));
         if (keysA == null || keysB == null) { line.accept("diff CSV_KEY: keysA and keysB are required"); res.exitCode = 2; return; }
@@ -519,6 +522,9 @@ public class InternalSteps {
         try {
             conn = java.sql.DriverManager.getConnection(url, "sa", "");
             java.sql.Statement st = conn.createStatement();
+            if (qto > 0) st.setQueryTimeout(qto);
+            if (control != null) control.statement = st;
+            if (control != null && control.aborted) { line.accept("diff CSV_KEY: aborted"); res.exitCode = -997; return; }
             st.executeUpdate("CREATE TABLE ta AS SELECT * FROM CSVREAD(" + sqlStr(fa.getAbsolutePath().replace('\\', '/')) + ", NULL, " + sqlStr(opts) + ")");
             st.executeUpdate("CREATE TABLE tb AS SELECT * FROM CSVREAD(" + sqlStr(fb.getAbsolutePath().replace('\\', '/')) + ", NULL, " + sqlStr(opts) + ")");
             st.executeUpdate("CREATE LOCAL TEMPORARY TABLE ag AS " + ag);
@@ -596,6 +602,7 @@ public class InternalSteps {
             for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
             res.exitCode = (failOnDiff && totalDiff > 0) ? 1 : 0;
         } finally {
+            if (control != null) control.statement = null;
             try { dw.close(); } catch (Exception ignored) {}
             if (conn != null) try { conn.close(); } catch (Exception ignored) {}
         }
@@ -649,7 +656,8 @@ public class InternalSteps {
 
     private void runDiffTextSet(Map<String, String> params, java.io.File fa, java.io.File fb,
                                 String reportName, java.io.File reportMd, java.io.File diffCsv, boolean failOnDiff,
-                                StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+                                StepExecutor.Result res, java.util.function.Consumer<String> line, RunControl control) throws Exception {
+        if (control != null && control.aborted) { line.accept("diff: aborted before start"); res.exitCode = -997; return; }
         List<String> a = readLines(fa);
         List<String> b = readLines(fb);
         int n = a.size(), m = b.size();
@@ -708,7 +716,8 @@ public class InternalSteps {
 
     private void runDiffText(Map<String, String> params, java.io.File fa, java.io.File fb,
                              String reportName, java.io.File reportMd, java.io.File diffCsv, boolean failOnDiff,
-                             StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+                             StepExecutor.Result res, java.util.function.Consumer<String> line, RunControl control) throws Exception {
+        if (control != null && control.aborted) { line.accept("diff: aborted before start"); res.exitCode = -997; return; }
         int cap = 2000;
         try { String cc = blankToNull(params.get("textMaxLines")); if (cc != null) cap = Integer.parseInt(cc.trim()); } catch (NumberFormatException ignore) {}
         if (cap < 1) cap = 1;

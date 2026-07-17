@@ -470,3 +470,14 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   expose `attributesChecked` = attributesCompared x (rowsA + rowsB), plus rows in
   A / rows in B. Verified on real H2/standalone. Note in
   `.claude/2026-07-15-diff-textset-aggregates-checked.md`.
+
+## diff cancellable + query timeout (Stop works on diff)
+* runDiff* was called without RunControl, so a running diff couldn't be stopped and
+  (CSV_KEY) never registered its H2 Statement. Fix mirrors csvsql: run() passes
+  control through runDiff to runDiffKey/runDiffText/runDiffTextSet; runDiffKey sets
+  setQueryTimeout(qto) (qto via stepTimeoutSec, as csvsql) and registers
+  control.statement = st (cleared in finally) so an operator Stop cancels the live
+  query; positional checks control.aborted in the row loop; TEXT/TEXT_SET check
+  aborted at start. A step timeout now also bounds the CSV_KEY query. Verified with
+  a mock RunControl (normal run clears statement; aborted run returns -997). Note in
+  `.claude/2026-07-15-diff-cancellable-query-timeout.md`.
