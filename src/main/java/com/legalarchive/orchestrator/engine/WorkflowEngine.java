@@ -362,6 +362,34 @@ public class WorkflowEngine {
         return true;
     }
 
+    /** Resume a run paused ON HOLD: execute the held step (without re-holding) and continue. */
+    public boolean resumeHold(String feedId, String runId, String user) {
+        WorkflowDef def = registry.get(feedId);
+        FeedLayout layout = registry.layout(feedId);
+        if (def == null || layout == null) return false;
+        WorkflowRun run = activeRuns.get(runId);
+        if (run == null) run = store.load(layout, runId);
+        if (run == null || run.status != RunStatus.ON_HOLD || run.onHoldStepId == null) return false;
+        String active = runningFeeds.get(feedId);
+        if (active != null && !active.equals(runId)) return false;
+
+        log.info("[{}] RUN_RESUMED {} from on-hold step={} user={}", feedId, runId, run.onHoldStepId, user);
+        auditFeed(layout, feedId, runId, run.onHoldStepId, "RUN_RESUMED", user, kv("step", run.onHoldStepId));
+
+        run.releasedHold = run.onHoldStepId;   // execute the held step this time, don't re-hold
+        run.onHoldStepId = null;
+        run.trigger = "RESUME";
+        run.status = RunStatus.QUEUED;
+        runningFeeds.put(feedId, runId);
+        activeRuns.put(runId, run);
+        controls.putIfAbsent(runId, new RunControl());
+        store.save(layout, run);
+
+        final WorkflowRun r = run;
+        enqueue(r.runId, () -> loop(def, layout, r, r.currentIndex));
+        return true;
+    }
+
     /** runId del run attivo per il feed, o null se nessuno è in corso/in coda. */
     public String activeRunId(String feedId) { return runningFeeds.get(feedId); }
 
@@ -370,7 +398,7 @@ public class WorkflowEngine {
     public java.util.List<WorkflowRun> queueSnapshot() {
         java.util.List<WorkflowRun> act = new java.util.ArrayList<WorkflowRun>();
         for (WorkflowRun r : activeRuns.values()) {
-            if (r.status == RunStatus.RUNNING || r.status == RunStatus.QUEUED || r.status == RunStatus.WAITING_APPROVAL) {
+            if (r.status == RunStatus.RUNNING || r.status == RunStatus.QUEUED || r.status == RunStatus.WAITING_APPROVAL || r.status == RunStatus.ON_HOLD) {
                 act.add(r);
             }
         }
@@ -382,7 +410,7 @@ public class WorkflowEngine {
                 int c = sa.compareTo(sb);
                 return c != 0 ? c : a.runId.compareTo(b.runId);
             }
-            private int rank(RunStatus s) { return s == RunStatus.RUNNING ? 0 : (s == RunStatus.WAITING_APPROVAL ? 1 : 2); }
+            private int rank(RunStatus s) { return s == RunStatus.RUNNING ? 0 : ((s == RunStatus.WAITING_APPROVAL || s == RunStatus.ON_HOLD) ? 1 : 2); }
         });
         return act;
     }
@@ -410,8 +438,9 @@ public class WorkflowEngine {
         log.info("[{}] STOP requested for {} by {}", feedId, runId, user);
         auditFeed(layout, feedId, runId, null, "RUN_STOP_REQUESTED", user, null);
 
-        if (run.status == RunStatus.WAITING_APPROVAL) {
+        if (run.status == RunStatus.WAITING_APPROVAL || run.status == RunStatus.ON_HOLD) {
             run.waitingGateId = null;
+            run.onHoldStepId = null;
             finish(def, layout, run, RunStatus.ABORTED, "Stopped by " + user);
             return true;
         }
@@ -525,7 +554,21 @@ public class WorkflowEngine {
                 NodeDef node = def.nodes.get(idx);
 
                 if (node instanceof StepDef) {
-                    boolean ok = executeStep(def, layout, run, (StepDef) node);
+                    StepDef sd = (StepDef) node;
+                    if (sd.onHold) {
+                        if (sd.id.equals(run.releasedHold)) {
+                            run.releasedHold = null;
+                        } else {
+                            run.status = RunStatus.ON_HOLD;
+                            run.onHoldStepId = sd.id;
+                            store.save(layout, run);
+                            log.info("[{}] {} ON HOLD at step '{}'", run.feedId, run.runId, sd.id);
+                            auditFeed(layout, run.feedId, run.runId, sd.id, "RUN_ON_HOLD", "system", kv("step", sd.name == null ? sd.id : sd.name));
+                            runningFeeds.remove(run.feedId);
+                            return;
+                        }
+                    }
+                    boolean ok = executeStep(def, layout, run, sd);
                     if (!ok) {
                         RunControl c2 = controls.get(run.runId);
                         if (c2 != null && c2.aborted) {

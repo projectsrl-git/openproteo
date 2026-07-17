@@ -553,3 +553,15 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   node --check. Note in `.claude/2026-07-15-step-skip-passthrough-F1.md`. (F1 of
   5.x; F2 = ON HOLD engine/suspension/resume; F3 = Operations ON HOLD column +
   PLAY.)
+
+## ON HOLD engine + resume (req 5.3 core, Batch F2)
+* Step onHold flag (StepDef.onHold; XML onHold="true"; round-trips like skip;
+  designer Step mode = normal/skip/onHold via setStepMode). RunStatus.ON_HOLD
+  (non-terminal). WorkflowRun.onHoldStepId + releasedHold. Engine loop suspends at
+  an onHold step (status ON_HOLD, frees runningFeeds, RUN_ON_HOLD audit, currentIndex
+  tracks position); resumeHold() sets releasedHold and re-enqueues loop(currentIndex)
+  — mirrors decide(). ON_HOLD added to active queue/rank; Stop aborts an on-hold run.
+  Endpoint POST /api/runs/{feedId}/{runId}/resume. Verified onHold round-trip + designer
+  node --check; engine mirrors WAITING_APPROVAL path but NOT compiled in sandbox. Note
+  in `.claude/2026-07-15-onhold-engine-F2.md`. (F2; F3 = run-page ON HOLD status/counts/
+  outputs/PLAY + Operations ON HOLD column/PLAY.)

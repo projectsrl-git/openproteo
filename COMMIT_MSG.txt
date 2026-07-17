@@ -1,26 +1,27 @@
-Step SKIP passthrough (5.2, Batch F1)
+ON HOLD: engine suspend/resume + resume endpoint (5.3 core, Batch F2)
 
-A step can be marked SKIP. A SKIP step is not executed; it passes its input
-through to its output unchanged and the run continues.
+A step can be marked ON HOLD. When the run reaches it the run suspends
+(RunStatus.ON_HOLD) without executing the step; a resume (PLAY) executes that step
+and continues. Mirrors the existing WAITING_APPROVAL pause/resume infrastructure.
 
-Semantics: "copy input to output as-is" = copy every file (recursively) from the
-PREVIOUS step's output directory into this step's output directory; if the SKIP
-step is the first step the source is 00_landing_in. Recorded as SKIPPED with a
-"copied N file(s)" message. (Flagged in the spec for confirmation in case a
-different input source is intended.)
+Model: StepDef.onHold (XML onHold="true", round-trips via parser/writer/NodeDto/
+toDto like skip); RunStatus.ON_HOLD (non-terminal); WorkflowRun.onHoldStepId and
+releasedHold (transient). Designer "Step mode" dropdown becomes
+normal / skip / on hold (setStepMode keeps skip & onHold mutually exclusive).
 
-- Model: StepDef.skip; XML attribute skip="true" (mirrors overwrite) round-trips
-  through parser, writer, WorkflowDto.NodeDto.skip and toDto.
-- Designer: a "Step mode" dropdown (normal / skip (passthrough)) in the common
-  step fields; serialised as skip="true".
-- Engine (executeStep): before running, if step.skip, copyDirContents(prev, dst),
-  mark StepStatus.SKIPPED, audit STEP_SKIPPED, continue; a copy failure FAILs the
-  step so a broken passthrough never silently drops data. copyDirContents helper
-  added (recursive copy, overwrite).
+Engine: loop() suspends before executing an onHold step (unless it is the
+just-released step), setting ON_HOLD + onHoldStepId, freeing the feed from
+runningFeeds, auditing RUN_ON_HOLD; run.currentIndex already tracks position.
+resumeHold(feedId,runId,user) sets releasedHold = onHoldStepId, status QUEUED,
+re-registers the run and enqueues loop(currentIndex) -- mirrors decide(). ON_HOLD
+is added to the active queue snapshot and rank; Stop also aborts an ON_HOLD run.
 
-Docs: .claude/2026-07-15-step-skip-passthrough-F1.md and CLAUDE.md.
+Endpoint: POST /api/runs/{feedId}/{runId}/resume -> engine.resumeHold.
 
-Verify: copyDirContents run standalone (nested files, overwrite, subdirs; 3/3
-copied); skip attribute round-trip verified via DOM. designer.html passes
-node --check (no literal \n/\r, no unsafe Thymeleaf). Round-trip mirrors the proven
-overwrite attribute. Full Maven build to be confirmed on deploy.
+Docs: .claude/2026-07-15-onhold-engine-F2.md and CLAUDE.md.
+
+Verify: onHold attribute round-trip verified via DOM; designer.html passes
+node --check (no literal \n/\r, no unsafe Thymeleaf). The engine changes mirror the
+proven WAITING_APPROVAL/decide pause-resume path but were NOT compiled in the chat
+sandbox -- build on deploy. UI (run-page status/counts/outputs/PLAY + Operations
+column/PLAY) follows in F3.

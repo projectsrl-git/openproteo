@@ -123,6 +123,7 @@ public class WorkflowXmlWriter {
                         attr(s, "mode", n.mode);
                         if (n.overwrite != null && n.overwrite) s.setAttribute("overwrite", "true");
                         if (n.skip != null && n.skip) s.setAttribute("skip", "true");
+                        if (n.onHold != null && n.onHold) s.setAttribute("onHold", "true");
                         attr(s, "outputVar", n.outputVar);
                         attr(s, "csvFile", n.csvFile);
                         if (n.validateChecks != null && !n.validateChecks.isEmpty()) s.setAttribute("checks", String.join(",", n.validateChecks));

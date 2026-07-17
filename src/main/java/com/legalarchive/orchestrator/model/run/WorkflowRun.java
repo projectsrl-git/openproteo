@@ -31,6 +31,10 @@ public class WorkflowRun {
     /** Step-by-step test: descrizione del prossimo step in attesa di conferma (null se non in pausa di test). */
     public String pausedNextStep;
 
+    /** ON HOLD: the step the run is paused on; and the step id whose hold has just been released (transient). */
+    public String onHoldStepId;
+    public String releasedHold;
+
     /** Variabili del run: builtin (${feedId}, ${runId}, dir...) + output degli step. */
     public Map<String, String> vars = new LinkedHashMap<String, String>();
 

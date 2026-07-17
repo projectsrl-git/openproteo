@@ -1040,6 +1040,17 @@ public class ApiController {
         return ok ? ResponseEntity.ok(out) : ResponseEntity.status(HttpStatus.CONFLICT).body(out);
     }
 
+    /** Resume a run paused ON HOLD (PLAY / CONTINUE). */
+    @PostMapping("/api/runs/{feedId}/{runId}/resume")
+    public ResponseEntity<Map<String, Object>> resume(@PathVariable String feedId, @PathVariable String runId,
+                                                       HttpServletRequest req) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        boolean ok = engine.resumeHold(feedId, runId, user(req));
+        out.put("ok", ok);
+        if (!ok) out.put("error", "The run is not on hold");
+        return ok ? ResponseEntity.ok(out) : ResponseEntity.status(HttpStatus.CONFLICT).body(out);
+    }
+
     /** Stop a running or waiting run. */
     @PostMapping("/api/runs/{feedId}/{runId}/stop")
     public ResponseEntity<Map<String, Object>> stop(@PathVariable String feedId, @PathVariable String runId,
@@ -1779,6 +1790,7 @@ public class ApiController {
                 nd.mode = st.mode;
                 nd.overwrite = st.overwrite ? Boolean.TRUE : null;
                 nd.skip = st.skip ? Boolean.TRUE : null;
+                nd.onHold = st.onHold ? Boolean.TRUE : null;
                 nd.outputVar = st.outputVar;
                 nd.csvFile = st.csvFile;
                 nd.csvSplitRows = st.csvSplitRows > 0 ? st.csvSplitRows : null;

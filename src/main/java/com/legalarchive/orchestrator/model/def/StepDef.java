@@ -52,6 +52,9 @@ public class StepDef extends NodeDef {
 
     /** SKIP: execute as passthrough (copy the previous step output / landing_in into this step dir). */
     public boolean skip;
+
+    /** ON HOLD: suspend the run when it reaches this step (RunStatus.ON_HOLD), resume via PLAY. */
+    public boolean onHold;
     /** Name of an output variable to collect a joined list (sql first column). */
     public String outputVar;
     /** sql: if set, the full result set is streamed to this CSV file. */
