@@ -122,11 +122,11 @@
     function loadResources(){ fetch(CTX + 'api/overview/resources').then(readJson).then(renderResources).catch(function(){}); }
 
     function rollup(feeds){
-        var bySrc = {}, order = [], tot = { total:0, notRun:0, running:0, success:0, failed:0, aborted:0, other:0 };
+        var bySrc = {}, order = [], tot = { total:0, notRun:0, running:0, success:0, failed:0, aborted:0, other:0, onhold:0 };
         for (var i=0;i<feeds.length;i++){
             var f = feeds[i];
             var src = f.source || '—';
-            if (!bySrc[src]){ bySrc[src] = { source:src, sourceDescription:f.sourceDescription, total:0, notRun:0, running:0, success:0, failed:0, aborted:0, other:0 }; order.push(src); }
+            if (!bySrc[src]){ bySrc[src] = { source:src, sourceDescription:f.sourceDescription, total:0, notRun:0, running:0, success:0, failed:0, aborted:0, other:0, onhold:0 }; order.push(src); }
             var b = bySrc[src];
             b.total++; tot.total++;
             b[f.bucket] = (b[f.bucket]||0) + 1;
@@ -150,6 +150,7 @@
             tileEl('total','Feeds',t.total,'') + tileEl('running','Running',t.running,'run') +
             tileEl('success','Success',t.success,'ok') + tileEl('failed','Failed',t.failed,'fail') +
             tileEl('notRun','Not run',t.notRun,'') + tileEl('aborted','Aborted',t.aborted,'') +
+            tileEl('onhold','On hold',t.onhold,'run') +
             tileEl('other','Other',t.other,'');
         if (r.order.length === 0){ document.getElementById('rollupWrap').innerHTML='<div class="dim small">No feeds.</div>'; return; }
         var h = '<table class="grid"><thead><tr><th>Source</th><th class="num">Total</th><th class="num">Not run</th>' +
@@ -201,7 +202,7 @@
                 '<td>' + statusChip(f.lastStatus) + (f.failedStep ? ' <span class="mono small">@ ' + esc(f.failedStep) + '</span>' : '') + ' <span class="mono small dim">' + esc(f.lastRunTs||'') + '</span></td>' +
                 '<td class="mono small dim">' + esc(f.lastSuccessTs||'—') + '</td>' +
                 '<td>' + odCell(f) + '</td>' +
-                '<td style="white-space:nowrap"><a class="btn sm" href="' + CTX + 'workflow/' + encodeURIComponent(f.feedId) + '">open workflow</a>' + ' <a class="btn sm" href="' + CTX + 'designer/' + encodeURIComponent(f.feedId) + '">\u270E edit</a>' + (f.lastRunId ? ' <a class="btn sm" href="' + CTX + 'run/' + encodeURIComponent(f.feedId) + '/' + encodeURIComponent(f.lastRunId) + '">open last run</a>' : '') + '</td>' +
+                '<td style="white-space:nowrap"><a class="btn sm" href="' + CTX + 'workflow/' + encodeURIComponent(f.feedId) + '">open workflow</a>' + ' <a class="btn sm" href="' + CTX + 'designer/' + encodeURIComponent(f.feedId) + '">\u270E edit</a>' + (f.lastRunId ? ' <a class="btn sm" href="' + CTX + 'run/' + encodeURIComponent(f.feedId) + '/' + encodeURIComponent(f.lastRunId) + '">open last run</a>' : '') + ((f.lastStatus === 'ON_HOLD' && f.lastRunId) ? ' <button class="btn sm" onclick="resumeRun(\'' + esc(f.feedId) + '\',\'' + esc(f.lastRunId) + '\')">\u25B6 Continue</button>' : '') + '</td>' +
                 '</tr>';
         }
         h += '</tbody></table>';
@@ -236,6 +237,7 @@
     function drillToggleAll(m){ drillCbs().forEach(function(c){ c.checked=m.checked; var f=c.getAttribute('data-feed'); if(m.checked) drillSelSet[f]=true; else delete drillSelSet[f]; }); drillBarUpdate(); }
     function drillClearSel(){ drillSelSet={}; drillCbs().forEach(function(c){ c.checked=false; }); var sa=document.getElementById('drillSelAll'); if(sa) sa.checked=false; drillBarUpdate(); }
     function drillBarUpdate(){ var n=drillSelected().length; var bar=document.getElementById('drillBulk'); if(!bar) return; document.getElementById('drillBulkCount').textContent = n + (n===1?' feed selected':' feeds selected'); bar.style.display = n>0?'':'none'; }
+    function resumeRun(feedId, runId){ fetch(CTX+'api/runs/'+encodeURIComponent(feedId)+'/'+encodeURIComponent(runId)+'/resume',{method:'POST'}).then(function(r){ return r.json().catch(function(){ return {ok:r.ok}; }); }).then(function(j){ if(!j||!j.ok){ if(window.opAlert) opAlert((j&&j.error)||'Could not resume.'); else alert((j&&j.error)||'Could not resume.'); } loadFeeds(true); }).catch(function(){ loadFeeds(true); }); }
     function drillRunSeq(feeds, urlFn, done){ var i=0,ok=0,fail=0; (function next(){ if(i>=feeds.length){ done(ok,fail); return; } var f=feeds[i++]; fetch(urlFn(f),{method:'POST'}).then(function(r){ return r.json().catch(function(){ return {ok:r.ok}; }); }).then(function(j){ if(j&&j.ok)ok++; else fail++; }).catch(function(){ fail++; }).then(next); })(); }
     function drillAfter(label){ return function(ok,fail){ alert(label+': '+ok+(fail?', skipped/failed: '+fail:'')+'.'); drillSelSet={}; loadFeeds(true); }; }
     function drillBulkRun(){ var f=drillSelected(); if(!f.length) return; if(!confirm('Start a run for '+f.length+' selected feed(s)?')) return; drillRunSeq(f, function(x){ return CTX+'api/workflows/'+encodeURIComponent(x)+'/run'; }, drillAfter('Runs started')); }

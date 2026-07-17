@@ -565,3 +565,15 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   node --check; engine mirrors WAITING_APPROVAL path but NOT compiled in sandbox. Note
   in `.claude/2026-07-15-onhold-engine-F2.md`. (F2; F3 = run-page ON HOLD status/counts/
   outputs/PLAY + Operations ON HOLD column/PLAY.)
+
+## ON HOLD UI: run page + Operations (req 5.3.1/5.3.2/5.3.3, Batch F3)
+* Completes ON HOLD on top of F2. app.css: `.chip.ON_HOLD` blue (like RUNNING).
+  Run page: on-hold panel with the held step name + partial "N of TOT steps
+  successful" count (partial outputs = the run.vars already shown), a
+  "Continue (resume)" button (resumeRun -> POST /resume -> refresh); ON_HOLD is
+  treated as active so Stop stays available. Operations: bucketFor maps ON_HOLD ->
+  new `onhold` bucket + an "On hold" rollup tile; the grid shows the blue chip and
+  a "Continue" button on ON_HOLD rows (resumeRun(feedId,runId)). Verified node
+  --check on both templates. Note in `.claude/2026-07-15-onhold-ui-F3.md`.
+  **This completes the whole request (1.x, 2.x, 4, 5.x).** Maven build still to be
+  run on deploy for the Java-touching batches (C, D, E, F1, F2, and this F3 line).

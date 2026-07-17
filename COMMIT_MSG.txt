@@ -1,27 +1,23 @@
-ON HOLD: engine suspend/resume + resume endpoint (5.3 core, Batch F2)
+ON HOLD UI: run page status/counts/PLAY + Operations column/PLAY (5.3.1-5.3.3)
 
-A step can be marked ON HOLD. When the run reaches it the run suspends
-(RunStatus.ON_HOLD) without executing the step; a resume (PLAY) executes that step
-and continues. Mirrors the existing WAITING_APPROVAL pause/resume infrastructure.
+Completes ON HOLD on top of F2 (engine + /resume endpoint).
 
-Model: StepDef.onHold (XML onHold="true", round-trips via parser/writer/NodeDto/
-toDto like skip); RunStatus.ON_HOLD (non-terminal); WorkflowRun.onHoldStepId and
-releasedHold (transient). Designer "Step mode" dropdown becomes
-normal / skip / on hold (setStepMode keeps skip & onHold mutually exclusive).
+5.3.1 Run page: ON_HOLD renders as a blue status chip (new .chip.ON_HOLD in
+      app.css). A dedicated on-hold panel shows the held step and the partial
+      success count "N of TOT steps successful so far"; partial outputs are the
+      run.vars already listed under Variables. A "Continue (resume)" button
+      (resumeRun -> POST /resume -> refresh) plus Stop; ON_HOLD counts as active so
+      Stop stays available.
+5.3.2 Operations: ON_HOLD shows as the blue chip in the grid; bucketFor maps
+      ON_HOLD to a new "onhold" bucket rendered as an "On hold" rollup tile
+      (clickable drill).
+5.3.3 PLAY/CONTINUE: the run-page Continue button, and a "Continue" button on
+      Operations grid rows whose last status is ON_HOLD (resumeRun(feedId,runId) ->
+      POST /resume -> reload).
 
-Engine: loop() suspends before executing an onHold step (unless it is the
-just-released step), setting ON_HOLD + onHoldStepId, freeing the feed from
-runningFeeds, auditing RUN_ON_HOLD; run.currentIndex already tracks position.
-resumeHold(feedId,runId,user) sets releasedHold = onHoldStepId, status QUEUED,
-re-registers the run and enqueues loop(currentIndex) -- mirrors decide(). ON_HOLD
-is added to the active queue snapshot and rank; Stop also aborts an ON_HOLD run.
+Docs: .claude/2026-07-15-onhold-ui-F3.md and CLAUDE.md.
 
-Endpoint: POST /api/runs/{feedId}/{runId}/resume -> engine.resumeHold.
-
-Docs: .claude/2026-07-15-onhold-engine-F2.md and CLAUDE.md.
-
-Verify: onHold attribute round-trip verified via DOM; designer.html passes
-node --check (no literal \n/\r, no unsafe Thymeleaf). The engine changes mirror the
-proven WAITING_APPROVAL/decide pause-resume path but were NOT compiled in the chat
-sandbox -- build on deploy. UI (run-page status/counts/outputs/PLAY + Operations
-column/PLAY) follows in F3.
+Verify: run.html and overview.html pass node --check (no literal \n/\r, no unsafe
+Thymeleaf). resumeRun mirrors the existing decide()/drillRunSeq patterns; the
+backend change is one line in bucketFor. Full Maven build to be confirmed on deploy
+(with F2).

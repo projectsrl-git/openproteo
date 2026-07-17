@@ -105,6 +105,7 @@ td.dim, .dim { color: var(--ink-dim); }
 .chip.RUNNING                  { color: var(--run);  background: var(--run-bg);  border-color: #1d3a5f; }
 .chip.FAILED                   { color: var(--fail); background: var(--fail-bg); border-color: #5a2422; }
 .chip.WAITING_APPROVAL         { color: var(--wait); background: var(--wait-bg); border-color: #5c4a1a; }
+.chip.ON_HOLD                  { color: var(--run);  background: var(--run-bg);  border-color: #1d3a5f; }
 .chip.SKIPPED, .chip.PENDING   { color: var(--skip); background: var(--skip-bg); border-color: #303c50; }
 .chip.REJECTED, .chip.ABORTED  { color: #d29292;     background: #241318;        border-color: #4a2630; }
 .chip.QUEUED::before { content: "⋯ "; }

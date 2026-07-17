@@ -1585,6 +1585,7 @@ public class ApiController {
         if ("SUCCESS".equals(lastStatus)) return "success";
         if ("FAILED".equals(lastStatus)) return "failed";
         if ("QUEUED".equals(lastStatus) || "RUNNING".equals(lastStatus) || "WAITING_APPROVAL".equals(lastStatus)) return "running";
+        if ("ON_HOLD".equals(lastStatus)) return "onhold";
         if ("ABORTED".equals(lastStatus)) return "aborted";
         return "other";
     }

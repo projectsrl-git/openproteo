@@ -58,6 +58,13 @@
         <button class="btn danger" onclick="stopRun()">■ Stop</button>
     </div>
 
+    <div class="approval" id="onHoldBox" style="border-color:var(--run)">
+        <h3>⏸ On hold — <span class="gname" id="onHoldStepName"></span></h3>
+        <p class="dim small"><span id="onHoldCounts"></span> Partial outputs so far are listed under "Variables" below. Continue to execute this step and resume the run, or Stop to end it.</p>
+        <button class="btn ok" onclick="resumeRun()">▶ Continue (resume)</button>
+        <button class="btn danger" onclick="stopRun()">■ Stop</button>
+    </div>
+
     <h2>Workflow progress</h2>
     <div class="panel">
         <div class="bpmn-wrap" id="bpmnBox"><span class="dim small">loading diagram…</span></div>
@@ -132,7 +139,7 @@
             'started ' + (run.startTs || '—') + (run.endTs ? ('  ·  ended ' + run.endTs) : '') +
             '  ·  trigger ' + run.trigger + ' (' + run.triggeredBy + ')';
 
-        var active = run.status === 'QUEUED' || run.status === 'RUNNING' || run.status === 'WAITING_APPROVAL';
+        var active = run.status === 'QUEUED' || run.status === 'RUNNING' || run.status === 'WAITING_APPROVAL' || run.status === 'ON_HOLD';
         var sb = document.getElementById('stopBtn');
         sb.style.display = active ? 'inline-block' : 'none';
         sb.textContent = (stopRequested && active) ? '■ Force stop' : '■ Stop';
@@ -178,6 +185,17 @@
         } else {
             box.classList.remove('visible');
             sbox.classList.remove('visible');
+        }
+
+        var ohBox = document.getElementById('onHoldBox');
+        if (run.status === 'ON_HOLD') {
+            document.getElementById('onHoldStepName').textContent = run.onHoldStepId || '';
+            var succ = 0, tot = run.steps.length;
+            run.steps.forEach(function (s) { if (s.status === 'SUCCESS') succ++; });
+            document.getElementById('onHoldCounts').textContent = succ + ' of ' + tot + ' steps successful so far.';
+            ohBox.classList.add('visible');
+        } else {
+            ohBox.classList.remove('visible');
         }
 
         // tabella step
@@ -340,6 +358,17 @@
             .then(function (r) { return r.json(); })
             .then(function (j) { if (!j.ok) opAlert(j.error || 'Continue failed'); refresh(); })
             .catch(function () { refresh(); });
+    }
+
+    function resumeRun() {
+        opConfirm('Continue the run from the on-hold step?', function () {
+            var ob = document.getElementById('onHoldBox');
+            if (ob) ob.classList.remove('visible');
+            fetch(CTX + 'api/runs/' + encodeURIComponent(FEED_ID) + '/' + encodeURIComponent(RUN_ID) + '/resume', { method: 'POST' })
+                .then(function (r) { return r.json(); })
+                .then(function (j) { if (!j.ok) opAlert(j.error || 'Resume failed'); refresh(); })
+                .catch(function () { refresh(); });
+        }, { okText: 'Continue' });
     }
 
     function decide(approve) {
