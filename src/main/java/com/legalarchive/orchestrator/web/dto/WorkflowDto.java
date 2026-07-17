@@ -63,6 +63,7 @@ public class WorkflowDto {
         public String pattern;
         public String mode;
         public Boolean overwrite;
+        public Boolean skip;
         public String outputVar;
         public String csvFile;
         public static class ReplacementDto { public String from; public String to; public java.util.List<String> columns; }

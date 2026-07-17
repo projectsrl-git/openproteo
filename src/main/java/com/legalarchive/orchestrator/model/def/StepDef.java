@@ -49,6 +49,9 @@ public class StepDef extends NodeDef {
     public String mode;
     /** Overwrite existing files (ifscopy). */
     public boolean overwrite;
+
+    /** SKIP: execute as passthrough (copy the previous step output / landing_in into this step dir). */
+    public boolean skip;
     /** Name of an output variable to collect a joined list (sql first column). */
     public String outputVar;
     /** sql: if set, the full result set is streamed to this CSV file. */

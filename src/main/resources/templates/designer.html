@@ -328,7 +328,7 @@
         wf.nodes.push({ kind: 'STEP', id: 'step_' + stepSeq, name: 'Step ' + stepSeq, script: '', exec: 'auto',
             timeoutSec: null, retry: null, retryDelaySec: null, params: [], outputs: [],
             datasource: '', query: '', csvFile: '', csvSplitRows: null, csvSplitMb: null, validateChecks: [], replacements: [], inputs: [], columns: [], ifsPath: '', source: '', dest: '', pattern: '', mode: 'copy',
-            overwrite: false, outputVar: '', delimiter: '', forEach: '', concurrency: null });
+            overwrite: false, skip: false, outputVar: '', delimiter: '', forEach: '', concurrency: null });
         renderNodes(); preview();
     }
     function addGate() {
@@ -820,6 +820,7 @@
                     '<div class="field"><label>Timeout sec</label><input type="number" min="1" value="' + (n.timeoutSec || '') + '" oninput="updNode(' + i + ',\'timeoutSec\',this.value)"></div>' +
                     '<div class="field"><label>Retry</label><input type="number" min="0" value="' + (n.retry || '') + '" oninput="updNode(' + i + ',\'retry\',this.value)"></div>' +
                     '<div class="field"><label>Retry delay sec</label><input type="number" min="1" value="' + (n.retryDelaySec || '') + '" oninput="updNode(' + i + ',\'retryDelaySec\',this.value)"></div>' +
+                    '<div class="field"><label>Step mode</label><select onchange="updNode(' + i + ',\'skip\',this.value===\'skip\')"><option value="normal"' + (n.skip ? '' : ' selected') + '>normal</option><option value="skip"' + (n.skip ? ' selected' : '') + '>skip (passthrough)</option></select></div>' +
                     '<div class="field"><label>On success delete</label>' +
                       '<select onchange="setNodeParam(' + i + ',\'deleteOnSuccessType\',this.value)">' +
                         '<option value="">(none)</option>' +
@@ -1314,6 +1315,7 @@
                 if (n.pattern) s += ' pattern="' + xesc(n.pattern) + '"';
                 if (n.mode && n.mode !== 'copy' && (n.exec === 'filecopy')) s += ' mode="' + xesc(n.mode) + '"';
                 if (n.overwrite) s += ' overwrite="true"';
+                if (n.skip) s += ' skip="true"';
                 if (n.outputVar) s += ' outputVar="' + xesc(n.outputVar) + '"';
                 if (n.csvFile) s += ' csvFile="' + xesc(n.csvFile) + '"';
                 if (n.csvSplitRows) s += ' csvSplitRows="' + n.csvSplitRows + '"';

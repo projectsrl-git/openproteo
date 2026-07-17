@@ -103,6 +103,7 @@ public class WorkflowXmlParser {
                     s.pattern = trimToNull(el.getAttribute("pattern"));
                     s.mode = trimToNull(el.getAttribute("mode"));
                     s.overwrite = "true".equalsIgnoreCase(el.getAttribute("overwrite"));
+                    s.skip = "true".equalsIgnoreCase(el.getAttribute("skip"));
                     s.outputVar = trimToNull(el.getAttribute("outputVar"));
                     s.csvFile = trimToNull(el.getAttribute("csvFile"));
                     s.csvSplitRows = intAttr(el, "csvSplitRows", 0);

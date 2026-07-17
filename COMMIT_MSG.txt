@@ -1,24 +1,26 @@
-PROD flag mass-editable via the Variables page (4)
+Step SKIP passthrough (5.2, Batch F1)
 
-The production (PROD) flag is now one of the fields editable via the Variables
-page, including the multi-feed (mass) editor.
+A step can be marked SKIP. A SKIP step is not executed; it passes its input
+through to its output unchanged and the run continues.
 
-Backend: VarSaveReq.FeedEdit gains Boolean production (null = unchanged);
-saveVariables applies it before applyEditsToDto
-(if (fe.production != null) dto.production = fe.production.booleanValue()), the
-same rule the import path already uses.
+Semantics: "copy input to output as-is" = copy every file (recursively) from the
+PREVIOUS step's output directory into this step's output directory; if the SKIP
+step is the first step the source is 00_landing_in. Recorded as SKIPPED with a
+"copied N file(s)" message. (Flagged in the spec for confirmation in case a
+different input source is intended.)
 
-Frontend (variables.html): a new valSelect helper (a dirty-tracked <select>
-mirroring valLine) and a "production flag" tri-state dropdown -- leave unchanged /
-set PRODUCTION / clear PRODUCTION -- in both the single-feed editor and the
-multi-feed common (mass) editor. The multi-feed hint shows whether the selected
-feeds are all PRODUCTION, all non-production, or mixed. collect() reads the
-production scope; only a touched control is collected, so leaving it on "leave
-unchanged" sends nothing; the value is threaded into each edit as a Boolean.
+- Model: StepDef.skip; XML attribute skip="true" (mirrors overwrite) round-trips
+  through parser, writer, WorkflowDto.NodeDto.skip and toDto.
+- Designer: a "Step mode" dropdown (normal / skip (passthrough)) in the common
+  step fields; serialised as skip="true".
+- Engine (executeStep): before running, if step.skip, copyDirContents(prev, dst),
+  mark StepStatus.SKIPPED, audit STEP_SKIPPED, continue; a copy failure FAILs the
+  step so a broken passthrough never silently drops data. copyDirContents helper
+  added (recursive copy, overwrite).
 
-Docs: .claude/2026-07-15-prod-flag-mass-editable.md and CLAUDE.md.
+Docs: .claude/2026-07-15-step-skip-passthrough-F1.md and CLAUDE.md.
 
-Verify: variables.html passes node --check (no literal \n/\r, no unsafe
-Thymeleaf). The '' / 'true' / 'false' -> undefined/true/false mapping was checked
-in Node. Backend mirrors the existing import-path production handling. Full Maven
-build to be confirmed on deploy.
+Verify: copyDirContents run standalone (nested files, overwrite, subdirs; 3/3
+copied); skip attribute round-trip verified via DOM. designer.html passes
+node --check (no literal \n/\r, no unsafe Thymeleaf). Round-trip mirrors the proven
+overwrite attribute. Full Maven build to be confirmed on deploy.

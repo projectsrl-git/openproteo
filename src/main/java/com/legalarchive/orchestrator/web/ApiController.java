@@ -1778,6 +1778,7 @@ public class ApiController {
                 nd.pattern = st.pattern;
                 nd.mode = st.mode;
                 nd.overwrite = st.overwrite ? Boolean.TRUE : null;
+                nd.skip = st.skip ? Boolean.TRUE : null;
                 nd.outputVar = st.outputVar;
                 nd.csvFile = st.csvFile;
                 nd.csvSplitRows = st.csvSplitRows > 0 ? st.csvSplitRows : null;

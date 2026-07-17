@@ -757,6 +757,26 @@ public class WorkflowEngine {
         }
     }
 
+    /** Copy every file (recursively) from src into dst, overwriting. Returns files copied. */
+    private static int copyDirContents(final java.nio.file.Path src, final java.nio.file.Path dst) throws java.io.IOException {
+        if (src == null || !java.nio.file.Files.isDirectory(src)) return 0;
+        java.nio.file.Files.createDirectories(dst);
+        final int[] n = { 0 };
+        java.nio.file.Files.walkFileTree(src, new java.nio.file.SimpleFileVisitor<java.nio.file.Path>() {
+            public java.nio.file.FileVisitResult preVisitDirectory(java.nio.file.Path dir, java.nio.file.attribute.BasicFileAttributes a) throws java.io.IOException {
+                java.nio.file.Files.createDirectories(dst.resolve(src.relativize(dir)));
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
+            public java.nio.file.FileVisitResult visitFile(java.nio.file.Path file, java.nio.file.attribute.BasicFileAttributes a) throws java.io.IOException {
+                java.nio.file.Path t = dst.resolve(src.relativize(file));
+                if (t.getParent() != null) java.nio.file.Files.createDirectories(t.getParent());
+                java.nio.file.Files.copy(file, t, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                n[0]++;
+                return java.nio.file.FileVisitResult.CONTINUE;
+            }
+        });
+        return n[0];
+    }
     private static void deleteRecursively(java.nio.file.Path root) throws java.io.IOException {
         if (!java.nio.file.Files.exists(root)) return;
         java.nio.file.Files.walkFileTree(root, new java.nio.file.SimpleFileVisitor<java.nio.file.Path>() {
@@ -778,6 +798,33 @@ public class WorkflowEngine {
         run.vars.put("stepId", step.id);                                  // current step id
         run.vars.put("stepName", step.name == null ? step.id : step.name); // current step name
         store.save(layout, run);
+
+        if (step.skip) {
+            try {
+                java.util.List<StepDef> skSteps = def.steps();
+                int skIdx = -1;
+                for (int j = 0; j < skSteps.size(); j++) if (skSteps.get(j).id.equals(step.id)) { skIdx = j; break; }
+                java.nio.file.Path skSrc = (skIdx > 0) ? layout.stepDirs.get(skSteps.get(skIdx - 1).id) : layout.landingIn;
+                java.nio.file.Path skDst = layout.stepDirs.get(step.id);
+                int skCopied = copyDirContents(skSrc, skDst);
+                se.status = StepStatus.SKIPPED;
+                se.endTs = now();
+                se.message = "SKIP passthrough: copied " + skCopied + " file(s) from " + (skSrc == null ? "-" : skSrc.getFileName().toString());
+                Map<String, String> skDet = new LinkedHashMap<String, String>();
+                skDet.put("files", String.valueOf(skCopied));
+                skDet.put("from", skSrc == null ? "" : skSrc.toString());
+                auditFeed(layout, run.feedId, run.runId, step.id, "STEP_SKIPPED", "system", skDet);
+                store.save(layout, run);
+                log.info("[{}] STEP_SKIPPED {} step={} passthrough files={}", run.feedId, run.runId, step.id, skCopied);
+                return true;
+            } catch (Exception e) {
+                se.status = StepStatus.FAILED;
+                se.endTs = now();
+                se.message = "SKIP passthrough failed: " + (e.getMessage() == null ? e.toString() : e.getMessage());
+                store.save(layout, run);
+                return false;
+            }
+        }
 
         String internalKind = internalKind(step.exec);
         String scriptPath = internalKind != null ? "<" + internalKind + ">" : resolveScript(step.script);

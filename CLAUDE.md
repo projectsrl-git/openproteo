@@ -540,3 +540,16 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   production (Boolean, dirty-only). Verified node --check + mapping in Node. Note in
   `.claude/2026-07-15-prod-flag-mass-editable.md`. (Batch E; remaining: 5.x
   SKIP/ON HOLD.)
+
+## Step SKIP passthrough (req 5.2, Batch F1)
+* A step can be marked SKIP (StepDef.skip; XML skip="true", mirrors overwrite
+  through parser/writer/NodeDto/toDto; designer "Step mode" dropdown normal/skip).
+  Engine executeStep, before running: if step.skip, copyDirContents from the
+  PREVIOUS step's output dir (or 00_landing_in if first) into this step's dir,
+  marks StepStatus.SKIPPED, audits STEP_SKIPPED, continues; copy failure FAILs the
+  step. copyDirContents helper added (recursive, overwrite). SKIP semantics =
+  copy prev-step-output -> this-step-output (linear-chain); flagged for user
+  confirmation. Verified copyDirContents + skip round-trip standalone; designer
+  node --check. Note in `.claude/2026-07-15-step-skip-passthrough-F1.md`. (F1 of
+  5.x; F2 = ON HOLD engine/suspension/resume; F3 = Operations ON HOLD column +
+  PLAY.)
