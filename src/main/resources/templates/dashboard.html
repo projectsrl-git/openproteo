@@ -307,10 +307,12 @@
     function bulkClearHistory() {
         var feeds = selectedFeeds();
         if (!feeds.length) return;
-        opConfirm('Clear run history for ' + feeds.length + ' selected workflow(s)? PRODUCTION feeds and feeds with an active run are skipped.', function () {
-            runSeq(feeds, function (f) { return CTX + 'api/workflows/' + encodeURIComponent(f) + '/clear-history'; }, 'clear',
+        opConfirm('Clear run history for ' + feeds.length + ' selected workflow(s)? Feeds with an active run are skipped.', function (st) {
+            var cp = (st && st.prod) ? 'true' : 'false';
+            var kl = (st && st.keep) ? 'true' : 'false';
+            runSeq(feeds, function (f) { return CTX + 'api/workflows/' + encodeURIComponent(f) + '/clear-history?confirmProduction=' + cp + '&keepLast=' + kl; }, 'clear',
                 function (ok, fail) { opAlert('History cleared: ' + ok + (fail ? ', skipped/failed: ' + fail : '') + '.'); setTimeout(function () { window.location.reload(); }, 600); });
-        }, { danger: true, okText: 'Clear all' });
+        }, { danger: true, okText: 'Clear', checks: [ { id: 'prod', label: 'Also clear PRODUCTION feeds (otherwise skipped)' }, { id: 'keep', label: 'Keep the most recent run of each feed' } ] });
     }
 
     // ---- view state: search + source filter + pagination ----

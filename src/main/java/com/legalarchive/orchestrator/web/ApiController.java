@@ -1620,17 +1620,28 @@ public class ApiController {
      * _assets.json), the declared input (00_landing_in) and the audit trail (_logs/audit_*.jsonl).
      */
     @PostMapping("/api/workflows/{feedId}/clear-history")
-    public ResponseEntity<Map<String, Object>> clearFeedHistory(@PathVariable String feedId, HttpServletRequest req) {
+    public ResponseEntity<Map<String, Object>> clearFeedHistory(@PathVariable String feedId,
+            @RequestParam(value = "confirmProduction", defaultValue = "false") boolean confirmProduction,
+            @RequestParam(value = "keepLast", defaultValue = "false") boolean keepLast,
+            HttpServletRequest req) {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
         WorkflowDef def = registry.get(feedId);
         if (def == null) return badRequest(out, "Unknown workflow: " + feedId);
-        if (def.production) return badRequest(out, "Refusing to clear history for a PRODUCTION workflow.");
+        if (def.production && !confirmProduction) return badRequest(out, "PRODUCTION workflow — confirm to clear its history.");
         if (engine.activeRunId(feedId) != null) return badRequest(out, "A run is currently active — stop it before clearing history.");
         FeedLayout layout = registry.layout(feedId);
         if (layout == null) return badRequest(out, "No layout for " + feedId);
         try {
-            int removed = clearOneFeed(layout);
-            audit.log(layout.auditFile(), feedId, null, null, "FEED_HISTORY_CLEARED", user(req), new java.util.LinkedHashMap<String, String>());
+            int removed;
+            if (keepLast) {
+                java.util.List<WorkflowRun> rlist = store.list(layout, 100000);
+                String keepId = rlist.isEmpty() ? null : rlist.get(0).runId;
+                removed = 0;
+                for (WorkflowRun r : rlist) { if (r.runId == null || r.runId.equals(keepId)) continue; if (store.delete(layout, r.runId)) removed++; }
+            } else {
+                removed = clearOneFeed(layout);
+            }
+            audit.log(layout.auditFile(), feedId, null, null, keepLast ? "FEED_HISTORY_CLEARED_KEEP_LAST" : "FEED_HISTORY_CLEARED", user(req), new java.util.LinkedHashMap<String, String>());
             out.put("ok", true);
             out.put("removed", removed);
             return ResponseEntity.ok(out);

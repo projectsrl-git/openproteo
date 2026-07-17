@@ -52,20 +52,47 @@
         ok.className = 'btn sm ' + (opts.danger ? 'danger' : 'primary');
         ok.type = 'button';
         ok.textContent = opts.okText || 'OK';
-        ok.onclick = function () { close(overlay); if (typeof onYes === 'function') onYes(); };
+        var checkState = {};
+        var requiredIds = [];
+        var checksWrap = null;
+        if (opts.checks && opts.checks.length) {
+            checksWrap = document.createElement('div');
+            checksWrap.className = 'op-modal-checks';
+            checksWrap.style.margin = '10px 0 2px';
+            opts.checks.forEach(function (c) {
+                checkState[c.id] = !!c.checked;
+                if (c.required) requiredIds.push(c.id);
+                var lab = document.createElement('label');
+                lab.style.display = 'block';
+                lab.style.margin = '4px 0';
+                lab.style.fontSize = '13px';
+                var cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.checked = !!c.checked;
+                cb.style.marginRight = '6px';
+                cb.onchange = function () { checkState[c.id] = cb.checked; updateOk(); };
+                lab.appendChild(cb);
+                lab.appendChild(document.createTextNode(c.label || ''));
+                checksWrap.appendChild(lab);
+            });
+        }
+        function updateOk() { var en = true; for (var i = 0; i < requiredIds.length; i++) { if (!checkState[requiredIds[i]]) { en = false; break; } } ok.disabled = !en; ok.style.opacity = en ? '' : '0.5'; }
+        ok.onclick = function () { if (ok.disabled) return; close(overlay); if (typeof onYes === 'function') onYes(checkState); };
 
         actions.appendChild(cancel);
         actions.appendChild(ok);
         box.appendChild(title);
         box.appendChild(body);
+        if (checksWrap) box.appendChild(checksWrap);
         box.appendChild(actions);
+        updateOk();
         overlay.appendChild(box);
         root.appendChild(overlay);
 
         overlay.onclick = function (e) { if (e.target === overlay) close(overlay); };
         overlay._onKey = function (e) {
             if (e.key === 'Escape') close(overlay);
-            else if (e.key === 'Enter') { close(overlay); if (typeof onYes === 'function') onYes(); }
+            else if (e.key === 'Enter') { if (ok.disabled) return; close(overlay); if (typeof onYes === 'function') onYes(checkState); }
         };
         document.addEventListener('keydown', overlay._onKey, true);
         ok.focus();

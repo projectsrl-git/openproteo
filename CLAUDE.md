@@ -516,3 +516,16 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   all-runs display). DOM round-trip verified standalone; UIs pass node --check.
   Note in `.claude/2026-07-15-workflow-level-output-data.md`. (Batch C; remaining:
   2.1/2.2 history delete; 4 PROD mass-edit; 5.x SKIP/ON HOLD.)
+
+## Clear history: PROD (checkbox-gated) + keep-last (req 2.1/2.2)
+* clear-history endpoint gains confirmProduction (PROD no longer hard-refused;
+  cleared only when confirmed) and keepLast (delete every run except the most
+  recent via store.delete, vs the full clearOneFeed wipe; audited
+  FEED_HISTORY_CLEARED_KEEP_LAST). opConfirm extended with opts.checks
+  [{id,label,required,checked}] (OK disabled until required boxes ticked; onYes gets
+  the state). Operations drillBulkClear switched from native confirm to opConfirm,
+  counts PROD in the selection and requires a "production included" checkbox when
+  any; dashboard bulkClearHistory offers the PROD gate; both offer "keep most recent
+  run". Verified node --check + gating logic in Node. Note in
+  `.claude/2026-07-15-clear-history-prod-keeplast.md`. (Batch D; remaining: 4 PROD
+  mass-edit; 5.x SKIP/ON HOLD.)
