@@ -529,3 +529,14 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   run". Verified node --check + gating logic in Node. Note in
   `.claude/2026-07-15-clear-history-prod-keeplast.md`. (Batch D; remaining: 4 PROD
   mass-edit; 5.x SKIP/ON HOLD.)
+
+## PROD flag mass-editable (req 4)
+* The production flag is now editable via the Variables page, including the
+  multi-feed (mass) editor. VarSaveReq.FeedEdit gains Boolean production (null =
+  unchanged); saveVariables applies it before applyEditsToDto (same as the import
+  path). variables.html gains a valSelect helper and a "production flag" tri-state
+  dropdown (leave unchanged / set PRODUCTION / clear PRODUCTION) in the single-feed
+  and multi-feed editors (multi shows all-PROD/all-non/mixed); collect() threads
+  production (Boolean, dirty-only). Verified node --check + mapping in Node. Note in
+  `.claude/2026-07-15-prod-flag-mass-editable.md`. (Batch E; remaining: 5.x
+  SKIP/ON HOLD.)

@@ -206,6 +206,15 @@
         if(hint){ var h=el('span','vhint',line); h.textContent=hint; }
         return inp;
     }
+    function valSelect(host, name, options, hint){
+        var line=el('div','vline',host);
+        var n=el('div','vname',line); n.textContent=name;
+        var sel=el('select','vval',line); sel.setAttribute('data-name',name);
+        options.forEach(function(o){ var op=document.createElement('option'); op.value=o.value; op.textContent=o.label; sel.appendChild(op); });
+        sel.addEventListener('change',function(){ markDirty(sel); });
+        if(hint){ var h=el('span','vhint',line); h.textContent=hint; }
+        return sel;
+    }
     function commonFieldKeys(arr){ var c={}; arr.forEach(function(st){ var f=st.fields||{}; Object.keys(f).forEach(function(k){ c[k]=(c[k]||0)+1; }); }); return Object.keys(c).filter(function(k){ return c[k]===arr.length; }); }
     function commonParamKeys(arr){ var c={}; arr.forEach(function(st){ (st.params||[]).forEach(function(pp){ c[pp.name]=(c[pp.name]||0)+1; }); }); return Object.keys(c).filter(function(k){ return c[k]===arr.length; }); }
     function paramVal(st,name){ var v=''; (st.params||[]).forEach(function(pp){ if(pp.name===name) v=pp.value; }); return v; }
@@ -229,6 +238,7 @@
         var bd=el('div','vbody',sec);
         var tgs=valLine(bd, 'tags', wf.tags||'', 'comma-separated tags, ${var} allowed'); tgs.setAttribute('data-scope','tags');
         var wod=valLine(bd, 'workflow output data', wf.outputData||'', 'one per line: variable = description', true); wod.setAttribute('data-scope','wfOutputData');
+        var prd=valSelect(bd, 'production flag', [{value:'',label:'leave unchanged'},{value:'true',label:'set PRODUCTION'},{value:'false',label:'clear PRODUCTION'}], wf.production?'currently PRODUCTION':'currently non-production'); prd.setAttribute('data-scope','production');
         if(!wf.vars.length){ el('div','dim small',bd).textContent='No workflow variables.'; }
         wf.vars.forEach(function(v){ var inp=valLine(bd, v.name, v.value, ''); inp.setAttribute('data-scope','var'); });
         // steps (core fields like the SQL query, plus params)
@@ -260,6 +270,8 @@
         var tgs=valLine(bd, 'tags', tEq?tvals[0]:'', tEq?'comma-separated tags, ${var} allowed':'(differ across feeds — type to set for all)'); tgs.setAttribute('data-scope','tags');
         var wodvals=feeds.map(function(f){ return f.outputData||''; }); var wodEq=wodvals.every(function(x){ return x===wodvals[0]; });
         var wod=valLine(bd, 'workflow output data', wodEq?wodvals[0]:'', wodEq?'one per line: variable = description':'(differ across feeds — type to set for all)', true); wod.setAttribute('data-scope','wfOutputData');
+        var prodMixed=feeds.some(function(f){return f.production;})&&feeds.some(function(f){return !f.production;});
+        var prd=valSelect(bd, 'production flag', [{value:'',label:'leave unchanged'},{value:'true',label:'set PRODUCTION'},{value:'false',label:'clear PRODUCTION'}], prodMixed?'(mixed across feeds)':((feeds[0]&&feeds[0].production)?'all currently PRODUCTION':'all currently non-production')); prd.setAttribute('data-scope','production');
         if(!common.length){ el('div','dim small',bd).textContent='These workflows share no variable names.'; }
         common.forEach(function(n){
             var vals=valuesByName[n]; var allEqual=vals.every(function(x){ return x===vals[0]; });
@@ -307,12 +319,13 @@
         var host=document.getElementById('editorWrap'); var mode=host.getAttribute('data-mode');
         var edits=[];
         function collect(scopeHost){
-            var vars=[], stepsMap={}, tags, wfod;
+            var vars=[], stepsMap={}, tags, wfod, prod;
             var inputs=scopeHost.querySelectorAll('.vval[data-dirty="1"]');
             for(var i=0;i<inputs.length;i++){ var inp=inputs[i]; var name=inp.getAttribute('data-name'); var scope=inp.getAttribute('data-scope');
                 if(scope==='var'){ vars.push({name:name,value:inp.value}); }
                 else if(scope==='tags'){ tags=inp.value; }
                 else if(scope==='wfOutputData'){ wfod=inp.value; }
+                else if(scope==='production'){ prod=inp.value; }
                 else { var sid=inp.getAttribute('data-step'); var e=stepsMap[sid]=stepsMap[sid]||{params:[],fields:[]};
                     if(scope==='field') e.fields.push({name:name,value:inp.value});
                     else if(scope==='outputData') e.outputData=inp.value;
@@ -321,17 +334,17 @@
                     else e.params.push({name:name,value:inp.value}); }
             }
             var steps=Object.keys(stepsMap).map(function(sid){ var e=stepsMap[sid]; var o={stepId:sid, params:e.params, fields:e.fields}; if(e.outputData!==undefined)o.outputData=e.outputData; if(e.deleteOnSuccess!==undefined)o.deleteOnSuccess=e.deleteOnSuccess; if(e.deleteOnSuccessType!==undefined)o.deleteOnSuccessType=e.deleteOnSuccessType; return o; });
-            return {vars:vars, steps:steps, tags:tags, outputData:wfod};
+            return {vars:vars, steps:steps, tags:tags, outputData:wfod, production:(prod===undefined||prod==='')?undefined:(prod==='true')};
         }
         if(mode==='single'){
             var feedId=host.getAttribute('data-feed');
             var c=collect(host);
-            if(!c.vars.length && !c.steps.length && c.tags===undefined && c.outputData===undefined){ banner(false,'No changes to save.'); window.scrollTo(0,0); return; }
-            edits.push({feedId:feedId, vars:c.vars, steps:c.steps, tags:c.tags, outputData:c.outputData});
+            if(!c.vars.length && !c.steps.length && c.tags===undefined && c.outputData===undefined && c.production===undefined){ banner(false,'No changes to save.'); window.scrollTo(0,0); return; }
+            edits.push({feedId:feedId, vars:c.vars, steps:c.steps, tags:c.tags, outputData:c.outputData, production:c.production});
         } else if(mode==='multi'){
             var c2=collect(host);
-            if(!c2.vars.length && !c2.steps.length && c2.tags===undefined && c2.outputData===undefined){ banner(false,'No changes to save.'); window.scrollTo(0,0); return; }
-            effectiveFeeds().forEach(function(f){ edits.push({feedId:f.feedId, vars:c2.vars, steps:c2.steps, tags:c2.tags, outputData:c2.outputData}); });
+            if(!c2.vars.length && !c2.steps.length && c2.tags===undefined && c2.outputData===undefined && c2.production===undefined){ banner(false,'No changes to save.'); window.scrollTo(0,0); return; }
+            effectiveFeeds().forEach(function(f){ edits.push({feedId:f.feedId, vars:c2.vars, steps:c2.steps, tags:c2.tags, outputData:c2.outputData, production:c2.production}); });
         } else { return; }
 
         fetch(CTX+'api/variables/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({edits:edits})})

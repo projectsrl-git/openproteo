@@ -2028,6 +2028,7 @@ public class ApiController {
             public java.util.List<StepEdit> steps;          // optional per-step param edits
             public String tags;                              // optional: comma-separated workflow tags (null = unchanged)
             public String outputData;                        // null=unchanged; workflow-level output data (lines: var = description)
+            public Boolean production;                       // null = unchanged; mass-editable PROD flag
         }
         public static class StepEdit {
             public String stepId;
@@ -2059,6 +2060,7 @@ public class ApiController {
             WorkflowDef def = fe.feedId == null ? null : registry.get(fe.feedId);
             if (def == null) { r.put("ok", false); r.put("error", "workflow not found"); results.add(r); allOk = false; continue; }
             WorkflowDto dto = toDto(def);
+            if (fe.production != null) dto.production = fe.production.booleanValue();
             applyEditsToDto(dto, fe.vars, fe.tags, fe.steps, fe.outputData);
             // regenerate + validate
             String fileName = def.sourceFile != null ? def.sourceFile : def.feedId + ".xml";
