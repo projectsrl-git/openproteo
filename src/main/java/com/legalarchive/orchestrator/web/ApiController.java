@@ -1464,9 +1464,11 @@ public class ApiController {
                 boolean running = activeId != null && !activeId.contains("_test_");
                 String lastStatus = null, lastRunTs = null, lastSuccessTs = null, lastRunId = null, failedStep = null;
                 WorkflowRun lastRun = null;
+                java.util.List<WorkflowRun> runs = new java.util.ArrayList<WorkflowRun>();
                 FeedLayout layout = registry.layout(def.feedId);
                 if (layout != null) {
-                    for (WorkflowRun r : store.list(layout, 25)) {
+                    runs = store.list(layout, 25);
+                    for (WorkflowRun r : runs) {
                         if (r.runId != null && r.runId.contains("_test_")) continue;   // ignore test runs
                         String ts = r.endTs != null ? r.endTs : r.startTs;
                         if (lastStatus == null) {
@@ -1491,7 +1493,7 @@ public class ApiController {
                 m.put("lastRunId", lastRunId);
                 m.put("failedStep", failedStep);
                 m.put("lastSuccessTs", lastSuccessTs);
-                java.util.List<Map<String, Object>> outputData = new java.util.ArrayList<Map<String, Object>>();
+                java.util.List<String[]> odVars = new java.util.ArrayList<String[]>();
                 for (com.legalarchive.orchestrator.model.def.StepDef st : def.steps()) {
                     if (st.params == null) continue;
                     for (Map.Entry<String, String> pe : st.params.entrySet()) {
@@ -1500,14 +1502,43 @@ public class ApiController {
                         String varName = k.substring("outputData.".length()).trim();
                         if (varName.isEmpty()) continue;
                         String desc = pe.getValue();
-                        String val = (lastRun != null && lastRun.vars != null) ? lastRun.vars.get(varName) : null;
-                        Map<String, Object> od = new LinkedHashMap<String, Object>();
-                        od.put("label", (desc != null && !desc.trim().isEmpty()) ? desc.trim() : varName);
-                        od.put("value", val == null ? "" : val);
-                        outputData.add(od);
+                        String label = (desc != null && !desc.trim().isEmpty()) ? desc.trim() : varName;
+                        odVars.add(new String[]{ varName, label });
                     }
                 }
+                java.util.List<Map<String, Object>> outputData = new java.util.ArrayList<Map<String, Object>>();
+                for (String[] v : odVars) {
+                    Map<String, Object> od = new LinkedHashMap<String, Object>();
+                    od.put("label", v[1]);
+                    String val = (lastRun != null && lastRun.vars != null) ? lastRun.vars.get(v[0]) : null;
+                    od.put("value", val == null ? "" : val);
+                    outputData.add(od);
+                }
                 m.put("outputData", outputData);
+                java.util.List<Map<String, Object>> runsOutputData = new java.util.ArrayList<Map<String, Object>>();
+                if (!odVars.isEmpty()) {
+                    for (WorkflowRun r : runs) {
+                        if (r == null || r.vars == null) continue;
+                        if (r.runId != null && r.runId.contains("_test_")) continue;
+                        java.util.List<Map<String, Object>> od = new java.util.ArrayList<Map<String, Object>>();
+                        boolean any = false;
+                        for (String[] v : odVars) {
+                            String val = r.vars.get(v[0]);
+                            if (val != null && !val.isEmpty()) any = true;
+                            Map<String, Object> e = new LinkedHashMap<String, Object>();
+                            e.put("label", v[1]); e.put("value", val == null ? "" : val);
+                            od.add(e);
+                        }
+                        if (!any) continue;
+                        Map<String, Object> rm = new LinkedHashMap<String, Object>();
+                        rm.put("runId", r.runId);
+                        rm.put("runTs", r.endTs != null ? r.endTs : r.startTs);
+                        rm.put("status", r.status != null ? r.status.name() : "");
+                        rm.put("outputData", od);
+                        runsOutputData.add(rm);
+                    }
+                }
+                m.put("runsOutputData", runsOutputData);
                 m.put("bucket", bucketFor(running, lastStatus));
                 feeds.add(m);
             }

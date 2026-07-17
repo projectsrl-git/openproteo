@@ -492,3 +492,15 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   `.claude/2026-07-15-operations-grid-search-desc-tags.md`. (Batch A; remaining
   from the request: 1.4 all-runs output data; 1.5 workflow-level output data; 2.1/
   2.2 history-delete PROD+keep-last; 4 PROD in mass-edit; 5.x SKIP/ON HOLD.)
+
+## Operations: all-runs output data (req 1.4)
+* The OUTPUT DATA column now shows every run's output data (most recent first),
+  not just the last run. /api/overview/feeds captures the run list once, builds the
+  outputData var set (name+label) once, and emits `runsOutputData`
+  [{runId,runTs,status,outputData}] (runs with no values skipped; test runs
+  ignored); `outputData` (last run) kept for compat. overview.html odCell renders
+  per-run lines "<runTs> [status] label=value; …" (falls back to last-run
+  outputData); free search covers all runs; CSV adds allRunsOutputData. Verified in
+  Node (render + search). Note in
+  `.claude/2026-07-15-operations-all-runs-output-data.md`. (Batch B; remaining:
+  1.5 workflow-level output data; 2.1/2.2; 4; 5.x.)
