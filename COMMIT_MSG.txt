@@ -1,29 +1,21 @@
-diff: make it cancellable + query timeout (Stop now works on diff)
+Operations grid: search-all, source/target descriptions, tags (1.1-1.3)
 
-A running diff step could not be stopped. runDiff* was invoked without the
-RunControl, so it never checked the abort flag and -- critically for CSV_KEY --
-never registered its H2 Statement, so an operator Stop had nothing to cancel; a
-diff could hang with Stop ineffective.
+1.1 The feed filter now matches across every displayed field: feedId, name,
+    source id + source description, target id + target description, tags, last
+    status, failed step, last-run and last-success timestamps (dates are now
+    searchable), and the output-data labels/values.
+1.2 The SOURCE and TARGET columns show the id (mono) with the description beneath
+    it. Both descriptions were already returned by /api/overview/feeds; display
+    change only.
+1.3 /api/overview/feeds now also returns tags (from the workflow definition). The
+    FEED column shows a "tags: ..." line and tags are included in the search.
 
-Fix (mirrors the csvsql cancellation pattern):
-- run() now passes control to runDiff, which threads it to runDiffKey /
-  runDiffText / runDiffTextSet and the positional path.
-- CSV_KEY (runDiffKey): right after creating the H2 Statement it sets
-  setQueryTimeout(qto) (qto = the step timeout via stepTimeoutSec, same source as
-  csvsql) and registers control.statement = st; the finally clears it. So an
-  operator Stop calls statement.cancel() on the live diff query (WorkflowEngine
-  already does this for csvsql), and a step timeout bounds the query even without
-  Stop. An aborted check runs before the heavy query.
-- Streaming paths: POSITIONAL checks control.aborted periodically in the row loop
-  (returns cleanly via the existing try/finally); TEXT and TEXT_SET check aborted
-  before starting.
+CSV export/copy updated to include sourceDescription, targetDescription and tags.
 
-Docs: .claude/2026-07-15-diff-cancellable-query-timeout.md and CLAUDE.md.
+Docs: .claude/2026-07-15-operations-grid-search-desc-tags.md and CLAUDE.md.
 
-Verify: the real runDiffKey was run with a mock RunControl -- a normal run
-(control live, query timeout 30 s) gives the correct diffCount and clears
-control.statement in the finally; an aborted run returns exit -997. The
-cancellation mechanism is the one csvsql uses (WorkflowEngine cancels
-control.statement), which is proven; the mid-query cancel itself needs a
-concurrent canceller and was not live-tested here. Full Maven build to be
-confirmed on deploy.
+Verify: one backend line added (tags) mirroring the existing targetDescription
+put; overview.html passes node --check (no literal \n/\r, no unsafe Thymeleaf).
+The search hay-building was exercised in Node -- matches a date, a tag, the source
+and target descriptions, and an output-data label/value; rejects an absent string.
+Full render to be confirmed on deploy.

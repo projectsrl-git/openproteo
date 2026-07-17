@@ -1459,6 +1459,7 @@ public class ApiController {
                 m.put("sourceDescription", def.sourceDescription);
                 m.put("targetId", def.targetId == null ? "" : def.targetId);
                 m.put("targetDescription", def.targetDescription);
+                m.put("tags", (def.tags == null || def.tags.isEmpty()) ? "" : String.join(", ", def.tags));
                 String activeId = engine.activeRunId(def.feedId);
                 boolean running = activeId != null && !activeId.contains("_test_");
                 String lastStatus = null, lastRunTs = null, lastSuccessTs = null, lastRunId = null, failedStep = null;

@@ -481,3 +481,14 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   aborted at start. A step timeout now also bounds the CSV_KEY query. Verified with
   a mock RunControl (normal run clears statement; aborted run returns -997). Note in
   `.claude/2026-07-15-diff-cancellable-query-timeout.md`.
+
+## Operations grid: search-all + source/target descriptions + tags (req 1.1-1.3)
+* Feed filter now matches every displayed field incl. dates: feedId, name, source
+  id+description, target id+description, tags, status, failed step, last-run/
+  last-success timestamps, and output-data labels/values. SOURCE/TARGET columns
+  show the description under the id (data already returned). /api/overview/feeds
+  now also returns `tags`; the FEED column shows "tags: …" and tags are searchable.
+  CSV export includes descriptions + tags. Note in
+  `.claude/2026-07-15-operations-grid-search-desc-tags.md`. (Batch A; remaining
+  from the request: 1.4 all-runs output data; 1.5 workflow-level output data; 2.1/
+  2.2 history-delete PROD+keep-last; 4 PROD in mass-edit; 5.x SKIP/ON HOLD.)
