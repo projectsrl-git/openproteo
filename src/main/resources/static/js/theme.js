@@ -42,6 +42,31 @@
         else bar.appendChild(btn);
     }
 
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
-    else mount();
+    function ctx() { var b = document.querySelector('.brand'); var h = b ? b.getAttribute('href') : '/'; return h.charAt(h.length - 1) === '/' ? h : h + '/'; }
+    function mountEnv() {
+        var bar = document.querySelector('.topbar');
+        if (!bar || document.getElementById('envBadge')) return;
+        try {
+            fetch(ctx() + 'api/env').then(function (r) { return r.json(); }).then(function (j) {
+                var e = (j && j.environment) ? String(j.environment).trim() : '';
+                if (!e) return;
+                if (document.getElementById('envBadge')) return;
+                var span = document.createElement('span');
+                span.id = 'envBadge';
+                span.className = 'env-badge env-' + e.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                span.textContent = e.toUpperCase();
+                span.title = 'Environment ' + e.toUpperCase() + (j.host ? (' \u00B7 ' + j.host) : '');
+                if (/^prod/i.test(e)) { bar.classList.add('is-prod'); }
+                var sub = bar.querySelector('.sub');
+                var spacer = bar.querySelector('.spacer');
+                if (sub && sub.parentNode === bar) bar.insertBefore(span, sub.nextSibling);
+                else if (spacer) bar.insertBefore(span, spacer);
+                else bar.appendChild(span);
+            }).catch(function () { });
+        } catch (err) { }
+    }
+
+    function mountAll() { mount(); mountEnv(); }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountAll);
+    else mountAll();
 })();

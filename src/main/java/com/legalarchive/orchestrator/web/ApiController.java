@@ -264,6 +264,18 @@ public class ApiController {
     }
 
     /** List the sheet names of an .xlsx (for the xlsx2csv sheet dropdown). */
+    /** Deployment environment (for the header banner) + host name. */
+    @GetMapping("/api/env")
+    public ResponseEntity<Map<String, Object>> env() {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        String e = props.getEnvironment();
+        out.put("environment", e == null ? "" : e.trim());
+        String host = "";
+        try { host = java.net.InetAddress.getLocalHost().getHostName(); } catch (Exception ignored) {}
+        out.put("host", host);
+        return ResponseEntity.ok(out);
+    }
+
     /** Header columns of a CSV file (for the diff CSV_KEY column autocomplete). Resolves ${vars} against the feed. */
     @GetMapping("/api/workflows/{feedId}/diff/columns")
     public ResponseEntity<Map<String, Object>> diffColumns(@PathVariable String feedId,

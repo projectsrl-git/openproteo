@@ -729,3 +729,54 @@ th.sortable:hover { color: var(--accent); }
 .nc-toggle:hover { border-color: var(--accent); background: var(--bg-raise); }
 .node-card.collapsed .nc-body { display: none; }
 .node-card.collapsed .nc-head { margin-bottom: 0; border-bottom-style: dashed; }
+
+/* ============================================================
+   Light-theme polish
+   - placeholders must read clearly as *hints*, not as real values
+   - any input that still carried the dark base must read light
+   - a slightly clearer focus ring
+   ============================================================ */
+:root[data-theme="light"] input::placeholder,
+:root[data-theme="light"] textarea::placeholder {
+  color: #98a4b3; opacity: 1; font-style: italic;
+}
+:root[data-theme="light"] input:not([type="checkbox"]):not([type="radio"]),
+:root[data-theme="light"] select,
+:root[data-theme="light"] textarea {
+  background: #ffffff; color: var(--ink); border-color: var(--line);
+}
+/* real values sit at full ink weight so they stand apart from the italic hints */
+:root[data-theme="light"] .field input,
+:root[data-theme="light"] .inline-input { color: var(--ink); font-weight: 500; }
+:root[data-theme="light"] .field input:focus,
+:root[data-theme="light"] .field select:focus,
+:root[data-theme="light"] .field textarea:focus,
+:root[data-theme="light"] .inline-input:focus,
+:root[data-theme="light"] .search-box:focus {
+  border-color: var(--accent); box-shadow: 0 0 0 2px rgba(185,118,10,0.15);
+}
+/* secondary/dim text keeps enough contrast on the light background */
+:root[data-theme="light"] .dim, :root[data-theme="light"] td.dim { color: #56657a; }
+:root[data-theme="light"] .kv dt, :root[data-theme="light"] footer,
+:root[data-theme="light"] .pnode .nid { color: #6a7788; }
+
+
+/* ============================================================
+   Environment badge in the header (orchestrator.environment)
+   ============================================================ */
+.env-badge {
+  font-family: var(--sans); font-weight: 700; font-size: 11px; line-height: 1;
+  letter-spacing: 1px; text-transform: uppercase; padding: 4px 9px; border-radius: 4px;
+  border: 1px solid var(--line); color: var(--ink-dim); background: var(--bg-panel);
+  margin-left: 4px; white-space: nowrap;
+}
+.env-badge.env-DEV  { color: var(--ink-dim); }
+.env-badge.env-SIT  { color: var(--run);  background: var(--run-bg);  border-color: #1d3a5f; }
+.env-badge.env-UAT  { color: var(--wait); background: var(--wait-bg); border-color: #5c4a1a; }
+.env-badge.env-PROD { color: #ffffff; background: #b3261e; border-color: #e0574c;
+  box-shadow: 0 0 0 1px rgba(224,87,76,0.45); letter-spacing: 1.5px; }
+.topbar.is-prod { border-bottom: 2px solid #d64036; }
+:root[data-theme="light"] .env-badge { background: #eef1f5; }
+:root[data-theme="light"] .env-badge.env-SIT  { background: var(--run-bg); }
+:root[data-theme="light"] .env-badge.env-UAT  { background: var(--wait-bg); }
+:root[data-theme="light"] .env-badge.env-PROD { background: #c62828; border-color: #e57373; color: #fff; }

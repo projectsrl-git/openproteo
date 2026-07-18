@@ -1,4 +1,29 @@
-Operations: larger weather icons in the source rollup
+UI polish: light-theme contrast + environment header badge
 
-Bump the "Sky" column emoji from 20px to 30px and give the column a fixed 44px
-width so the icons read at a glance.
+Two related header/theme improvements.
+
+1) Light-theme polish (app.css, scoped to :root[data-theme="light"]) — the light
+   theme lacked contrast between field placeholders and real values because only
+   .field inputs had a light placeholder colour; other inputs used the browser
+   default (~text colour, dark). Now: a global lighter italic ::placeholder
+   (#98a4b3, opacity 1) for all inputs/textareas; every input reads light (white
+   bg/--ink/--line); real values at font-weight 500 so they stand apart from the
+   italic hints; a clearer focus ring; dim/secondary text nudged for contrast. The
+   dark theme is untouched.
+
+2) Environment header badge (DEV/SIT/UAT/PROD) — distinguish installations from the
+   header. AppProperties.environment (config orchestrator.environment=PROD; empty
+   hides it). GET /api/env -> {environment, host}. theme.js (loaded on every page,
+   already injecting the theme toggle) also fetches /api/env and injects an
+   .env-badge into .topbar (single point, no per-page edits); PROD adds .is-prod.
+   CSS: PROD is white-on-red and prominent with a red accent line under the topbar;
+   DEV neutral, SIT blue, UAT amber; host shown on hover (covers the "obvious server
+   name" alternative); light-theme variants included.
+
+Docs: .claude/2026-07-15-light-theme-polish.md,
+.claude/2026-07-15-environment-header-badge.md and CLAUDE.md.
+
+Verify: theme.js passes node --check with zero literal \n/\r escapes; app.css braces
+balanced; the light additions are scoped to the light theme; AppProperties/endpoint
+mirror existing code (@RestController). Full Maven build to be confirmed on deploy;
+then set orchestrator.environment per installation.

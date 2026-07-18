@@ -586,3 +586,22 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   (aborted). Any-failed takes priority. Title tooltips + a legend under the table.
   Emojis as \uXXXX escapes. overview.html only; node --check + mapping verified.
   Note in `.claude/2026-07-15-operations-weather-icons.md`.
+
+## Light-theme polish
+* Light theme had poor contrast between field placeholders and real values because
+  only .field inputs had a light-theme placeholder colour; other inputs used the
+  browser default (~text colour, dark). Fixed in app.css (light-theme-scoped): a
+  global lighter italic ::placeholder (#98a4b3, opacity 1) for all inputs/textareas;
+  all inputs read light (white bg/--ink/--line); real values at font-weight 500;
+  clearer focus ring; dim/secondary text nudged for contrast. Dark theme untouched.
+  Note in `.claude/2026-07-15-light-theme-polish.md`.
+
+## Environment header badge (DEV/SIT/UAT/PROD)
+* Distinguish installations from the header. AppProperties.environment (config
+  `orchestrator.environment=PROD`, empty hides it). GET /api/env -> {environment,
+  host}. theme.js (loaded on every page) fetches it and injects an .env-badge into
+  .topbar (single point, no per-page edits); PROD adds .is-prod. CSS: PROD is
+  white-on-red + red topbar accent line; DEV neutral, SIT blue, UAT amber; host on
+  hover (covers the "obvious server name" alternative); light-theme variants.
+  theme.js node --check clean (0 \n/\r); css balanced. Note in
+  `.claude/2026-07-15-environment-header-badge.md`.

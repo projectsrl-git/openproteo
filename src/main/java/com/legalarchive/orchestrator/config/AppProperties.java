@@ -8,6 +8,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "orchestrator")
 public class AppProperties {
 
+    /** Deployment environment shown in the header (e.g. DEV / SIT / UAT / PROD). Empty = hidden. */
+    private String environment = "";
+
     /** Directory contenente le definizioni XML dei workflow. */
     private String workflowsDir = "./workflows";
 
@@ -79,6 +82,8 @@ public class AppProperties {
     /** Path to a properties file with file-based global variables (editable in-app). Empty = <sharedDir>/global-vars.properties. */
     private String globalVarsFile = "";
 
+    public String getEnvironment() { return environment; }
+    public void setEnvironment(String v) { this.environment = v; }
     public String getWorkflowsDir() { return workflowsDir; }
     public void setWorkflowsDir(String v) { this.workflowsDir = v; }
     public String getScriptsDir() { return scriptsDir; }
