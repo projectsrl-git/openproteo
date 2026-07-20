@@ -613,3 +613,22 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   objects (empty=all), msfDistinct from FEEDS, renderDrill excludes on non-empty
   mismatch. .msf CSS added. overview.html only. Verified node --check + filter
   logic in Node. Note in `.claude/2026-07-15-operations-source-target-filters.md`.
+
+## Standalone CSV viewer (csv-viewer.html at repo root)
+* Self-contained HTML at repo root (file://, no server/CDN), for testers. Two tabs.
+  Mirrors the internal viewer (CsvService parsing + displayschema titles). Data tab:
+  virtualised grid + filter + sort + per-column AUTO-WIDTH (content-based, 54..420px) +
+  drag-resize + horizontal scroll with sticky header. Aggregate tab: group-by +
+  DISTINCT COUNT + SUM + pivot + substring COL=L4/R2 + TOTAL + CSV export. Dates
+  formatted only on visible cells (filter/sort/agg on RAW). Note in
+  `.claude/2026-07-15-standalone-csv-viewer.md`.
+
+## Fixes (2026-07-20): clear-history + viewer widths
+* Operations "Clear history" failed with `opConfirm is not defined`: overview.html did
+  not load modal.js. Fixed by including modal.js + theme.js in overview.html.
+* designer.html (EDIT) clearHistory() was the old dialog: rewritten to use a required
+  PROD checkbox (when Production) + "keep the most recent run", passing
+  confirmProduction/keepLast (matches dashboard/Operations).
+* csv-viewer.html columns were fixed 160px; now auto-width from content (max of
+  DisplayName/ColumnName/300-row sample, 54..420px) + horizontal scroll + sticky header
+  + drag-resize. Note in `.claude/2026-07-20-clear-history-and-viewer-fixes.md`.

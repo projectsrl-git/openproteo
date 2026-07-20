@@ -33,8 +33,11 @@
   .filter-row input[type=text]{flex:1;min-width:220px}
   .grid{border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--raise)}
   .ghead,.grow{display:flex}
-  .ghead{background:var(--panel);border-bottom:1px solid var(--line)}
-  .gcell{padding:6px 9px;border-right:1px solid var(--line);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:12.5px}
+  .ghead{background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:3}
+  .gcell{padding:6px 9px;border-right:1px solid var(--line);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:12.5px;flex:0 0 auto}
+  .hcell{position:relative}
+  .col-resize{position:absolute;top:0;right:0;width:7px;height:100%;cursor:col-resize}
+  .col-resize:hover{background:var(--accent);opacity:.5}
   .hcell{cursor:pointer;user-select:none}.hcell:hover{background:var(--raise)}
   .hcell .dn{font-weight:600;font-family:var(--sans);overflow:hidden;text-overflow:ellipsis}
   .hcell .cn{color:var(--dim);font-size:10.5px}.hcell .cn.solo{color:var(--ink);font-weight:600;font-size:12.5px}
@@ -149,7 +152,19 @@
 
   function cellRaw(row,c){return row&&c<row.length?(row[c]==null?'':row[c]):'';}
   function cellDisp(row,c){var v=cellRaw(row,c);if($('fmtDates').checked&&DATECOL[c])return applyDate(v,DATECOL[c]);return v;}
-  function buildColumnMeta(){DISPLAY=[];DATECOL=[];COLW=[];for(var c=0;c<DATA.columns.length;c++){var key=(DATA.columns[c]||'').toLowerCase();DISPLAY.push(SCHEMA.names[key]||'');DATECOL.push(SCHEMA.dates[key]||null);COLW.push(160);}}
+  function buildColumnMeta(){
+    DISPLAY=[];DATECOL=[];COLW=[];
+    var SAMPLE=Math.min(DATA.rows.length,300);
+    for(var c=0;c<DATA.columns.length;c++){
+      var key=(DATA.columns[c]||'').toLowerCase();var dn=SCHEMA.names[key]||'';
+      DISPLAY.push(dn);DATECOL.push(SCHEMA.dates[key]||null);
+      var maxLen=Math.max((DATA.columns[c]||'').length,dn.length);
+      for(var r=0;r<SAMPLE;r++){var rw=DATA.rows[r];var v=(rw&&c<rw.length&&rw[c]!=null)?String(rw[c]):'';if(v.length>maxLen)maxLen=v.length;}
+      if(DATECOL[c]&&maxLen<10)maxLen=10;
+      var w=Math.round(maxLen*7.2)+20;if(w<54)w=54;if(w>420)w=420;COLW.push(w);
+    }
+  }
+  function totalW(){var w=0;for(var i=0;i<COLW.length;i++)w+=COLW[i];return w;}
 
   function recomputeView(){
     var q=($('filter').value||'').trim().toLowerCase();VIEW=[];
@@ -163,24 +178,32 @@
 
   var scrollEl,spacerEl,bodyEl;
   function renderShell(){
-    var host=$('viewer');host.innerHTML='';var grid=el('div','grid',host);var head=el('div','ghead',grid);
+    var host=$('viewer');host.innerHTML='';var grid=el('div','grid',host);
+    scrollEl=el('div','gscroll',grid);scrollEl.style.maxHeight='calc(100vh - 230px)';
+    var tw=totalW();
+    var inner=el('div','ginner',scrollEl);inner.style.width=tw+'px';
+    var head=el('div','ghead',inner);head.style.width=tw+'px';
     for(var c=0;c<DATA.columns.length;c++){
       var h=el('div','gcell hcell',head);h.style.width=COLW[c]+'px';
       if(DISPLAY[c]){var a=el('div','dn',h);a.textContent=DISPLAY[c];var b=el('div','cn',h);b.textContent=DATA.columns[c];h.title=DISPLAY[c]+'  ('+DATA.columns[c]+')';}
-      else{var b2=el('div','cn solo',h);b2.textContent=DATA.columns[c];}
+      else{var b2=el('div','cn solo',h);b2.textContent=DATA.columns[c];h.title=DATA.columns[c];}
       if(SORT.col===c){var si=el('span','sort-ind',h);si.textContent=SORT.desc?String.fromCharCode(0x25BC):String.fromCharCode(0x25B2);}
       h.onclick=(function(ci){return function(){if(SORT.col===ci)SORT.desc=!SORT.desc;else{SORT.col=ci;SORT.desc=false;}recomputeView();renderShell();};})(c);
+      var rz=el('div','col-resize',h);rz.onclick=function(e){e.stopPropagation();};
+      rz.onmousedown=(function(ci,cell){return function(ev){ev.preventDefault();ev.stopPropagation();var sx=ev.clientX,sw=COLW[ci];
+        function mv(e2){var w=Math.max(40,sw+(e2.clientX-sx));COLW[ci]=w;cell.style.width=w+'px';var t=totalW();head.style.width=t+'px';inner.style.width=t+'px';spacerEl.style.width=t+'px';bodyEl.style.width=t+'px';drawRows();}
+        function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);}
+        document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);};})(c,h);
     }
-    scrollEl=el('div','gscroll',grid);scrollEl.style.maxHeight='calc(100vh - 230px)';
-    spacerEl=el('div',null,scrollEl);spacerEl.style.height=(VIEW.length*ROWH)+'px';spacerEl.style.position='relative';
-    bodyEl=el('div',null,spacerEl);bodyEl.style.position='absolute';bodyEl.style.left='0';bodyEl.style.right='0';bodyEl.style.top='0';
+    spacerEl=el('div',null,inner);spacerEl.style.height=(VIEW.length*ROWH)+'px';spacerEl.style.position='relative';spacerEl.style.width=tw+'px';
+    bodyEl=el('div',null,spacerEl);bodyEl.style.position='absolute';bodyEl.style.left='0';bodyEl.style.top='0';bodyEl.style.width=tw+'px';
     scrollEl.onscroll=drawRows;drawRows();
   }
   function drawRows(){
     var top=scrollEl.scrollTop,h=scrollEl.clientHeight;
-    var first=Math.max(0,Math.floor(top/ROWH)-6),last=Math.min(VIEW.length,Math.ceil((top+h)/ROWH)+6);
-    bodyEl.style.transform='translateY('+(first*ROWH)+'px)';var frag=document.createDocumentFragment();
-    for(var v=first;v<last;v++){var ri=VIEW[v],row=DATA.rows[ri];var rd=el('div','grow'+((v%2)?' odd':''));rd.style.height=ROWH+'px';
+    var first=Math.max(0,Math.floor(top/ROWH)-8),last=Math.min(VIEW.length,Math.ceil((top+h)/ROWH)+8);
+    bodyEl.style.transform='translateY('+(first*ROWH)+'px)';var frag=document.createDocumentFragment();var tw=totalW();
+    for(var v=first;v<last;v++){var ri=VIEW[v],row=DATA.rows[ri];var rd=el('div','grow'+((v%2)?' odd':''));rd.style.height=ROWH+'px';rd.style.width=tw+'px';
       for(var c=0;c<DATA.columns.length;c++){var cell=el('div','gcell'+(($('fmtDates').checked&&DATECOL[c])?' date':''),rd);cell.style.width=COLW[c]+'px';cell.textContent=cellDisp(row,c);}
       frag.appendChild(rd);}
     bodyEl.innerHTML='';bodyEl.appendChild(frag);

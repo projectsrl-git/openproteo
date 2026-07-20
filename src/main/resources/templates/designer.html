@@ -1511,11 +1511,15 @@
 
     // ---------------- clear history (this workflow only) ----------------
     function clearHistory() {
-        if (wf.production) { banner(false, 'Clear History is disabled while this workflow is flagged Production.'); window.scrollTo(0, 0); return; }
         if (!EDIT_FEED_ID) { banner(false, 'Save the workflow first.'); window.scrollTo(0, 0); return; }
+        var checks = [];
+        if (wf.production) checks.push({ id: 'prod', label: 'I understand this is a PRODUCTION workflow \u2014 clear its history too', required: true });
+        checks.push({ id: 'keep', label: 'Keep the most recent run' });
         opConfirm('Clear the run history of THIS workflow (' + esc(EDIT_FEED_ID) + ')? This deletes run records, step logs and the step working directories. Uploaded files (dataschema/displayschema), the declared input and the audit trail are kept. This cannot be undone.',
-            function () {
-                fetch(CTX + 'api/workflows/' + encodeURIComponent(EDIT_FEED_ID) + '/clear-history', { method: 'POST' })
+            function (st) {
+                var cp = (st && st.prod) ? 'true' : 'false';
+                var kl = (st && st.keep) ? 'true' : 'false';
+                fetch(CTX + 'api/workflows/' + encodeURIComponent(EDIT_FEED_ID) + '/clear-history?confirmProduction=' + cp + '&keepLast=' + kl, { method: 'POST' })
                     .then(readJson)
                     .then(function (j) {
                         if (j.ok) banner(true, 'Run history cleared for this workflow — ' + j.removed + ' item(s) removed. Uploads and audit kept.');
@@ -1523,7 +1527,7 @@
                         window.scrollTo(0, 0);
                     })
                     .catch(function (e) { banner(false, 'Error: ' + esc(e)); window.scrollTo(0, 0); });
-            }, { danger: true, okText: 'Clear this workflow' });
+            }, { danger: true, okText: 'Clear this workflow', checks: checks });
     }
 
     // ---------------- direct XML editing ----------------
