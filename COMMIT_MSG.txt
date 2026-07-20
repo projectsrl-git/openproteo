@@ -1,23 +1,30 @@
-Operations: source & target multi-select filters
+Standalone CSV viewer: full filter/sort/aggregation (SUM + DISTINCT COUNT), perf dates
 
-The feed grid gains two dedicated filters -- Source and Target -- each a checkbox
-dropdown allowing one, several, or all values.
+A single self-contained HTML at the project root (csv-viewer.html), runnable via
+file:// -- no server, no CDN, no dependencies. For testers. Two tabs: Data and
+Aggregate.
 
-- Each control is a button ("Source: all" / "Target: all") opening a panel with an
-  "All" row plus one checkbox per distinct value (blank shown as a dash).
-- Empty selection = all (no filter); selecting values filters to them and the
-  button shows "N selected"; "All" clears back to all.
-- Source and Target combine with AND, and with the existing free-text search and
-  the rollup drill; "Show all" resets both filters; panels close on outside click.
+Mirrors the internal viewer: CsvService-style parsing (BOM, delimiter auto-detect,
+quote-aware split; manual override) and displayschema.json titles (List or
+{columns:[...]}; name/ColumnName/COLUMN_NAME -> DisplayName variants; DisplayName over
+ColumnName headers).
 
-Implementation (overview.html + app.css, frontend only): srcSel/tgtSel objects
-(empty = all), msfDistinct builds the option list from FEEDS, renderDrill excludes
-a feed when a non-empty selection doesn't contain its source/target. .msf CSS
-added (theme-aware).
+Data tab: virtualised grid, all-columns filter, click-to-sort.
+Aggregate tab: group-by (multi), DISTINCT COUNT (multi), SUM (multi), optional pivot
+(cells = COUNT, or SUM if one Sum col, or DISTINCT if one Distinct col), optional
+substring specs COL=L4/R2, a pinned TOTAL row and CSV export -- the in-app
+aggregation model extended with SUM, computed client-side.
 
-Docs: .claude/2026-07-15-operations-source-target-filters.md and CLAUDE.md.
+Performance/memory: date formatting is applied ONLY to the cells on screen (the grid
+is virtualised); filtering, sorting and aggregation use the RAW value and nothing
+formatted is stored, so there is zero extra memory and no measurable cost on large
+files (raw stays readable). A "format dates" toggle disables formatting entirely.
 
-Verify: overview.html passes node --check (no literal \n/\r, no unsafe Thymeleaf);
-CSS balanced. The filter logic (distinct, single/multi select, source AND target,
-partial clear, blank value) was exercised in Node and matches expectations.
-Frontend only.
+Date formatting (schema-driven): a column is a date when the schema gives a format key
+(format/dateFormat/displayFormat/outputFormat) or type/dataType date|time; optional
+inputFormat parses the raw value, else auto-detect handles yyyyMMdd, yyyyMMddHHmmss,
+ISO, dd/MM/yyyy and Excel serials; unrecognised values are left untouched.
+
+Verify: JS passes node --check; zero literal \n/\r escapes (String.fromCharCode); no
+unsafe [[ / [(. Parsing, schema, date and aggregation (COUNT/DISTINCT/SUM/substring/
+totals) were exercised in Node. Frontend only.
