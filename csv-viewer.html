@@ -17,8 +17,18 @@
   button,select,input[type=text]{font-family:var(--sans);font-size:12.5px;color:var(--ink);background:var(--raise);border:1px solid var(--line);border-radius:4px;padding:6px 10px}
   button{cursor:pointer}button:hover{border-color:var(--accent)}button.primary{border-color:var(--accent);color:var(--accent)}
   button:disabled{opacity:.5;cursor:default}
-  .file-btn{position:relative;overflow:hidden;display:inline-block}
-  .file-btn input[type=file]{position:absolute;left:0;top:0;opacity:0;width:100%;height:100%;cursor:pointer}
+  .loadbar{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px}
+  .filebox{flex:1;min-width:280px;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--raise)}
+  .filebox-label{font-size:12px;color:var(--dim);margin-bottom:7px;font-weight:600}
+  .filebox-label .req{color:#f5a623;font-weight:700;margin-left:4px}
+  .filebox-label .opt{color:var(--faint);font-weight:400;margin-left:4px}
+  .filebox-row{display:flex;align-items:center;gap:10px}
+  .browse{position:relative;overflow:hidden;display:inline-block;cursor:pointer;white-space:nowrap;
+    background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:7px 14px;font-size:12.5px;color:var(--ink)}
+  .browse:hover{border-color:var(--accent);color:var(--accent)}
+  .browse input[type=file]{position:absolute;left:0;top:0;opacity:0;width:100%;height:100%;cursor:pointer}
+  .filename{font-family:var(--mono);font-size:12px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .filename.set{color:var(--ok)}
   .wrap{padding:12px 16px}
   .meta{color:var(--dim);font-family:var(--mono);font-size:12px;margin:2px 0 8px}.meta b{color:var(--ink)}
   .banner{padding:10px 14px;border-radius:6px;margin:10px 0;font-family:var(--mono);font-size:12.5px}
@@ -69,8 +79,6 @@
 <body>
 <div class="top">
   <span class="brand">OPENPROTEO <small>· standalone CSV viewer</small></span>
-  <span class="file-btn"><button id="csvBtn">Load CSV…</button><input type="file" id="csvFile" accept=".csv,.tsv,.txt"></span>
-  <span class="file-btn"><button id="schemaBtn">displayschema.json… (optional)</button><input type="file" id="schemaFile" accept=".json"></span>
   <select id="delimSel" title="Delimiter (auto-detected; override if needed)">
     <option value="auto">delim: auto</option><option value=",">comma ,</option><option value=";">semicolon ;</option><option value="TAB">tab</option><option value="|">pipe |</option>
   </select>
@@ -80,6 +88,22 @@
 </div>
 
 <div class="wrap">
+  <div class="loadbar">
+    <div class="filebox">
+      <div class="filebox-label">1 &middot; CSV file <span class="req">required</span></div>
+      <div class="filebox-row">
+        <label class="browse">Browse&hellip;<input type="file" id="csvFile" accept=".csv,.tsv,.txt"></label>
+        <span class="filename" id="csvName">no file selected</span>
+      </div>
+    </div>
+    <div class="filebox">
+      <div class="filebox-label">2 &middot; displayschema.json <span class="opt">optional</span></div>
+      <div class="filebox-row">
+        <label class="browse">Browse&hellip;<input type="file" id="schemaFile" accept=".json"></label>
+        <span class="filename" id="schemaName">no file selected</span>
+      </div>
+    </div>
+  </div>
   <div id="msg" class="banner info">Load a CSV. Optionally load a <code>displayschema.json</code> for field titles and date formatting (the same schema OpenProteo uses per feed). Dates are formatted only for the rows on screen, so large files stay fast; the raw value is used for filtering and sorting.</div>
   <div id="meta" class="meta"></div>
   <div id="tabs" class="tabs" style="display:none">
@@ -333,10 +357,9 @@
   function onCsv(file){CURRENT_NAME=file.name;readFile(file,function(txt){CSV_TEXT=txt;load();});}
   function onSchema(file){readFile(file,function(txt){try{SCHEMA=parseSchema(txt);SCHEMA_LOADED=true;if(DATA)load();}catch(e){showError(e.message);}});}
 
-  $('csvBtn').onclick=function(){$('csvFile').click();};
-  $('schemaBtn').onclick=function(){$('schemaFile').click();};
-  $('csvFile').onchange=function(e){if(e.target.files[0])onCsv(e.target.files[0]);};
-  $('schemaFile').onchange=function(e){if(e.target.files[0])onSchema(e.target.files[0]);};
+  function setName(id,file){var el2=$(id);el2.textContent=file?file.name:'no file selected';el2.className='filename'+(file?' set':'');}
+  $('csvFile').onchange=function(e){var f=e.target.files[0];if(f){setName('csvName',f);onCsv(f);}};
+  $('schemaFile').onchange=function(e){var f=e.target.files[0];if(f){setName('schemaName',f);onSchema(f);}};
   $('delimSel').onchange=function(){if(DATA)load();};
   $('fmtDates').onchange=function(){if(DATA)renderShell();};
   $('filter').oninput=function(){if(DATA){recomputeView();renderShell();}};
@@ -345,7 +368,7 @@
   var drop=$('drop');
   ['dragenter','dragover'].forEach(function(ev){document.addEventListener(ev,function(e){e.preventDefault();drop.classList.add('drag');});});
   document.addEventListener('dragleave',function(e){if(!e.relatedTarget)drop.classList.remove('drag');});
-  document.addEventListener('drop',function(e){e.preventDefault();drop.classList.remove('drag');var files=e.dataTransfer.files;for(var i=0;i<files.length;i++){var f=files[i];if(/\.json$/i.test(f.name))onSchema(f);else onCsv(f);}});
+  document.addEventListener('drop',function(e){e.preventDefault();drop.classList.remove('drag');var files=e.dataTransfer.files;for(var i=0;i<files.length;i++){var f=files[i];if(/\.json$/i.test(f.name)){setName('schemaName',f);onSchema(f);}else{setName('csvName',f);onCsv(f);}}});
 })();
 </script>
 </body>
