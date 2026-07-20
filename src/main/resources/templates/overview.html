@@ -54,8 +54,11 @@
     </div>
 
     <div class="panel">
-        <h3 style="display:flex;align-items:center;justify-content:space-between">
-            <span>By source <span class="dim small" id="rollupHint"></span></span>
+        <h3 style="display:flex;align-items:center;gap:12px;justify-content:space-between">
+            <span style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                <span>By source <span class="dim small" id="rollupHint"></span></span>
+                <span class="msf"><button class="btn sm" id="dashSrcBtn" onclick="toggleDashSrc()">Sources: all &#9662;</button><div class="msf-panel" id="dashSrcPanel" style="display:none"></div></span>
+            </span>
             <button class="btn sm" onclick="loadFeeds(true)">↻ Refresh</button>
         </h3>
         <div class="tiles" id="tiles"></div>
@@ -163,7 +166,7 @@
         return { ic:'\u26C5', t:'mixed' };
     }
     function renderRollup(){
-        var r = rollup(FEEDS), t = r.tot;
+        var r = rollup(dashFeeds()), t = r.tot; dashSrcBtnUpd();
         document.getElementById('tiles').innerHTML =
             tileEl('total','Feeds',t.total,'') + tileEl('running','Running',t.running,'run') +
             tileEl('success','Success',t.success,'ok') + tileEl('failed','Failed',t.failed,'fail') +
@@ -197,6 +200,15 @@
     function setDrill(bucket, source){ drill = { bucket:bucket, source:source }; renderRollup(); renderDrill(); }
     function clearDrill(){ drill = { bucket:'total', source:null }; var q=document.getElementById('drillQuery'); if(q) q.value=''; srcSel={}; tgtSel={}; if(document.getElementById('srcFilterBtn')){ msfUpdateBtn('src'); msfUpdateBtn('tgt'); } renderRollup(); renderDrill(); }
     function bucketLabel(b){ return ({total:'all',notRun:'not run',running:'running',success:'success',failed:'failed',aborted:'aborted',other:'other'})[b] || b; }
+    // dashboard-level SOURCE filter: limits the whole summary (tiles + by-source table) and the drill
+    var dashSrc = {};
+    function dashFeeds(){ var ks=Object.keys(dashSrc); if(!ks.length) return FEEDS; return FEEDS.filter(function(f){ return dashSrc[f.source||'\u2014']; }); }
+    function dashSrcDistinct(){ var seen={}, out=[]; FEEDS.forEach(function(f){ var v=f.source||'\u2014'; if(!seen[v]){ seen[v]=1; out.push(v); } }); out.sort(); return out; }
+    function dashSrcBtnUpd(){ var b=document.getElementById('dashSrcBtn'); if(!b) return; var n=Object.keys(dashSrc).length; b.textContent='Sources: '+(n===0?'all':n+' selected')+' \u25BE'; }
+    function renderDashSrcPanel(){ var pn=document.getElementById('dashSrcPanel'); if(!pn) return; var vals=dashSrcDistinct(); var h='<label class="msf-item"><input type="checkbox"'+(Object.keys(dashSrc).length===0?' checked':'')+' onchange="dashSrcAll()"> <b>All sources</b></label>'; for(var i=0;i<vals.length;i++){ h+='<label class="msf-item"><input type="checkbox"'+(dashSrc[vals[i]]?' checked':'')+' onchange="dashSrcToggle(this,\''+encodeURIComponent(vals[i])+'\')"> '+esc(vals[i])+'</label>'; } pn.innerHTML=h; }
+    function toggleDashSrc(){ var pn=document.getElementById('dashSrcPanel'); if(!pn) return; var open=pn.style.display!=='none'; pn.style.display=open?'none':'block'; if(!open) renderDashSrcPanel(); }
+    function dashSrcAll(){ Object.keys(dashSrc).forEach(function(k){ delete dashSrc[k]; }); renderDashSrcPanel(); dashSrcBtnUpd(); renderRollup(); renderDrill(); }
+    function dashSrcToggle(cb, encV){ var v=decodeURIComponent(encV); if(cb.checked) dashSrc[v]=1; else delete dashSrc[v]; renderDashSrcPanel(); dashSrcBtnUpd(); renderRollup(); renderDrill(); }
     var srcSel = {}, tgtSel = {};
     function msfGetter(kind){ return kind==='src' ? function(f){ return f.source||'—'; } : function(f){ return f.targetId||'—'; }; }
     function msfSel(kind){ return kind==='src' ? srcSel : tgtSel; }
@@ -216,12 +228,12 @@
     }
     function msfAll(kind){ var sel=msfSel(kind); Object.keys(sel).forEach(function(k){ delete sel[k]; }); renderMsfPanel(kind); msfUpdateBtn(kind); renderDrill(); }
     function msfToggle(kind, cb, encV){ var v=decodeURIComponent(encV), sel=msfSel(kind); if(cb.checked) sel[v]=1; else delete sel[v]; renderMsfPanel(kind); msfUpdateBtn(kind); renderDrill(); }
-    document.addEventListener('mousedown', function(e){ if(!e.target.closest || !e.target.closest('.msf')){ var sp=document.getElementById('srcFilterPanel'), tp=document.getElementById('tgtFilterPanel'); if(sp) sp.style.display='none'; if(tp) tp.style.display='none'; } });
+    document.addEventListener('mousedown', function(e){ if(!e.target.closest || !e.target.closest('.msf')){ var sp=document.getElementById('srcFilterPanel'), tp=document.getElementById('tgtFilterPanel'), dp=document.getElementById('dashSrcPanel'); if(sp) sp.style.display='none'; if(tp) tp.style.display='none'; if(dp) dp.style.display='none'; } });
 
     function renderDrill(){
         if (!drill){ document.getElementById('drillPanel').style.display='none'; return; }
         var q = ((document.getElementById('drillQuery')||{}).value || '').trim().toLowerCase();
-        var list = FEEDS.filter(function(f){
+        var list = dashFeeds().filter(function(f){
             if (drill.source != null && (f.source||'—') !== drill.source) return false;
             if (Object.keys(srcSel).length > 0 && !srcSel[f.source||'—']) return false;
             if (Object.keys(tgtSel).length > 0 && !tgtSel[f.targetId||'—']) return false;

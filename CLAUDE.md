@@ -642,3 +642,13 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   to keep the poll cheap. Variables page keeps tags RAW (editable). Verified logic
   standalone; Java not compiled in sandbox. Note in
   `.claude/2026-07-20-overview-tags-resolve.md`.
+
+## Operations overview: SOURCE filter on the summary/rollup
+* A "Sources: all" checkbox dropdown in the "By source" panel header filters the whole
+  summary by source: the status tiles and the by-source table recount only the
+  selected sources; it also drives the drill grid (dashFeeds() feeds rollup +
+  renderDrill), so drilling shows the same subset (in-drill src/tgt filters still AND
+  on top). dashSrc {} (empty=all), dashFeeds() filters FEEDS; renderRollup uses
+  rollup(dashFeeds()); renderDrill bases on dashFeeds().filter. overview.html only;
+  node --check clean; logic verified in Node. Note in
+  `.claude/2026-07-20-overview-summary-source-filter.md`.
