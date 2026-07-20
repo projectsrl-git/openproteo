@@ -652,3 +652,10 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   rollup(dashFeeds()); renderDrill bases on dashFeeds().filter. overview.html only;
   node --check clean; logic verified in Node. Note in
   `.claude/2026-07-20-overview-summary-source-filter.md`.
+
+## Operations overview: "On hold" column in the by-source table
+* The by-source rollup table was missing an On hold column, so on-hold feeds counted in
+  Total but showed in no column and the row didn't add up. Added an "On hold" column
+  (after Aborted), cell('onhold', s.source, s.onhold, ...), clickable to drill. Now the
+  per-source columns reconcile with Total. overview.html only; node --check clean. Note
+  in `.claude/2026-07-20-overview-onhold-column.md`.

@@ -175,7 +175,7 @@
             tileEl('other','Other',t.other,'');
         if (r.order.length === 0){ document.getElementById('rollupWrap').innerHTML='<div class="dim small">No feeds.</div>'; return; }
         var h = '<table class="grid"><thead><tr><th title="aggregate weather for the source">Sky</th><th>Source</th><th class="num">Total</th><th class="num">Not run</th>' +
-                '<th class="num">Running</th><th class="num">Success</th><th class="num">Failed</th><th class="num">Aborted</th><th class="num">Other</th><th>Mix</th></tr></thead><tbody>';
+                '<th class="num">Running</th><th class="num">Success</th><th class="num">Failed</th><th class="num">Aborted</th><th class="num">On hold</th><th class="num">Other</th><th>Mix</th></tr></thead><tbody>';
         for (var i=0;i<r.order.length;i++){
             var s = r.bySrc[r.order[i]];
             var bar = '<div class="bar">' + seg('seg-run',s.running,s.total,'running') + seg('seg-ok',s.success,s.total,'success') +
@@ -189,6 +189,7 @@
                 cell('success', s.source, s.success, 'color:var(--ok)') +
                 cell('failed', s.source, s.failed, 'color:var(--fail)') +
                 cell('aborted', s.source, s.aborted, '') +
+                cell('onhold', s.source, s.onhold, 'color:var(--run)') +
                 cell('other', s.source, s.other, '') +
                 '<td>' + bar + '</td></tr>';
         }
