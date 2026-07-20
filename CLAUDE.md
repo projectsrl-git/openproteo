@@ -632,3 +632,13 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * csv-viewer.html columns were fixed 160px; now auto-width from content (max of
   DisplayName/ColumnName/300-row sample, 54..420px) + horizontal scroll + sticky header
   + drag-resize. Note in `.claude/2026-07-20-clear-history-and-viewer-fixes.md`.
+
+## Operations overview: resolve ${var} in feed tags
+* The Operations grid showed feed tags raw (e.g. ${recordBusinessDate},
+  ${originTableName}). overviewFeeds() now resolves each tag via VarResolver.resolve
+  against a light var map (globalVars + feedId/sourceId/targetId + runDate/runTs +
+  def.variables) — recordBusinessDate/originTableName are workflow vars so they
+  resolve; unknown -> empty; literals untouched. Light map avoids feedVars()/provision
+  to keep the poll cheap. Variables page keeps tags RAW (editable). Verified logic
+  standalone; Java not compiled in sandbox. Note in
+  `.claude/2026-07-20-overview-tags-resolve.md`.

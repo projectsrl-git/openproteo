@@ -1483,7 +1483,24 @@ public class ApiController {
                 m.put("sourceDescription", def.sourceDescription);
                 m.put("targetId", def.targetId == null ? "" : def.targetId);
                 m.put("targetDescription", def.targetDescription);
-                m.put("tags", (def.tags == null || def.tags.isEmpty()) ? "" : String.join(", ", def.tags));
+                // tags may contain ${var} placeholders (e.g. ${recordBusinessDate}, ${originTableName}) —
+                // resolve them for display against the feed's workflow variables (light map, no provision).
+                String tagsStr = "";
+                if (def.tags != null && !def.tags.isEmpty()) {
+                    Map<String, String> tagVars = new LinkedHashMap<String, String>();
+                    tagVars.putAll(globalVars.all());
+                    tagVars.put("feedId", def.feedId);
+                    tagVars.put("sourceId", def.sourceId == null ? "" : def.sourceId);
+                    tagVars.put("targetId", def.targetId == null ? "" : def.targetId);
+                    java.time.LocalDateTime tnow = java.time.LocalDateTime.now();
+                    tagVars.put("runDate", tnow.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd")));
+                    tagVars.put("runTs", tnow.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
+                    if (def.variables != null) tagVars.putAll(def.variables);
+                    java.util.List<String> rtags = new java.util.ArrayList<String>();
+                    for (String t : def.tags) rtags.add(com.legalarchive.orchestrator.engine.VarResolver.resolve(t, tagVars));
+                    tagsStr = String.join(", ", rtags);
+                }
+                m.put("tags", tagsStr);
                 String activeId = engine.activeRunId(def.feedId);
                 boolean running = activeId != null && !activeId.contains("_test_");
                 String lastStatus = null, lastRunTs = null, lastSuccessTs = null, lastRunId = null, failedStep = null;
