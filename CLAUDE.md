@@ -605,3 +605,11 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   hover (covers the "obvious server name" alternative); light-theme variants.
   theme.js node --check clean (0 \n/\r); css balanced. Note in
   `.claude/2026-07-15-environment-header-badge.md`.
+
+## Operations: source & target multi-select filters
+* The feed grid gains Source and Target checkbox-dropdown filters (one/several/all).
+  Empty selection = all; combine with AND plus the existing text search and rollup
+  drill; "Show all" resets them; panels close on outside click. srcSel/tgtSel
+  objects (empty=all), msfDistinct from FEEDS, renderDrill excludes on non-empty
+  mismatch. .msf CSS added. overview.html only. Verified node --check + filter
+  logic in Node. Note in `.claude/2026-07-15-operations-source-target-filters.md`.

@@ -1,29 +1,23 @@
-UI polish: light-theme contrast + environment header badge
+Operations: source & target multi-select filters
 
-Two related header/theme improvements.
+The feed grid gains two dedicated filters -- Source and Target -- each a checkbox
+dropdown allowing one, several, or all values.
 
-1) Light-theme polish (app.css, scoped to :root[data-theme="light"]) — the light
-   theme lacked contrast between field placeholders and real values because only
-   .field inputs had a light placeholder colour; other inputs used the browser
-   default (~text colour, dark). Now: a global lighter italic ::placeholder
-   (#98a4b3, opacity 1) for all inputs/textareas; every input reads light (white
-   bg/--ink/--line); real values at font-weight 500 so they stand apart from the
-   italic hints; a clearer focus ring; dim/secondary text nudged for contrast. The
-   dark theme is untouched.
+- Each control is a button ("Source: all" / "Target: all") opening a panel with an
+  "All" row plus one checkbox per distinct value (blank shown as a dash).
+- Empty selection = all (no filter); selecting values filters to them and the
+  button shows "N selected"; "All" clears back to all.
+- Source and Target combine with AND, and with the existing free-text search and
+  the rollup drill; "Show all" resets both filters; panels close on outside click.
 
-2) Environment header badge (DEV/SIT/UAT/PROD) — distinguish installations from the
-   header. AppProperties.environment (config orchestrator.environment=PROD; empty
-   hides it). GET /api/env -> {environment, host}. theme.js (loaded on every page,
-   already injecting the theme toggle) also fetches /api/env and injects an
-   .env-badge into .topbar (single point, no per-page edits); PROD adds .is-prod.
-   CSS: PROD is white-on-red and prominent with a red accent line under the topbar;
-   DEV neutral, SIT blue, UAT amber; host shown on hover (covers the "obvious server
-   name" alternative); light-theme variants included.
+Implementation (overview.html + app.css, frontend only): srcSel/tgtSel objects
+(empty = all), msfDistinct builds the option list from FEEDS, renderDrill excludes
+a feed when a non-empty selection doesn't contain its source/target. .msf CSS
+added (theme-aware).
 
-Docs: .claude/2026-07-15-light-theme-polish.md,
-.claude/2026-07-15-environment-header-badge.md and CLAUDE.md.
+Docs: .claude/2026-07-15-operations-source-target-filters.md and CLAUDE.md.
 
-Verify: theme.js passes node --check with zero literal \n/\r escapes; app.css braces
-balanced; the light additions are scoped to the light theme; AppProperties/endpoint
-mirror existing code (@RestController). Full Maven build to be confirmed on deploy;
-then set orchestrator.environment per installation.
+Verify: overview.html passes node --check (no literal \n/\r, no unsafe Thymeleaf);
+CSS balanced. The filter logic (distinct, single/multi select, source AND target,
+partial clear, blank value) was exercised in Node and matches expectations.
+Frontend only.

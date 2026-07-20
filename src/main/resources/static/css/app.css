@@ -780,3 +780,17 @@ th.sortable:hover { color: var(--accent); }
 :root[data-theme="light"] .env-badge.env-SIT  { background: var(--run-bg); }
 :root[data-theme="light"] .env-badge.env-UAT  { background: var(--wait-bg); }
 :root[data-theme="light"] .env-badge.env-PROD { background: #c62828; border-color: #e57373; color: #fff; }
+
+
+/* ============================================================
+   Operations source/target multi-select filters
+   ============================================================ */
+.msf { position: relative; display: inline-block; }
+.msf-panel { position: absolute; z-index: 60; top: 100%; left: 0; margin-top: 4px;
+  min-width: 180px; max-height: 280px; overflow: auto; background: var(--bg-panel);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
+.msf-item { display: block; padding: 4px 6px; font-size: 12.5px; cursor: pointer;
+  white-space: nowrap; color: var(--ink); border-radius: 4px; }
+.msf-item:hover { background: var(--bg-raise); }
+.msf-item input { margin-right: 6px; vertical-align: -1px; }

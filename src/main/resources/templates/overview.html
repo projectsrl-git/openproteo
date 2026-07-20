@@ -74,6 +74,8 @@
         </h3>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
             <input id="drillQuery" placeholder="Filter feeds (id, name, source, target, tags, dates, output…)" oninput="renderDrill()" style="flex:1;min-width:220px">
+            <div class="msf"><button class="btn sm" id="srcFilterBtn" onclick="toggleMsf('src')">Source: all &#9662;</button><div class="msf-panel" id="srcFilterPanel" style="display:none"></div></div>
+            <div class="msf"><button class="btn sm" id="tgtFilterBtn" onclick="toggleMsf('tgt')">Target: all &#9662;</button><div class="msf-panel" id="tgtFilterPanel" style="display:none"></div></div>
             <button class="btn sm" onclick="exportDisplayed()" title="Download the filtered rows as CSV">⤓ CSV (displayed)</button>
             <button class="btn sm" onclick="exportSelected()" title="Download the checkbox-selected rows as CSV">⤓ CSV (selected)</button>
             <button class="btn sm" onclick="copyDisplayed()" title="Copy the filtered rows as CSV to the clipboard">⧉ Copy</button>
@@ -193,13 +195,36 @@
     }
 
     function setDrill(bucket, source){ drill = { bucket:bucket, source:source }; renderRollup(); renderDrill(); }
-    function clearDrill(){ drill = { bucket:'total', source:null }; var q=document.getElementById('drillQuery'); if(q) q.value=''; renderRollup(); renderDrill(); }
+    function clearDrill(){ drill = { bucket:'total', source:null }; var q=document.getElementById('drillQuery'); if(q) q.value=''; srcSel={}; tgtSel={}; if(document.getElementById('srcFilterBtn')){ msfUpdateBtn('src'); msfUpdateBtn('tgt'); } renderRollup(); renderDrill(); }
     function bucketLabel(b){ return ({total:'all',notRun:'not run',running:'running',success:'success',failed:'failed',aborted:'aborted',other:'other'})[b] || b; }
+    var srcSel = {}, tgtSel = {};
+    function msfGetter(kind){ return kind==='src' ? function(f){ return f.source||'—'; } : function(f){ return f.targetId||'—'; }; }
+    function msfSel(kind){ return kind==='src' ? srcSel : tgtSel; }
+    function msfDistinct(kind){ var g=msfGetter(kind), seen={}, out=[]; FEEDS.forEach(function(f){ var v=g(f); if(!seen[v]){ seen[v]=1; out.push(v); } }); out.sort(); return out; }
+    function msfUpdateBtn(kind){ var n=Object.keys(msfSel(kind)).length; document.getElementById(kind+'FilterBtn').textContent=(kind==='src'?'Source':'Target')+': '+(n===0?'all':n+' selected')+' ▾'; }
+    function renderMsfPanel(kind){
+        var sel=msfSel(kind), vals=msfDistinct(kind);
+        var h='<label class="msf-item"><input type="checkbox"'+(Object.keys(sel).length===0?' checked':'')+' onchange="msfAll(\''+kind+'\')"> <b>All</b></label>';
+        for(var i=0;i<vals.length;i++){ h+='<label class="msf-item"><input type="checkbox"'+(sel[vals[i]]?' checked':'')+' onchange="msfToggle(\''+kind+'\',this,\''+encodeURIComponent(vals[i])+'\')"> '+esc(vals[i])+'</label>'; }
+        document.getElementById(kind+'FilterPanel').innerHTML=h;
+    }
+    function toggleMsf(kind){
+        var p=document.getElementById(kind+'FilterPanel'), open=p.style.display!=='none';
+        document.getElementById('srcFilterPanel').style.display='none';
+        document.getElementById('tgtFilterPanel').style.display='none';
+        if(!open){ renderMsfPanel(kind); p.style.display='block'; }
+    }
+    function msfAll(kind){ var sel=msfSel(kind); Object.keys(sel).forEach(function(k){ delete sel[k]; }); renderMsfPanel(kind); msfUpdateBtn(kind); renderDrill(); }
+    function msfToggle(kind, cb, encV){ var v=decodeURIComponent(encV), sel=msfSel(kind); if(cb.checked) sel[v]=1; else delete sel[v]; renderMsfPanel(kind); msfUpdateBtn(kind); renderDrill(); }
+    document.addEventListener('mousedown', function(e){ if(!e.target.closest || !e.target.closest('.msf')){ var sp=document.getElementById('srcFilterPanel'), tp=document.getElementById('tgtFilterPanel'); if(sp) sp.style.display='none'; if(tp) tp.style.display='none'; } });
+
     function renderDrill(){
         if (!drill){ document.getElementById('drillPanel').style.display='none'; return; }
         var q = ((document.getElementById('drillQuery')||{}).value || '').trim().toLowerCase();
         var list = FEEDS.filter(function(f){
             if (drill.source != null && (f.source||'—') !== drill.source) return false;
+            if (Object.keys(srcSel).length > 0 && !srcSel[f.source||'—']) return false;
+            if (Object.keys(tgtSel).length > 0 && !tgtSel[f.targetId||'—']) return false;
             if (drill.bucket !== 'total' && f.bucket !== drill.bucket) return false;
             if (q){ var hay = ((f.feedId||'')+' '+(f.name||'')+' '+(f.source||'')+' '+(f.sourceDescription||'')+' '+(f.targetId||'')+' '+(f.targetDescription||'')+' '+(f.tags||'')+' '+(f.lastStatus||'')+' '+(f.failedStep||'')+' '+(f.lastRunTs||'')+' '+(f.lastSuccessTs||'')+' '+((f.outputData||[]).map(function(o){return (o.label||'')+' '+(o.value==null?'':o.value);}).join(' '))+' '+((f.runsOutputData||[]).map(function(r){return (r.runTs||'')+' '+(r.status||'')+' '+((r.outputData||[]).map(function(o){return (o.label||'')+' '+(o.value==null?'':o.value);}).join(' '));}).join(' '))).toLowerCase(); if (hay.indexOf(q) < 0) return false; }
             return true;
