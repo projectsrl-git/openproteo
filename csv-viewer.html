@@ -116,6 +116,14 @@
       <input type="text" id="filter" placeholder="🔎 Filter (all columns, raw values)…">
       <span class="meta" id="count" style="margin:0"></span>
     </div>
+    <div class="filter-row" id="rangeRow" style="display:none">
+      <select id="fcol" style="max-width:260px"><option value="">— column filter —</option></select>
+      <input type="text" id="ffrom" placeholder="from / min / exact" style="max-width:150px">
+      <input type="text" id="fto" placeholder="to / max (optional)" style="max-width:150px">
+      <button id="fadd">+ Add column filter</button>
+      <span class="meta" id="fhint" style="margin:0;color:var(--faint)">range on one column (inclusive); numeric if both look numeric, else text. Same value in both = exact match.</span>
+    </div>
+    <div class="filter-row" id="fchips" style="display:none;gap:6px"></div>
     <div id="viewer"></div>
   </div>
 
@@ -172,7 +180,7 @@
 
   // ===== state =====
   var CURRENT_NAME='file.csv',CSV_TEXT=null,SCHEMA_LOADED=false;
-  var DATA=null,SCHEMA={names:{},dates:{}},DISPLAY=[],DATECOL=[],COLW=[],VIEW=[],SORT={col:-1,desc:false},ROWH=26;
+  var DATA=null,SCHEMA={names:{},dates:{}},DISPLAY=[],DATECOL=[],COLW=[],VIEW=[],SORT={col:-1,desc:false},ROWH=26,RANGES=[];
 
   function cellRaw(row,c){return row&&c<row.length?(row[c]==null?'':row[c]):'';}
   function cellDisp(row,c){var v=cellRaw(row,c);if($('fmtDates').checked&&DATECOL[c])return applyDate(v,DATECOL[c]);return v;}
@@ -190,16 +198,23 @@
   }
   function totalW(){var w=0;for(var i=0;i<COLW.length;i++)w+=COLW[i];return w;}
 
+  function cmpValue(a,b){a=String(a==null?'':a);b=String(b==null?'':b);var na=Number(a.trim()),nb=Number(b.trim());if(a.trim()!==''&&b.trim()!==''&&isFinite(na)&&isFinite(nb))return na<nb?-1:(na>nb?1:0);var la=a.toLowerCase(),lb=b.toLowerCase();return la<lb?-1:(la>lb?1:0);}
+  function rangeOk(row){for(var k=0;k<RANGES.length;k++){var rg=RANGES[k],v=cellRaw(row,rg.col);if(rg.from!==''&&cmpValue(v,rg.from)<0)return false;if(rg.to!==''&&cmpValue(v,rg.to)>0)return false;}return true;}
   function recomputeView(){
     var q=($('filter').value||'').trim().toLowerCase();VIEW=[];
     for(var i=0;i<DATA.rows.length;i++){
-      if(q){var row=DATA.rows[i],hit=false;for(var c=0;c<DATA.columns.length;c++){if(String(cellRaw(row,c)).toLowerCase().indexOf(q)>=0){hit=true;break;}}if(!hit)continue;}
+      var row=DATA.rows[i];
+      if(RANGES.length&&!rangeOk(row))continue;
+      if(q){var hit=false;for(var c=0;c<DATA.columns.length;c++){if(String(cellRaw(row,c)).toLowerCase().indexOf(q)>=0){hit=true;break;}}if(!hit)continue;}
       VIEW.push(i);
     }
     if(SORT.col>=0){var sc=SORT.col,dir=SORT.desc?-1:1;VIEW.sort(function(a,b){var va=String(cellRaw(DATA.rows[a],sc)),vb=String(cellRaw(DATA.rows[b],sc));var na=parseFloat(va),nb=parseFloat(vb),bn=(va!==''&&vb!==''&&!isNaN(na)&&!isNaN(nb)&&/^-?[0-9.]+$/.test(va)&&/^-?[0-9.]+$/.test(vb));if(bn)return(na-nb)*dir;return va<vb?-1*dir:(va>vb?1*dir:0);});}
     $('count').textContent=VIEW.length+' / '+DATA.rows.length+' rows';
   }
 
+  function fillFilterCol(){var sel=$('fcol');sel.innerHTML='';var o0=el('option',null,sel);o0.value='';o0.textContent='— column filter —';DATA.columns.forEach(function(cn,ci){var o=el('option',null,sel);o.value=String(ci);o.textContent=DISPLAY[ci]?(DISPLAY[ci]+' \u2014 '+cn):cn;});}
+  function renderRangeChips(){var box=$('fchips');box.innerHTML='';box.style.display=RANGES.length?'flex':'none';RANGES.forEach(function(rg,idx){var ch=el('span','ms-chip',box);var nm=DISPLAY[rg.col]||DATA.columns[rg.col];ch.textContent=nm+': '+(rg.from||'*')+' .. '+(rg.to||'*')+' ';var x=el('b',null,ch);x.textContent=String.fromCharCode(0xD7);x.style.cursor='pointer';x.onclick=function(){RANGES.splice(idx,1);renderRangeChips();recomputeView();renderShell();};});}
+  function addRange(){var cv=$('fcol').value;if(cv==='')return;var fr=($('ffrom').value||'').trim(),to=($('fto').value||'').trim();if(!fr&&!to)return;RANGES.push({col:+cv,from:fr,to:to});$('ffrom').value='';$('fto').value='';renderRangeChips();recomputeView();renderShell();}
   var scrollEl,spacerEl,bodyEl;
   function renderShell(){
     var host=$('viewer');host.innerHTML='';var grid=el('div','grid',host);
@@ -349,7 +364,7 @@
       DATA=parseCsv(CSV_TEXT,$('delimSel').value);buildColumnMeta();SORT={col:-1,desc:false};recomputeView();
       var nD=DATECOL.filter(function(x){return!!x;}).length,nT=DISPLAY.filter(function(x){return!!x;}).length;
       $('meta').innerHTML='<b>'+esc(CURRENT_NAME)+'</b> — <b>'+DATA.rows.length+'</b> rows · <b>'+DATA.columns.length+'</b> cols · delimiter <b>'+esc(DATA.delimiter)+'</b>'+(SCHEMA_LOADED?(' · schema: <b>'+nT+'</b> titles, <b>'+nD+'</b> date col(s)'):' · no displayschema');
-      $('msg').style.display='none';$('tabs').style.display='flex';$('filterRow').style.display='flex';$('drop').style.display='none';
+      RANGES=[];fillFilterCol();renderRangeChips();$('msg').style.display='none';$('tabs').style.display='flex';$('filterRow').style.display='flex';$('rangeRow').style.display='flex';$('drop').style.display='none';
       buildAggControls();renderShell();
     }catch(e){showError(e.message);}
   }
@@ -363,6 +378,9 @@
   $('delimSel').onchange=function(){if(DATA)load();};
   $('fmtDates').onchange=function(){if(DATA)renderShell();};
   $('filter').oninput=function(){if(DATA){recomputeView();renderShell();}};
+  $('fadd').onclick=addRange;
+  $('ffrom').onkeydown=function(e){if(e.key==='Enter')addRange();};
+  $('fto').onkeydown=function(e){if(e.key==='Enter')addRange();};
   $('aggGo').onclick=runAgg;$('aggExport').onclick=exportAgg;
 
   var drop=$('drop');
