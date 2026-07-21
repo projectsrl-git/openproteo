@@ -18,6 +18,8 @@ public final class VarResolver {
 
     // innermost ${name}: the name itself may not contain $ { } so nested refs resolve inside-out
     private static final Pattern VAR = Pattern.compile("\\$\\{([^${}]+)\\}");
+    // list indexing: name[N] -> N-th element (1-based) of a ';'-separated list value
+    private static final Pattern INDEX = Pattern.compile("^(.+)\\[([0-9]+)\\]$");
     private static final int MAX_DEPTH = 12;
 
     private VarResolver() {}
@@ -39,7 +41,21 @@ public final class VarResolver {
             boolean any = false;
             while (m.find()) {
                 any = true;
-                String val = vars.get(m.group(1));
+                String name = m.group(1);
+                String val = vars.get(name);
+                if (val == null) {
+                    // list indexing: ${list[N]} -> N-th (1-based) element of the ';'-separated list ${list}
+                    Matcher im = INDEX.matcher(name);
+                    if (im.matches()) {
+                        String listVal = vars.get(im.group(1));
+                        if (listVal != null) {
+                            String[] parts = listVal.split(";", -1);
+                            int oneBased = Integer.parseInt(im.group(2));
+                            int zi = oneBased - 1;
+                            val = (zi >= 0 && zi < parts.length) ? parts[zi].trim() : "";
+                        }
+                    }
+                }
                 m.appendReplacement(sb, Matcher.quoteReplacement(val != null ? val : ""));
             }
             if (!any) break;            // nothing left to resolve

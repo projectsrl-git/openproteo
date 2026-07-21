@@ -668,3 +668,11 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   (run.html varValHtml): same treatment per ${var}; scalars unchanged; path lists wrap
   without a sum. overview.html + run.html; node --check clean; verified in Node. Note in
   `.claude/2026-07-21-outputdata-run-vars-multiline.md`.
+
+## VarResolver: list indexing ${list[N]}
+* csvRowCounts/csvFiles are single ';'-separated strings; added ${name[N]} to VarResolver
+  = N-th element (1-based) of the ';'-list ${name}, trimmed. With indirection,
+  ${csvRowCounts[${loopIndex}]} gives the current file's row count in a loop (loopIndex is
+  1-based -> [1] is first). Out-of-range/missing -> empty. Splits on ';' (default list
+  delimiter). Compiled + tested standalone. Note in
+  `.claude/2026-07-21-varresolver-list-indexing.md`.
