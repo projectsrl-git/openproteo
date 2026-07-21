@@ -217,10 +217,13 @@
         document.getElementById('stepRows').innerHTML = rows;
 
         // variabili
+        function fmtNum(n){ n=String(n); var neg=n.charAt(0)==='-'; if(neg)n=n.slice(1); var out='',c=0; for(var z=n.length-1;z>=0;z--){ out=n.charAt(z)+out; c++; if(c%3===0&&z>0) out=','+out; } return (neg?'-':'')+out; }
+        function isNumList(v){ if(v==null) return null; v=String(v); if(v.indexOf(';')<0) return null; var parts=v.split(';'), vals=[], sum=0, cnt=0, allNum=true; for(var i=0;i<parts.length;i++){ var t=parts[i].trim(); if(t==='') continue; cnt++; vals.push(t); if(/^-?[0-9]+$/.test(t)) sum+=parseInt(t,10); else allNum=false; } if(cnt<2) return null; return { vals:vals, sum:sum, cnt:cnt, allNum:allNum }; }
+        function varValHtml(v){ var lst=isNumList(v); if(!lst) return esc(v); var body=''; for(var j=0;j<lst.vals.length;j++) body += '<div class="mono">' + esc(lst.vals[j]) + '</div>'; return '<span class="dim">' + (lst.allNum ? '\u03A3 ' + esc(fmtNum(lst.sum)) + ' ' : '') + '(' + lst.cnt + ' value' + (lst.cnt!==1?'s':'') + ')</span><div style="max-height:160px;overflow:auto;padding-left:8px;border-left:2px solid var(--line);margin-top:2px">' + body + '</div>'; }
         var vb = '';
         Object.keys(run.vars || {}).forEach(function (k) {
             if (k.indexOf('__') === 0) return;   // hide internal loop bookkeeping
-            vb += '<dt>${' + esc(k) + '}</dt><dd>' + esc(run.vars[k]) + '</dd>';
+            vb += '<dt>${' + esc(k) + '}</dt><dd>' + varValHtml(run.vars[k]) + '</dd>';
         });
         document.getElementById('varBox').innerHTML = vb;
 

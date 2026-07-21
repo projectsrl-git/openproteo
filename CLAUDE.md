@@ -659,3 +659,12 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   (after Aborted), cell('onhold', s.source, s.onhold, ...), clickable to drill. Now the
   per-source columns reconcile with Total. overview.html only; node --check clean. Note
   in `.claude/2026-07-20-overview-onhold-column.md`.
+
+## Wrap ';'-lists (with sum) in OUTPUT DATA and run Variables
+* Long ';'-separated values (csvRowCounts per-file counts, csvFiles path lists) were
+  one-line and unreadable. Overview OUTPUT DATA (odItemsHtml): each variable on its own
+  line; a ';'-list of 2+ tokens -> block with "Σ <total>" (numeric only, thousands) +
+  "(N values)" and each value on its own line (scrollable). Run page Variables
+  (run.html varValHtml): same treatment per ${var}; scalars unchanged; path lists wrap
+  without a sum. overview.html + run.html; node --check clean; verified in Node. Note in
+  `.claude/2026-07-21-outputdata-run-vars-multiline.md`.
