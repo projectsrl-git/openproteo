@@ -676,3 +676,11 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   1-based -> [1] is first). Out-of-range/missing -> empty. Splits on ';' (default list
   delimiter). Compiled + tested standalone. Note in
   `.claude/2026-07-21-varresolver-list-indexing.md`.
+
+## Fixes: deleted-run rows, light zebra, standalone aggregate range
+* #2 Run history (runs.html) is audit-based; deleting a run left its audit-grouped node.
+  runs.html now flags runs with a RUN_DELETED event and hides them (audit kept); counter
+  uses visible runs. #3 csv-viewer light theme: explicit zebra (white / #f2f5f9 / amber
+  hover). #4 (standalone) csv-viewer rowsForAgg now also applies per-column RANGES when
+  "respect Data filter" is on. Backend items (internal viewer aggregate range, duplicate
+  workflow assets) follow separately. Note in `.claude/2026-07-21-fixes-runs-viewer.md`.

@@ -55,6 +55,7 @@
                 if(!runs[rid]){ runs[rid]={id:rid, events:[], status:'', start:e.ts, end:e.ts}; order.push(rid); }
                 runs[rid].events.push(e);
                 if(e.ts) runs[rid].end = e.ts;
+                if(e.event==='RUN_DELETED') runs[rid].deleted=true;   // hide deleted runs (audit trail kept in the log)
                 if(e.event && e.event.indexOf('RUN_')===0){
                     if(e.details && e.details.status) runs[rid].status=e.details.status;            // authoritative
                     else if(e.event==='RUN_COMPLETED') runs[rid].status='SUCCESS';                   // terminal success event
@@ -63,7 +64,8 @@
                 }
             });
             order.reverse();
-            document.getElementById('treeInfo').textContent = order.length + ' run(s)';
+            var visible = order.filter(function(rid){ return !runs[rid].deleted; });
+            document.getElementById('treeInfo').textContent = visible.length + ' run(s)';
             var h='';
             if(feedFiles.length){
                 h+='<details class="run-node" data-rid="_files"'+(open['_files']?' open':'')+'><summary>📁 Feed files ('+feedFiles.length+' events)</summary><div class="run-body">';
@@ -73,7 +75,7 @@
                 });
                 h+='</div></details>';
             }
-            order.forEach(function(rid){
+            visible.forEach(function(rid){
                 var r=runs[rid];
                 var stClass = r.status||'';
                 h+='<details class="run-node" data-rid="'+esch(rid)+'"'+(open[rid]?' open':'')+'><summary><span class="chip '+esch(stClass)+'">'+esch(r.status||'?')+'</span> <span class="mono">'+esch(rid)+'</span>'+

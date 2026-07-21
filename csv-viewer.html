@@ -55,6 +55,9 @@
   .gscroll{overflow:auto;position:relative}
   .grow{border-bottom:1px solid var(--soft)}.grow.odd{background:rgba(128,128,128,.06)}
   .grow:hover{background:rgba(245,166,35,.07)}
+  :root[data-theme="light"] .grow{background:#ffffff;border-bottom-color:#eaeef3}
+  :root[data-theme="light"] .grow.odd{background:#f2f5f9}
+  :root[data-theme="light"] .grow:hover{background:#fbeecb}
   .gcell.date{color:var(--accent)}
   .drop{border:2px dashed var(--line);border-radius:8px;padding:34px;text-align:center;color:var(--dim);margin-top:16px}
   .drop.drag{border-color:var(--accent);color:var(--ink)}
@@ -265,7 +268,7 @@
   // ===== aggregation (client-side): group-by COUNT + DISTINCT COUNT + SUM (+ pivot) =====
   function subMapFrom(text){var map={};(text||'').split(',').forEach(function(p){var eq=p.indexOf('=');if(eq<0)return;var nm=p.slice(0,eq).trim().toLowerCase(),spec=p.slice(eq+1).trim();var mm=spec.match(/^([LRlr])([0-9]+)$/);if(nm&&mm)map[nm]={side:mm[1].toUpperCase(),n:+mm[2]};});return map;}
   function subApply(val,idx,map){var scn=(DATA.columns[idx]||'').toLowerCase();var sp=map[scn];if(!sp)return val;val=String(val==null?'':val);return sp.side==='L'?val.slice(0,sp.n):val.slice(Math.max(0,val.length-sp.n));}
-  function rowsForAgg(){var q=$('aggFilterCb').checked?($('filter').value||'').trim().toLowerCase():'';var res=[];for(var i=0;i<DATA.rows.length;i++){var row=DATA.rows[i];if(q){var hit=false;for(var c=0;c<DATA.columns.length;c++){if(String(cellRaw(row,c)).toLowerCase().indexOf(q)>=0){hit=true;break;}}if(!hit)continue;}res.push(row);}return res;}
+  function rowsForAgg(){var respect=$('aggFilterCb').checked;var q=respect?($('filter').value||'').trim().toLowerCase():'';var res=[];for(var i=0;i<DATA.rows.length;i++){var row=DATA.rows[i];if(respect&&RANGES.length&&!rangeOk(row))continue;if(q){var hit=false;for(var c=0;c<DATA.columns.length;c++){if(String(cellRaw(row,c)).toLowerCase().indexOf(q)>=0){hit=true;break;}}if(!hit)continue;}res.push(row);}return res;}
   function computeAgg(gi,di,si,map){
     var rows=rowsForAgg();var groups={},order=[];var gDist=di.map(function(){return{};}),gDistN=di.map(function(){return 0;}),gSum=si.map(function(){return 0;});var total=0;
     for(var r=0;r<rows.length;r++){var row=rows[r];total++;
