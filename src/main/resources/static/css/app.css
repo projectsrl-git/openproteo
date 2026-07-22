@@ -369,6 +369,8 @@ footer { margin-top: 50px; color: var(--ink-faint); font-size: 11px; font-family
 .vwr-body.vgrid { border-radius: 0 0 6px 6px; }
 .vgrid-row { display: flex; }
 .vgrid-row.odd { background: var(--bg-soft, #131a27); }
+:root[data-theme="light"] .vgrid-row.odd { background: #f2f5f9; }
+:root[data-theme="light"] .vgrid-row:hover { background: #fbeecb; }
 .vgrid-cell { padding: 4px 10px; border-right: 1px solid var(--line); white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; font: 12px var(--mono, Consolas, monospace);
   line-height: 18px; box-sizing: border-box; }
@@ -426,6 +428,7 @@ footer { margin-top: 50px; color: var(--ink-faint); font-size: 11px; font-family
 
 /* pinned totals row in aggregation/pivot */
 .vgrid-row.totals { background: #1d2738; border-top: 1px solid var(--accent); border-bottom: 1px solid var(--line); }
+:root[data-theme="light"] .vgrid-row.totals { background: #eaf0fb; }
 .vgrid-row.totals .vgrid-cell { font-weight: 700; color: var(--accent); }
 
 /* BPMN expanded sub-nodes (validate checklist as real sub-steps) */

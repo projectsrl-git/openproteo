@@ -694,3 +694,9 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   (built like csvPage); viewer.js buildAgg passes ranges via a getRanges callback. Java not
   compiled here; mirrors existing code. Note in
   `.claude/2026-07-21-duplicate-assets-and-internal-agg-range.md`.
+
+## Internal CSV viewer: light-theme zebra fix
+* .vgrid-row.odd used var(--bg-soft, #131a27) but --bg-soft is undefined, so odd rows were
+  dark navy in light theme; totals row was hardcoded #1d2738. Added light overrides in
+  app.css (odd #f2f5f9, hover #fbeecb, totals #eaf0fb). app.css only; rebuild WAR + Ctrl+F5
+  (static CSS is browser-cached). Note in `.claude/2026-07-22-internal-viewer-light-zebra.md`.

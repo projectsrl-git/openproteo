@@ -1,25 +1,19 @@
-Duplicate workflow copies uploaded files; internal viewer aggregate respects range filters
+Internal CSV viewer: fix heavy dark rows in light theme
 
-#1 Duplicating a workflow ("Duplicate as new") recreated only the definition; the uploaded
-files (dataschema/displayschema/scripts) were not copied, leaving the new feed's directory
-incomplete. Added AssetStore.copyFeedAssets(from,to) (copies each uploaded file + its
-metadata, writing metadata once) and a new endpoint
-POST /api/workflows/{feedId}/copy-assets-from/{sourceFeedId}. designer.html now remembers
-the source feed on duplicate (window.DUP_FROM) and, after a successful save (both the form
-save() and saveXmlDirect()), copies the files into the new feed and remounts/reloads, so
-the duplicate is a faithful copy.
+The internal viewer's odd rows used `.vgrid-row.odd { background: var(--bg-soft, #131a27); }`,
+but --bg-soft is never defined anywhere, so the dark-navy fallback #131a27 was always applied
+-- fine on the dark theme, too heavy on light. The totals row was hardcoded to #1d2738 (also
+dark).
 
-#4 (internal viewer) The aggregate ignored the per-column range filters: csvAgg only took
-group/distinct/q, so CsvService.aggregate never saw them. CsvService.aggregate now has an
-overload taking List<Filter> (cache key includes them; the scan applies matchesFilters like
-page() does); the old 4-arg form delegates with null. csvAgg and both @GetMapping wrappers
-accept fc/ff/ft and build filters exactly like csvPage. viewer.js buildAgg receives a
-getRanges callback and appends &fc/&ff/&ft to the aggregate URL, so the Aggregate tab
-reflects the active range filters.
+Added light-theme overrides in app.css:
+  :root[data-theme="light"] .vgrid-row.odd    { background: #f2f5f9; }
+  :root[data-theme="light"] .vgrid-row:hover  { background: #fbeecb; }
+  :root[data-theme="light"] .vgrid-row.totals { background: #eaf0fb; }
 
-Docs: .claude/2026-07-21-duplicate-assets-and-internal-agg-range.md and CLAUDE.md.
+(The earlier light-zebra fix only touched the standalone csv-viewer.html; this is the
+internal OpenProteo viewer.)
 
-Verify: viewer.js and designer.html pass node --check (no literal \n/\r, no unsafe
-Thymeleaf); CsvService/ApiController/AssetStore are brace/paren balanced and mirror the
-existing csvPage / AssetStore code. Java not compiled in the chat sandbox -- run the full
-Maven build on deploy.
+Docs: .claude/2026-07-22-internal-viewer-light-zebra.md and CLAUDE.md.
+
+Verify: app.css only. It is a static asset in the WAR -- rebuild the WAR and hard-refresh
+(Ctrl+F5) since the CSS is browser-cached.
