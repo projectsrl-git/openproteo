@@ -568,6 +568,11 @@ public class WorkflowEngine {
                             return;
                         }
                     }
+                    // currentDate/currentTs = evaluated NOW, per step execution (so resumed ON-HOLD steps
+                    // and their successors get today's date, not the original runDate)
+                    java.time.LocalDateTime nowStep = java.time.LocalDateTime.now();
+                    run.vars.put("currentDate", nowStep.format(DateTimeFormatter.ofPattern("yyyyMMdd")));
+                    run.vars.put("currentTs", nowStep.format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
                     boolean ok = executeStep(def, layout, run, sd);
                     if (!ok) {
                         RunControl c2 = controls.get(run.runId);

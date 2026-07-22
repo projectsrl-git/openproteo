@@ -708,3 +708,11 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   scope 'stepMode'; ApiController StepEdit.stepMode is applied in applyEditsToDto exactly
   like setStepMode (skip=true/onHold=null etc.); var-catalog returns skip/onHold per step
   for the "currently" hint. Note in `.claude/2026-07-22-variables-step-mode-massedit.md`.
+
+## Tag badges (overview) + runtime currentDate variable
+* Overview feed rows render resolved tags as pills (.tagb/.tag-badges in app.css, light
+  override incl.) instead of a "tags: ..." line. * New runtime vars currentDate/currentTs:
+  evaluated NOW and refreshed before every step in WorkflowEngine.loop() (yyyyMMdd /
+  yyyyMMdd_HHmmss), so resumed ON-HOLD steps and their successors can use ${currentDate}
+  (today) instead of the fixed ${runDate} (run start). feedVars + overview tag map also
+  expose them (design-time = now). Note in `.claude/2026-07-22-tag-badges-and-currentDate.md`.

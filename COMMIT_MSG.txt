@@ -1,21 +1,20 @@
-Variables page: mass-edit "Step mode" (skip / on hold) with the editor's dropdown
+Tag badges in Operations overview + new runtime currentDate/currentTs variables
 
-The Variables (mass-edit) page could edit step fields, params, output data and on-success
-delete across the selected feeds, but not the step mode. Added a "step mode" dropdown per
-step -- same options as the designer step editor (leave unchanged / normal /
-skip (passthrough) / on hold (pause)) -- so skip or pause can be set massively on the common
-steps of many feeds, using the same dropdown found in edit.
+#1 The overview feed list showed tags as a plain "tags: a, b, c" line. overview.html now
+renders each resolved tag as a small pill (.tagb inside .tag-badges); app.css styles the
+badges with a light-theme override.
 
-- variables.html: valSelect "step mode" in both the single-feed step view and the
-  common-steps (multi-feed) view; the hint shows the current mode ("currently: ..." or
-  "differ across feeds"). The collector adds scope 'stepMode' to the step edit.
-- ApiController: StepEdit gains a stepMode field; applyEditsToDto maps it to the step DTO
-  exactly like the designer's setStepMode (skip -> skip=true/onHold=null; onHold ->
-  onHold=true/skip=null; normal -> both cleared). var-catalog now also returns skip/onHold
-  per step so the "currently" hint is accurate.
+#2 Added runtime variables currentDate and currentTs. Unlike runDate/runTs (fixed at run
+start), they are evaluated NOW and refreshed before every step execution in
+WorkflowEngine.loop() (yyyyMMdd and yyyyMMdd_HHmmss). So when an ON-HOLD step is resumed days
+later, that step and its successors can use ${currentDate} to get today's date instead of the
+original ${runDate}. feedVars and the overview tag-resolution map also expose
+currentDate/currentTs (design-time value = now) so ${currentDate} resolves in previews and in
+feed tags.
 
-Docs: .claude/2026-07-22-variables-step-mode-massedit.md and CLAUDE.md.
+Docs: .claude/2026-07-22-tag-badges-and-currentDate.md and CLAUDE.md.
 
-Verify: variables.html passes node --check (no literal \n/\r, no unsafe Thymeleaf);
-ApiController is brace/paren balanced and the mapping mirrors setStepMode. Java not compiled
-in the chat sandbox -- run the Maven build on deploy.
+Verify: overview.html passes node --check (no literal \n/\r, no unsafe Thymeleaf);
+WorkflowEngine and ApiController are brace/paren balanced. Java not compiled in the chat
+sandbox -- run the Maven build on deploy; app.css is a static asset so hard-refresh (Ctrl+F5)
+after deploy.

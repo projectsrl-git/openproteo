@@ -255,7 +255,7 @@
             var f = list[i];
             h += '<tr>' +
                 '<td style="width:1%"><input type="checkbox" class="drillcb" data-feed="' + esc(f.feedId) + '"' + (drillSelSet[f.feedId] ? ' checked' : '') + ' onclick="drillOnCb(this)"></td>' +
-                '<td><span class="mono feed-id">' + esc(f.feedId) + '</span>' + (f.production?' <span class="opprod">PROD</span>':'') + (f.locked?' \uD83D\uDD12':'') + '<div class="dim small">' + esc(f.name||'') + '</div>' + (f.tags ? '<div class="dim small">tags: ' + esc(f.tags) + '</div>' : '') + '</td>' +
+                '<td><span class="mono feed-id">' + esc(f.feedId) + '</span>' + (f.production?' <span class="opprod">PROD</span>':'') + (f.locked?' \uD83D\uDD12':'') + '<div class="dim small">' + esc(f.name||'') + '</div>' + (f.tags ? '<div class="tag-badges">' + f.tags.split(', ').map(function(t){ t=(t||'').trim(); return t ? ('<span class="tagb">' + esc(t) + '</span>') : ''; }).join('') + '</div>' : '') + '</td>' +
                 '<td class="small dim"><span class="mono">' + esc(f.source||'—') + '</span>' + (f.sourceDescription ? '<div>' + esc(f.sourceDescription) + '</div>' : '') + '</td>' +
                 '<td class="small dim"><span class="mono">' + esc(f.targetId||'—') + '</span>' + (f.targetDescription ? '<div>' + esc(f.targetDescription) + '</div>' : '') + '</td>' +
                 '<td>' + statusChip(f.lastStatus) + (f.failedStep ? ' <span class="mono small">@ ' + esc(f.failedStep) + '</span>' : '') + ' <span class="mono small dim">' + esc(f.lastRunTs||'') + '</span></td>' +

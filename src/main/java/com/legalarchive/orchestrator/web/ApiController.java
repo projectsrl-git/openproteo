@@ -176,6 +176,8 @@ public class ApiController {
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
         vars.put("runDate", now.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd")));
         vars.put("runTs", now.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
+        vars.put("currentDate", now.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd")));
+        vars.put("currentTs", now.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
         FeedLayout layout = registry.layout(feedId);
         if (layout != null) { try { layout.provision(); } catch (Exception ignore) {} vars.putAll(layout.dirVars()); }
         try { vars.put("sharedDir", assets.sharedDir().toString()); } catch (Exception ignore) {}
@@ -242,6 +244,8 @@ public class ApiController {
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
         vars.put("runDate", now.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd")));
         vars.put("runTs", now.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
+        vars.put("currentDate", now.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd")));
+        vars.put("currentTs", now.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
         FeedLayout layout = registry.layout(feedId);
         if (layout != null) { try { layout.provision(); } catch (Exception ignore) {} vars.putAll(layout.dirVars()); }
         try { vars.put("sharedDir", assets.sharedDir().toString()); } catch (Exception ignore) {}
@@ -1495,6 +1499,8 @@ public class ApiController {
                     java.time.LocalDateTime tnow = java.time.LocalDateTime.now();
                     tagVars.put("runDate", tnow.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd")));
                     tagVars.put("runTs", tnow.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
+                    tagVars.put("currentDate", tnow.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd")));
+                    tagVars.put("currentTs", tnow.format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")));
                     if (def.variables != null) tagVars.putAll(def.variables);
                     java.util.List<String> rtags = new java.util.ArrayList<String>();
                     for (String t : def.tags) rtags.add(com.legalarchive.orchestrator.engine.VarResolver.resolve(t, tagVars));
