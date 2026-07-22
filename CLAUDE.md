@@ -700,3 +700,11 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   dark navy in light theme; totals row was hardcoded #1d2738. Added light overrides in
   app.css (odd #f2f5f9, hover #fbeecb, totals #eaf0fb). app.css only; rebuild WAR + Ctrl+F5
   (static CSS is browser-cached). Note in `.claude/2026-07-22-internal-viewer-light-zebra.md`.
+
+## Variables page: mass-edit "Step mode" (skip / on hold)
+* The mass-edit Variables page now has a "step mode" dropdown per step (same options as the
+  designer: normal / skip (passthrough) / on hold (pause)) in both the single-feed and
+  common-steps views, so skip/pause can be set massively. variables.html collect adds
+  scope 'stepMode'; ApiController StepEdit.stepMode is applied in applyEditsToDto exactly
+  like setStepMode (skip=true/onHold=null etc.); var-catalog returns skip/onHold per step
+  for the "currently" hint. Note in `.claude/2026-07-22-variables-step-mode-massedit.md`.

@@ -218,6 +218,9 @@
     function commonFieldKeys(arr){ var c={}; arr.forEach(function(st){ var f=st.fields||{}; Object.keys(f).forEach(function(k){ c[k]=(c[k]||0)+1; }); }); return Object.keys(c).filter(function(k){ return c[k]===arr.length; }); }
     function commonParamKeys(arr){ var c={}; arr.forEach(function(st){ (st.params||[]).forEach(function(pp){ c[pp.name]=(c[pp.name]||0)+1; }); }); return Object.keys(c).filter(function(k){ return c[k]===arr.length; }); }
     function paramVal(st,name){ var v=''; (st.params||[]).forEach(function(pp){ if(pp.name===name) v=pp.value; }); return v; }
+    function stepModeOf(st){ return st && st.skip ? 'skip' : (st && st.onHold ? 'onHold' : 'normal'); }
+    function stepModeLabel(m){ return m==='skip'?'skip (passthrough)':(m==='onHold'?'on hold (pause)':'normal'); }
+    function stepModeOpts(){ return [{value:'',label:'leave unchanged'},{value:'normal',label:'normal'},{value:'skip',label:'skip (passthrough)'},{value:'onHold',label:'on hold (pause)'}]; }
     function isResParam(name){ return name==='deleteOnSuccess' || name==='deleteOnSuccessType' || (name && name.indexOf('outputData.')===0); }
     function odText(st){ var lines=[]; (st.params||[]).forEach(function(p){ if(p.name && p.name.indexOf('outputData.')===0) lines.push(p.name.substring(11)+' = '+(p.value||'')); }); return lines.join(String.fromCharCode(10)); }
     function renderEditor(){
@@ -254,6 +257,7 @@
             var odi=valLine(sb, 'output data', odText(st), 'one per line: variable = description', true); odi.setAttribute('data-scope','outputData'); odi.setAttribute('data-step', st.id);
             var dpi=valLine(sb, 'on-success delete (path)', paramVal(st,'deleteOnSuccess'), '${dir.<stepId>} or a file/dir path; empty = off'); dpi.setAttribute('data-scope','delPath'); dpi.setAttribute('data-step', st.id);
             var dti=valLine(sb, 'on-success delete (type)', paramVal(st,'deleteOnSuccessType'), 'file | directory'); dti.setAttribute('data-scope','delType'); dti.setAttribute('data-step', st.id);
+            var smi=valSelect(sb, 'step mode', stepModeOpts(), 'currently: '+stepModeLabel(stepModeOf(st))); smi.setAttribute('data-scope','stepMode'); smi.setAttribute('data-step', st.id);
         });
     }
     function renderCommon(host, feeds){
@@ -310,6 +314,8 @@
                 var dpi=valLine(gb, 'on-success delete (path)', dpEq?dps[0]:'', dpEq?'${dir.<stepId>} or path; empty = off':'(differs across feeds — type to set for all)'); dpi.setAttribute('data-scope','delPath'); dpi.setAttribute('data-step', id);
                 var dts=arr.map(function(st){ return paramVal(st,'deleteOnSuccessType'); }); var dtEq=dts.every(function(x){ return x===dts[0]; });
                 var dti=valLine(gb, 'on-success delete (type)', dtEq?dts[0]:'', dtEq?'file | directory':'(differs across feeds — type to set for all)'); dti.setAttribute('data-scope','delType'); dti.setAttribute('data-step', id);
+                var sms=arr.map(function(st){ return stepModeOf(st); }); var smEq=sms.every(function(x){ return x===sms[0]; });
+                var smi=valSelect(gb, 'step mode', stepModeOpts(), smEq?('currently: '+stepModeLabel(sms[0])):'(differ across feeds \u2014 pick to set for all)'); smi.setAttribute('data-scope','stepMode'); smi.setAttribute('data-step', id);
             })();
         });
     }
@@ -331,9 +337,10 @@
                     else if(scope==='outputData') e.outputData=inp.value;
                     else if(scope==='delPath') e.deleteOnSuccess=inp.value;
                     else if(scope==='delType') e.deleteOnSuccessType=inp.value;
+                    else if(scope==='stepMode') e.stepMode=inp.value;
                     else e.params.push({name:name,value:inp.value}); }
             }
-            var steps=Object.keys(stepsMap).map(function(sid){ var e=stepsMap[sid]; var o={stepId:sid, params:e.params, fields:e.fields}; if(e.outputData!==undefined)o.outputData=e.outputData; if(e.deleteOnSuccess!==undefined)o.deleteOnSuccess=e.deleteOnSuccess; if(e.deleteOnSuccessType!==undefined)o.deleteOnSuccessType=e.deleteOnSuccessType; return o; });
+            var steps=Object.keys(stepsMap).map(function(sid){ var e=stepsMap[sid]; var o={stepId:sid, params:e.params, fields:e.fields}; if(e.outputData!==undefined)o.outputData=e.outputData; if(e.deleteOnSuccess!==undefined)o.deleteOnSuccess=e.deleteOnSuccess; if(e.deleteOnSuccessType!==undefined)o.deleteOnSuccessType=e.deleteOnSuccessType; if(e.stepMode!==undefined&&e.stepMode!=='')o.stepMode=e.stepMode; return o; });
             return {vars:vars, steps:steps, tags:tags, outputData:wfod, production:(prod===undefined||prod==='')?undefined:(prod==='true')};
         }
         if(mode==='single'){

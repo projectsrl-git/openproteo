@@ -1937,6 +1937,7 @@ public class ApiController {
                 if (!"STEP".equals(nd.kind)) continue;
                 Map<String, Object> sm = new LinkedHashMap<String, Object>();
                 sm.put("id", nd.id); sm.put("name", nd.name == null ? "" : nd.name); sm.put("exec", nd.exec == null ? "" : nd.exec);
+                sm.put("skip", Boolean.TRUE.equals(nd.skip)); sm.put("onHold", Boolean.TRUE.equals(nd.onHold));
                 java.util.List<Map<String, String>> ps = new java.util.ArrayList<Map<String, String>>();
                 if (nd.params != null) for (WorkflowDto.KV kv : nd.params) {
                     Map<String, String> m = new LinkedHashMap<String, String>();
@@ -2048,6 +2049,11 @@ public class ApiController {
                     }
                     if (se.deleteOnSuccess != null) setOrRemoveParam(nd, "deleteOnSuccess", se.deleteOnSuccess);
                     if (se.deleteOnSuccessType != null) setOrRemoveParam(nd, "deleteOnSuccessType", se.deleteOnSuccessType);
+                    if (se.stepMode != null && !se.stepMode.isEmpty()) {
+                        if ("skip".equals(se.stepMode))        { nd.skip = Boolean.TRUE; nd.onHold = null; }
+                        else if ("onHold".equals(se.stepMode)) { nd.onHold = Boolean.TRUE; nd.skip = null; }
+                        else                                    { nd.skip = null; nd.onHold = null; }   // normal
+                    }
                 }
             }
         }
@@ -2096,6 +2102,7 @@ public class ApiController {
             public String outputData;                       // null=unchanged; full replace of outputData.* (lines: var = description)
             public String deleteOnSuccess;                  // null=unchanged; empty=remove
             public String deleteOnSuccessType;              // null=unchanged; empty=remove
+            public String stepMode;                         // null/empty=unchanged; normal | skip | onHold
         }
     }
 
