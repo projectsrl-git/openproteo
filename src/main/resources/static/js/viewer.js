@@ -179,7 +179,7 @@
                 clearTimeout(deb);
                 deb = setTimeout(function () { q = filter.value.trim(); applyParams(); }, 300);
             });
-            buildAgg(paneA, api, path, name, columns, function () { return q; });
+            buildAgg(paneA, api, path, name, columns, function () { return q; }, function () { return ranges; });
         }
     }
 
@@ -226,7 +226,7 @@
         };
     }
 
-    function buildAgg(pane, api, path, name, columns, getQ) {
+    function buildAgg(pane, api, path, name, columns, getQ, getRanges) {
         var PIVOT_MAX = 30;
         var bar = el('div', 'vwr-tools agg', pane);
         text(el('div', 'dim small', bar), 'Group by (count of rows per combination):');
@@ -287,6 +287,8 @@
                 (reqGroup.length ? ('&group=' + reqGroup.join(',')) : '') +
                 (reqDist.length ? ('&distinct=' + reqDist.join(',')) : '') +
                 (getQ() ? ('&q=' + encodeURIComponent(getQ())) : '');
+            var rgs = (typeof getRanges === 'function') ? (getRanges() || []) : [];
+            for (var ri = 0; ri < rgs.length; ri++) url += '&fc=' + rgs[ri].col + '&ff=' + encodeURIComponent(rgs[ri].from) + '&ft=' + encodeURIComponent(rgs[ri].to);
             fetch(url).then(json).then(function (j) {
                 if (!j.ok) { summary.textContent = 'ERROR: ' + (j.error || 'failed'); return; }
                 summary.textContent = j.distinctGroups + ' distinct group(s) over ' + j.scanned + ' rows' +

@@ -104,6 +104,29 @@ public class AssetStore {
         return null;
     }
 
+    /** Copy all uploaded files (and their metadata) from one feed to another. Returns the count copied. */
+    public synchronized int copyFeedAssets(String fromFeedId, String toFeedId) {
+        Path src = scopeDir(fromFeedId), dst = scopeDir(toFeedId);
+        if (src == null || dst == null || src.equals(dst)) return 0;
+        List<Asset> srcList = readMeta(src);
+        if (srcList.isEmpty()) return 0;
+        int copied = 0;
+        try { Files.createDirectories(dst); } catch (Exception ignore) {}
+        List<Asset> dstList = readMeta(dst);
+        for (final Asset a : srcList) {
+            try {
+                Path sf = src.resolve(a.fileName), df = dst.resolve(a.fileName);
+                if (Files.exists(sf)) {
+                    Files.copy(sf, df, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    dstList.removeIf(x -> x.fileName.equals(a.fileName));
+                    dstList.add(a);
+                    copied++;
+                }
+            } catch (Exception ignore) {}
+        }
+        writeMeta(dst, dstList);
+        return copied;
+    }
     public synchronized void put(String feedId, Asset asset) {
         Path dir = scopeDir(feedId);
         if (dir == null) return;

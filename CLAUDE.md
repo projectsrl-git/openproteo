@@ -684,3 +684,13 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   hover). #4 (standalone) csv-viewer rowsForAgg now also applies per-column RANGES when
   "respect Data filter" is on. Backend items (internal viewer aggregate range, duplicate
   workflow assets) follow separately. Note in `.claude/2026-07-21-fixes-runs-viewer.md`.
+
+## #1 Duplicate copies uploaded files; #4 internal aggregate respects ranges
+* Duplicate as new now copies uploaded files: AssetStore.copyFeedAssets(from,to), endpoint
+  POST /api/workflows/{feedId}/copy-assets-from/{sourceFeedId}, and designer.html remembers
+  window.DUP_FROM and calls it after save (save() + saveXmlDirect()). * Internal viewer
+  aggregate now honours per-column range filters: CsvService.aggregate gains a List<Filter>
+  overload (applied via matchesFilters, cache-key aware); csvAgg + wrappers take fc/ff/ft
+  (built like csvPage); viewer.js buildAgg passes ranges via a getRanges callback. Java not
+  compiled here; mirrors existing code. Note in
+  `.claude/2026-07-21-duplicate-assets-and-internal-agg-range.md`.

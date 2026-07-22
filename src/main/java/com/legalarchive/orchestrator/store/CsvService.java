@@ -267,6 +267,12 @@ public class CsvService {
         return p;
     }
 
+    private static String filtersKey(List<Filter> filters) {
+        if (filters == null || filters.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (Filter ft : filters) sb.append(ft.col).append(':').append(ft.from == null ? "" : ft.from).append("..").append(ft.to == null ? "" : ft.to).append(';');
+        return sb.toString();
+    }
     private boolean matchesFilters(List<String> row, List<Filter> filters) {
         if (filters == null) return true;
         for (Filter ft : filters) {
@@ -307,9 +313,13 @@ public class CsvService {
     /** Column spec: "3" or "3:L4" (left 4 chars) or "3:R2" (right 2). Lets you group/count by a
      *  substring — e.g. year from a date column, or a code prefix. */
     public Agg aggregate(File f, String[] groupSpec, String[] distinctSpec, String q) throws Exception {
+        return aggregate(f, groupSpec, distinctSpec, q, null);
+    }
+    /** Same, but the per-column range filters (as used by the table view) also restrict the aggregate. */
+    public Agg aggregate(File f, String[] groupSpec, String[] distinctSpec, String q, List<Filter> filters) throws Exception {
         Meta m = meta(f);
         String cacheKey = f.getAbsolutePath() + "|" + m.mtime + "|" + m.size + "|" +
-                Arrays.toString(groupSpec) + "|" + Arrays.toString(distinctSpec) + "|" + (q == null ? "" : q);
+                Arrays.toString(groupSpec) + "|" + Arrays.toString(distinctSpec) + "|" + (q == null ? "" : q) + "|" + filtersKey(filters);
         synchronized (aggCache) {
             Agg cached = aggCache.get(cacheKey);
             if (cached != null) return cached;
@@ -340,6 +350,7 @@ public class CsvService {
             while ((line = r.readLine()) != null) {
                 List<String> row = split(line, d);
                 if (!matches(row, ql)) continue;
+                if (filters != null && !matchesFilters(row, filters)) continue;
                 agg.scanned++;
                 StringBuilder kb = new StringBuilder();
                 String[] vals = new String[groupCols.length];

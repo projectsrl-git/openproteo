@@ -1498,6 +1498,11 @@
                 banner(true, 'Saved as <b>' + esc(res.j.file) + '</b> — definitions reloaded and cron rescheduled. ' +
                     '<a href="/workflow/' + encodeURIComponent(res.j.feedId) + '">Open workflow page</a>');
                 EDIT_FEED_ID = res.j.feedId;                 // now an existing feed: enable workflow files
+                if (window.DUP_FROM && window.DUP_FROM !== res.j.feedId) {
+                    var _src = window.DUP_FROM; window.DUP_FROM = null;
+                    fetch(CTX + 'api/workflows/' + encodeURIComponent(res.j.feedId) + '/copy-assets-from/' + encodeURIComponent(_src), { method: 'POST' })
+                        .then(readJson).then(function (cj) { if (cj && cj.ok && cj.copied) banner(true, 'Duplicated \u2014 ' + cj.copied + ' uploaded file(s) copied from ' + esc(_src) + '.'); if (window.__mountWfFiles) window.__mountWfFiles(); }).catch(function () {});
+                }
                 if (window.__mountWfFiles) window.__mountWfFiles();
                 window.scrollTo(0, 0);
             } else if (res.st === 409 && res.j.exists) {
@@ -1571,8 +1576,12 @@
             }).then(function (r) { var st = r.status; return readJson(r).then(function (j) { return { st: st, j: j }; }); })
               .then(function (res) {
                 if (res.j.ok) {
+                    var _go = function () { window.location = CTX + 'designer/' + encodeURIComponent(res.j.feedId); };
                     banner(true, 'Saved as <b>' + esc(res.j.file) + '</b> — reloading…');
-                    window.location = CTX + 'designer/' + encodeURIComponent(res.j.feedId);
+                    if (window.DUP_FROM && window.DUP_FROM !== res.j.feedId) {
+                        var _src = window.DUP_FROM; window.DUP_FROM = null;
+                        fetch(CTX + 'api/workflows/' + encodeURIComponent(res.j.feedId) + '/copy-assets-from/' + encodeURIComponent(_src), { method: 'POST' }).then(_go).catch(_go);
+                    } else { _go(); }
                 } else {
                     banner(false, esc(res.j.error || 'Save failed'));
                     window.scrollTo(0, 0);
@@ -1584,6 +1593,7 @@
     // ---------------- edit mode ----------------
     function duplicateWorkflow() {
         opConfirm('Duplicate this workflow as a new draft?', function () {
+            window.DUP_FROM = EDIT_FEED_ID;   // copy this feed's uploaded files into the new one on save
             EDIT_FEED_ID = null;
             wf.feedId = '';
             var fe = document.getElementById('f_feedId');

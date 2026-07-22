@@ -1729,6 +1729,22 @@ public class ApiController {
      * Save a workflow from raw XML pasted/edited in the designer. The XML is validated by parsing
      * it with the runtime parser; on success it is written and the registry/scheduler reloaded.
      */
+    /** Copy all uploaded files (dataschema/displayschema/scripts) from a source feed to this feed.
+     *  Used by "Duplicate as new" so the new workflow's directory is a faithful copy. */
+    @PostMapping("/api/workflows/{feedId}/copy-assets-from/{sourceFeedId}")
+    public ResponseEntity<Map<String, Object>> copyAssetsFrom(@PathVariable String feedId, @PathVariable String sourceFeedId) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        if (registry.get(feedId) == null) { out.put("ok", false); out.put("error", "Unknown target feed"); return ResponseEntity.status(HttpStatus.NOT_FOUND).body(out); }
+        if (registry.get(sourceFeedId) == null) { out.put("ok", false); out.put("error", "Unknown source feed"); return ResponseEntity.status(HttpStatus.NOT_FOUND).body(out); }
+        try {
+            int copied = assets.copyFeedAssets(sourceFeedId, feedId);
+            out.put("ok", true); out.put("copied", copied);
+            return ResponseEntity.ok(out);
+        } catch (Exception e) {
+            return badRequest(out, e.getMessage() == null ? e.toString() : e.getMessage());
+        }
+    }
+
     @PostMapping("/api/workflows/save-xml")
     public ResponseEntity<Map<String, Object>> saveXml(@RequestBody String xml,
                                                        @RequestParam(defaultValue = "false") boolean overwrite,
@@ -2670,11 +2686,17 @@ public class ApiController {
     @GetMapping("/api/workflows/{feedId}/csv/aggregate")
     public ResponseEntity<Map<String, Object>> csvAggF(@PathVariable String feedId, @RequestParam("path") String path,
             @RequestParam(required = false) String group, @RequestParam(required = false) String distinct,
-            @RequestParam(required = false) String q) { return csvAgg(feedId, path, group, distinct, q); }
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) java.util.List<Integer> fc,
+            @RequestParam(required = false) java.util.List<String> ff,
+            @RequestParam(required = false) java.util.List<String> ft) { return csvAgg(feedId, path, group, distinct, q, fc, ff, ft); }
     @GetMapping("/api/shared/csv/aggregate")
     public ResponseEntity<Map<String, Object>> csvAggS(@RequestParam("path") String path,
             @RequestParam(required = false) String group, @RequestParam(required = false) String distinct,
-            @RequestParam(required = false) String q) { return csvAgg(null, path, group, distinct, q); }
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) java.util.List<Integer> fc,
+            @RequestParam(required = false) java.util.List<String> ff,
+            @RequestParam(required = false) java.util.List<String> ft) { return csvAgg(null, path, group, distinct, q, fc, ff, ft); }
 
     @GetMapping("/api/workflows/{feedId}/text/meta")
     public ResponseEntity<Map<String, Object>> txtMetaF(@PathVariable String feedId, @RequestParam("path") String path) { return txtMeta(feedId, path); }
@@ -2814,14 +2836,25 @@ public class ApiController {
         } catch (Exception e) { return badRequest(out, e.getMessage()); }
     }
 
-    private ResponseEntity<Map<String, Object>> csvAgg(String feedId, String path, String group, String distinct, String q) {
+    private ResponseEntity<Map<String, Object>> csvAgg(String feedId, String path, String group, String distinct, String q,
+            java.util.List<Integer> fc, java.util.List<String> ff, java.util.List<String> ft) {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
         java.io.File f = csvFile(feedId, path, out);
         if (f == null) return badRequest(out, String.valueOf(out.get("error")));
         String[] g = parseSpecs(group), dd = parseSpecs(distinct);
         if (g.length == 0 && dd.length == 0) return badRequest(out, "Select at least one group or distinct column");
+        // per-column range filters (mirror csvPage) so the aggregate reflects the filtered rows
+        java.util.List<CsvService.Filter> filters = new java.util.ArrayList<CsvService.Filter>();
+        if (fc != null) {
+            for (int i = 0; i < fc.size(); i++) {
+                String from = (ff != null && i < ff.size()) ? ff.get(i) : null;
+                String to = (ft != null && i < ft.size()) ? ft.get(i) : null;
+                boolean empty = (from == null || from.isEmpty()) && (to == null || to.isEmpty());
+                if (fc.get(i) != null && fc.get(i) >= 0 && !empty) filters.add(new CsvService.Filter(fc.get(i), from, to));
+            }
+        }
         try {
-            CsvService.Agg a = csv.aggregate(f, g, dd, q);
+            CsvService.Agg a = csv.aggregate(f, g, dd, q, filters);
             out.put("ok", true);
             out.put("groupColumns", a.groupColumns);
             out.put("distinctColumns", a.distinctColumns);
