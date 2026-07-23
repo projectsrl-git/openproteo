@@ -716,3 +716,14 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   yyyyMMdd_HHmmss), so resumed ON-HOLD steps and their successors can use ${currentDate}
   (today) instead of the fixed ${runDate} (run start). feedVars + overview tag map also
   expose them (design-time = now). Note in `.claude/2026-07-22-tag-badges-and-currentDate.md`.
+
+## Variables matrix (/matrix): spreadsheet editor
+* New page matrix.html: feeds on rows, the union of all workflow variables on columns (plus
+  optional tags + PROD meta columns), sticky header/first column. Type in cells; only dirty
+  cells are saved (EDITS map keyed feedId+kind+name, survives filtering); an empty cell means
+  the var is not defined and typing CREATES it. "+ Add column" for a new variable, ▾ header
+  button fills a column down to all visible feeds, Excel TSV paste fills right/down, arrow
+  keys/Enter navigate, filters for feeds/columns + "only columns that differ". Reuses POST
+  /api/variables/save; var-catalog now also returns `production`. Route added in
+  PageController; links from dashboard + variables. Note in
+  `.claude/2026-07-23-variables-matrix-sheet.md`.

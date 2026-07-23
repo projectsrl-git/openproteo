@@ -1928,6 +1928,7 @@ public class ApiController {
             w.put("sourceDescription", dto.sourceDescription == null ? "" : dto.sourceDescription);
             w.put("targetDescription", dto.targetDescription == null ? "" : dto.targetDescription);
             w.put("tags", (dto.tags == null || dto.tags.isEmpty()) ? "" : String.join(", ", dto.tags));
+            w.put("production", dto.production);
             StringBuilder odb = new StringBuilder();
             if (dto.outputData != null) for (WorkflowDto.KV kv : dto.outputData) { if (kv.name == null || kv.name.trim().isEmpty()) continue; odb.append(kv.name.trim()).append(" = ").append(kv.value == null ? "" : kv.value).append("\n"); }
             w.put("outputData", odb.toString());

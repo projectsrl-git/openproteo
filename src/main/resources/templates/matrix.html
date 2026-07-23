@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenProteo — Variables matrix</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+    <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+    <style>
+        .mtoolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+        .mtoolbar input[type="text"] { min-width: 200px; }
+        .mwrap { border: 1px solid var(--line); border-radius: 6px; overflow: auto; max-height: calc(100vh - 250px); }
+        table.mgrid { border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+        table.mgrid th, table.mgrid td { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 0; }
+        table.mgrid thead th { position: sticky; top: 0; z-index: 3; background: var(--bg-raise); padding: 5px 8px;
+            font-size: 11px; letter-spacing: .03em; text-transform: uppercase; color: var(--label); white-space: nowrap; text-align: left; }
+        table.mgrid thead th .cx { display: flex; gap: 6px; align-items: center; }
+        table.mgrid thead th .fillb { cursor: pointer; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px;
+            font-size: 11px; color: var(--ink-dim); background: var(--bg); }
+        table.mgrid thead th .fillb:hover { border-color: var(--accent); color: var(--accent); }
+        table.mgrid th.rowhead, table.mgrid td.rowhead { position: sticky; left: 0; z-index: 2; background: var(--bg-raise);
+            padding: 4px 8px; white-space: nowrap; min-width: 190px; }
+        table.mgrid thead th.rowhead { z-index: 4; }
+        table.mgrid td.rowhead .fid { font-family: var(--mono); font-size: 12px; color: var(--ink); }
+        table.mgrid td.rowhead .fnm { font-size: 11px; color: var(--ink-faint); }
+        table.mgrid td input.mc { width: 100%; min-width: 130px; border: 0; background: transparent; color: var(--ink);
+            font-family: var(--mono); font-size: 12px; padding: 5px 7px; outline: none; }
+        table.mgrid td input.mc:focus { background: rgba(245,166,35,.10); box-shadow: inset 0 0 0 2px var(--accent); }
+        table.mgrid td input.mc.dirty { background: rgba(245,166,35,.14); font-weight: 600; }
+        table.mgrid td input.mc.missing::placeholder { color: var(--ink-faint); }
+        table.mgrid tr.prodrow td.rowhead { border-left: 3px solid var(--fail); }
+        table.mgrid td.center { text-align: center; padding: 4px 8px; }
+        .mcount { font-size: 12px; color: var(--ink-dim); }
+        .mlegend { font-size: 11px; color: var(--ink-faint); margin-top: 8px; }
+        .banner { padding: 8px 12px; border-radius: 6px; margin: 10px 0; display: none; }
+        .banner.ok { background: rgba(60,180,120,.12); border: 1px solid var(--ok); color: var(--ok); }
+        .banner.err { background: rgba(220,80,80,.12); border: 1px solid var(--fail); color: var(--fail); }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub">Variables matrix</span>
+    <span class="spacer"></span>
+    <a class="btn sm" th:href="@{/variables}">⚙ Variables</a>
+    <a class="btn sm" th:href="@{/}">← Dashboard</a>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap">
+    <h1>Variables matrix</h1>
+    <p class="page-sub">Every feed on a row, every variable on a column — edit the whole set in one sheet.
+        Type in a cell to change a value; typing into an empty cell creates that variable for that feed.
+        Only the cells you touch are saved.</p>
+
+    <div id="msg" class="banner"></div>
+
+    <div class="mtoolbar">
+        <input type="text" id="fRow" placeholder="🔎 filter feeds (id, name, source, target)…" oninput="renderGrid()">
+        <input type="text" id="fCol" placeholder="🔎 filter variables (column names)…" oninput="renderGrid()">
+        <label class="rolabel"><input type="checkbox" id="onlyDiff" onchange="renderGrid()"> only columns that differ</label>
+        <label class="rolabel"><input type="checkbox" id="showMeta" checked onchange="renderGrid()"> tags &amp; PROD columns</label>
+        <span class="spacer"></span>
+        <input type="text" id="newVar" placeholder="new variable name…" style="max-width:210px">
+        <button class="btn sm" id="addVarBtn">+ Add column</button>
+        <button class="btn sm" id="saveBtn">💾 Save changes</button>
+        <button class="btn sm" id="resetBtn">↺ Discard</button>
+    </div>
+
+    <div class="mcount" id="count"></div>
+    <div class="mwrap"><table class="mgrid" id="grid"><thead></thead><tbody></tbody></table></div>
+    <p class="mlegend">Highlighted cells are unsaved edits. Empty cell = the variable is not defined for that feed
+        (placeholder “not set”). Use ▾ in a column header to copy a value down to every visible feed.
+        Arrow keys / Enter move between cells; pasting a block from Excel fills cells to the right and below.</p>
+</div>
+
+<script th:src="@{/js/modal.js}"></script>
+<script th:src="@{/js/theme.js}"></script>
+<script>
+    var CTX = location.pathname.replace(/matrix\/?$/, '');
+    var NL = String.fromCharCode(10), CR = String.fromCharCode(13), TAB = String.fromCharCode(9);
+    var FEEDS = [], COLS = [], EDITS = {};
+
+    function $(id) { return document.getElementById(id); }
+    function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+    function banner(ok, html) { var b = $('msg'); b.className = 'banner ' + (ok ? 'ok' : 'err'); b.innerHTML = html; b.style.display = 'block'; }
+    function hideBanner() { $('msg').style.display = 'none'; }
+    function readJson(r) { return r.json().catch(function () { return { ok: false, error: 'Bad response' }; }); }
+
+    function load() {
+        fetch(CTX + 'api/var-catalog').then(readJson).then(function (j) {
+            var wfs = (j && j.workflows) || [];
+            FEEDS = wfs.map(function (w) {
+                var vs = {};
+                (w.vars || []).forEach(function (v) { vs[v.name] = v.value == null ? '' : v.value; });
+                return { feedId: w.feedId, name: w.name || '', source: w.sourceId || '', target: w.targetId || '',
+                         tags: w.tags || '', production: !!w.production, vars: vs };
+            });
+            var seen = {};
+            FEEDS.forEach(function (f) { Object.keys(f.vars).forEach(function (k) { seen[k] = 1; }); });
+            COLS = Object.keys(seen).sort();
+            EDITS = {};
+            renderGrid();
+        }).catch(function (e) { banner(false, 'Load failed: ' + esc(e)); });
+    }
+
+    function visibleFeeds() {
+        var q = ($('fRow').value || '').trim().toLowerCase();
+        if (!q) return FEEDS;
+        return FEEDS.filter(function (f) {
+            return ((f.feedId + ' ' + f.name + ' ' + f.source + ' ' + f.target).toLowerCase().indexOf(q) >= 0);
+        });
+    }
+    function visibleCols(rows) {
+        var q = ($('fCol').value || '').trim().toLowerCase();
+        var cols = COLS.filter(function (c) { return !q || c.toLowerCase().indexOf(q) >= 0; });
+        if ($('onlyDiff').checked) {
+            cols = cols.filter(function (c) {
+                var first = null, differs = false;
+                for (var i = 0; i < rows.length; i++) {
+                    var v = cellValue(rows[i], c);
+                    if (first === null) first = v; else if (v !== first) { differs = true; break; }
+                }
+                return differs;
+            });
+        }
+        return cols;
+    }
+
+    function editKey(feedId, kind, name) { return feedId + '\u0000' + kind + '\u0000' + (name || ''); }
+    function cellValue(f, col) {
+        var k = editKey(f.feedId, 'var', col);
+        if (EDITS[k] !== undefined) return EDITS[k];
+        return f.vars[col] === undefined ? '' : f.vars[col];
+    }
+    function metaValue(f, kind) {
+        var k = editKey(f.feedId, kind, '');
+        if (EDITS[k] !== undefined) return EDITS[k];
+        return kind === 'tags' ? f.tags : (f.production ? 'true' : 'false');
+    }
+    function isDirty(feedId, kind, name) { return EDITS[editKey(feedId, kind, name)] !== undefined; }
+    function dirtyCount() { return Object.keys(EDITS).length; }
+
+    function setEdit(feedId, kind, name, value, original) {
+        var k = editKey(feedId, kind, name);
+        if (value === original) { delete EDITS[k]; } else { EDITS[k] = value; }
+        updateCount();
+    }
+    function updateCount() {
+        var rows = visibleFeeds(), cols = visibleCols(rows);
+        $('count').textContent = rows.length + ' feed(s) × ' + cols.length + ' variable(s) shown — '
+            + dirtyCount() + ' unsaved change(s)';
+    }
+
+    function renderGrid() {
+        var rows = visibleFeeds(), cols = visibleCols(rows), meta = $('showMeta').checked;
+        var thead = $('grid').tHead, tbody = $('grid').tBodies[0];
+        thead.innerHTML = ''; tbody.innerHTML = '';
+
+        var tr = document.createElement('tr');
+        var th0 = document.createElement('th'); th0.className = 'rowhead'; th0.textContent = 'Feed'; tr.appendChild(th0);
+        if (meta) {
+            ['tags', 'PROD'].forEach(function (m) {
+                var th = document.createElement('th'); th.textContent = m; tr.appendChild(th);
+            });
+        }
+        cols.forEach(function (c) {
+            var th = document.createElement('th');
+            var box = document.createElement('div'); box.className = 'cx';
+            var lbl = document.createElement('span'); lbl.textContent = c; box.appendChild(lbl);
+            var fb = document.createElement('span'); fb.className = 'fillb'; fb.textContent = '▾';
+            fb.title = 'Copy the first visible value down to every visible feed';
+            fb.onclick = (function (col) { return function () { fillDown(col); }; })(c);
+            box.appendChild(fb);
+            th.appendChild(box); tr.appendChild(th);
+        });
+        thead.appendChild(tr);
+
+        rows.forEach(function (f, ri) {
+            var r = document.createElement('tr');
+            if (f.production) r.className = 'prodrow';
+            var td0 = document.createElement('td'); td0.className = 'rowhead';
+            var d1 = document.createElement('div'); d1.className = 'fid'; d1.textContent = f.feedId; td0.appendChild(d1);
+            if (f.name) { var d2 = document.createElement('div'); d2.className = 'fnm'; d2.textContent = f.name; td0.appendChild(d2); }
+            r.appendChild(td0);
+
+            if (meta) {
+                var tdT = document.createElement('td');
+                tdT.appendChild(makeInput(f, 'tags', '', metaValue(f, 'tags'), f.tags, ri, -2, 'comma-separated'));
+                r.appendChild(tdT);
+                var tdP = document.createElement('td'); tdP.className = 'center';
+                var cb = document.createElement('input'); cb.type = 'checkbox';
+                cb.checked = metaValue(f, 'prod') === 'true';
+                cb.onchange = (function (feed, box) {
+                    return function () {
+                        setEdit(feed.feedId, 'prod', '', box.checked ? 'true' : 'false', feed.production ? 'true' : 'false');
+                        box.parentNode.style.background = isDirty(feed.feedId, 'prod', '') ? 'rgba(245,166,35,.14)' : '';
+                    };
+                })(f, cb);
+                if (isDirty(f.feedId, 'prod', '')) tdP.style.background = 'rgba(245,166,35,.14)';
+                tdP.appendChild(cb); r.appendChild(tdP);
+            }
+
+            cols.forEach(function (c, ci) {
+                var td = document.createElement('td');
+                var orig = f.vars[c] === undefined ? '' : f.vars[c];
+                td.appendChild(makeInput(f, 'var', c, cellValue(f, c), orig, ri, ci,
+                        f.vars[c] === undefined ? 'not set' : ''));
+                r.appendChild(td);
+            });
+            tbody.appendChild(r);
+        });
+        updateCount();
+    }
+
+    function makeInput(feed, kind, name, value, original, ri, ci, placeholder) {
+        var inp = document.createElement('input');
+        inp.type = 'text'; inp.className = 'mc'; inp.value = value;
+        if (placeholder) { inp.placeholder = placeholder; inp.className += ' missing'; }
+        inp.setAttribute('data-r', String(ri)); inp.setAttribute('data-c', String(ci));
+        if (isDirty(feed.feedId, kind, name)) inp.className += ' dirty';
+        inp.oninput = function () {
+            setEdit(feed.feedId, kind, name, inp.value, original);
+            if (isDirty(feed.feedId, kind, name)) { if (inp.className.indexOf('dirty') < 0) inp.className += ' dirty'; }
+            else inp.className = inp.className.replace(' dirty', '');
+        };
+        inp.onkeydown = function (e) {
+            var k = e.key;
+            if (k === 'ArrowDown' || k === 'Enter') { move(ri + 1, ci); e.preventDefault(); }
+            else if (k === 'ArrowUp') { move(ri - 1, ci); e.preventDefault(); }
+        };
+        inp.onpaste = function (e) {
+            var txt = (e.clipboardData || window.clipboardData).getData('text');
+            if (!txt || (txt.indexOf(TAB) < 0 && txt.indexOf(NL) < 0)) return;   // single value: default paste
+            e.preventDefault();
+            var lines = txt.split(CR).join('').split(NL);
+            for (var i = 0; i < lines.length; i++) {
+                if (lines[i] === '' && i === lines.length - 1) break;
+                var parts = lines[i].split(TAB);
+                for (var jx = 0; jx < parts.length; jx++) {
+                    var t = cellAt(ri + i, ci + jx);
+                    if (t) { t.value = parts[jx]; if (t.oninput) t.oninput(); }
+                }
+            }
+        };
+        return inp;
+    }
+    function cellAt(r, c) { return document.querySelector('input.mc[data-r="' + r + '"][data-c="' + c + '"]'); }
+    function move(r, c) { var t = cellAt(r, c); if (t) { t.focus(); t.select(); } }
+
+    function fillDown(col) {
+        var rows = visibleFeeds();
+        if (!rows.length) return;
+        var v = cellValue(rows[0], col);
+        rows.forEach(function (f) {
+            var orig = f.vars[col] === undefined ? '' : f.vars[col];
+            setEdit(f.feedId, 'var', col, v, orig);
+        });
+        renderGrid();
+        banner(true, 'Column <b>' + esc(col) + '</b> filled with “' + esc(v) + '” on ' + rows.length + ' feed(s) — not saved yet.');
+    }
+
+    function addColumn() {
+        var n = ($('newVar').value || '').trim();
+        if (!n) { banner(false, 'Type a variable name first.'); return; }
+        if (COLS.indexOf(n) >= 0) { banner(false, 'Variable <b>' + esc(n) + '</b> is already a column.'); return; }
+        COLS.push(n); COLS.sort();
+        $('newVar').value = '';
+        $('fCol').value = n;
+        renderGrid();
+        hideBanner();
+        banner(true, 'Column <b>' + esc(n) + '</b> added — fill the cells you need, then Save. Empty cells are ignored.');
+    }
+
+    function save() {
+        var keys = Object.keys(EDITS);
+        if (!keys.length) { banner(false, 'No changes to save.'); return; }
+        var byFeed = {};
+        keys.forEach(function (k) {
+            var p = k.split('\u0000'), fid = p[0], kind = p[1], name = p[2], val = EDITS[k];
+            var e = byFeed[fid] = byFeed[fid] || { feedId: fid, vars: [] };
+            if (kind === 'var') e.vars.push({ name: name, value: val });
+            else if (kind === 'tags') e.tags = val;
+            else if (kind === 'prod') e.production = (val === 'true');
+        });
+        var edits = Object.keys(byFeed).map(function (f) { return byFeed[f]; });
+        var btn = $('saveBtn'); btn.disabled = true;
+        banner(true, 'Saving ' + keys.length + ' change(s) on ' + edits.length + ' feed(s)…');
+        fetch(CTX + 'api/variables/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ edits: edits }) })
+            .then(readJson).then(function (j) {
+                btn.disabled = false;
+                if (j && j.ok) {
+                    banner(true, 'Saved — ' + keys.length + ' change(s) on ' + edits.length + ' feed(s).');
+                    load();
+                } else {
+                    banner(false, 'Save failed: ' + esc((j && j.error) || 'unknown error'));
+                }
+            }).catch(function (e) { btn.disabled = false; banner(false, 'Save failed: ' + esc(e)); });
+    }
+
+    function discard() {
+        if (!dirtyCount()) { banner(false, 'Nothing to discard.'); return; }
+        opConfirm('Discard ' + dirtyCount() + ' unsaved change(s)?', function () {
+            EDITS = {}; renderGrid(); banner(true, 'Changes discarded.');
+        }, { danger: true, okText: 'Discard' });
+    }
+
+    window.addEventListener('beforeunload', function (e) {
+        if (dirtyCount()) { e.preventDefault(); e.returnValue = ''; }
+    });
+
+    $('addVarBtn').onclick = addColumn;
+    $('saveBtn').onclick = save;
+    $('resetBtn').onclick = discard;
+    $('newVar').onkeydown = function (e) { if (e.key === 'Enter') addColumn(); };
+    load();
+</script>
+</body>
+</html>

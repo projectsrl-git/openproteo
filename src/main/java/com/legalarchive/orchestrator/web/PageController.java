@@ -192,6 +192,12 @@ public class PageController {
         return "variables";
     }
 
+    /** Spreadsheet-style editor: feeds on rows, variables on columns. */
+    @GetMapping("/matrix")
+    public String matrix() {
+        return "matrix";
+    }
+
     @GetMapping("/import")
     public String importPage() {
         return "import";
