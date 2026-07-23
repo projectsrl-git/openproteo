@@ -1,17 +1,18 @@
-Docs: record viewer line numbers, dequote blank lines and Waiting-approval in CLAUDE.md
+Weather icon for feeds waiting on a manual gate
 
-The previous patch deliberately left CLAUDE.md untouched so that it could be applied in any
-order with the Variables-matrix patch (both appended at the end of that file, and two
-EOF-append hunks conflict). Both are now on main, so this documentation-only change adds the
-missing CLAUDE.md entry for:
+Splitting WAITING_APPROVAL out of the "running" bucket left weatherFor() unaware of it: a
+source whose feeds are paused on a manual gate matched no branch and fell through to the
+generic "mixed" icon, losing the information (before the split those feeds showed as
+"N running").
 
-- the viewer's row/line numbers and "go to" box (CSV gutter folded into rowWidthPx, TXT go-to,
-  JSON/XML rendered through the line-numbered virtual list, shared gotoBox/renderLines helpers
-  and the .vnum/.vwr-goto/.hl styles);
-- the dequote executor skipping blank lines and reporting blankLinesRemoved, while keeping
-  delimiter-only rows;
-- WAITING_APPROVAL becoming its own bucket with the "Waiting approval" tile and the
-  "Waiting appr." by-source column after Running, and the Other column being hidden unless a
-  feed really lands in an unmapped status so the columns keep reconciling with Total.
+Added a waiting branch to weatherFor(): U+1F325 (sun behind large cloud) with the tooltip
+"N waiting for approval", placed after the on-hold check and before running, so the priority
+reads failed > all success > all not-run > done+to-run > on hold > waiting approval > running >
+aborted > mixed. The icon is deliberately close to the running one (sun behind small cloud) but
+more covered, so it reads as "held back".
 
-No code changes.
+Docs: .claude/2026-07-23-weather-waiting-approval.md and CLAUDE.md.
+
+Verify: overview.html passes node --check with no literal \n/\r and no unsafe Thymeleaf, and the
+real weatherFor was exercised in Node (waiting only, waiting+running, on-hold precedence, failed
+precedence, running unchanged). Template -- rebuild the WAR, then hard-refresh.

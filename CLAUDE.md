@@ -747,3 +747,10 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   reconciling with Total.
 * Note in `.claude/2026-07-23-viewer-linenumbers-dequote-waiting.md`. That note's "CLAUDE.md"
   paragraph (explaining why this was deferred) is now resolved by this entry.
+
+## Weather icon for WAITING_APPROVAL
+* weatherFor() did not know the new "waiting" bucket, so gate-paused feeds fell through to the
+  generic "mixed" icon. Added 🌥️ (U+1F325, sun behind large cloud) with "N waiting for
+  approval", after the on-hold check and before running: failed > all success > all not-run >
+  done+to-run > on hold (🌫️) > waiting approval (🌥️) > running (🌤️) > aborted (🌦️) > mixed.
+  Note in `.claude/2026-07-23-weather-waiting-approval.md`.

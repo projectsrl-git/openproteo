@@ -152,7 +152,7 @@
     function weatherFor(s){
         var tot = s.total || 0;
         if (tot === 0) return { ic:'\u2601\uFE0F', t:'no feeds' };
-        var fail = s.failed||0, succ = s.success||0, nr = s.notRun||0, run = s.running||0, ab = s.aborted||0, oh = s.onhold||0;
+        var fail = s.failed||0, succ = s.success||0, nr = s.notRun||0, run = s.running||0, ab = s.aborted||0, oh = s.onhold||0, wa = s.waiting||0;
         if (fail > 0) {
             if (fail === tot) return { ic:'\u26C8\uFE0F', t:'all ' + tot + ' failed' };            // heavy thunderstorm
             return { ic:'\uD83C\uDF29\uFE0F', t:fail + ' of ' + tot + ' failed' };                // storm
@@ -161,6 +161,7 @@
         if (nr === tot) return { ic:'\u2601\uFE0F', t:'all ' + tot + ' still to run' };            // white clouds
         if (succ > 0 && nr > 0 && (succ + nr === tot)) return { ic:'\u26C5', t:succ + ' done, ' + nr + ' to run' }; // sun + clouds
         if (oh > 0) return { ic:'\uD83C\uDF2B\uFE0F', t:oh + ' on hold' };                         // fog (paused)
+        if (wa > 0) return { ic:'\uD83C\uDF25\uFE0F', t:wa + ' waiting for approval' };            // sun behind big cloud (held at a gate)
         if (run > 0) return { ic:'\uD83C\uDF24\uFE0F', t:run + ' running' };                       // sun behind small cloud
         if (ab > 0) return { ic:'\uD83C\uDF26\uFE0F', t:ab + ' aborted' };                         // sun behind rain
         return { ic:'\u26C5', t:'mixed' };
