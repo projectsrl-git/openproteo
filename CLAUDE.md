@@ -727,3 +727,23 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   /api/variables/save; var-catalog now also returns `production`. Route added in
   PageController; links from dashboard + variables. Note in
   `.claude/2026-07-23-variables-matrix-sheet.md`.
+
+## Viewer line numbers + go-to; dequote blank lines; Waiting-approval column
+* Viewer: the CSV grid has a sticky "#" row-number gutter (its width is folded into
+  rowWidthPx() so header, rows and the column resizer stay aligned) plus a "go to row" box
+  that scrolls and outlines the row; TXT/log keeps its gutter and gains "go to line";
+  formatted JSON/XML now render through a line-numbered virtual list (renderLines) instead of
+  a bare <pre>, so they get numbers, the line count and go-to too. Shared helpers
+  gotoBox()/renderLines() in viewer.js; styles (.vnum, .vwr-goto, .hl) in app.css.
+* dequote executor: blank lines (trim().isEmpty()) are skipped — this removes the stray line
+  breaks left at the end of a CSV and any empty line in the middle — and counted in the new
+  output variable `blankLinesRemoved` (also in the summary log). A line of just delimiters
+  (";;;") is a valid row of empty fields and is kept.
+* Operations overview: WAITING_APPROVAL is its own bucket ("waiting") instead of being folded
+  into running, so runs paused on a MANUAL GATE are visible — new tile "Waiting approval" and
+  by-source column "Waiting appr.", both right after Running and both clickable to drill; the
+  Mix bar gained a waiting segment. The "Other" tile/column is hidden and reappears only if a
+  feed really lands in an unmapped status (SKIPPED/REJECTED), so the per-source columns keep
+  reconciling with Total.
+* Note in `.claude/2026-07-23-viewer-linenumbers-dequote-waiting.md`. That note's "CLAUDE.md"
+  paragraph (explaining why this was deferred) is now resolved by this entry.

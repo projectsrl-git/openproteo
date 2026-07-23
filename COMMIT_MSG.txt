@@ -1,32 +1,17 @@
-Viewer line numbers + go-to, dequote drops blank lines, Waiting-approval column
+Docs: record viewer line numbers, dequote blank lines and Waiting-approval in CLAUDE.md
 
-1) Viewer (CSV / TXT / XML-JSON): row and line numbers with a "go to" box.
-   - The CSV grid gained a sticky "#" gutter column with the 1-based row number and a "go to
-     row" control that scrolls to the row and outlines it; the gutter width is folded into
-     rowWidthPx() so header, rows and the column resizer stay aligned.
-   - TXT/log files already had a line-number gutter and now get the same "go to line" box,
-     highlighting the target line.
-   - Formatted JSON/XML was rendered as a bare <pre> with no line numbers; it now goes through
-     the same line-numbered virtual list, so it gets numbers, the line count in the meta line
-     and "go to line" too. Shared helpers gotoBox() and renderLines() were added.
+The previous patch deliberately left CLAUDE.md untouched so that it could be applied in any
+order with the Variables-matrix patch (both appended at the end of that file, and two
+EOF-append hunks conflict). Both are now on main, so this documentation-only change adds the
+missing CLAUDE.md entry for:
 
-2) The CSV de-quoting executor copied every physical line, so the stray line breaks left at
-   the end of a file (and empty lines in the middle) survived as empty records. Blank lines are
-   now skipped and counted in a new output variable blankLinesRemoved (also reported in the
-   summary log). A line made only of delimiters is a valid row of empty fields and is kept.
+- the viewer's row/line numbers and "go to" box (CSV gutter folded into rowWidthPx, TXT go-to,
+  JSON/XML rendered through the line-numbered virtual list, shared gotoBox/renderLines helpers
+  and the .vnum/.vwr-goto/.hl styles);
+- the dequote executor skipping blank lines and reporting blankLinesRemoved, while keeping
+  delimiter-only rows;
+- WAITING_APPROVAL becoming its own bucket with the "Waiting approval" tile and the
+  "Waiting appr." by-source column after Running, and the Other column being hidden unless a
+  feed really lands in an unmapped status so the columns keep reconciling with Total.
 
-3) Operations overview: bucketFor folded WAITING_APPROVAL into "running", so runs paused on a
-   MANUAL GATE could not be seen. WAITING_APPROVAL now has its own bucket: a "Waiting approval"
-   tile and a "Waiting appr." by-source column, both immediately after Running and both
-   clickable to drill. The "Other" tile/column is no longer displayed; it is kept as a fallback
-   and reappears only if a feed really ends in an unmapped status (SKIPPED/REJECTED), so the
-   per-source columns keep reconciling with Total instead of silently dropping feeds. The Mix
-   bar gained a waiting segment.
-
-Docs: .claude/2026-07-23-viewer-linenumbers-dequote-waiting.md (CLAUDE.md deliberately not
-touched, so this patch stays independent from the pending Variables-matrix patch, which also
-appends at the end of that file).
-
-Verify: viewer.js and overview.html pass node --check with zero literal \n/\r and no unsafe
-Thymeleaf; InternalSteps and ApiController are brace-balanced. Java not compiled in the chat
-sandbox -- run the Maven build on deploy; app.css is a static asset, hard-refresh (Ctrl+F5).
+No code changes.
