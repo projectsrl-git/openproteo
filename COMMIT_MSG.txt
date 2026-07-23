@@ -1,32 +1,32 @@
-Variables matrix: spreadsheet editor with feeds on rows and variables on columns
+Viewer line numbers + go-to, dequote drops blank lines, Waiting-approval column
 
-New page /matrix (matrix.html) to insert and edit everything in a single screen, like a
-spreadsheet -- complementing the existing Variables page.
+1) Viewer (CSV / TXT / XML-JSON): row and line numbers with a "go to" box.
+   - The CSV grid gained a sticky "#" gutter column with the 1-based row number and a "go to
+     row" control that scrolls to the row and outlines it; the gutter width is folded into
+     rowWidthPx() so header, rows and the column resizer stay aligned.
+   - TXT/log files already had a line-number gutter and now get the same "go to line" box,
+     highlighting the target line.
+   - Formatted JSON/XML was rendered as a bare <pre> with no line numbers; it now goes through
+     the same line-numbered virtual list, so it gets numbers, the line count in the meta line
+     and "go to line" too. Shared helpers gotoBox() and renderLines() were added.
 
-Layout: rows are feeds (sticky first column with feedId + name; PROD feeds get a red left
-border), columns are the union of every workflow variable name across all feeds, plus two
-optional meta columns (tags as text, PROD as a checkbox). The header row and the feed column
-are sticky and the sheet scrolls both ways.
+2) The CSV de-quoting executor copied every physical line, so the stray line breaks left at
+   the end of a file (and empty lines in the middle) survived as empty records. Blank lines are
+   now skipped and counted in a new output variable blankLinesRemoved (also reported in the
+   summary log). A line made only of delimiters is a valid row of empty fields and is kept.
 
-Editing: type in any cell; only the cells you touch are sent. Edits live in an EDITS map keyed
-by feedId+kind+name so filtering never loses them, and dirty cells are highlighted. An empty
-cell means the variable is not defined for that feed (placeholder "not set") and typing a
-value CREATES it on save. "+ Add column" introduces a new variable name across all feeds; the
-header's fill button copies a value down to every visible feed; Arrow Up/Down and Enter move
-between cells; pasting a TSV block from Excel fills cells to the right and below. Filters for
-feeds and for column names, plus "only columns that differ" to show just the variables whose
-value is not identical across the visible feeds. Discarding asks for confirmation and leaving
-with unsaved edits warns.
+3) Operations overview: bucketFor folded WAITING_APPROVAL into "running", so runs paused on a
+   MANUAL GATE could not be seen. WAITING_APPROVAL now has its own bucket: a "Waiting approval"
+   tile and a "Waiting appr." by-source column, both immediately after Running and both
+   clickable to drill. The "Other" tile/column is no longer displayed; it is kept as a fallback
+   and reappears only if a feed really ends in an unmapped status (SKIPPED/REJECTED), so the
+   per-source columns keep reconciling with Total instead of silently dropping feeds. The Mix
+   bar gained a waiting segment.
 
-Backend: no new save endpoint -- the grid posts the existing POST /api/variables/save with
-{edits:[{feedId, vars:[{name,value}], tags?, production?}]}. var-catalog now also returns
-`production` per workflow (it did not before, so the Variables page PROD hint was always
-"non-production" as well). Route added in PageController, links from the dashboard and the
-Variables page.
+Docs: .claude/2026-07-23-viewer-linenumbers-dequote-waiting.md (CLAUDE.md deliberately not
+touched, so this patch stays independent from the pending Variables-matrix patch, which also
+appends at the end of that file).
 
-Docs: .claude/2026-07-23-variables-matrix-sheet.md and CLAUDE.md.
-
-Verify: matrix.html passes node --check with zero literal \n/\r and no unsafe Thymeleaf; the
-save-payload grouping was executed in Node using the real source (vars, tags and production
-grouped per feed, newly created variable included). Java not compiled in the chat sandbox --
-run the Maven build on deploy.
+Verify: viewer.js and overview.html pass node --check with zero literal \n/\r and no unsafe
+Thymeleaf; InternalSteps and ApiController are brace-balanced. Java not compiled in the chat
+sandbox -- run the Maven build on deploy; app.css is a static asset, hard-refresh (Ctrl+F5).

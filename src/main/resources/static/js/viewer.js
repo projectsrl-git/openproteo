@@ -36,6 +36,37 @@
         return { redraw: draw, reset: function () { scrollEl.scrollTop = 0; draw(); }, onDraw: function (cb) { onDraw = cb; } };
     }
 
+    /* "go to line/row" box: scrolls a virtualised body to a 1-based index and highlights it. */
+    function gotoBox(tools, body, rowH, getMax, label, onGo) {
+        var wrap = el('span', 'vwr-goto', tools);
+        var inp = el('input', 'goto-in', wrap); inp.type = 'text'; inp.placeholder = label || 'go to line\u2026';
+        var btn = el('button', 'btn sm', wrap); text(btn, '\u21B4 Go');
+        function go() {
+            var n = parseInt(inp.value, 10);
+            if (!n || n < 1) return;
+            var max = getMax(); if (max && n > max) n = max;
+            body.scrollTop = (n - 1) * rowH;
+            if (onGo) onGo(n);
+        }
+        btn.addEventListener('click', go);
+        inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+        return inp;
+    }
+
+    /* Line-numbered virtual renderer shared by TXT and formatted JSON/XML. */
+    function renderLines(body, getLines, hlRef) {
+        var vl = virtualList(body, 19, function () { return getLines().length; }, function (i) {
+            var lines = getLines();
+            var row = document.createElement('div'); row.className = 'tline' + (hlRef && hlRef.n === i + 1 ? ' hl' : '');
+            var g = el('span', 'tgutter', row); text(g, i + 1);
+            g.style.minWidth = (String(lines.length).length + 1) + 'ch';
+            var c = el('span', 'tcontent', row); c.textContent = lines[i] === '' ? ' ' : lines[i];
+            return row;
+        });
+        vl.redraw();
+        return vl;
+    }
+
     function renderCsvServer(host, api, path, name, meta) {
         var PAGE = 200;
         var columns = [], displayNames = [], totalRows = 0, curTotal = 0, q = '';
@@ -107,10 +138,12 @@
             tA.addEventListener('click', function () { tA.classList.add('active'); tT.classList.remove('active'); paneA.style.display = ''; paneT.style.display = 'none'; });
 
             var colW = []; for (var ci = 0; ci < columns.length; ci++) colW.push(COLW);
-            function rowWidthPx() { var w = 0; for (var i = 0; i < colW.length; i++) w += colW[i]; return w; }
+            var GW = 66, hlRow = { n: 0 };   // row-number gutter width / highlighted row
+            function rowWidthPx() { var w = GW; for (var i = 0; i < colW.length; i++) w += colW[i]; return w; }
 
             var head = el('div', 'vgrid-head', paneT);
             var hr = el('div', 'vgrid-row', head); hr.style.width = rowWidthPx() + 'px';
+            var hnum = el('div', 'vgrid-cell head vnum', hr); hnum.style.width = GW + 'px'; text(hnum, '#');
             for (var c = 0; c < columns.length; c++) {
                 var hc = el('div', 'vgrid-cell head', hr); hc.style.width = colW[c] + 'px'; hc.style.cursor = 'pointer';
                 var dnm = displayNames[c];
@@ -162,10 +195,14 @@
                 var rows = cache[pg];
                 var rd = document.createElement('div'); rd.className = 'vgrid-row' + (i % 2 ? ' odd' : ''); rd.style.width = rowWidthPx() + 'px';
                 var row = rows ? rows[i - pg * PAGE] : null;
+                if (hlRow.n === i + 1) rd.className += ' hl';
+                var nc = document.createElement('div'); nc.className = 'vgrid-cell vnum'; nc.style.width = GW + 'px'; nc.textContent = String(i + 1); rd.appendChild(nc);
                 for (var c2 = 0; c2 < columns.length; c2++) { var cell = document.createElement('div'); cell.className = 'vgrid-cell'; cell.style.width = colW[c2] + 'px'; cell.textContent = row ? (row[c2] == null ? '' : row[c2]) : ''; rd.appendChild(cell); }
                 if (!rows) ensure(pg);
                 return rd;
             });
+            gotoBox(top, body, 26, function () { return curTotal; }, 'go to row\u2026',
+                    function (n) { hlRow.n = n; vl.redraw(); });
             vl.onDraw(function (left) { head.scrollLeft = left; });
             body.addEventListener('scroll', function () { head.scrollLeft = body.scrollLeft; });
             function ensure(pg) {
@@ -541,13 +578,19 @@
         var body = el('div', 'vwr-body mono', host);
         var isStructured = /\.(json|xml)$/i.test(name || '');
         if (isStructured) {
-            var pre = el('pre', 'vwr-pre mono', body);
-            pre.style.margin = '0'; pre.style.whiteSpace = 'pre'; pre.style.padding = '10px'; pre.style.overflow = 'auto';
+            var sLines = [], sHl = { n: 0 }, sVl = null;
+            gotoBox(tools, body, 19, function () { return sLines.length; }, 'go to line\u2026',
+                    function (n) { sHl.n = n; if (sVl) sVl.redraw(); });
             info.textContent = 'loading…';
             fetch(src).then(function (r) { return r.text(); }).then(function (content) {
-                var rr = prettyFormat(content, name);
-                if (rr.ok) { pre.textContent = rr.text; meta.textContent = rr.kind + ' · formatted'; }
-                else { pre.textContent = content; meta.textContent = '(' + rr.error + ' \u2014 raw)'; }
+                var rr = prettyFormat(content, name), txt;
+                if (rr.ok) { txt = rr.text; meta.textContent = rr.kind + ' · formatted'; }
+                else { txt = content; meta.textContent = '(' + rr.error + ' \u2014 raw)'; }
+                sLines = txt.split(LF);
+                for (var i = 0; i < sLines.length; i++) if (sLines[i].length && sLines[i].charCodeAt(sLines[i].length - 1) === CR) sLines[i] = sLines[i].slice(0, -1);
+                if (sLines.length && sLines[sLines.length - 1] === '') sLines.pop();
+                sVl = renderLines(body, function () { return sLines; }, sHl);
+                meta.textContent += ' \u00b7 ' + sLines.length + ' lines';
                 info.textContent = '';
             }).catch(function (e) { showErr(host, String(e)); });
         } else {
@@ -556,9 +599,12 @@
             totalLines = j.totalLines; gutterW = String(totalLines).length + 1;
             meta.textContent = totalLines + ' lines · ' + fmt(j.size); vl.redraw();
         });
+        var hlLine = { n: 0 };
+        gotoBox(tools, body, 19, function () { return totalLines; }, 'go to line\u2026',
+                function (n) { hlLine.n = n; vl.redraw(); });
         var vl = virtualList(body, 19, function () { return totalLines; }, function (i) {
             var pg = Math.floor(i / PAGE); var rows = cache[pg];
-            var row = document.createElement('div'); row.className = 'tline';
+            var row = document.createElement('div'); row.className = 'tline' + (hlLine.n === i + 1 ? ' hl' : '');
             var g = el('span', 'tgutter', row); text(g, i + 1); g.style.minWidth = gutterW + 'ch';
             var c = el('span', 'tcontent', row); c.textContent = rows ? (rows[i - pg * PAGE] === '' ? ' ' : rows[i - pg * PAGE]) : '';
             if (!rows) ensure(pg);

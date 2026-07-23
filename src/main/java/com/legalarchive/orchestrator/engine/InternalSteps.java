@@ -1236,7 +1236,7 @@ public class InternalSteps {
         String colsParam = blankToNull(VarResolver.resolve(params.get("columns"), vars));
         if (colsParam != null) for (String t : colsParam.split(",")) { String x = t.trim(); if (!x.isEmpty()) targets.add(x); }
 
-        long dataRows = 0, cells = 0, removed = 0; int columns = 0;
+        long dataRows = 0, cells = 0, removed = 0, blankLines = 0; int columns = 0;
         boolean[] targeted = null;
         java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(in), "UTF-8"));
         java.io.BufferedWriter w = new java.io.BufferedWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(out), "UTF-8"));
@@ -1263,6 +1263,9 @@ public class InternalSteps {
 
             String ln = hasHeader ? r.readLine() : first;
             while (ln != null) {
+                // stray blank lines (typically the extra line breaks left at the end of the file,
+                // but also empty lines in the middle) are never valid CSV records: drop them
+                if (ln.trim().isEmpty()) { blankLines++; ln = r.readLine(); continue; }
                 java.util.List<String> f = parseCsv(ln, delim);
                 if (columns == 0) columns = f.size();
                 if (targeted == null || targeted.length < f.size()) {
@@ -1297,8 +1300,9 @@ public class InternalSteps {
         res.outVars.put("columns", String.valueOf(columns));
         res.outVars.put("cells", String.valueOf(cells));
         res.outVars.put("quotesRemoved", String.valueOf(removed));
+        res.outVars.put("blankLinesRemoved", String.valueOf(blankLines));
         line.accept("dequote " + in.getName() + " -> " + out.getName() + "  rows=" + dataRows
-                + " cols=" + columns + " quotesRemoved=" + removed + " delim='" + delim + "'");
+                + " cols=" + columns + " quotesRemoved=" + removed + " blankLinesRemoved=" + blankLines + " delim='" + delim + "'");
         for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
         res.exitCode = 0;
     }

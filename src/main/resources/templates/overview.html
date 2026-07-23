@@ -127,11 +127,11 @@
     function loadResources(){ fetch(CTX + 'api/overview/resources').then(readJson).then(renderResources).catch(function(){}); }
 
     function rollup(feeds){
-        var bySrc = {}, order = [], tot = { total:0, notRun:0, running:0, success:0, failed:0, aborted:0, other:0, onhold:0 };
+        var bySrc = {}, order = [], tot = { total:0, notRun:0, running:0, waiting:0, success:0, failed:0, aborted:0, other:0, onhold:0 };
         for (var i=0;i<feeds.length;i++){
             var f = feeds[i];
             var src = f.source || '—';
-            if (!bySrc[src]){ bySrc[src] = { source:src, sourceDescription:f.sourceDescription, total:0, notRun:0, running:0, success:0, failed:0, aborted:0, other:0, onhold:0 }; order.push(src); }
+            if (!bySrc[src]){ bySrc[src] = { source:src, sourceDescription:f.sourceDescription, total:0, notRun:0, running:0, waiting:0, success:0, failed:0, aborted:0, other:0, onhold:0 }; order.push(src); }
             var b = bySrc[src];
             b.total++; tot.total++;
             b[f.bucket] = (b[f.bucket]||0) + 1;
@@ -169,28 +169,30 @@
         var r = rollup(dashFeeds()), t = r.tot; dashSrcBtnUpd();
         document.getElementById('tiles').innerHTML =
             tileEl('total','Feeds',t.total,'') + tileEl('running','Running',t.running,'run') +
+            tileEl('waiting','Waiting approval',t.waiting,'run') +
             tileEl('success','Success',t.success,'ok') + tileEl('failed','Failed',t.failed,'fail') +
             tileEl('notRun','Not run',t.notRun,'') + tileEl('aborted','Aborted',t.aborted,'') +
             tileEl('onhold','On hold',t.onhold,'run') +
-            tileEl('other','Other',t.other,'');
+            (t.other ? tileEl('other','Other',t.other,'') : '');
         if (r.order.length === 0){ document.getElementById('rollupWrap').innerHTML='<div class="dim small">No feeds.</div>'; return; }
         var h = '<table class="grid"><thead><tr><th title="aggregate weather for the source">Sky</th><th>Source</th><th class="num">Total</th><th class="num">Not run</th>' +
-                '<th class="num">Running</th><th class="num">Success</th><th class="num">Failed</th><th class="num">Aborted</th><th class="num">On hold</th><th class="num">Other</th><th>Mix</th></tr></thead><tbody>';
+                '<th class="num">Running</th><th class="num" title="paused on a manual gate, waiting for approval">Waiting appr.</th><th class="num">Success</th><th class="num">Failed</th><th class="num">Aborted</th><th class="num">On hold</th>' + (r.tot.other ? '<th class="num">Other</th>' : '') + '<th>Mix</th></tr></thead><tbody>';
         for (var i=0;i<r.order.length;i++){
             var s = r.bySrc[r.order[i]];
             var bar = '<div class="bar">' + seg('seg-run',s.running,s.total,'running') + seg('seg-ok',s.success,s.total,'success') +
-                seg('seg-fail',s.failed,s.total,'failed') + seg('seg-abort',s.aborted,s.total,'aborted') + seg('seg-other',s.other,s.total,'other') + '</div>';
+                seg('seg-fail',s.failed,s.total,'failed') + seg('seg-abort',s.aborted,s.total,'aborted') + seg('seg-run',s.waiting,s.total,'waiting approval') + seg('seg-other',s.other,s.total,'other') + '</div>';
             var label = '<span class="mono">' + esc(s.source) + '</span>' + (s.sourceDescription ? '<div class="dim small">' + esc(s.sourceDescription) + '</div>' : '');
             var wx = weatherFor(s);
             h += '<tr><td style="font-size:30px;text-align:center;line-height:1;width:44px" title="' + esc(wx.t) + '">' + wx.ic + '</td><td>' + label + '</td>' +
                 cell('total', s.source, s.total, '') +
                 cell('notRun', s.source, s.notRun, '') +
                 cell('running', s.source, s.running, 'color:var(--run)') +
+                cell('waiting', s.source, s.waiting, 'color:var(--run)') +
                 cell('success', s.source, s.success, 'color:var(--ok)') +
                 cell('failed', s.source, s.failed, 'color:var(--fail)') +
                 cell('aborted', s.source, s.aborted, '') +
                 cell('onhold', s.source, s.onhold, 'color:var(--run)') +
-                cell('other', s.source, s.other, '') +
+                (r.tot.other ? cell('other', s.source, s.other, '') : '') +
                 '<td>' + bar + '</td></tr>';
         }
         h += '</tbody></table>';
@@ -200,7 +202,7 @@
 
     function setDrill(bucket, source){ drill = { bucket:bucket, source:source }; renderRollup(); renderDrill(); }
     function clearDrill(){ drill = { bucket:'total', source:null }; var q=document.getElementById('drillQuery'); if(q) q.value=''; srcSel={}; tgtSel={}; if(document.getElementById('srcFilterBtn')){ msfUpdateBtn('src'); msfUpdateBtn('tgt'); } renderRollup(); renderDrill(); }
-    function bucketLabel(b){ return ({total:'all',notRun:'not run',running:'running',success:'success',failed:'failed',aborted:'aborted',other:'other'})[b] || b; }
+    function bucketLabel(b){ return ({total:'all',notRun:'not run',running:'running',waiting:'waiting approval',success:'success',failed:'failed',aborted:'aborted',onhold:'on hold',other:'other'})[b] || b; }
     // dashboard-level SOURCE filter: limits the whole summary (tiles + by-source table) and the drill
     var dashSrc = {};
     function dashFeeds(){ var ks=Object.keys(dashSrc); if(!ks.length) return FEEDS; return FEEDS.filter(function(f){ return dashSrc[f.source||'\u2014']; }); }
