@@ -115,6 +115,18 @@ public class SqlSupport {
         public java.util.List<Long> partRows = new java.util.ArrayList<Long>();   // data rows per part, aligned with files
         public long rows;
         public int parts;
+        public long newlinesSanitized;   // cells whose CR/LF were replaced while writing
+    }
+
+    /**
+     * How a CR/LF found INSIDE an extracted value is written: space | strip | keep.
+     * The DEFAULT IS KEEP (write the value exactly as the database returned it), so existing
+     * production feeds are byte-for-byte unaffected; opt in per step to normalise.
+     */
+    public static String nlReplacement(String mode) {
+        if ("space".equalsIgnoreCase(mode)) return " ";
+        if ("strip".equalsIgnoreCase(mode)) return "";
+        return null;                                             // keep (default): as-is
     }
 
     /**
@@ -127,7 +139,7 @@ public class SqlSupport {
      */
     public ExportResult exportCsv(DataSourceDef d, String sql, java.io.File baseFile, char delim,
                                   boolean bom, long maxRows, long maxBytes, boolean trim) throws Exception {
-        return exportCsv(d, sql, baseFile, delim, bom, maxRows, maxBytes, trim, null);
+        return exportCsv(d, sql, baseFile, delim, bom, maxRows, maxBytes, trim, null, "keep");
     }
 
     /**
@@ -139,6 +151,13 @@ public class SqlSupport {
     public ExportResult exportCsv(DataSourceDef d, String sql, java.io.File baseFile, char delim,
                                   boolean bom, long maxRows, long maxBytes, boolean trim,
                                   java.util.function.Consumer<Runnable> onAborter) throws Exception {
+        return exportCsv(d, sql, baseFile, delim, bom, maxRows, maxBytes, trim, onAborter, "keep");
+    }
+
+    /** As above, with the newline policy applied to every extracted value (see {@link #nlReplacement}). */
+    public ExportResult exportCsv(DataSourceDef d, String sql, java.io.File baseFile, char delim,
+                                  boolean bom, long maxRows, long maxBytes, boolean trim,
+                                  java.util.function.Consumer<Runnable> onAborter, String nlMode) throws Exception {
         final Connection c = open(d);
         Statement st = null;
         try {
@@ -155,7 +174,7 @@ public class SqlSupport {
                 });
             }
             ResultSet rs = st.executeQuery(sql);
-            return exportResultSet(rs, baseFile, delim, bom, maxRows, maxBytes, trim);
+            return exportResultSet(rs, baseFile, delim, bom, maxRows, maxBytes, trim, nlMode);
         } finally {
             if (onAborter != null) try { onAborter.accept(null); } catch (Exception ignored) {}
             if (st != null) try { st.close(); } catch (Exception ignored) {}
@@ -171,6 +190,19 @@ public class SqlSupport {
      */
     public ExportResult exportResultSet(ResultSet rs, java.io.File baseFile, char delim,
                                         boolean bom, long maxRows, long maxBytes, boolean trim) throws Exception {
+        return exportResultSet(rs, baseFile, delim, bom, maxRows, maxBytes, trim, "keep");
+    }
+
+    /**
+     * As above, but every value is normalised according to nlMode. The column count comes from the
+     * ResultSetMetaData, so each record is written with exactly that many fields: removing the CR/LF
+     * that a source column may contain is what keeps one record on one physical line downstream.
+     */
+    public ExportResult exportResultSet(ResultSet rs, java.io.File baseFile, char delim,
+                                        boolean bom, long maxRows, long maxBytes, boolean trim,
+                                        String nlMode) throws Exception {
+        final String nlRepl = nlReplacement(nlMode);
+        long sanitized = 0;
         ResultSetMetaData md = rs.getMetaData();
         int cols = md.getColumnCount();
         CsvWriter cw = new CsvWriter(baseFile, delim, bom, maxRows, maxBytes);
@@ -180,7 +212,14 @@ public class SqlSupport {
             cw.header(header);
             String[] cell = new String[cols];
             while (rs.next()) {
-                for (int i = 1; i <= cols; i++) cell[i - 1] = cellValue(rs.getObject(i), trim);
+                for (int i = 1; i <= cols; i++) {
+                    String v = cellValue(rs.getObject(i), trim);
+                    if (nlRepl != null && (v.indexOf('\n') >= 0 || v.indexOf('\r') >= 0)) {
+                        v = v.replace("\r\n", nlRepl).replace("\n", nlRepl).replace("\r", nlRepl);
+                        sanitized++;
+                    }
+                    cell[i - 1] = v;
+                }
                 cw.row(cell);
             }
         } finally {
@@ -191,6 +230,7 @@ public class SqlSupport {
         res.partRows.addAll(cw.partRows);
         res.rows = cw.rows;
         res.parts = cw.parts;
+        res.newlinesSanitized = sanitized;
         return res;
     }
 

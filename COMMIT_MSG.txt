@@ -1,23 +1,36 @@
-Docs: bring USAGE.md up to date with the features added since the last pass
+Normalise CR/LF inside values at the JDBC extraction, with conservative defaults
 
-The online help (static/USAGE.md, rendered by the /docs page) was missing everything added
-recently. New sections: step mode skip / on hold (pause) and how it differs from a manual gate;
-mass-editing step mode from the Variables page; the Variables matrix (/matrix) with its
-create-on-save cells, fill-down, Excel paste and "only columns that differ" filter;
-currentDate/currentTs versus runDate/runTs; list indexing ${list[N]} with the loop-index idiom;
-output data and run variables shown one value per line with a total; Operations filtering and the
-current column set (Waiting appr., On hold, Other only when a feed lands in an unmapped status)
-plus the weather legend and the tag badges; viewer row/line numbers and "go to"; the Aggregate tab
-honouring the active filters; the standalone csv-viewer.html for testers; workflow duplication
-copying the uploaded files; and what deleting a run does, including that the audit trail is kept.
+Reassembling a record that was split across physical lines needs a quote-parity heuristic in the
+dequote executor. The right place is the extraction itself: there the column count comes from
+ResultSetMetaData, so the shape of a record is known exactly, and a value containing CR/LF is the
+only thing that can break "one record = one physical line". SqlSupport now normalises the value
+while writing it, which is a single funnel every extracted cell passes through.
 
-Updated in place: the dequote executor bullet (logical records, the embeddedNewlines option and
-the blankLinesRemoved / embeddedNewlinesRemoved outputs) and the Clear History section, which no
-longer blocks production outright but asks for an explicit confirmation, can keep the most recent
-run, and also runs from Operations on the current selection.
+- nlReplacement(mode) maps `space` to a single space, `strip` to nothing and anything else to
+  keeping the value as-is.
+- exportResultSet and exportCsv gained an overload taking the mode; the pre-existing signatures
+  delegate with "keep", so no caller changes behaviour.
+- ExportResult.newlinesSanitized counts the cells that were touched. The sql (JDBC extraction) and
+  csvsql steps read the step parameter `newlinesInValues` and publish ${newlinesSanitized}; the sql
+  step also logs a line when it is greater than zero. The designer exposes the choice as
+  "Line breaks inside extracted values".
 
-Note for future edits (recorded in the spec): the docs page renderer turns every source line into
-its own paragraph, so prose must be written as one long line per paragraph and one line per
-bullet; the added text follows that.
+Defaults are deliberately conservative, because production feeds are already configured the old
+way and must not change on deploy:
 
-No code changes.
+- extraction `newlinesInValues` defaults to **keep**: values are written exactly as the database
+  returns them, byte-for-byte as before;
+- dequote `embeddedNewlines` now defaults to **keep**, i.e. records are not joined. The previous
+  patch defaulted to `space`, which silently changed the output of every existing dequote step;
+- dequote blank-line dropping now sits behind `dropBlankLines`, default **no**. The previous patch
+  dropped blank lines unconditionally, with no way to opt out.
+
+Both are opt-in per step from the designer, or massively from the Variables page and the matrix.
+
+Docs: USAGE.md, .claude/2026-07-24-extraction-newlines-conservative-defaults.md and CLAUDE.md.
+
+Verify: nlReplacement was extracted from the source, compiled and executed -- null, empty and keep
+leave CR+LF intact while space and strip transform as documented; the dequote defaults were checked
+in the code (joinWrapped only for space/strip, dropBlank only for yes/true). designer.html passes
+node --check with no literal \n/\r and no unsafe Thymeleaf; SqlSupport and InternalSteps are
+brace-balanced. Java not compiled as a whole in the chat sandbox -- run the Maven build on deploy.

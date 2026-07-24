@@ -160,11 +160,12 @@ A STEP runs one executor. Built-in (internal) executors:
 - **filecopy** — copy / move / list files.
 - **dequote** — read an input CSV and write an output CSV with double quotes (escaped or not)
   stripped from the chosen text columns; re-quotes a field only when it still contains the
-  delimiter or a newline (or never, with quoteIfNeeded=false). Records are read as **logical
-  rows**: when a quoted field contains a real line break the physical lines are joined so that
-  every record stays on one line — choose how with **Line breaks inside quoted fields**
-  (`space`, the default: the break becomes a space; `strip`: the break is removed; `keep`:
-  legacy, the record stays split). Blank lines are dropped. Reports `${dataRows}`,
+  delimiter or a newline (or never, with quoteIfNeeded=false). Records can optionally be read as
+  **logical rows**: when a quoted field contains a real line break the physical lines are joined
+  so that every record stays on one line — **Line breaks inside quoted fields** offers `keep`
+  (**the default**: nothing changes, the record stays split), `space` (the break becomes a space)
+  or `strip` (the break is removed). **Drop blank lines** (default no) removes empty lines.
+  Reports `${dataRows}`,
   `${columns}`, `${quotesRemoved}`, `${blankLinesRemoved}` and `${embeddedNewlinesRemoved}`.
 - **safecopy** — copy files matching one or more wildcards (comma-separated, e.g. `*.md5, *.tar`) from one directory to another, writing each
   file as `<name>.on_fly_` and renaming it to the final name only after the copy completes
@@ -336,6 +337,10 @@ In the CSV table view, each column header shows the **DisplayName** from the fee
 ### Editing step fields (incl. SQL query) across feeds
 
 The Variables page edits not only workflow variables but also step **core fields** — above all the **SQL query** — and step params. Select one feed to edit its steps, or select several: a **Common steps** section appears with the step ids present in *every* selected feed, and editing a field (e.g. the query) applies the same value to all of them. Each change regenerates and validates the workflow XML before saving (all-or-nothing).
+
+### Line breaks inside extracted values
+
+A source column can contain a real CR/LF (a free-text NOTE, an address...). Written as-is, that record spans several physical lines and every downstream tool has to guess where a record ends. The **sql** step can normalise this at the source, where the column count is known from the query: **Line breaks inside extracted values** offers `keep` (**the default**: the value is written exactly as the database returns it), `space` (the break becomes a single space) or `strip` (the break is removed). The default is deliberately conservative, so feeds already in production are unaffected until you opt in on the step. The number of values that were normalised is published as `${newlinesSanitized}`. The same option applies to the **csvsql** step. The **dequote** step keeps its own recovery for files that were not produced this way: it reassembles a record whose quoted field was split across lines.
 
 ### Step mode: skip and on hold (pause)
 

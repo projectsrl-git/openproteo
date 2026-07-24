@@ -847,6 +847,12 @@
                         '<div class="field"><label>Split: max MB per file (0 = no split)</label><input type="number" min="0" value="' + (n.csvSplitMb || '') + '" placeholder="0" oninput="updNode(' + i + ',\'csvSplitMb\',this.value)"></div>' +
                         '<div class="field"><label></label><span class="dim small">parts named eor_001.csv, eor_002.csv… → ${csvFile} (1st), ${csvFiles}, ${csvParts}</span></div></div>';
                     h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Line breaks inside extracted values (CR/LF in a source column)</label><select onchange="setNodeParam(' + i + ',\'newlinesInValues\',this.value)">' +
+                        '<option value="keep"' + (nodeParam(n,'newlinesInValues') !== 'space' && nodeParam(n,'newlinesInValues') !== 'strip' ? ' selected' : '') + '>keep them as the database returns them (default)</option>' +
+                        '<option value="space"' + (nodeParam(n,'newlinesInValues') === 'space' ? ' selected' : '') + '>replace with a space — one record per line</option>' +
+                        '<option value="strip"' + (nodeParam(n,'newlinesInValues') === 'strip' ? ' selected' : '') + '>remove them — one record per line</option></select></div>' +
+                        '<div class="field"><label></label><span class="dim small">off by default; the column count is known from the query, so normalising here guarantees one record per line downstream → ${newlinesSanitized}</span></div></div>';
+                    h += '<div class="form-row">' +
                         '<div class="field wide"><label>Column list from dataschema (for <code>{{columns}}</code>)</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'columnsSchema')) + '" placeholder="${feedDir}/dataschema.json | ${dataschema_json}" oninput="setNodeParam(' + i + ',\'columnsSchema\',this.value)"></div>' +
                         '<div class="field"><label>Quote columns</label><select onchange="setNodeParam(' + i + ',\'columnQuote\',this.value)">' +
                         '<option value=""' + (!nodeParam(n,'columnQuote') ? ' selected' : '') + '>none (PLAIN)</option>' +
@@ -1059,9 +1065,12 @@
                         '<div class="field wide"><label>Columns (names or 1-based indexes; empty = all)</label><input value="' + attresc(nodeParam(n,'columns')) + '" placeholder="DESCRIZIONE,NOTE | empty = all" oninput="setNodeParam(' + i + ',\'columns\',this.value)"></div></div>';
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Line breaks inside quoted fields</label><select onchange="setNodeParam(' + i + ',\'embeddedNewlines\',this.value)">' +
-                        '<option value="space"' + (nodeParam(n,'embeddedNewlines') !== 'strip' && nodeParam(n,'embeddedNewlines') !== 'keep' ? ' selected' : '') + '>join the record, replace the break with a space (default)</option>' +
-                        '<option value="strip"' + (nodeParam(n,'embeddedNewlines') === 'strip' ? ' selected' : '') + '>join the record, remove the break</option>' +
-                        '<option value="keep"' + (nodeParam(n,'embeddedNewlines') === 'keep' ? ' selected' : '') + '>keep the break (legacy: the record stays split)</option></select></div></div>' +
+                        '<option value="keep"' + (nodeParam(n,'embeddedNewlines') !== 'space' && nodeParam(n,'embeddedNewlines') !== 'strip' ? ' selected' : '') + '>keep the break — the record stays split (default)</option>' +
+                        '<option value="space"' + (nodeParam(n,'embeddedNewlines') === 'space' ? ' selected' : '') + '>join the record, replace the break with a space</option>' +
+                        '<option value="strip"' + (nodeParam(n,'embeddedNewlines') === 'strip' ? ' selected' : '') + '>join the record, remove the break</option></select></div>' +
+                        '<div class="field"><label>Drop blank lines</label><select onchange="setNodeParam(' + i + ',\'dropBlankLines\',this.value)">' +
+                        '<option value="no"' + (nodeParam(n,'dropBlankLines') !== 'yes' ? ' selected' : '') + '>no (default)</option>' +
+                        '<option value="yes"' + (nodeParam(n,'dropBlankLines') === 'yes' ? ' selected' : '') + '>yes</option></select></div></div>' +
                         '<div class="form-row">' +
                         '<div class="field"><label>Has header</label><select onchange="setNodeParam(' + i + ',\'hasHeader\',this.value)">' +
                         '<option value="true"' + (nodeParam(n,'hasHeader') !== 'false' ? ' selected' : '') + '>yes</option>' +
@@ -1072,7 +1081,7 @@
                         '<div class="field"><label>Write BOM</label><select onchange="setNodeParam(' + i + ',\'bom\',this.value)">' +
                         '<option value="false"' + (nodeParam(n,'bom') !== 'true' ? ' selected' : '') + '>no</option>' +
                         '<option value="true"' + (nodeParam(n,'bom') === 'true' ? ' selected' : '') + '>yes (UTF-8 BOM)</option></select></div></div>';
-                    h += '<div class="dim small" style="margin-top:6px">Removes double quotes from the chosen text columns: CSV wrapping quotes and escaped <code>&quot;&quot;</code> are parsed away, then any remaining <code>&quot;</code> is stripped. Records are read as LOGICAL rows: when a quoted field contains a line break the physical lines are joined so that every record stays on a single line (pick above how the break is replaced), and blank lines are dropped. Output is re-quoted only when a field still contains the delimiter (set quoting to &quot;never quote&quot; to force a quote-free file, at the risk of breaking columns that contain the delimiter). Output is UTF-8, CRLF. Outputs <code>${outputFile}</code>, <code>${dataRows}</code>, <code>${columns}</code>, <code>${quotesRemoved}</code>, <code>${blankLinesRemoved}</code>, <code>${embeddedNewlinesRemoved}</code>.</div>';
+                    h += '<div class="dim small" style="margin-top:6px">Removes double quotes from the chosen text columns: CSV wrapping quotes and escaped <code>&quot;&quot;</code> are parsed away, then any remaining <code>&quot;</code> is stripped. Optionally, records can be read as LOGICAL rows: when a quoted field contains a line break the physical lines are joined so that every record stays on a single line (off by default; pick above how the break is replaced). Blank lines are dropped only if you ask for it. Output is re-quoted only when a field still contains the delimiter (set quoting to &quot;never quote&quot; to force a quote-free file, at the risk of breaking columns that contain the delimiter). Output is UTF-8, CRLF. Outputs <code>${outputFile}</code>, <code>${dataRows}</code>, <code>${columns}</code>, <code>${quotesRemoved}</code>, <code>${blankLinesRemoved}</code>, <code>${embeddedNewlinesRemoved}</code>.</div>';
                 } else if (ex === 'diff') {
                     var dmode = nodeParam(n, 'mode') || 'CSV_POSITIONAL';
                     h += '<div class="subsection"><div class="sub-label">Reconcile two CSV files</div>';

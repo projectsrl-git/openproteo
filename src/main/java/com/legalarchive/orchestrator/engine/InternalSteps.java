@@ -265,12 +265,14 @@ public class InternalSteps {
                 if (control != null) control.statement = st;
                 java.sql.ResultSet rs = st.executeQuery(query);
                 // csvsql output is written WITHOUT BOM so it is safe to feed into another csvsql input
-                SqlSupport.ExportResult er = sql.exportResultSet(rs, out, delim, false, maxRows, maxBytes, trim);
+                SqlSupport.ExportResult er = sql.exportResultSet(rs, out, delim, false, maxRows, maxBytes, trim,
+                        params.get("newlinesInValues"));
                 res.outVars.put("rowCount", String.valueOf(er.rows));
                 res.outVars.put("csvParts", String.valueOf(er.parts));
                 res.outVars.put("csvFile", er.files.isEmpty() ? out.getAbsolutePath() : er.files.get(0));
                 res.outVars.put("csvFiles", String.join(step.delimiter == null ? ";" : step.delimiter, er.files));
                 res.outVars.put("csvRowCounts", joinCounts(er.partRows, step.delimiter == null ? ";" : step.delimiter));
+                res.outVars.put("newlinesSanitized", String.valueOf(er.newlinesSanitized));
                 if (er.parts > 1) line.accept("exported " + er.rows + " row(s) into " + er.parts + " CSV part(s)");
                 else line.accept("exported " + er.rows + " row(s) to " + res.outVars.get("csvFile"));
                 for (String f : er.files) line.accept("  " + f);
@@ -1033,13 +1035,17 @@ public class InternalSteps {
             if (out.getParentFile() != null) out.getParentFile().mkdirs();
             long maxRows = step.csvSplitRows > 0 ? step.csvSplitRows : 0;
             long maxBytes = step.csvSplitMb > 0 ? (long) step.csvSplitMb * 1024L * 1024L : 0;
+            // CR/LF inside a source column would split the record over several physical lines: the column
+            // count is known here from the ResultSet, so values are normalised while writing (see nlReplacement)
             SqlSupport.ExportResult er = sql.exportCsv(d, query, out, delim, true, maxRows, maxBytes, trim,
-                    r -> { if (control != null) control.aborter = r; });
+                    r -> { if (control != null) control.aborter = r; }, params.get("newlinesInValues"));
             res.outVars.put("rowCount", String.valueOf(er.rows));
             res.outVars.put("csvParts", String.valueOf(er.parts));
             res.outVars.put("csvFile", er.files.isEmpty() ? out.getAbsolutePath() : er.files.get(0));
             res.outVars.put("csvFiles", String.join(step.delimiter == null ? ";" : step.delimiter, er.files));
             res.outVars.put("csvRowCounts", joinCounts(er.partRows, step.delimiter == null ? ";" : step.delimiter));
+            res.outVars.put("newlinesSanitized", String.valueOf(er.newlinesSanitized));
+            if (er.newlinesSanitized > 0) line.accept("normalised line breaks inside " + er.newlinesSanitized + " value(s)");
             if (er.parts > 1) line.accept("exported " + er.rows + " row(s) into " + er.parts + " CSV part(s)");
             else line.accept("exported " + er.rows + " row(s) to " + res.outVars.get("csvFile"));
             for (String f : er.files) line.accept("  " + f);
@@ -1236,11 +1242,14 @@ public class InternalSteps {
         String colsParam = blankToNull(VarResolver.resolve(params.get("columns"), vars));
         if (colsParam != null) for (String t : colsParam.split(",")) { String x = t.trim(); if (!x.isEmpty()) targets.add(x); }
 
-        // embedded line breaks inside quoted fields: space (default) | strip | keep (old behaviour)
+        // embedded line breaks inside quoted fields: keep (DEFAULT = legacy, the record stays split)
+        // | space | strip. Conservative on purpose: existing feeds keep their exact behaviour.
         String nlMode = blankToNull(VarResolver.resolve(params.get("embeddedNewlines"), vars));
-        if (nlMode == null) nlMode = "space";
-        boolean joinWrapped = !"keep".equalsIgnoreCase(nlMode);
+        boolean joinWrapped = "space".equalsIgnoreCase(nlMode) || "strip".equalsIgnoreCase(nlMode);
         String nlRepl = "strip".equalsIgnoreCase(nlMode) ? "" : " ";
+        // blank lines are dropped only on request (legacy: they were written out as empty records)
+        String dropBlankParam = blankToNull(VarResolver.resolve(params.get("dropBlankLines"), vars));
+        boolean dropBlank = "yes".equalsIgnoreCase(dropBlankParam) || "true".equalsIgnoreCase(dropBlankParam);
         long[] joined = new long[1];
 
         long dataRows = 0, cells = 0, removed = 0, blankLines = 0; int columns = 0;
@@ -1270,9 +1279,9 @@ public class InternalSteps {
 
             String ln = hasHeader ? (joinWrapped ? readCsvRecord(r, nlRepl, joined) : r.readLine()) : first;
             while (ln != null) {
-                // stray blank lines (typically the extra line breaks left at the end of the file,
-                // but also empty lines in the middle) are never valid CSV records: drop them
-                if (ln.trim().isEmpty()) { blankLines++; ln = r.readLine(); continue; }
+                // stray blank lines (the extra line breaks left at the end of a file, or empty lines in
+                // the middle) are not valid CSV records, but they are dropped only when asked to
+                if (dropBlank && ln.trim().isEmpty()) { blankLines++; ln = r.readLine(); continue; }
                 java.util.List<String> f = parseCsv(ln, delim);
                 if (columns == 0) columns = f.size();
                 if (targeted == null || targeted.length < f.size()) {

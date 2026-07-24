@@ -764,3 +764,14 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   unterminated quote at EOF. New param `embeddedNewlines` = space (default) | strip | keep, new
   outVar `embeddedNewlinesRemoved`, plus field-level CR/LF sanitising. Note in
   `.claude/2026-07-23-dequote-embedded-newlines.md`.
+
+## CR/LF inside values: extraction-side fix, all defaults conservative
+* The right place is the JDBC extraction (column count known from ResultSetMetaData), not the
+  dequote heuristic: SqlSupport.nlReplacement(mode) + an nlMode overload of
+  exportResultSet/exportCsv normalise each value while writing, counted in
+  ExportResult.newlinesSanitized; the `sql` and `csvsql` steps read `newlinesInValues` and publish
+  ${newlinesSanitized}. * ALL new behaviour is OFF BY DEFAULT so production feeds are unchanged:
+  extraction `newlinesInValues` defaults to keep; dequote `embeddedNewlines` now defaults to keep
+  (it defaulted to space in the previous patch — a silent behaviour change, corrected) and the
+  blank-line dropping is behind `dropBlankLines`, default no (it was unconditional — corrected).
+  Note in `.claude/2026-07-24-extraction-newlines-conservative-defaults.md`.
