@@ -1,28 +1,23 @@
-dequote: join records split by line breaks inside quoted fields
+Docs: bring USAGE.md up to date with the features added since the last pass
 
-The previous change (dropping blank lines) was the wrong cure. The real defect is a record split
-across physical lines because a quoted field contains a real line break, e.g. a NOTE field whose
-text starts with a quote and continues on the next line. The executor read ONE PHYSICAL LINE at a
-time (readLine + parseCsv), so such a record was never reassembled: the parser saw a fragment with
-an unterminated quote and wrote it out still split.
+The online help (static/USAGE.md, rendered by the /docs page) was missing everything added
+recently. New sections: step mode skip / on hold (pause) and how it differs from a manual gate;
+mass-editing step mode from the Variables page; the Variables matrix (/matrix) with its
+create-on-save cells, fill-down, Excel paste and "only columns that differ" filter;
+currentDate/currentTs versus runDate/runTs; list indexing ${list[N]} with the loop-index idiom;
+output data and run variables shown one value per line with a total; Operations filtering and the
+current column set (Waiting appr., On hold, Other only when a feed lands in an unmapped status)
+plus the weather legend and the tag badges; viewer row/line numbers and "go to"; the Aggregate tab
+honouring the active filters; the standalone csv-viewer.html for testers; workflow duplication
+copying the uploaded files; and what deleting a run does, including that the audit trail is kept.
 
-Records are now read as LOGICAL rows: readCsvRecord() keeps appending physical lines while the
-double quotes on the record are unbalanced (oddQuotes; RFC "" escapes keep the parity even so they
-never trigger a join), replacing the embedded break. Guards: at most 5000 continuation lines per
-record, and an unterminated quote at EOF returns what has been read rather than hanging or
-swallowing the rest of the file. Header and body are read the same way, and field values are
-sanitised so no CR/LF can survive inside a written field.
+Updated in place: the dequote executor bullet (logical records, the embeddedNewlines option and
+the blankLinesRemoved / embeddedNewlinesRemoved outputs) and the Clear History section, which no
+longer blocks production outright but asks for an explicit confirmation, can keep the most recent
+run, and also runs from Operations on the current selection.
 
-New step parameter `embeddedNewlines` (designer dropdown "Line breaks inside quoted fields"):
-space (default, the break becomes a single space), strip (the break is removed) or keep (legacy,
-the record stays split). New output variable `embeddedNewlinesRemoved` counting the physical lines
-joined, reported in the summary log next to blankLinesRemoved; the executor description was
-updated accordingly.
+Note for future edits (recorded in the spec): the docs page renderer turns every source line into
+its own paragraph, so prose must be written as one long line per paragraph and one line per
+bullet; the added text follows that.
 
-Docs: .claude/2026-07-23-dequote-embedded-newlines.md and CLAUDE.md.
-
-Verify: oddQuotes and readCsvRecord were extracted from the source, compiled and executed -- the
-split record collapses into a single record in space and strip mode, stays split in keep mode,
-escaped "" do not cause a join, and an unterminated quote at EOF terminates cleanly. designer.html
-passes node --check with no literal \n/\r and no unsafe Thymeleaf; InternalSteps is brace-balanced.
-Java not compiled as a whole in the chat sandbox -- run the Maven build on deploy.
+No code changes.

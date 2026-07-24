@@ -59,10 +59,18 @@ The Bulk page has a **Mode** selector. **Schema only** ignores the template and 
 
 ### Clear History
 
-The designer has a **Clear History** button that deletes every entry under the feeds base
-directory and recreates it empty (all run history and data for all workflows). It is
-irreversible (double confirmation), refuses to run while a run is active, and is disabled for
-production workflows.
+**Clear History** deletes run records, step logs and step working directories. Uploaded files
+(dataschema/displayschema), the declared input and the audit trail are always kept. It is
+irreversible and asks for confirmation, and the dialog offers two options:
+
+- **production confirmation** — when the selection includes a production workflow you must tick
+  an explicit checkbox to proceed (production is no longer blocked outright, but it can never be
+  cleared by accident);
+- **keep the most recent run** — clears the whole history except the last run, so the feed keeps
+  its latest evidence.
+
+It is available on the workflow editor (this feed only) and on **Operations**, where it clears
+the history of every feed currently selected in the drill grid.
 
 ### Editing the generated XML
 
@@ -152,7 +160,12 @@ A STEP runs one executor. Built-in (internal) executors:
 - **filecopy** — copy / move / list files.
 - **dequote** — read an input CSV and write an output CSV with double quotes (escaped or not)
   stripped from the chosen text columns; re-quotes a field only when it still contains the
-  delimiter or a newline (or never, with quoteIfNeeded=false).
+  delimiter or a newline (or never, with quoteIfNeeded=false). Records are read as **logical
+  rows**: when a quoted field contains a real line break the physical lines are joined so that
+  every record stays on one line — choose how with **Line breaks inside quoted fields**
+  (`space`, the default: the break becomes a space; `strip`: the break is removed; `keep`:
+  legacy, the record stays split). Blank lines are dropped. Reports `${dataRows}`,
+  `${columns}`, `${quotesRemoved}`, `${blankLinesRemoved}` and `${embeddedNewlinesRemoved}`.
 - **safecopy** — copy files matching one or more wildcards (comma-separated, e.g. `*.md5, *.tar`) from one directory to another, writing each
   file as `<name>.on_fly_` and renaming it to the final name only after the copy completes
   (atomic move when possible). Prevents a downstream watcher from picking up a partial file.
@@ -310,7 +323,7 @@ In the CSV table view, build FROM/TO range filters: pick a column, type a from a
 
 ### JSON / XML viewer
 
-.json and .xml files are pretty-printed on open in the file viewer — no need to enter Edit. Use Edit to change and save them.
+.json and .xml files are pretty-printed on open in the file viewer — no need toenter Edit. Use Edit to change and save them.
 
 ### PROD badge
 
@@ -323,3 +336,78 @@ In the CSV table view, each column header shows the **DisplayName** from the fee
 ### Editing step fields (incl. SQL query) across feeds
 
 The Variables page edits not only workflow variables but also step **core fields** — above all the **SQL query** — and step params. Select one feed to edit its steps, or select several: a **Common steps** section appears with the step ids present in *every* selected feed, and editing a field (e.g. the query) applies the same value to all of them. Each change regenerates and validates the workflow XML before saving (all-or-nothing).
+
+### Step mode: skip and on hold (pause)
+
+Every step has a **Step mode** in the designer (in the row with Timeout / Retry / Retry delay):
+
+- **normal** — executed as usual;
+- **skip (passthrough)** — the step is not executed and its input is passed straight through to its output, so the downstream steps keep working on the same data;
+- **on hold (pause)** — the run stops *before* that step with status **ON HOLD**. Operations shows a blue chip, the partial "N of TOT steps successful" count and the outputs produced so far. Resume with **▶ Continue (resume)** on the run page or on the Operations row.
+
+Note the difference from a **manual gate**: a gate asks for an approve/reject *decision* and routes the run to `onTrue`/`onFalse` (status `WAITING_APPROVAL`), while *on hold* is just a pause that you release with Continue (status `ON_HOLD`).
+
+### Mass-editing step mode (and other step properties)
+
+The **Variables** page edits the properties that the selected feeds have in common — step fields, parameters, output data, on-success delete — and includes a **step mode** dropdown with the same options as the designer. This is the quickest way to put the same step *on hold* or *skip* on many feeds at once (for example to pause every feed before the delivery step). The hint under the dropdown tells you the current value, or that it differs across the selection.
+
+### Variables matrix (▦ Matrix)
+
+`/matrix` (linked from the dashboard and from the Variables page) is a spreadsheet-like editor: **one row per feed, one column per variable** (the union of every workflow variable), plus optional `tags` and `PROD` columns. The feed column and the header row stay fixed while you scroll.
+
+- Type in a cell to change a value; **only the cells you touch are saved**, and they stay highlighted until you save.
+- An empty cell means the variable is **not defined** for that feed: typing a value **creates** it on save. Use **+ Add column** to introduce a brand-new variable across the feeds.
+- The **▾** button in a column header copies that value down to every visible feed.
+- Arrow Up/Down and Enter move between cells, and pasting a block copied from Excel fills the cells to the right and below.
+- Filters: feeds, column names, and **only columns that differ** — which shows just the variables whose value is not identical across the visible feeds.
+
+### `currentDate` / `currentTs`
+
+`${runDate}` and `${runTs}` are fixed when the run starts. `${currentDate}` (`yyyyMMdd`) and `${currentTs}` (`yyyyMMdd_HHmmss`) are re-evaluated **before every step**, so a step resumed days after an ON HOLD pause — and every step after it — can use today's date instead of the date the run began.
+
+### Indexing a list variable: `${list[N]}`
+
+Variables such as `csvRowCounts`, `csvFiles` or `matchedFiles` hold a single `;`-separated string. `${name[N]}` returns the **N-th element, 1-based**, trimmed. Combined with the loop index this gives the value for the current iteration:
+
+```
+${csvRowCounts[${loopIndex}]}     rows of the file being processed
+${csvFiles[${loopIndex}]}         path of the file being processed
+${csvRowCounts[1]}                the first part
+```
+
+`loopIndex` is 1-based, so `[1]` is the first element. An index out of range, or a missing base variable, resolves to an empty string.
+
+### Output data and run variables: one value per line, with a total
+
+In Operations each output-data variable is shown on **its own line**. When a value is a `;`-separated list of two or more items — typically `csvRowCounts` from an SQL step that split its output into several files — it is shown as a block with the **Σ total** (sum of the numeric values), the number of values, and each value on its own line in a small scrollable box. The same applies to the **Variables** panel of the run page; path lists (like `csvFiles`) wrap the same way but without a total.
+
+### Operations: filtering and columns
+
+- The **Sources** dropdown in the "By source" panel header filters the **whole summary**: the status tiles and the by-source table recount only the selected sources, and the drill grid follows. Inside the drill you can narrow further with the **Source** and **Target** multi-select filters and the free-text feed filter.
+- The by-source table has one column per status: Not run, Running, **Waiting appr.** (paused on a manual gate), Success, Failed, Aborted, **On hold**. Every cell is clickable and drills into those feeds. The columns always add up to Total; an extra *Other* column appears only in the rare case of a feed in an unmapped status (e.g. rejected or skipped).
+- Each source has a **weather icon** summarising it: 🌞 all successful · ⛅ done + still to run · ☁️ all still to run · 🌩️ some failed · ⛈️ all failed · 🌫️ on hold · 🌥️ waiting for approval · 🌤️ running · 🌦️ aborted.
+- Feed **tags** are shown as badges, with `${...}` placeholders already resolved.
+
+### Viewer: line numbers and "go to"
+
+The file viewer numbers the rows and lets you jump straight to one:
+
+- **CSV** — a fixed `#` column on the left shows the row number, and **go to row** scrolls to it and outlines it;
+- **TXT / log** — line numbers in the gutter, plus **go to line**;
+- **JSON / XML** — the pretty-printed output is numbered too (with the line count next to the file name) and supports **go to line**.
+
+### Aggregate honours the active filters
+
+In the CSV view, the free-text filter and the FROM/TO range filters also apply to the **Aggregate** tab, so group-by counts, DISTINCT and totals always describe the same rows you see in the table.
+
+### Standalone CSV viewer for testers (`csv-viewer.html`)
+
+`csv-viewer.html`, at the root of the repository, is a single self-contained HTML file that runs by double-clicking it (`file://`) — no server, no network, nothing to install. Hand it to testers who need to inspect a CSV without access to OpenProteo. Two clearly separated boxes let you pick the **CSV** (required) and its **displayschema.json** (optional, to get the friendly column names). It mirrors the internal viewer: same parsing (BOM, delimiter sniffing, quote-aware split), virtualised grid, per-column auto-width plus drag-resize, free-text filter, per-column range filters, click-to-sort, date formatting applied only to the cells on screen, and an **Aggregate** tab with group-by, DISTINCT COUNT, SUM, optional pivot, substring specs (`COL=L4` / `COL=R2`), a pinned TOTAL row and CSV export.
+
+### Duplicating a workflow
+
+**Duplicate as new** in the designer clears the feed id so you can type a new one and save. The uploaded files of the original feed (dataschema, displayschema, scripts) are **copied into the new feed's directory**, so the duplicate is a faithful copy and is ready to run without re-uploading anything.
+
+### Deleting a run
+
+Deleting a run removes its record, its step logs and its step working directories, and the run disappears from the run history. The **audit trail is deliberately kept**: the events of that run (including the deletion itself) remain in the audit log for compliance, they are simply no longer listed as a run.
