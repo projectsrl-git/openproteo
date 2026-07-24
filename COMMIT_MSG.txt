@@ -1,18 +1,28 @@
-Weather icon for feeds waiting on a manual gate
+dequote: join records split by line breaks inside quoted fields
 
-Splitting WAITING_APPROVAL out of the "running" bucket left weatherFor() unaware of it: a
-source whose feeds are paused on a manual gate matched no branch and fell through to the
-generic "mixed" icon, losing the information (before the split those feeds showed as
-"N running").
+The previous change (dropping blank lines) was the wrong cure. The real defect is a record split
+across physical lines because a quoted field contains a real line break, e.g. a NOTE field whose
+text starts with a quote and continues on the next line. The executor read ONE PHYSICAL LINE at a
+time (readLine + parseCsv), so such a record was never reassembled: the parser saw a fragment with
+an unterminated quote and wrote it out still split.
 
-Added a waiting branch to weatherFor(): U+1F325 (sun behind large cloud) with the tooltip
-"N waiting for approval", placed after the on-hold check and before running, so the priority
-reads failed > all success > all not-run > done+to-run > on hold > waiting approval > running >
-aborted > mixed. The icon is deliberately close to the running one (sun behind small cloud) but
-more covered, so it reads as "held back".
+Records are now read as LOGICAL rows: readCsvRecord() keeps appending physical lines while the
+double quotes on the record are unbalanced (oddQuotes; RFC "" escapes keep the parity even so they
+never trigger a join), replacing the embedded break. Guards: at most 5000 continuation lines per
+record, and an unterminated quote at EOF returns what has been read rather than hanging or
+swallowing the rest of the file. Header and body are read the same way, and field values are
+sanitised so no CR/LF can survive inside a written field.
 
-Docs: .claude/2026-07-23-weather-waiting-approval.md and CLAUDE.md.
+New step parameter `embeddedNewlines` (designer dropdown "Line breaks inside quoted fields"):
+space (default, the break becomes a single space), strip (the break is removed) or keep (legacy,
+the record stays split). New output variable `embeddedNewlinesRemoved` counting the physical lines
+joined, reported in the summary log next to blankLinesRemoved; the executor description was
+updated accordingly.
 
-Verify: overview.html passes node --check with no literal \n/\r and no unsafe Thymeleaf, and the
-real weatherFor was exercised in Node (waiting only, waiting+running, on-hold precedence, failed
-precedence, running unchanged). Template -- rebuild the WAR, then hard-refresh.
+Docs: .claude/2026-07-23-dequote-embedded-newlines.md and CLAUDE.md.
+
+Verify: oddQuotes and readCsvRecord were extracted from the source, compiled and executed -- the
+split record collapses into a single record in space and strip mode, stays split in keep mode,
+escaped "" do not cause a join, and an unterminated quote at EOF terminates cleanly. designer.html
+passes node --check with no literal \n/\r and no unsafe Thymeleaf; InternalSteps is brace-balanced.
+Java not compiled as a whole in the chat sandbox -- run the Maven build on deploy.

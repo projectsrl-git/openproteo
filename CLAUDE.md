@@ -754,3 +754,13 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   approval", after the on-hold check and before running: failed > all success > all not-run >
   done+to-run > on hold (🌫️) > waiting approval (🌥️) > running (🌤️) > aborted (🌦️) > mixed.
   Note in `.claude/2026-07-23-weather-waiting-approval.md`.
+
+## dequote: records split by line breaks inside quoted fields
+* The earlier "blank lines" change was the wrong cure: the real defect is a record split across
+  physical lines because a quoted field contains a line break (the executor read one physical line
+  at a time, so the record was never reassembled). Records are now read as LOGICAL rows via
+  readCsvRecord(), which appends physical lines while quotes are unbalanced (oddQuotes; RFC ""
+  escapes keep parity so they never join), with a 5000-line guard and a clean stop on an
+  unterminated quote at EOF. New param `embeddedNewlines` = space (default) | strip | keep, new
+  outVar `embeddedNewlinesRemoved`, plus field-level CR/LF sanitising. Note in
+  `.claude/2026-07-23-dequote-embedded-newlines.md`.

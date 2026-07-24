@@ -1236,13 +1236,20 @@ public class InternalSteps {
         String colsParam = blankToNull(VarResolver.resolve(params.get("columns"), vars));
         if (colsParam != null) for (String t : colsParam.split(",")) { String x = t.trim(); if (!x.isEmpty()) targets.add(x); }
 
+        // embedded line breaks inside quoted fields: space (default) | strip | keep (old behaviour)
+        String nlMode = blankToNull(VarResolver.resolve(params.get("embeddedNewlines"), vars));
+        if (nlMode == null) nlMode = "space";
+        boolean joinWrapped = !"keep".equalsIgnoreCase(nlMode);
+        String nlRepl = "strip".equalsIgnoreCase(nlMode) ? "" : " ";
+        long[] joined = new long[1];
+
         long dataRows = 0, cells = 0, removed = 0, blankLines = 0; int columns = 0;
         boolean[] targeted = null;
         java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(in), "UTF-8"));
         java.io.BufferedWriter w = new java.io.BufferedWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(out), "UTF-8"));
         try {
             if (bom) w.write('\uFEFF');
-            String first = r.readLine();
+            String first = joinWrapped ? readCsvRecord(r, nlRepl, joined) : r.readLine();
             if (first == null) { line.accept("dequote: empty input"); res.exitCode = 2; return; }
             if (first.length() > 0 && first.charAt(0) == '\uFEFF') first = first.substring(1);
 
@@ -1261,7 +1268,7 @@ public class InternalSteps {
                 w.write(hb.toString()); w.write("\r\n");
             }
 
-            String ln = hasHeader ? r.readLine() : first;
+            String ln = hasHeader ? (joinWrapped ? readCsvRecord(r, nlRepl, joined) : r.readLine()) : first;
             while (ln != null) {
                 // stray blank lines (typically the extra line breaks left at the end of the file,
                 // but also empty lines in the middle) are never valid CSV records: drop them
@@ -1284,12 +1291,15 @@ public class InternalSteps {
                         v = v.replace("\"", "");
                         removed += (before - v.length());
                     }
+                    if (joinWrapped && (v.indexOf('\n') >= 0 || v.indexOf('\r') >= 0)) {
+                        v = v.replace("\r\n", nlRepl).replace("\n", nlRepl).replace("\r", nlRepl);
+                    }
                     cells++;
                     lb.append(quoteIfNeeded ? rfcField(v, delim) : v);
                 }
                 w.write(lb.toString()); w.write("\r\n");
                 dataRows++;
-                ln = r.readLine();
+                ln = joinWrapped ? readCsvRecord(r, nlRepl, joined) : r.readLine();
             }
         } finally {
             r.close();
@@ -1301,8 +1311,10 @@ public class InternalSteps {
         res.outVars.put("cells", String.valueOf(cells));
         res.outVars.put("quotesRemoved", String.valueOf(removed));
         res.outVars.put("blankLinesRemoved", String.valueOf(blankLines));
+        res.outVars.put("embeddedNewlinesRemoved", String.valueOf(joined[0]));
         line.accept("dequote " + in.getName() + " -> " + out.getName() + "  rows=" + dataRows
-                + " cols=" + columns + " quotesRemoved=" + removed + " blankLinesRemoved=" + blankLines + " delim='" + delim + "'");
+                + " cols=" + columns + " quotesRemoved=" + removed + " blankLinesRemoved=" + blankLines
+                + " embeddedNewlinesRemoved=" + joined[0] + " delim='" + delim + "'");
         for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
         res.exitCode = 0;
     }
@@ -2917,6 +2929,29 @@ public class InternalSteps {
     /** RFC-style quote-aware split: wrapping double quotes are removed and "" -> " inside fields.
         So header names and values are compared without their surrounding quotes, and only
         EMBEDDED quotes survive in a field (used by the noQuotes check). */
+    private static boolean oddQuotes(CharSequence s) {
+        int n = 0;
+        for (int i = 0; i < s.length(); i++) if (s.charAt(i) == '"') n++;
+        return (n & 1) == 1;                       // RFC "" escapes keep the parity even
+    }
+
+    /** Reads one LOGICAL csv record. While the double quotes on the record are unbalanced the record
+     *  continues on the next physical line, so that line break is INSIDE a quoted field: the lines are
+     *  joined and the break replaced by nlRepl. Returns null at EOF. */
+    private static String readCsvRecord(java.io.BufferedReader r, String nlRepl, long[] joined) throws java.io.IOException {
+        String ln = r.readLine();
+        if (ln == null) return null;
+        StringBuilder sb = new StringBuilder(ln);
+        int guard = 0;
+        while (oddQuotes(sb) && guard++ < 5000) {
+            String more = r.readLine();
+            if (more == null) break;               // unterminated quote at EOF: keep what we have
+            sb.append(nlRepl).append(more);
+            joined[0]++;
+        }
+        return sb.toString();
+    }
+
     private static java.util.List<String> parseCsv(String line, char delim) {
         java.util.List<String> out = new ArrayList<String>();
         StringBuilder sb = new StringBuilder();

@@ -1058,6 +1058,11 @@
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Columns (names or 1-based indexes; empty = all)</label><input value="' + attresc(nodeParam(n,'columns')) + '" placeholder="DESCRIZIONE,NOTE | empty = all" oninput="setNodeParam(' + i + ',\'columns\',this.value)"></div></div>';
                     h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Line breaks inside quoted fields</label><select onchange="setNodeParam(' + i + ',\'embeddedNewlines\',this.value)">' +
+                        '<option value="space"' + (nodeParam(n,'embeddedNewlines') !== 'strip' && nodeParam(n,'embeddedNewlines') !== 'keep' ? ' selected' : '') + '>join the record, replace the break with a space (default)</option>' +
+                        '<option value="strip"' + (nodeParam(n,'embeddedNewlines') === 'strip' ? ' selected' : '') + '>join the record, remove the break</option>' +
+                        '<option value="keep"' + (nodeParam(n,'embeddedNewlines') === 'keep' ? ' selected' : '') + '>keep the break (legacy: the record stays split)</option></select></div></div>' +
+                        '<div class="form-row">' +
                         '<div class="field"><label>Has header</label><select onchange="setNodeParam(' + i + ',\'hasHeader\',this.value)">' +
                         '<option value="true"' + (nodeParam(n,'hasHeader') !== 'false' ? ' selected' : '') + '>yes</option>' +
                         '<option value="false"' + (nodeParam(n,'hasHeader') === 'false' ? ' selected' : '') + '>no</option></select></div>' +
@@ -1067,7 +1072,7 @@
                         '<div class="field"><label>Write BOM</label><select onchange="setNodeParam(' + i + ',\'bom\',this.value)">' +
                         '<option value="false"' + (nodeParam(n,'bom') !== 'true' ? ' selected' : '') + '>no</option>' +
                         '<option value="true"' + (nodeParam(n,'bom') === 'true' ? ' selected' : '') + '>yes (UTF-8 BOM)</option></select></div></div>';
-                    h += '<div class="dim small" style="margin-top:6px">Removes double quotes from the chosen text columns: CSV wrapping quotes and escaped <code>&quot;&quot;</code> are parsed away, then any remaining <code>&quot;</code> is stripped. Output is re-quoted only when a field still contains the delimiter or a newline (set quoting to &quot;never quote&quot; to force a quote-free file, at the risk of breaking columns that contain the delimiter). Output is UTF-8, CRLF. Outputs <code>${outputFile}</code>, <code>${dataRows}</code>, <code>${columns}</code>, <code>${quotesRemoved}</code>.</div>';
+                    h += '<div class="dim small" style="margin-top:6px">Removes double quotes from the chosen text columns: CSV wrapping quotes and escaped <code>&quot;&quot;</code> are parsed away, then any remaining <code>&quot;</code> is stripped. Records are read as LOGICAL rows: when a quoted field contains a line break the physical lines are joined so that every record stays on a single line (pick above how the break is replaced), and blank lines are dropped. Output is re-quoted only when a field still contains the delimiter (set quoting to &quot;never quote&quot; to force a quote-free file, at the risk of breaking columns that contain the delimiter). Output is UTF-8, CRLF. Outputs <code>${outputFile}</code>, <code>${dataRows}</code>, <code>${columns}</code>, <code>${quotesRemoved}</code>, <code>${blankLinesRemoved}</code>, <code>${embeddedNewlinesRemoved}</code>.</div>';
                 } else if (ex === 'diff') {
                     var dmode = nodeParam(n, 'mode') || 'CSV_POSITIONAL';
                     h += '<div class="subsection"><div class="sub-label">Reconcile two CSV files</div>';
