@@ -785,3 +785,16 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   .ver-badge ("v1.0.0 · <short>") in the topbar. The deploy .bat verifies, commits, then rebuilds with
   -Dgit.commit=<short HEAD> so the hash lands in the WAR. Note in
   `.claude/2026-07-25-build-version-badge.md`.
+
+## Version fix + progressive + splash + claim
+* CAUSE of the missing commit: spring-boot-starter-parent sets resource.delimiter=@ and
+  useDefaultDelimiters=false, so ONLY `@token@` is substituted in filtered resources — `${git.commit}`
+  was never replaced. build-info.properties now uses @...@ throughout. * Automatic progressive:
+  build.number = `git rev-list --count HEAD`, passed by the deploy .bat as -Dbuild.number together with
+  -Dgit.commit on the post-commit rebuild; the badge shows v<version>.<build> · <commit>, details in the
+  tooltip, with a buildTime fallback to the resource mtime and blanks for unfiltered builds.
+  * theme.js mountSplash(): full-screen splash once per tab session (sessionStorage `op-splash`),
+  self-fading after 2s, closes on click/key, 6s hard safety net, honours prefers-reduced-motion; styles
+  .op-splash* in app.css. * Claim in the dashboard topbar is now "Pipeline Workflow Orchestrator".
+  * Remember: XML comments cannot contain `--`, and always validate pom.xml with an XML parser.
+  Note in `.claude/2026-07-28-version-progressive-splash-claim.md`.

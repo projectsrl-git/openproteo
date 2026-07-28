@@ -1,6 +1,6 @@
 # OpenProteo — Usage Guide
 
-OpenProteo is a workflow orchestrator for preparing and delivering Legal Archive feeds.
+OpenProteo is a pipeline workflow orchestrator: it prepares, validates and delivers the Legal Archive feeds.
 Each **workflow** (a `feedId`) is an ordered chain of **steps** and **gates** that extract
 data, transform it, validate it, anonymize/mask it and hand it off. Workflows are stored as
 XML in the workflows directory and are designed visually in the **Workflow Designer**.

@@ -1,27 +1,31 @@
-Show the build version (pom version + git commit) in the topbar
+Fix the missing commit in the version badge, add an automatic progressive, a startup splash and the new claim
 
-See at a glance which build is running. Nexus-safe, with no new Maven plugin: Maven filters a tiny
-properties file with the pom version and a commit hash passed on the command line, an endpoint reads it,
-and the topbar shows a small badge.
+1) The commit never appeared because spring-boot-starter-parent 2.7.x sets resource.delimiter to @ and
+configures maven-resources-plugin with useDefaultDelimiters=false (verified in the spring-boot sources
+for v2.7.18). In a filtered resource only @token@ is substituted, so @project.version@ worked while
+${git.commit} and ${maven.build.timestamp} were written out verbatim and the endpoint correctly blanked
+them. build-info.properties now uses @...@ for every placeholder.
 
-- src/main/resources/build-info.properties carries three placeholders (build.version=@project.version@,
-  build.commit=${git.commit}, build.time=${maven.build.timestamp}); @...@ is used for the version so it
-  does not clash with the ${...} build properties.
-- pom.xml filters ONLY that file via an explicit <resources> block (one filtered resource limited to
-  build-info.properties, one unfiltered for everything else, so no binary or static asset is touched). The
-  git.commit=unknown default and the build-timestamp format are added to the EXISTING <properties> block.
-- ApiController.buildInfo() loads the file once (cached), blanks any raw placeholder left by a plain
-  build, and exposes version / commit / shortCommit / buildTime. New endpoint GET /api/version; the same
-  map is folded into /api/env.
-- theme.js mountVersion() fetches it and adds a small .ver-badge to the topbar next to the clock
-  ("v1.0.0 · <short>", full details in the tooltip); app.css styles it with a light-theme override.
+2) Automatic progressive: build.number is the commit count (git rev-list --count HEAD) — monotonic,
+automatic, with no state file and no new Maven plugin. The deploy .bat passes -Dbuild.number together
+with -Dgit.commit on the post-commit rebuild, so the WAR carries both. The badge now reads
+v<version>.<build> · <commit> (e.g. v1.0.0.148 · 32a1a78) with version, build, commit and build time in
+the tooltip. buildInfo() gained a build-time fallback to the last-modified of build-info.properties and
+keeps blanking unfiltered placeholders, so a plain mvn package still shows the version.
 
-The deploy .bat builds once to verify, commits and pushes, then rebuilds the WAR passing
--Dgit.commit=<short HEAD> so build-info.properties inside the WAR carries the real hash. A plain
-`mvn package` still shows the version, with the commit left blank.
+3) Startup splash: theme.js mountSplash() shows a full-screen splash (logo, wordmark, claim, version)
+the first time a browser-tab session opens the app, guarded by sessionStorage. It fades itself out after
+two seconds, closes on any click or key press and has a six-second hard safety net so it can never trap
+the UI; it honours prefers-reduced-motion and is skipped if storage is blocked. Styles in app.css with a
+light-theme variant.
 
-Docs: .claude/2026-07-25-build-version-badge.md and CLAUDE.md.
+4) The dashboard topbar claim is now "Pipeline Workflow Orchestrator" instead of "Legal Archive · feed
+preparation & delivery", and the opening line of USAGE.md was aligned.
 
-Verify: buildInfo() was compiled and executed against a sample build-info.properties and returns the map
-with a 7-char short commit; theme.js passes node --check with no literal \n/\r; pom.xml is valid XML with a
-single <properties> block. Java not compiled as a whole in the chat sandbox -- run the Maven build on deploy.
+Docs: .claude/2026-07-28-version-progressive-splash-claim.md and CLAUDE.md.
+
+Verify: buildInfo() was compiled and executed in three scenarios — filtered (label 1.0.0.148 · 32a1a78),
+plain build (version only, build time from the file mtime) and fully unfiltered (all blank, badge
+hidden). pom.xml was validated with an XML parser: well-formed, a single <properties> block and no double
+dash inside comments, which is what broke the previous attempt. theme.js passes node --check with zero
+literal \n or \r. Java not compiled as a whole in the chat sandbox -- run the Maven build on deploy.

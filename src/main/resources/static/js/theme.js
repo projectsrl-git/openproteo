@@ -66,22 +66,32 @@
         } catch (err) { }
     }
 
+    var VER_PROMISE = null;
+    function versionInfo() {
+        if (!VER_PROMISE) {
+            VER_PROMISE = fetch(ctx() + 'api/version')
+                .then(function (r) { return r.json(); })
+                .catch(function () { return null; });
+        }
+        return VER_PROMISE;
+    }
+
     function mountVersion() {
         var bar = document.querySelector('.topbar');
         if (!bar || document.getElementById('verBadge')) return;
         try {
-            fetch(ctx() + 'api/version').then(function (r) { return r.json(); }).then(function (j) {
+            versionInfo().then(function (j) {
                 if (!j) return;
-                var ver = j.version ? ('v' + j.version) : '';
-                var sc = j.shortCommit || '';
-                var label = ver + (ver && sc ? ' \u00B7 ' : '') + (sc || '');
+                var label = j.label ? ('v' + j.label) : (j.version ? ('v' + j.version) : '');
                 if (!label) return;
                 if (document.getElementById('verBadge')) return;
                 var span = document.createElement('span');
                 span.id = 'verBadge';
                 span.className = 'ver-badge';
                 span.textContent = label;
-                span.title = 'OpenProteo ' + (j.version || '') + (sc ? ('  commit ' + sc) : '')
+                span.title = 'OpenProteo ' + (j.version || '')
+                        + (j.buildNumber ? ('  build ' + j.buildNumber) : '')
+                        + (j.shortCommit ? ('  commit ' + j.shortCommit) : '')
                         + (j.buildTime ? ('  built ' + j.buildTime) : '');
                 var clock = document.getElementById('clock');
                 if (clock && clock.parentNode === bar) bar.insertBefore(span, clock);
@@ -90,7 +100,49 @@
         } catch (err) { }
     }
 
-    function mountAll() { mount(); mountEnv(); mountVersion(); }
+    /* Splash shown once per browser-tab session: fades itself out, and any click or key closes it. */
+    function mountSplash() {
+        if (!document.querySelector('.topbar') || document.getElementById('opSplash')) return;
+        try { if (sessionStorage.getItem('op-splash') === '1') return; sessionStorage.setItem('op-splash', '1'); }
+        catch (e) { return; }                      // storage blocked: skip the splash rather than repeat it
+
+        var reduce = false;
+        try { reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { }
+
+        var ov = document.createElement('div');
+        ov.id = 'opSplash';
+        ov.className = 'op-splash' + (reduce ? ' op-noanim' : '');
+        var card = document.createElement('div'); card.className = 'op-splash-card'; ov.appendChild(card);
+        var img = document.createElement('img'); img.className = 'op-splash-logo'; img.alt = '';
+        img.src = ctx() + 'img/logo.svg'; card.appendChild(img);
+        var nm = document.createElement('div'); nm.className = 'op-splash-name'; nm.textContent = 'OPENPROTEO'; card.appendChild(nm);
+        var cl = document.createElement('div'); cl.className = 'op-splash-claim';
+        cl.textContent = 'Pipeline Workflow Orchestrator'; card.appendChild(cl);
+        var vr = document.createElement('div'); vr.className = 'op-splash-ver'; card.appendChild(vr);
+        var bar = document.createElement('div'); bar.className = 'op-splash-bar';
+        bar.appendChild(document.createElement('span')); card.appendChild(bar);
+        document.body.appendChild(ov);
+
+        versionInfo().then(function (j) {
+            if (!j) return;
+            var t = (j.label ? ('v' + j.label) : (j.version ? ('v' + j.version) : ''));
+            if (j.buildTime) t += (t ? '   ' : '') + j.buildTime;
+            vr.textContent = t;
+        });
+
+        var done = false;
+        function close() {
+            if (done) return; done = true;
+            ov.className += ' op-hide';
+            setTimeout(function () { if (ov.parentNode) ov.parentNode.removeChild(ov); }, reduce ? 0 : 420);
+        }
+        setTimeout(close, reduce ? 700 : 2000);
+        ov.addEventListener('click', close);
+        document.addEventListener('keydown', function onKey(e) { document.removeEventListener('keydown', onKey); close(); });
+        setTimeout(function () { if (ov.parentNode) ov.parentNode.removeChild(ov); }, 6000);   // hard safety net
+    }
+
+    function mountAll() { mount(); mountEnv(); mountVersion(); mountSplash(); }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountAll);
     else mountAll();
 })();
