@@ -775,3 +775,13 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   (it defaulted to space in the previous patch — a silent behaviour change, corrected) and the
   blank-line dropping is behind `dropBlankLines`, default no (it was unconditional — corrected).
   Note in `.claude/2026-07-24-extraction-newlines-conservative-defaults.md`.
+
+## Build version badge (pom version + git commit)
+* Nexus-safe, no new plugin: build-info.properties (build.version=@project.version@,
+  build.commit=${git.commit}, build.time=${maven.build.timestamp}) filtered by Maven via an explicit
+  <resources> block that filters ONLY that file. The git.commit default and timestamp format live in the
+  EXISTING <properties> block (do not add a second one). ApiController.buildInfo() reads it once (cached,
+  blanks raw placeholders) at GET /api/version and folded into /api/env; theme.js mountVersion() shows a
+  .ver-badge ("v1.0.0 · <short>") in the topbar. The deploy .bat verifies, commits, then rebuilds with
+  -Dgit.commit=<short HEAD> so the hash lands in the WAR. Note in
+  `.claude/2026-07-25-build-version-badge.md`.

@@ -23,6 +23,9 @@
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- overridden by the deploy .bat with -Dgit.commit=<short HEAD>; 'unknown' on a plain build -->
+        <git.commit>unknown</git.commit>
+        <maven.build.timestamp.format>yyyy-MM-dd HH:mm</maven.build.timestamp.format>
     </properties>
 
     <dependencies>
@@ -74,6 +77,19 @@
 
     <build>
         <finalName>openproteo</finalName>
+        <resources>
+            <!-- filter only the tiny build-info file, so @project.version@ / ${git.commit} / ${maven.build.timestamp} are substituted -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes><include>build-info.properties</include></includes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes><exclude>build-info.properties</exclude></excludes>
+            </resource>
+        </resources>
         <plugins>
             <!-- Plain WAR for deployment on an external Tomcat. The Spring Boot repackage
                  (executable/fat artifact with embedded server) is skipped to keep the WAR light. -->

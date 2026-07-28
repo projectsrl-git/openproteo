@@ -66,7 +66,31 @@
         } catch (err) { }
     }
 
-    function mountAll() { mount(); mountEnv(); }
+    function mountVersion() {
+        var bar = document.querySelector('.topbar');
+        if (!bar || document.getElementById('verBadge')) return;
+        try {
+            fetch(ctx() + 'api/version').then(function (r) { return r.json(); }).then(function (j) {
+                if (!j) return;
+                var ver = j.version ? ('v' + j.version) : '';
+                var sc = j.shortCommit || '';
+                var label = ver + (ver && sc ? ' \u00B7 ' : '') + (sc || '');
+                if (!label) return;
+                if (document.getElementById('verBadge')) return;
+                var span = document.createElement('span');
+                span.id = 'verBadge';
+                span.className = 'ver-badge';
+                span.textContent = label;
+                span.title = 'OpenProteo ' + (j.version || '') + (sc ? ('  commit ' + sc) : '')
+                        + (j.buildTime ? ('  built ' + j.buildTime) : '');
+                var clock = document.getElementById('clock');
+                if (clock && clock.parentNode === bar) bar.insertBefore(span, clock);
+                else bar.appendChild(span);
+            }).catch(function () { });
+        } catch (err) { }
+    }
+
+    function mountAll() { mount(); mountEnv(); mountVersion(); }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountAll);
     else mountAll();
 })();

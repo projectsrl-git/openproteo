@@ -1,36 +1,27 @@
-Normalise CR/LF inside values at the JDBC extraction, with conservative defaults
+Show the build version (pom version + git commit) in the topbar
 
-Reassembling a record that was split across physical lines needs a quote-parity heuristic in the
-dequote executor. The right place is the extraction itself: there the column count comes from
-ResultSetMetaData, so the shape of a record is known exactly, and a value containing CR/LF is the
-only thing that can break "one record = one physical line". SqlSupport now normalises the value
-while writing it, which is a single funnel every extracted cell passes through.
+See at a glance which build is running. Nexus-safe, with no new Maven plugin: Maven filters a tiny
+properties file with the pom version and a commit hash passed on the command line, an endpoint reads it,
+and the topbar shows a small badge.
 
-- nlReplacement(mode) maps `space` to a single space, `strip` to nothing and anything else to
-  keeping the value as-is.
-- exportResultSet and exportCsv gained an overload taking the mode; the pre-existing signatures
-  delegate with "keep", so no caller changes behaviour.
-- ExportResult.newlinesSanitized counts the cells that were touched. The sql (JDBC extraction) and
-  csvsql steps read the step parameter `newlinesInValues` and publish ${newlinesSanitized}; the sql
-  step also logs a line when it is greater than zero. The designer exposes the choice as
-  "Line breaks inside extracted values".
+- src/main/resources/build-info.properties carries three placeholders (build.version=@project.version@,
+  build.commit=${git.commit}, build.time=${maven.build.timestamp}); @...@ is used for the version so it
+  does not clash with the ${...} build properties.
+- pom.xml filters ONLY that file via an explicit <resources> block (one filtered resource limited to
+  build-info.properties, one unfiltered for everything else, so no binary or static asset is touched). The
+  git.commit=unknown default and the build-timestamp format are added to the EXISTING <properties> block.
+- ApiController.buildInfo() loads the file once (cached), blanks any raw placeholder left by a plain
+  build, and exposes version / commit / shortCommit / buildTime. New endpoint GET /api/version; the same
+  map is folded into /api/env.
+- theme.js mountVersion() fetches it and adds a small .ver-badge to the topbar next to the clock
+  ("v1.0.0 · <short>", full details in the tooltip); app.css styles it with a light-theme override.
 
-Defaults are deliberately conservative, because production feeds are already configured the old
-way and must not change on deploy:
+The deploy .bat builds once to verify, commits and pushes, then rebuilds the WAR passing
+-Dgit.commit=<short HEAD> so build-info.properties inside the WAR carries the real hash. A plain
+`mvn package` still shows the version, with the commit left blank.
 
-- extraction `newlinesInValues` defaults to **keep**: values are written exactly as the database
-  returns them, byte-for-byte as before;
-- dequote `embeddedNewlines` now defaults to **keep**, i.e. records are not joined. The previous
-  patch defaulted to `space`, which silently changed the output of every existing dequote step;
-- dequote blank-line dropping now sits behind `dropBlankLines`, default **no**. The previous patch
-  dropped blank lines unconditionally, with no way to opt out.
+Docs: .claude/2026-07-25-build-version-badge.md and CLAUDE.md.
 
-Both are opt-in per step from the designer, or massively from the Variables page and the matrix.
-
-Docs: USAGE.md, .claude/2026-07-24-extraction-newlines-conservative-defaults.md and CLAUDE.md.
-
-Verify: nlReplacement was extracted from the source, compiled and executed -- null, empty and keep
-leave CR+LF intact while space and strip transform as documented; the dequote defaults were checked
-in the code (joinWrapped only for space/strip, dropBlank only for yes/true). designer.html passes
-node --check with no literal \n/\r and no unsafe Thymeleaf; SqlSupport and InternalSteps are
-brace-balanced. Java not compiled as a whole in the chat sandbox -- run the Maven build on deploy.
+Verify: buildInfo() was compiled and executed against a sample build-info.properties and returns the map
+with a 7-char short commit; theme.js passes node --check with no literal \n/\r; pom.xml is valid XML with a
+single <properties> block. Java not compiled as a whole in the chat sandbox -- run the Maven build on deploy.

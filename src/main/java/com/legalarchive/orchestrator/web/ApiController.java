@@ -269,6 +269,36 @@ public class ApiController {
 
     /** List the sheet names of an .xlsx (for the xlsx2csv sheet dropdown). */
     /** Deployment environment (for the header banner) + host name. */
+    private static volatile Map<String, Object> BUILD_INFO;
+    private static Map<String, Object> buildInfo() {
+        Map<String, Object> b = BUILD_INFO;
+        if (b != null) return b;
+        Map<String, Object> m = new LinkedHashMap<String, Object>();
+        java.util.Properties pr = new java.util.Properties();
+        try (java.io.InputStream in = ApiController.class.getResourceAsStream("/build-info.properties")) {
+            if (in != null) pr.load(in);
+        } catch (Exception ignored) {}
+        String ver = pr.getProperty("build.version", "");
+        String commit = pr.getProperty("build.commit", "");
+        String time = pr.getProperty("build.time", "");
+        // an unfiltered/dev build leaves the raw placeholders: blank them so the UI shows nothing odd
+        if (ver.startsWith("@") || ver.startsWith("${")) ver = "";
+        if (commit.startsWith("@") || commit.startsWith("${") || "unknown".equals(commit)) commit = "";
+        if (time.startsWith("@") || time.startsWith("${")) time = "";
+        m.put("version", ver);
+        m.put("commit", commit);
+        m.put("shortCommit", commit.length() > 7 ? commit.substring(0, 7) : commit);
+        m.put("buildTime", time);
+        BUILD_INFO = m;
+        return m;
+    }
+
+    /** Build identity: pom version + short git commit + build time (from the filtered build-info.properties). */
+    @GetMapping("/api/version")
+    public ResponseEntity<Map<String, Object>> version() {
+        return ResponseEntity.ok(buildInfo());
+    }
+
     @GetMapping("/api/env")
     public ResponseEntity<Map<String, Object>> env() {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
@@ -277,6 +307,7 @@ public class ApiController {
         String host = "";
         try { host = java.net.InetAddress.getLocalHost().getHostName(); } catch (Exception ignored) {}
         out.put("host", host);
+        out.putAll(buildInfo());
         return ResponseEntity.ok(out);
     }
 

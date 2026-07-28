@@ -813,3 +813,9 @@ th.sortable:hover { color: var(--accent); }
   border-radius: 5px; padding: 4px 8px; font-family: var(--mono); font-size: 12px; }
 .vwr-goto .goto-in:focus { outline: none; border-color: var(--accent); }
 :root[data-theme="light"] .vgrid-cell.vnum { background: #ffffff; }
+
+/* --- build version badge in the topbar --- */
+.ver-badge { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); border: 1px solid var(--line);
+  border-radius: 10px; padding: 1px 8px; margin: 0 8px; white-space: nowrap; opacity: .85; }
+.ver-badge:hover { color: var(--ink-dim); border-color: var(--line); opacity: 1; }
+:root[data-theme="light"] .ver-badge { color: #6b7688; border-color: #d7dee8; }
