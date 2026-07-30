@@ -1,31 +1,33 @@
-Fix the missing commit in the version badge, add an automatic progressive, a startup splash and the new claim
+Add scripts/build_openproteo.sh: build (+ commit and push) on bash, for TEST and PROD
 
-1) The commit never appeared because spring-boot-starter-parent 2.7.x sets resource.delimiter to @ and
-configures maven-resources-plugin with useDefaultDelimiters=false (verified in the spring-boot sources
-for v2.7.18). In a filtered resource only @token@ is substituted, so @project.version@ worked while
-${git.commit} and ${maven.build.timestamp} were written out verbatim and the endpoint correctly blanked
-them. build-info.properties now uses @...@ for every placeholder.
+The Windows .bat covers the chat patch workflow; this is the bash equivalent for the test and
+production boxes, stamping the version into the WAR in exactly the same way.
 
-2) Automatic progressive: build.number is the commit count (git rev-list --count HEAD) — monotonic,
-automatic, with no state file and no new Maven plugin. The deploy .bat passes -Dbuild.number together
-with -Dgit.commit on the post-commit rebuild, so the WAR carries both. The badge now reads
-v<version>.<build> · <commit> (e.g. v1.0.0.148 · 32a1a78) with version, build, commit and build time in
-the tooltip. buildInfo() gained a build-time fallback to the last-modified of build-info.properties and
-keeps blanking unfiltered placeholders, so a plain mvn package still shows the version.
+    ./scripts/build_openproteo.sh          build, commit -F COMMIT_MSG.txt, push (asks first)
+    ./scripts/build_openproteo.sh -b       build only - the normal case on TEST / PROD
+    ./scripts/build_openproteo.sh -n       build and commit, do not push
+    ./scripts/build_openproteo.sh -m "..." use this message instead of COMMIT_MSG.txt
+    ./scripts/build_openproteo.sh -y       skip the confirmation prompt
 
-3) Startup splash: theme.js mountSplash() shows a full-screen splash (logo, wordmark, claim, version)
-the first time a browser-tab session opens the app, guarded by sessionStorage. It fades itself out after
-two seconds, closes on any click or key press and has a six-second hard safety net so it can never trap
-the UI; it honours prefers-reduced-motion and is skipped if storage is blocked. Styles in app.css with a
-light-theme variant.
+The commit hash only exists after the commit, so when committing the script builds twice: the first
+build merely proves the code compiles, so nothing broken is ever committed, and the second stamps the
+real identity into the WAR with -Dgit.commit=<short HEAD> and
+-Dbuild.number=<git rev-list --count HEAD>, which Maven filters into build-info.properties and the
+topbar shows. With -b the hash is already known, so a single stamped build runs -- which is why
+build-only is the right mode on test and production, where you pull and rebuild rather than commit.
 
-4) The dashboard topbar claim is now "Pipeline Workflow Orchestrator" instead of "Legal Archive · feed
-preparation & delivery", and the opening line of USAGE.md was aligned.
+Guards: set -euo pipefail; git and mvn must be on PATH; it must run inside the repository (it cd's to
+the top level) and pom.xml must exist; COMMIT_MSG.txt must be non-empty unless -m or -b is used; patch
+files are excluded from the commit exactly as the .bat does; the WAR is checked after each build; the
+staged diffstat is shown and confirmed before committing; commit and push are skipped when nothing is
+staged. At the end it prints the stamped build-info.properties and warns if a placeholder was not
+substituted -- that single check would have caught the ${git.commit} delimiter bug at once.
 
-Docs: .claude/2026-07-28-version-progressive-splash-claim.md and CLAUDE.md.
+Docs: .claude/2026-07-28-build-script-bash.md and CLAUDE.md.
 
-Verify: buildInfo() was compiled and executed in three scenarios — filtered (label 1.0.0.148 · 32a1a78),
-plain build (version only, build time from the file mtime) and fully unfiltered (all blank, badge
-hidden). pom.xml was validated with an XML parser: well-formed, a single <properties> block and no double
-dash inside comments, which is what broke the previous attempt. theme.js passes node --check with zero
-literal \n or \r. Java not compiled as a whole in the chat sandbox -- run the Maven build on deploy.
+Verify: checked with bash -n, then exercised end to end against a stubbed mvn in throwaway git
+repositories -- build-only (one stamped build), commit without push (two builds, commit created, patch
+files kept out, only sources committed since target/ and *.war are gitignored, confirmed with
+git check-ignore), nothing to commit (commit and push skipped, stamped build still runs), missing
+COMMIT_MSG.txt (clean error), an unsubstituted placeholder (warning fired) and -h. Re-run inside a
+clone with the patch applied: the file lands executable (mode 100755) and reports the real progressive.

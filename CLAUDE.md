@@ -798,3 +798,15 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   .op-splash* in app.css. * Claim in the dashboard topbar is now "Pipeline Workflow Orchestrator".
   * Remember: XML comments cannot contain `--`, and always validate pom.xml with an XML parser.
   Note in `.claude/2026-07-28-version-progressive-splash-claim.md`.
+
+## scripts/build_openproteo.sh (bash build for TEST / PROD)
+* Bash equivalent of the deploy .bat for the test and production boxes, stamping the version the same
+  way. `-b` (build only) is the normal mode there: HEAD is already known so a single stamped build runs
+  with `-Dgit.commit=<short HEAD> -Dbuild.number=<git rev-list --count HEAD>`. Without `-b` it does a
+  verification build, stages with `git add -A -- . ':(exclude)*.patch'`, shows the diffstat and asks for
+  confirmation (`-y` skips), commits `-F COMMIT_MSG.txt` (or `-m`), pushes (`-n` skips), then REBUILDS to
+  stamp the new hash — the commit hash only exists after the commit. Guards: set -euo pipefail, git/mvn
+  on PATH, must be inside the repo, non-empty COMMIT_MSG.txt, WAR checked after each build, commit and
+  push skipped when nothing is staged, and it WARNS if a placeholder in build-info.properties was not
+  substituted (that check would have caught the ${git.commit} delimiter bug at once). Note in
+  `.claude/2026-07-28-build-script-bash.md`.
