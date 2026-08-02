@@ -828,3 +828,13 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   committed. It also re-execs under bash when started with `sh` (dash has no `set -o pipefail`), and git
   is now needed only for commit/push and version stamping: `-b` works in a plain source copy. Note in
   `.claude/2026-08-02-build-script-project-resolution.md`.
+
+## Static cache-busting with the build id
+* Recurring problem solved: a deploy appeared to change nothing because the browser served cached
+  app.css/viewer.js/theme.js. `config/BuildInfo` is now the single source of build identity (map() for
+  the API, id() for URLs; ApiController.buildInfo() delegates to it), `web/BuildIdAdvice`
+  (@ControllerAdvice on PageController) publishes `${buildId}`, and every CSS/JS include became
+  `@{/path(v=${buildId})}` (54 includes, 16 templates). docs.html passes it to the USAGE.md fetch via a
+  `<meta name="op-build">` tag rather than inlining Thymeleaf in JS. id() = <buildNumber>-<shortCommit>,
+  falling back to the build time and then to a per-JVM token. Note in
+  `.claude/2026-08-02-static-cache-busting.md`.

@@ -1,26 +1,31 @@
-build_openproteo.sh: resolve the project from the script location, not the git top level
+Cache-bust the static assets with the build id
 
-The script assumed the git top level was the project and moved there, so on a checkout where the
-repository root sits above the project -- /projects/devpodtest as the repository and
-/projects/devpodtest/openproteo holding the pom -- it left the project directory and failed with
-"pom.xml not found in /projects/devpodtest".
+Three deploys in a row appeared to change nothing because the browser kept serving a cached
+app.css, viewer.js or theme.js: the WAR was new, the assets were not. Static URLs now carry a
+per-build token, so a new build is a new URL and the browser refetches on its own.
 
-The project is now the directory that contains pom.xml, looked up in order: the parent of the script's
-own directory (the script lives in <project>/scripts/, with symlinks resolved), then the current
-directory, then the git top level; if none matches, the error lists all three. The script reports the
-project directory and, when the repository root differs, prints a note so the nesting is visible instead
-of surprising. Staging happens after changing into the project, so in a parent repository only the
-project subtree is committed and files elsewhere in the repository are left alone.
+config/BuildInfo becomes the single source of the build identity: it loads the filtered
+build-info.properties once, blanks placeholders an unfiltered build left behind, and exposes map()
+(version, buildNumber, commit, shortCommit, buildTime, display, label) together with id(), the short
+token used on asset URLs. ApiController.buildInfo() now delegates to it, so /api/version and /api/env
+behave exactly as before and only one implementation remains.
 
-Two further robustness fixes. Starting it as `sh script.sh` runs it under dash, where `set -o pipefail`
-does not exist, so it now re-execs itself with bash when BASH_VERSION is unset. And git is required only
-to commit, push and stamp the version: on a plain source copy with no repository, `-b` still builds and
-says the WAR will carry no commit or build number, while committing is refused with a clear message.
+web/BuildIdAdvice, a @ControllerAdvice scoped to PageController -- which renders all sixteen
+templates -- publishes ${buildId}; the API is a @RestController and is deliberately left out. Every
+CSS and JS include in the templates became @{/css/app.css(v=${buildId})} and friends, fifty-four
+includes across sixteen templates. Images were left alone: they rarely change and are also referenced
+from JS. docs.html fetches USAGE.md from JavaScript, so it receives the same token through a
+<meta name="op-build" th:content="${buildId}"> tag read by the script, which avoids inlining Thymeleaf
+inside JS.
 
-Docs: .claude/2026-08-02-build-script-project-resolution.md and CLAUDE.md.
+id() is <buildNumber>-<shortCommit>, for example 73-ed576c9. On a build made without those properties
+it falls back to the digits of the build time, and finally to a per-JVM token so that even a
+development restart refreshes the assets.
 
-Verify: exercised against a stubbed mvn in throwaway repositories reproducing the reported layout --
-the project nested in a parent repo invoked with `sh` (works and notes the nesting), invoked from
-another directory by absolute path, a commit in the parent repo (only the project subtree staged, a
-file outside it stayed untracked), invocation through a symlink, and a non-git directory (build only
-works, commit refused). Checked with bash -n.
+Docs: .claude/2026-08-02-static-cache-busting.md and CLAUDE.md.
+
+Verify: BuildInfo was compiled and executed in the three real scenarios -- a full script build
+(73-ed576c9), a plain mvn package (falls back to the timestamp) and a completely unfiltered build
+(still a usable token, with the version badge correctly hidden). All sixteen templates pass
+node --check with no literal \n or \r and no unsafe Thymeleaf, and ApiController's brace balance is
+unchanged. Java not compiled as a whole in the chat sandbox -- run the Maven build on deploy.

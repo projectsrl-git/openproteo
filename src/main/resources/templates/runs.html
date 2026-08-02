@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <title>OpenProteo — Run history</title>
     <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
-    <link rel="stylesheet" th:href="@{/css/app.css}">
+    <link rel="stylesheet" th:href="@{/css/app.css(v=${buildId})}">
     <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 </head>
 <body>
@@ -111,7 +111,7 @@
     buildTree();
     setInterval(buildTree, 5000);
 </script>
-<script th:src="@{/js/modal.js}"></script>
-<script th:src="@{/js/theme.js}"></script>
+<script th:src="@{/js/modal.js(v=${buildId})}"></script>
+<script th:src="@{/js/theme.js(v=${buildId})}"></script>
 </body>
 </html>

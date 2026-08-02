@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <title>OpenProteo — Variables matrix</title>
     <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
-    <link rel="stylesheet" th:href="@{/css/app.css}">
+    <link rel="stylesheet" th:href="@{/css/app.css(v=${buildId})}">
     <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
     <style>
         .mtoolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
@@ -74,8 +74,8 @@
         Arrow keys / Enter move between cells; pasting a block from Excel fills cells to the right and below.</p>
 </div>
 
-<script th:src="@{/js/modal.js}"></script>
-<script th:src="@{/js/theme.js}"></script>
+<script th:src="@{/js/modal.js(v=${buildId})}"></script>
+<script th:src="@{/js/theme.js(v=${buildId})}"></script>
 <script>
     var CTX = location.pathname.replace(/matrix\/?$/, '');
     var NL = String.fromCharCode(10), CR = String.fromCharCode(13), TAB = String.fromCharCode(9);

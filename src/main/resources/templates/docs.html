@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <title>OpenProteo — Docs</title>
     <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
-    <link rel="stylesheet" th:href="@{/css/app.css}">
+    <meta name="op-build" th:content="${buildId}">
+    <link rel="stylesheet" th:href="@{/css/app.css(v=${buildId})}">
     <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
     <style>
         .docs-layout { display: -webkit-flex; display: flex; gap: 26px; align-items: flex-start; }
@@ -86,7 +87,8 @@
         return { html: out.join(NL), toc: toc };
     }
 
-    fetch(CTX + 'USAGE.md').then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
+    var OPBUILD = (document.querySelector('meta[name="op-build"]') || {}).content || '';
+    fetch(CTX + 'USAGE.md' + (OPBUILD ? ('?v=' + encodeURIComponent(OPBUILD)) : '')).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
         .then(function(md){
             var res = render(md);
             document.getElementById('doc').innerHTML = res.html;
@@ -95,6 +97,6 @@
         })
         .catch(function(e){ document.getElementById('doc').innerHTML = '<p class="dim">Could not load USAGE.md ('+esc(String(e))+').</p>'; });
 </script>
-<script th:src="@{/js/theme.js}"></script>
+<script th:src="@{/js/theme.js(v=${buildId})}"></script>
 </body>
 </html>

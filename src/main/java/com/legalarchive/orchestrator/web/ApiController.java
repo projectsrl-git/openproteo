@@ -269,48 +269,9 @@ public class ApiController {
 
     /** List the sheet names of an .xlsx (for the xlsx2csv sheet dropdown). */
     /** Deployment environment (for the header banner) + host name. */
-    private static volatile Map<String, Object> BUILD_INFO;
+    /** Build identity comes from BuildInfo, which is also what stamps ${buildId} on the static assets. */
     private static Map<String, Object> buildInfo() {
-        Map<String, Object> b = BUILD_INFO;
-        if (b != null) return b;
-        Map<String, Object> m = new LinkedHashMap<String, Object>();
-        java.util.Properties pr = new java.util.Properties();
-        try (java.io.InputStream in = ApiController.class.getResourceAsStream("/build-info.properties")) {
-            if (in != null) pr.load(in);
-        } catch (Exception ignored) {}
-        String ver = clean(pr.getProperty("build.version", ""));
-        String num = clean(pr.getProperty("build.number", ""));
-        String commit = clean(pr.getProperty("build.commit", ""));
-        String time = clean(pr.getProperty("build.time", ""));
-        if ("unknown".equals(commit)) commit = "";
-        if ("0".equals(num)) num = "";
-        if (time.isEmpty()) {                                   // fallback: when the WAR was assembled
-            try {
-                java.net.URL u = ApiController.class.getResource("/build-info.properties");
-                long lm = (u == null) ? 0L : u.openConnection().getLastModified();
-                if (lm > 0L) time = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(new java.util.Date(lm));
-            } catch (Exception ignored) {}
-        }
-        String shortCommit = commit.length() > 7 ? commit.substring(0, 7) : commit;
-        m.put("version", ver);
-        m.put("buildNumber", num);
-        m.put("commit", commit);
-        m.put("shortCommit", shortCommit);
-        m.put("buildTime", time);
-        // what the UI shows: 1.0.0.148 (the progressive is the commit count) plus the commit hash
-        String full = ver + (num.isEmpty() ? "" : ("." + num));
-        m.put("display", full);
-        m.put("label", full + (shortCommit.isEmpty() ? "" : (" \u00B7 " + shortCommit)));
-        BUILD_INFO = m;
-        return m;
-    }
-
-    /** An unfiltered/dev build leaves the raw @placeholder@ (or ${...}) in the file: treat it as empty. */
-    private static String clean(String v) {
-        if (v == null) return "";
-        v = v.trim();
-        if (v.startsWith("@") || v.startsWith("${")) return "";
-        return v;
+        return com.legalarchive.orchestrator.config.BuildInfo.map();
     }
 
     /** Build identity: pom version + progressive build number + short git commit + build time. */
