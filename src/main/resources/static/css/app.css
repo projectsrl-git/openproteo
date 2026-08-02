@@ -844,3 +844,7 @@ th.sortable:hover { color: var(--accent); }
 .op-splash.op-noanim, .op-splash.op-noanim * { animation: none !important; transition: none !important; }
 :root[data-theme="light"] .op-splash { background: radial-gradient(1200px 600px at 50% 40%, rgba(245,166,35,.14), transparent 60%), #f7f9fc; }
 :root[data-theme="light"] .op-splash-bar { background: rgba(0,0,0,.08); }
+
+/* --- sortable column headers (Operations drill grid) --- */
+.grid th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+.grid th.sortable:hover { color: var(--ink); }

@@ -1,33 +1,25 @@
-Add scripts/build_openproteo.sh: build (+ commit and push) on bash, for TEST and PROD
+Operations drill grid: sort by the two date columns, newest run first by default
 
-The Windows .bat covers the chat patch workflow; this is the bash equivalent for the test and
-production boxes, stamping the version into the WAR in exactly the same way.
+The feed list under the rollup was rendered in backend order, so the feeds that ran most recently were
+not necessarily at the top.
 
-    ./scripts/build_openproteo.sh          build, commit -F COMMIT_MSG.txt, push (asks first)
-    ./scripts/build_openproteo.sh -b       build only - the normal case on TEST / PROD
-    ./scripts/build_openproteo.sh -n       build and commit, do not push
-    ./scripts/build_openproteo.sh -m "..." use this message instead of COMMIT_MSG.txt
-    ./scripts/build_openproteo.sh -y       skip the confirmation prompt
+The grid now opens sorted by LAST RUN descending, and both date columns are sortable. "Last run" and
+"Last success" are clickable headers with an indicator: the active column shows an accent-coloured
+up/down triangle and the other a faint sort glyph. Clicking the active column toggles ascending and
+descending; clicking the other switches to it starting from descending, which is what you almost always
+want for dates.
 
-The commit hash only exists after the commit, so when committing the script builds twice: the first
-build merely proves the code compiles, so nothing broken is ever committed, and the second stamps the
-real identity into the WAR with -Dgit.commit=<short HEAD> and
--Dbuild.number=<git rev-list --count HEAD>, which Maven filters into build-info.properties and the
-topbar shows. With -b the hash is already known, so a single stamped build runs -- which is why
-build-only is the right mode on test and production, where you pull and rebuild rather than commit.
+The comparator compares the timestamps as text, which is chronological for the yyyy-MM-dd HH:mm:ss
+format the backend sends, tie-breaks on the feed id so equal timestamps keep a stable and predictable
+order, and always sends missing values last in both directions: a feed that never ran, or never
+succeeded, must not push real data off the top when sorting ascending. The sort is applied to the
+filtered list immediately before drillDisplayed is set, so "CSV (displayed)" and Copy export in exactly
+the order shown on screen. Only the drill grid is affected; the live-executions table is untouched.
 
-Guards: set -euo pipefail; git and mvn must be on PATH; it must run inside the repository (it cd's to
-the top level) and pom.xml must exist; COMMIT_MSG.txt must be non-empty unless -m or -b is used; patch
-files are excluded from the commit exactly as the .bat does; the WAR is checked after each build; the
-staged diffstat is shown and confirmed before committing; commit and push are skipped when nothing is
-staged. At the end it prints the stamped build-info.properties and warns if a placeholder was not
-substituted -- that single check would have caught the ${git.commit} delimiter bug at once.
+Docs: .claude/2026-07-30-drill-sort-by-date.md and CLAUDE.md.
 
-Docs: .claude/2026-07-28-build-script-bash.md and CLAUDE.md.
-
-Verify: checked with bash -n, then exercised end to end against a stubbed mvn in throwaway git
-repositories -- build-only (one stamped build), commit without push (two builds, commit created, patch
-files kept out, only sources committed since target/ and *.war are gitignored, confirmed with
-git check-ignore), nothing to commit (commit and push skipped, stamped build still runs), missing
-COMMIT_MSG.txt (clean error), an unsubstituted placeholder (warning fired) and -h. Re-run inside a
-clone with the patch applied: the file lands executable (mode 100755) and reports the real progressive.
+Verify: the real sort state, comparator and click handler were extracted from the template and executed
+in Node against the feeds from a production screenshot plus a never-succeeded and a never-run feed --
+the default puts the newest run first, the toggle reverses it, sorting by last success pushes the
+never-succeeded feed last, the never-run feed stays last in every mode, and each click triggers exactly
+one re-render. overview.html passes node --check with no literal \n or \r and no unsafe Thymeleaf.

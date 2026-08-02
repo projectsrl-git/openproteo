@@ -810,3 +810,11 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   push skipped when nothing is staged, and it WARNS if a placeholder in build-info.properties was not
   substituted (that check would have caught the ${git.commit} delimiter bug at once). Note in
   `.claude/2026-07-28-build-script-bash.md`.
+
+## Operations drill grid: sortable date columns
+* `drillSort` defaults to `{key:'lastRunTs', dir:'desc'}`, so the feed list opens with the most recently
+  executed feeds on top. "Last run" and "Last success" are clickable (`th.sortable` in app.css) with an
+  accent triangle on the active column; clicking it toggles asc/desc, clicking the other starts from desc.
+  `drillCmp` compares timestamps as text (chronological for yyyy-MM-dd HH:mm:ss), tie-breaks on feedId and
+  always puts missing dates last in BOTH directions. The sort runs just before `drillDisplayed` is set, so
+  CSV (displayed) and Copy follow the visible order. Note in `.claude/2026-07-30-drill-sort-by-date.md`.
