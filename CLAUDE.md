@@ -818,3 +818,13 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   `drillCmp` compares timestamps as text (chronological for yyyy-MM-dd HH:mm:ss), tie-breaks on feedId and
   always puts missing dates last in BOTH directions. The sort runs just before `drillDisplayed` is set, so
   CSV (displayed) and Copy follow the visible order. Note in `.claude/2026-07-30-drill-sort-by-date.md`.
+
+## build_openproteo.sh: project resolution fix
+* The script used to `cd` to the git top level, which broke when the repository root sits ABOVE the
+  project (repo /projects/devpodtest, pom in /projects/devpodtest/openproteo). The project is now the
+  directory containing pom.xml, searched as: parent of the script's directory (script lives in
+  <project>/scripts/, symlinks resolved) -> $PWD -> git top level; it prints a note when the repo root
+  differs. Staging happens after cd into the project, so in a parent repo only the project subtree is
+  committed. It also re-execs under bash when started with `sh` (dash has no `set -o pipefail`), and git
+  is now needed only for commit/push and version stamping: `-b` works in a plain source copy. Note in
+  `.claude/2026-08-02-build-script-project-resolution.md`.

@@ -1,25 +1,26 @@
-Operations drill grid: sort by the two date columns, newest run first by default
+build_openproteo.sh: resolve the project from the script location, not the git top level
 
-The feed list under the rollup was rendered in backend order, so the feeds that ran most recently were
-not necessarily at the top.
+The script assumed the git top level was the project and moved there, so on a checkout where the
+repository root sits above the project -- /projects/devpodtest as the repository and
+/projects/devpodtest/openproteo holding the pom -- it left the project directory and failed with
+"pom.xml not found in /projects/devpodtest".
 
-The grid now opens sorted by LAST RUN descending, and both date columns are sortable. "Last run" and
-"Last success" are clickable headers with an indicator: the active column shows an accent-coloured
-up/down triangle and the other a faint sort glyph. Clicking the active column toggles ascending and
-descending; clicking the other switches to it starting from descending, which is what you almost always
-want for dates.
+The project is now the directory that contains pom.xml, looked up in order: the parent of the script's
+own directory (the script lives in <project>/scripts/, with symlinks resolved), then the current
+directory, then the git top level; if none matches, the error lists all three. The script reports the
+project directory and, when the repository root differs, prints a note so the nesting is visible instead
+of surprising. Staging happens after changing into the project, so in a parent repository only the
+project subtree is committed and files elsewhere in the repository are left alone.
 
-The comparator compares the timestamps as text, which is chronological for the yyyy-MM-dd HH:mm:ss
-format the backend sends, tie-breaks on the feed id so equal timestamps keep a stable and predictable
-order, and always sends missing values last in both directions: a feed that never ran, or never
-succeeded, must not push real data off the top when sorting ascending. The sort is applied to the
-filtered list immediately before drillDisplayed is set, so "CSV (displayed)" and Copy export in exactly
-the order shown on screen. Only the drill grid is affected; the live-executions table is untouched.
+Two further robustness fixes. Starting it as `sh script.sh` runs it under dash, where `set -o pipefail`
+does not exist, so it now re-execs itself with bash when BASH_VERSION is unset. And git is required only
+to commit, push and stamp the version: on a plain source copy with no repository, `-b` still builds and
+says the WAR will carry no commit or build number, while committing is refused with a clear message.
 
-Docs: .claude/2026-07-30-drill-sort-by-date.md and CLAUDE.md.
+Docs: .claude/2026-08-02-build-script-project-resolution.md and CLAUDE.md.
 
-Verify: the real sort state, comparator and click handler were extracted from the template and executed
-in Node against the feeds from a production screenshot plus a never-succeeded and a never-run feed --
-the default puts the newest run first, the toggle reverses it, sorting by last success pushes the
-never-succeeded feed last, the never-run feed stays last in every mode, and each click triggers exactly
-one re-render. overview.html passes node --check with no literal \n or \r and no unsafe Thymeleaf.
+Verify: exercised against a stubbed mvn in throwaway repositories reproducing the reported layout --
+the project nested in a parent repo invoked with `sh` (works and notes the nesting), invoked from
+another directory by absolute path, a commit in the parent repo (only the project subtree staged, a
+file outside it stayed untracked), invocation through a symlink, and a non-git directory (build only
+works, commit refused). Checked with bash -n.

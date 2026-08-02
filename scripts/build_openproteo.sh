@@ -15,6 +15,11 @@
 # which Maven filters into build-info.properties and the UI shows in the topbar.
 # In build-only mode HEAD is already known, so a single stamped build is enough.
 #
+# `sh script.sh` would run this under dash, where `set -o pipefail` does not exist: re-exec with bash.
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
 set -euo pipefail
 
 APPNAME="openproteo"
@@ -45,16 +50,40 @@ while [ $# -gt 0 ]; do
 done
 
 # ---------------------------------------------------------------- preconditions
-command -v git >/dev/null 2>&1 || die "git not found in PATH"
 command -v mvn >/dev/null 2>&1 || die "mvn not found in PATH"
 
-REPO="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-[ -n "$REPO" ] || die "not inside a git repository"
-cd "$REPO"
-[ -f pom.xml ] || die "pom.xml not found in $REPO"
+# The project is the directory that holds pom.xml. It is NOT necessarily the git top level:
+# the repository root can sit above it (e.g. a workspace repo holding several projects).
+# Look, in order: next to the script (scripts/..), the current directory, the git top level.
+SCRIPT_PATH="$0"
+while [ -L "$SCRIPT_PATH" ]; do
+    LINK="$(readlink "$SCRIPT_PATH")"
+    case "$LINK" in
+        /*) SCRIPT_PATH="$LINK" ;;
+        *)  SCRIPT_PATH="$(dirname "$SCRIPT_PATH")/$LINK" ;;
+    esac
+done
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 
-BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-info "Repository: $REPO   branch: $BRANCH"
+PROJECT=""
+for CAND in "$(dirname "$SCRIPT_DIR")" "$PWD" "$(git rev-parse --show-toplevel 2>/dev/null || true)"; do
+    if [ -n "$CAND" ] && [ -f "$CAND/pom.xml" ]; then PROJECT="$CAND"; break; fi
+done
+[ -n "$PROJECT" ] || die "pom.xml not found next to the script ($(dirname "$SCRIPT_DIR")), in $PWD, or at the git top level"
+cd "$PROJECT"
+
+# git is only needed to commit/push and to stamp the version; without it we can still build
+HAVE_GIT=0
+if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then HAVE_GIT=1; fi
+if [ "$HAVE_GIT" -eq 0 ]; then
+    [ "$DO_COMMIT" -eq 0 ] || die "not a git repository (or git missing): only -b (build only) is possible here"
+    info "Project: $PROJECT   (no git: the WAR will carry no commit or build number)"
+else
+    REPO_ROOT="$(git rev-parse --show-toplevel)"
+    BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+    info "Project: $PROJECT   branch: $BRANCH"
+    [ "$REPO_ROOT" = "$PROJECT" ] || info "Note: the git repository root is $REPO_ROOT (the project is a subdirectory of it)"
+fi
 
 if [ "$DO_COMMIT" -eq 1 ]; then
     if [ -n "$MESSAGE" ]; then
@@ -103,10 +132,15 @@ if [ "$DO_COMMIT" -eq 1 ]; then
 fi
 
 # ---------------------------------------- 3) stamped build: version lands in the WAR
-GIT_COMMIT="$(git rev-parse --short HEAD)"
-BUILD_NUMBER="$(git rev-list --count HEAD)"
-info "Build with version: build ${BUILD_NUMBER}, commit ${GIT_COMMIT} ..."
-mvn clean package -DskipTests -Dgit.commit="${GIT_COMMIT}" -Dbuild.number="${BUILD_NUMBER}"
+if [ "$HAVE_GIT" -eq 1 ]; then
+    GIT_COMMIT="$(git rev-parse --short HEAD)"
+    BUILD_NUMBER="$(git rev-list --count HEAD)"
+    info "Build with version: build ${BUILD_NUMBER}, commit ${GIT_COMMIT} ..."
+    mvn clean package -DskipTests -Dgit.commit="${GIT_COMMIT}" -Dbuild.number="${BUILD_NUMBER}"
+else
+    info "Build (no version stamping) ..."
+    mvn clean package -DskipTests
+fi
 [ -f "target/${APPNAME}.war" ] || die "target/${APPNAME}.war not produced"
 
 # ------------------------------------------------------------------- 4) summary
