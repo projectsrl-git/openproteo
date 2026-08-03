@@ -23,6 +23,7 @@ fi
 set -euo pipefail
 
 APPNAME="openproteo"
+STANDALONE="openproteo-standalone"        # Boot repackage classifier: executable, embedded Tomcat
 COMMIT_FILE="COMMIT_MSG.txt"
 DO_COMMIT=1
 DO_PUSH=1
@@ -142,6 +143,8 @@ else
     mvn clean package -DskipTests
 fi
 [ -f "target/${APPNAME}.war" ] || die "target/${APPNAME}.war not produced"
+# the Boot repackage runs inside 'package', so the executable artifact must exist too
+[ -f "target/${STANDALONE}.war" ] || die "target/${STANDALONE}.war not produced - is the spring-boot-maven-plugin repackage still configured with the 'standalone' classifier?"
 
 # ------------------------------------------------------------------- 4) summary
 info "Done."
@@ -152,5 +155,7 @@ if [ -f target/classes/build-info.properties ]; then
         printf '\nWARNING: a placeholder was not substituted - check the <resources> filtering in pom.xml\n'
     fi
 fi
-printf '\nWAR: %s\n' "$REPO/target/${APPNAME}.war"
-printf 'Deploy it to Tomcat (stop, replace the war, remove the exploded dir and work cache, start).\n'
+printf '\nArtifacts:\n'
+ls -l "$PROJECT/target/${APPNAME}.war" "$PROJECT/target/${STANDALONE}.war" | sed 's/^/  /'
+printf '\n  %s\n      deploy on Tomcat (stop, replace the war, remove the exploded dir and work cache, start)\n' "$PROJECT/target/${APPNAME}.war"
+printf '  %s\n      standalone: java -jar <file> (embedded Tomcat, needs only a JVM)\n' "$PROJECT/target/${STANDALONE}.war"

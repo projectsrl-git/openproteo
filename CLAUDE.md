@@ -916,3 +916,15 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   `java -jar`). Works because spring-boot-starter-tomcat is `provided` → WEB-INF/lib-provided. Maven
   cannot emit `.jar` with war packaging; renaming the file works, a real jar would need a second module.
   Note in `.claude/2026-08-03-operations-nav-and-standalone-jar.md`.
+
+## Standalone launch docs, build-script check, JDBC naming
+* `.claude/2026-08-03-operations-nav-and-standalone-jar.md` now documents the standalone run in detail:
+  JVM-only, the full command line, and the defaults table (port 8080; workflows/feeds/scripts/shared/
+  datasources/logs all `./` RELATIVE TO THE WORKING DIRECTORY, so launching from an empty dir gives an
+  empty instance and launching inside production operates on live data), plus the
+  `application.properties`-next-to-the-artifact alternative and the context-path/IIS differences.
+  * `build_openproteo.sh` now verifies BOTH artifacts and prints both paths; fixed a latent bug where the
+  summary still used `$REPO`, removed by the project-resolution fix, which under `set -u` would have
+  aborted the script on its last line. * The `sql` executor is labelled "sql (JDBC query)" instead of
+  "DB2/AS400": it is plain JDBC and works with both datasource types (`as400` and `custom`). Only labels
+  and docs changed — the executor id stays `sql`, so existing workflows are untouched.

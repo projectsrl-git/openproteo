@@ -122,7 +122,7 @@ whose id is `validate`, third in the run order".
 
 A STEP runs one executor. Built-in (internal) executors:
 
-- **sql** — run a query against a DB2/AS400 datasource and stream the result set to CSV.
+- **sql** — run a query against any JDBC datasource and stream the result set to CSV. It works with both datasource types: `as400` (DB2 for i, which also carries the IFS credentials) and `custom`, where you supply the JDBC URL and driver class. The executor itself is plain JDBC and is not tied to AS/400.
   Write `{{columns}}` in the query and set the step's "Column list from dataschema" field to
   the dataschema JSON path (param `columnsSchema`, e.g. `${feedDir}/dataschema.json`); at run
   time `{{columns}}` is replaced by that schema's column names (optionally double-quoted).

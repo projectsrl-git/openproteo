@@ -1,29 +1,30 @@
-Promote Operations to every topbar, and build a standalone artifact alongside the WAR
+Document the standalone launch, verify both artifacts in the build script, name the SQL executor by JDBC
 
-Operations is the view people actually live in, and it was a small button buried in the dashboard
-toolbar. It is now a filled button in the topbar of every page, overview itself excluded, so it is one
-click away from wherever you are. It uses a dedicated .btn.ops class rather than .btn.primary: that
-class already styles other buttons across the application, such as Validate and save, and redefining it
-would have silently restyled all of them.
+The build script now checks that the Spring Boot repackage really produced the standalone artifact and
+fails with an explicit message naming the likely cause if it did not, then prints both paths with their
+sizes so a build that silently produced only the deployable WAR cannot go unnoticed. While fixing that, a
+latent bug surfaced: the summary still referenced $REPO, a variable the earlier project-resolution change
+had removed, so under set -u the script would have aborted on its very last line.
 
-The build now produces two artifacts instead of one. target/openproteo.war is the plain WAR you deploy
-on the external Tomcat and is unchanged, byte for byte; target/openproteo-standalone.war is executable
-with an embedded Tomcat and runs with java -jar. This works because the Spring Boot repackage now runs
-with a classifier, so it writes a second file and never touches the one being deployed, and because
-spring-boot-starter-tomcat is already declared provided, which makes Boot place it in
-WEB-INF/lib-provided: on the classpath when the artifact is run directly, ignored when a container
-deploys it. The standalone artifact is not attached to the Maven install, so nothing changes in the
-repository.
+The note for this feature now documents running the standalone artifact in detail. Only a JVM is
+required, since every dependency is inside the file and the embedded Tomcat comes from lib-provided. It
+gives the full command line and, more importantly, the table of defaults: port 8080, and workflows,
+feeds, scripts, shared, datasources and logs all resolved relative to the working directory rather than
+to the file. Launching from an empty directory therefore starts a perfectly working instance with no
+feeds, which looks fine but is simply a different installation, while launching inside the production
+directory makes that instance operate on live data. The tidier alternative, an application.properties
+next to the artifact, is documented too, along with the context path and IIS differences from the Tomcat
+deployment.
 
-One honest limitation: with war packaging Maven cannot emit a file with a .jar extension. The standalone
-artifact is a .war that behaves exactly like a fat jar, and renaming it to .jar also works since the JVM
-only reads the manifest. A genuine jar artifact would require a second Maven module, which is a larger
-change. The usual Boot switches apply when running it, for example --server.port and the OpenProteo base
-directory.
+The sql executor is now labelled as a JDBC query rather than DB2/AS400. It always was plain JDBC and
+works with both datasource types, as400 for DB2 for i, which additionally carries the IFS credentials,
+and custom, where the JDBC URL and driver class are supplied; the old label suggested it only worked with
+AS/400. Only labels and documentation changed: the executor id remains sql, so existing workflows are
+untouched. The ifscopy executor keeps its AS/400 wording because it genuinely is IFS specific.
 
-Docs: .claude/2026-08-03-operations-nav-and-standalone-jar.md and CLAUDE.md.
+Docs: .claude/2026-08-03-operations-nav-and-standalone-jar.md, USAGE.md and CLAUDE.md.
 
-Verify: pom.xml was validated with an XML parser (version 1.1.0, a single properties block, the
-standalone classifier in place) and all seventeen templates pass the JavaScript and Thymeleaf checks. The
-build could not be run in the chat sandbox because Maven Central is unreachable from it: after mvn clean
-package, confirm both files are in target/ and that the plain WAR still deploys as before.
+Verify: the build script was exercised against a stubbed Maven in a throwaway repository, both when the
+repackage produces the two artifacts, where it lists both, and when it produces only the plain WAR, where
+it stops with the explicit error; checked with bash -n. Templates and USAGE.md pass the usual JavaScript
+and Thymeleaf checks.
