@@ -838,3 +838,15 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   `<meta name="op-build">` tag rather than inlining Thymeleaf in JS. id() = <buildNumber>-<shortCommit>,
   falling back to the build time and then to a per-JVM token. Note in
   `.claude/2026-08-02-static-cache-busting.md`.
+
+## Log report — Batch 1 (indexer + search API)
+* First slice of `.claude/LOG_REPORT.md`: read-only aggregation over the existing audit JSONL, no new
+  engine instrumentation. `logreport/LogSeverity` (single OK|FAIL|WAIT|RUN|SKIP|INFO classifier),
+  `logreport/LogIndexer` (in-memory H2 as a disposable SQL engine like csvsql — runtime-only driver, no
+  new dependency; refresh is a byte-offset tail that leaves a trailing partial line for the next pass
+  and reloads a feed whose file shrank), `logreport/LogQueryService` (bound parameters, whitelisted
+  sort, size capped at 500, source/target/name/production joined live from registry.all() and never
+  indexed), `web/LogReportController` (`/api/logs/search`, `/api/logs/status`, `/api/logs/reindex`).
+  No UI, no timeseries/metrics/facets/export, no rolling window, no RBAC gating yet — TEST only until
+  Phase 1 auth. H2 could not be exercised in the chat sandbox (Maven Central unreachable): the JDBC
+  path runs first on the real build. Note in `.claude/2026-08-03-log-report-batch1.md`.

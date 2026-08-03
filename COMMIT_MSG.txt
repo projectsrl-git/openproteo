@@ -1,31 +1,39 @@
-Cache-bust the static assets with the build id
+Log report Batch 1: audit indexer, query service and /api/logs/search
 
-Three deploys in a row appeared to change nothing because the browser kept serving a cached
-app.css, viewer.js or theme.js: the WAR was new, the assets were not. Static URLs now carry a
-per-build token, so a new build is a new URL and the browser refetches on its own.
+First slice of the cross-feed log report designed in .claude/LOG_REPORT.md (the spec is committed with
+this change). No new logging is added anywhere: this is a read-only aggregation layer over the audit
+JSONL files that already exist, which are opened strictly read-only so the hash chain is untouched.
 
-config/BuildInfo becomes the single source of the build identity: it loads the filtered
-build-info.properties once, blanks placeholders an unfiltered build left behind, and exposes map()
-(version, buildNumber, commit, shortCommit, buildTime, display, label) together with id(), the short
-token used on asset URLs. ApiController.buildInfo() now delegates to it, so /api/version and /api/env
-behave exactly as before and only one implementation remains.
+LogSeverity classifies an event once as OK, FAIL, WAIT, RUN, SKIP or INFO -- the single classifier the
+indexer uses now and the grid, chart and metric cards will reuse later; a failure wins over a completion
+when an event names both.
 
-web/BuildIdAdvice, a @ControllerAdvice scoped to PageController -- which renders all sixteen
-templates -- publishes ${buildId}; the API is a @RestController and is deliberately left out. Every
-CSS and JS include in the templates became @{/css/app.css(v=${buildId})} and friends, fifty-four
-includes across sixteen templates. Images were left alone: they rarely change and are also referenced
-from JS. docs.html fetches USAGE.md from JavaScript, so it receives the same token through a
-<meta name="op-build" th:content="${buildId}"> tag read by the script, which avoids inlining Thymeleaf
-inside JS.
+LogIndexer mirrors the files into an in-memory H2 instance used purely as a SQL engine, exactly as
+csvsql already does: runtime-only driver via Class.forName, no compile dependency and no new artifact.
+Refresh is a real tail rather than a rescan -- the byte offset consumed for each feed is remembered and
+only the appended bytes are parsed, with a trailing partial line left unconsumed for the next pass. A
+file that shrank is detected and that feed reloaded from scratch; a malformed line or an unreadable feed
+is skipped instead of failing the refresh; reindex() truncates and rebuilds. The refresh TTL matches the
+ten seconds already used by the dashboard feeds cache.
 
-id() is <buildNumber>-<shortCommit>, for example 73-ed576c9. On a build made without those properties
-it falls back to the digits of the build time, and finally to a per-JVM token so that even a
-development restart refreshes the assets.
+LogQueryService turns the filters (feed, source, target, step, event, severity, user, time range and
+free text) into one parameterised statement, with a whitelisted sort and the page size capped at 500.
+Source, target, workflow name and the PROD flag are joined live from the registry and deliberately not
+indexed, so renaming a workflow shows up immediately without a reindex.
 
-Docs: .claude/2026-08-02-static-cache-busting.md and CLAUDE.md.
+LogReportController exposes GET /api/logs/search plus GET /api/logs/status and POST /api/logs/reindex,
+in its own controller as the spec requires rather than growing ApiController further.
 
-Verify: BuildInfo was compiled and executed in the three real scenarios -- a full script build
-(73-ed576c9), a plain mvn package (falls back to the timestamp) and a completely unfiltered build
-(still a usable token, with the version badge correctly hidden). All sixteen templates pass
-node --check with no literal \n or \r and no unsafe Thymeleaf, and ApiController's brace balance is
-unchanged. Java not compiled as a whole in the chat sandbox -- run the Maven build on deploy.
+Not in this batch: the /logs page, timeseries, metrics, facets and export, the rolling window and cold
+scan (full history is loaded on purpose so it can be measured against real volumes), and RBAC scoping --
+search and reindex are ungated, so this batch is for TEST until Phase 1 auth is merged.
+
+Verify: LogSeverity.of and LogIndexer.parseTs were compiled and executed over the real event vocabulary
+and four timestamp shapes, including empty, malformed and null input. The byte-offset tail was compiled
+and exercised on a file appended to three times, one append ending mid-line: the partial line is not
+consumed and is correctly reassembled on the next pass. Every SQL statement the service emits -- the
+DDL, IN lists, time range, node prefix, free text, user match, paging and all four sort options -- was
+executed against a real SQL engine and returned the expected rows. H2 itself could not be exercised in
+the chat sandbox because Maven Central is unreachable from it, so the JDBC path runs for the first time
+on your build; start with GET /api/logs/status. Brace balance checked with a string and comment aware
+counter. Java not compiled as a whole here -- run the Maven build on deploy.
