@@ -900,3 +900,9 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   naming no feed/source/target is refused rather than scanning all 144 files. Responses carry
   `coldScan`/`truncated` and the page says which path answered. Note in
   `.claude/2026-08-03-log-report-batch5-6.md`.
+
+## Version 1.1.0
+* pom version bumped 1.0.0 -> 1.1.0 for the cross-feed log report (new feature, backward compatible;
+  nothing existing changed behaviour). The badge becomes `v1.1.0.<commits> · <shortCommit>` and, since
+  the cache-buster token is `<build>-<commit>`, the static assets invalidate themselves on this deploy
+  as on any other. Patch releases stay 1.1.x.

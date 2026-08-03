@@ -1,32 +1,46 @@
-Log report Batches 5 and 6: CSV export, reindex from the UI, cold scan outside the window
+Cross-feed log report, and bump to 1.1.0
 
-Batch 5. GET /api/logs/export streams the whole filtered set as CSV with StreamingResponseBody, paging
-through the index rather than materialising it so a large export costs a bounded amount of memory. A
-UTF-8 BOM is written so Excel opens the file correctly and there is a hard stop at one million rows. The
-columns match the grid, and the run export flattens the output data as name=value pairs.
+OpenProteo gains a single place to answer questions that previously required opening one feed at a time:
+what happened, to which feed, when, and what it produced. The audit trail and the run snapshots that the
+application already writes are now searchable across all feeds together, with a timeline, statistics and
+an export. Nothing about how feeds run has changed: no new logging was added, the audit files are opened
+strictly read-only and their hash chain is untouched.
 
-RBAC Phase 1 is not on main yet, so this endpoint is ungated: anyone who can reach the application can
-export the whole audit trail. That is deliberate and temporary. The property
-openproteo.logreport.export-enabled set to false turns the endpoint off with a 403 until role scoping
-lands, and the endpoint should be gated as soon as authentication is merged. The page gains a CSV button
-and a Reindex button, the latter confirming first and then reporting the rebuild time.
+The data is mirrored into an in-memory H2 instance used purely as a SQL engine, the same disposable-index
+pattern already proven by the csvsql executor: the driver is resolved at runtime, no new Maven dependency
+was introduced, and the index dies with the JVM and is rebuilt from the files. Refresh is a true tail
+rather than a rescan, remembering the byte offset consumed per feed and parsing only what was appended,
+leaving a partial trailing line for the next pass; a file that shrank is detected and reloaded. Run
+snapshots cannot be tailed because they are rewritten while a run progresses, so each is stamped with its
+size and modification time and its rows are replaced when it changes. A rolling window of ninety days
+bounds memory, and a query reaching further back is served by reading the files directly for the feeds in
+the filter, never by scanning all of them.
 
-Batch 6. The rolling window and the incremental byte-offset tail already shipped with Batch 2a; what was
-missing is the fallback for a query reaching back before the window, which memory cannot answer.
-LogIndexer.coldScan now reads the audit files directly, restricted to the feeds in the filter and capped
-at twenty thousand rows, without writing anything into the index, and the search routes to it
-automatically and re-applies the same predicates in Java before sorting and paging.
+Indexing the run snapshots was a deliberate departure from the original design, which had excluded them.
+The audit line carries only the exit code, the attempt count and the failure reason, so the output data
+shown in Operations and in the run history is not in the audit trail at all: it lives in the run's
+variables, matched against the output declarations on the workflow. Without those files the feature could
+not show what a run actually produced.
 
-A cold query that names no feed, source or target is refused with an explanatory message rather than
-scanning all one hundred and forty-four files, which is exactly what the design forbids. Responses carry
-coldScan and truncated flags and the page states that the rows were read from the files, so it is always
-clear which path answered.
+The /logs page is one grid with a source selector rather than two tabs. Events show the audit entries with
+their severity; runs show status, trigger, step counts and the declared output data as description and
+value. The filter bar is shared, so switching source keeps the selection, and both the feed and the run
+link into the existing pages. Above the grid, an activity chart draws stacked bars per time bucket
+coloured by severity, with failures at the bottom so they are always visible; clicking a bar zooms into
+it and dragging selects a range, both writing into the time filters so chart, cards, grid and filters
+remain a single state. The stat cards count events, runs, feeds, failures and successes, average step and
+run durations, and the feeds and steps that fail most, and each card is itself a filter. The whole
+filtered set can be streamed out as CSV.
 
-Docs: .claude/2026-08-03-log-report-batch5-6.md and CLAUDE.md.
+Bucketing, duration pairing and the cold scan are done in Java over bounded projections rather than with
+database-specific date functions, so the behaviour does not depend on the SQL dialect and the logic stays
+testable; every bound is explicit and reported to the caller as a truncated flag instead of failing
+silently.
 
-Verify: the CSV escaper was compiled and executed -- a delimiter or a quote forces quoting, inner quotes
-are doubled, CR and LF collapse to a space so a value can never break the row, and null and empty both
-give an empty field. Brace balance was checked with the string and comment aware counter and logs.html
-passes node --check with zero literal \n or \r and no unsafe Thymeleaf. The cold scan could not be
-exercised end to end in the chat sandbox with no H2 and no real audit files: after deploying, query a
-range older than ninety days for a single feed and check that the footer reports the file path.
+One caveat worth repeating: authentication is not on main yet, so the export endpoint is ungated and
+anyone who can reach the application can download the audit trail. openproteo.logreport.export-enabled set
+to false disables it, and it must be scoped by role as soon as Phase 1 auth is merged.
+
+The pom version moves from 1.0.0 to 1.1.0: a new, backward-compatible feature that changes nothing about
+existing behaviour. The topbar badge becomes v1.1.0.<commits> and the cache-buster token changes with it,
+so the static assets refresh themselves on deploy.
