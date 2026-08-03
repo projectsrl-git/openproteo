@@ -96,6 +96,8 @@
         <div class="lgf"><label>User</label><input type="text" id="fuser" placeholder="exact"></div>
         <div class="lgf"><label>&nbsp;</label><button class="btn sm" id="btnSearch">🔎 Search</button></div>
         <div class="lgf"><label>&nbsp;</label><button class="btn sm" id="btnReset">↺ Reset</button></div>
+        <div class="lgf"><label>&nbsp;</label><button class="btn sm" id="btnCsv">⭳ CSV</button></div>
+        <div class="lgf"><label>&nbsp;</label><button class="btn sm" id="btnReindex" title="rebuild the in-memory index from the files">⟳ Reindex</button></div>
     </div>
 
     <div class="lgcards" id="cards"></div>
@@ -254,7 +256,10 @@
         body.innerHTML = b || ('<tr><td colspan="' + cols.length + '" class="dim" style="padding:18px">No rows for these filters.</td></tr>');
 
         var first = TOTAL === 0 ? 0 : (PAGE * SIZE + 1), last = Math.min(TOTAL, (PAGE + 1) * SIZE);
-        $('pinfo').textContent = TOTAL === 0 ? 'no results' : (first + '–' + last + ' of ' + TOTAL);
+        $('pinfo').textContent = (TOTAL === 0 ? 'no results' : (first + '–' + last + ' of ' + TOTAL))
+            + (j && j.coldScan ? '  · read from the files (outside the in-memory window)' : '')
+            + (j && j.truncated ? '  · truncated' : '');
+        if (j && j.error) $('pinfo').textContent = j.error;
         $('prev').disabled = PAGE <= 0;
         $('next').disabled = last >= TOTAL;
     }
@@ -467,6 +472,23 @@
         PAGE = 0; search();
     };
     $('chReset').onclick = function () { $('ffrom').value = ''; $('fto').value = ''; PAGE = 0; search(); };
+    $('btnCsv').onclick = function () {
+        window.location = CTX + 'api/logs/export?source=' + SRC + '&' + params();
+    };
+    $('btnReindex').onclick = function () {
+        opConfirm('Rebuild the log index from the files? Queries stay available meanwhile.', function () {
+            $('idxinfo').textContent = 'reindexing…';
+            fetch(CTX + 'api/logs/reindex', { method: 'POST' }).then(json).then(function (j) {
+                if (j && j.ok) {
+                    $('idxinfo').textContent = 'index: ' + (j.events || 0) + ' events · ' + (j.runs || 0)
+                        + ' runs · ' + (j.outputs || 0) + ' outputs · rebuilt in ' + (j.elapsedMs || 0) + ' ms';
+                    search();
+                } else {
+                    $('idxinfo').textContent = 'reindex failed: ' + ((j && j.error) || 'unknown');
+                }
+            }).catch(function (e) { $('idxinfo').textContent = 'reindex failed: ' + e; });
+        });
+    };
     $('prev').onclick = function () { if (PAGE > 0) { PAGE--; search(); } };
     $('next').onclick = function () { PAGE++; search(); };
     $('fq').onkeydown = function (e) { if (e.key === 'Enter') { PAGE = 0; search(); } };

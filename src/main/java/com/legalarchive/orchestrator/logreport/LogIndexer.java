@@ -411,6 +411,61 @@ public class LogIndexer {
         return null;
     }
 
+    /** Start of the loaded window, or null when the whole history is in memory. */
+    public java.sql.Timestamp windowStart() {
+        return cutoff();
+    }
+
+    /**
+     * Reads events straight from the audit files for a range that predates the loaded window.
+     * Restricted to the given feeds on purpose - never a full scan of every feed - and bounded by
+     * {@code limit}. Nothing is written into the index: this is a one-off read for one request.
+     */
+    public List<Map<String, Object>> coldScan(java.util.Collection<String> feedIds,
+                                              java.sql.Timestamp from, java.sql.Timestamp to, int limit) {
+        List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+        if (feedIds == null || feedIds.isEmpty()) return out;
+        java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        for (String feedId : feedIds) {
+            if (out.size() >= limit) break;
+            Path file;
+            try {
+                file = registry.layout(feedId).auditFile();
+            } catch (Exception e) { continue; }
+            if (file == null || !Files.exists(file)) continue;
+            try (java.io.BufferedReader r = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    if (out.size() >= limit) break;
+                    if (line.trim().isEmpty()) continue;
+                    AuditLogger.Entry e;
+                    try {
+                        e = mapper.readValue(line, AuditLogger.Entry.class);
+                    } catch (Exception bad) { continue; }
+                    java.sql.Timestamp ts = parseTs(e == null ? null : e.ts);
+                    if (ts == null) continue;
+                    if (from != null && ts.before(from)) continue;
+                    if (to != null && ts.after(to)) continue;      // the file is chain-ordered, but keep it simple
+                    Map<String, Object> m = new java.util.LinkedHashMap<String, Object>();
+                    m.put("feedId", feedId);
+                    m.put("seq", e.seq);
+                    m.put("ts", fmt.format(ts));
+                    m.put("tsMillis", ts.getTime());
+                    m.put("runId", e.runId);
+                    m.put("node", e.node);
+                    m.put("event", e.event == null ? "" : e.event);
+                    m.put("severity", LogSeverity.of(e.event));
+                    m.put("user", e.user);
+                    m.put("details", detailsJson(e.details));
+                    out.add(m);
+                }
+            } catch (Exception ex) {
+                log.warn("cold scan: feed {} skipped ({})", feedId, ex.getMessage());
+            }
+        }
+        return out;
+    }
+
     /** Diagnostics for the controller: how many events are loaded, and per feed. */
     public synchronized Map<String, Object> status() {
         Map<String, Object> out = new java.util.LinkedHashMap<String, Object>();

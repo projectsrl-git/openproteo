@@ -1,31 +1,32 @@
-Log report Batch 4: metric cards that double as filters
+Log report Batches 5 and 6: CSV export, reindex from the UI, cold scan outside the window
 
-GET /api/logs/metrics computes the stat numbers over exactly the same filtered set as the grid and the
-chart, and a card row above the chart displays them.
+Batch 5. GET /api/logs/export streams the whole filtered set as CSV with StreamingResponseBody, paging
+through the index rather than materialising it so a large export costs a bounded amount of memory. A
+UTF-8 BOM is written so Excel opens the file correctly and there is a hard stop at one million rows. The
+columns match the grid, and the run export flattens the output data as name=value pairs.
 
-For the events source: events, runs touched, feeds touched, failures, successes, the average step
-duration and the top five feeds and steps by failure. For the runs source: runs, feeds touched,
-succeeded, failed together with the total of failed steps, the average run duration and the top five
-feeds by failure.
+RBAC Phase 1 is not on main yet, so this endpoint is ungated: anyone who can reach the application can
+export the whole audit trail. That is deliberate and temporary. The property
+openproteo.logreport.export-enabled set to false turns the endpoint off with a 403 until role scoping
+lands, and the endpoint should be gated as soon as authentication is merged. The page gains a CSV button
+and a Reindex button, the latter confirming first and then reporting the rebuild time.
 
-Counting is done in SQL. Durations are paired in Java -- STEP_STARTED to STEP_COMPLETED or STEP_FAILED
-for the same feed, run and node, read in an order that makes the pairing deterministic -- because date
-arithmetic is dialect specific and H2 cannot be exercised in the chat sandbox; the projection is capped
-at three hundred thousand rows. Runs use end minus start. An unpaired start, from a run still in flight
-or a step that never completed, contributes nothing rather than skewing the average, and when there is
-no pair at all the card shows a dash instead of a misleading zero.
+Batch 6. The rolling window and the incremental byte-offset tail already shipped with Batch 2a; what was
+missing is the fallback for a query reaching back before the window, which memory cannot answer.
+LogIndexer.coldScan now reads the audit files directly, restricted to the feeds in the filter and capped
+at twenty thousand rows, without writing anything into the index, and the search routes to it
+automatically and re-applies the same predicates in Java before sorting and paging.
 
-The cards are also a filter surface: failures and successes select that severity, a feed in the top
-feeds list selects that feed, and a step in the top steps list sets the step filter together with
-severity FAIL. Every click goes through the same search used by the filter bar, so the cards, the chart
-and the grid remain a single state and a card click also redraws the chart and recomputes the cards. The
-step filter is part of the query state and is cleared by Reset.
+A cold query that names no feed, source or target is refused with an explanatory message rather than
+scanning all one hundred and forty-four files, which is exactly what the design forbids. Responses carry
+coldScan and truncated flags and the page states that the rows were read from the files, so it is always
+clear which path answered.
 
-Docs: .claude/2026-08-03-log-report-batch4.md and CLAUDE.md.
+Docs: .claude/2026-08-03-log-report-batch5-6.md and CLAUDE.md.
 
-Verify: every metric statement -- the five counters and both top-N queries -- and the duration pairing
-were executed against a real SQL engine on a fixture with two feeds, two runs and three step pairs: the
-counters came back 6/2/2/2/1, the top step was DEQUOTE with two failures, and the average step duration
-23.3 seconds over the expected twenty, ten and forty second pairs. logs.html passes node --check with
-zero literal \n or \r and no unsafe Thymeleaf, and brace balance was checked with the string and comment
-aware counter.
+Verify: the CSV escaper was compiled and executed -- a delimiter or a quote forces quoting, inner quotes
+are doubled, CR and LF collapse to a space so a value can never break the row, and null and empty both
+give an empty field. Brace balance was checked with the string and comment aware counter and logs.html
+passes node --check with zero literal \n or \r and no unsafe Thymeleaf. The cold scan could not be
+exercised end to end in the chat sandbox with no H2 and no real audit files: after deploying, query a
+range older than ninety days for a single feed and check that the footer reports the file path.

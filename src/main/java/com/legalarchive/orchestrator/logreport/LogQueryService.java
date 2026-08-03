@@ -123,14 +123,89 @@ public class LogQueryService {
         return sql.toString();
     }
 
+    /** Ceiling for a cold scan, so an open-ended historical query degrades instead of hanging. */
+    public static final int COLD_SCAN_MAX = 20000;
+
+    /**
+     * True when the request reaches back before the loaded window: the in-memory index cannot answer
+     * it, so the files are read directly for the feeds in the filter.
+     */
+    private boolean needsColdScan(Filters f) {
+        java.sql.Timestamp from = LogIndexer.parseTs(f.from);
+        java.sql.Timestamp start = indexer.windowStart();
+        return from != null && start != null && from.before(start);
+    }
+
+    /** Filters, sorts and pages cold-scanned rows in Java - the same predicates the SQL applies. */
+    private Map<String, Object> coldSearch(Filters f, Map<String, WorkflowDef> feeds, String sort, int page, int size) {
+        List<String> feedIds = resolveFeeds(f, feeds);
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        out.put("page", page);
+        out.put("size", size);
+        out.put("coldScan", true);
+        if (feedIds == null || feedIds.isEmpty()) {
+            // a full-history query over every feed is exactly what we refuse to do
+            out.put("total", 0L);
+            out.put("rows", new ArrayList<Map<String, Object>>());
+            out.put("error", feedIds == null
+                    ? "This range predates the in-memory window: pick a feed, source or target to search the files."
+                    : null);
+            return out;
+        }
+        java.sql.Timestamp from = LogIndexer.parseTs(f.from), to = LogIndexer.parseTs(f.to);
+        List<Map<String, Object>> rows = indexer.coldScan(feedIds, from, to, COLD_SCAN_MAX);
+
+        List<Map<String, Object>> kept = new ArrayList<Map<String, Object>>();
+        String q = has(f.q) ? f.q.trim().toLowerCase(java.util.Locale.ROOT) : null;
+        String step = has(f.step) ? f.step.trim() : null;
+        for (Map<String, Object> r : rows) {
+            if (has(f.event) && !f.event.contains(String.valueOf(r.get("event")))) continue;
+            if (has(f.severity) && !f.severity.contains(String.valueOf(r.get("severity")))) continue;
+            if (has(f.user) && !f.user.trim().equalsIgnoreCase(String.valueOf(r.get("user")))) continue;
+            if (step != null) {
+                String node = r.get("node") == null ? "" : String.valueOf(r.get("node"));
+                if (step.endsWith("*")) { if (!node.startsWith(step.substring(0, step.length() - 1))) continue; }
+                else if (!step.equals(node)) continue;
+            }
+            if (q != null) {
+                String hay = (String.valueOf(r.get("event")) + " " + r.get("node") + " " + r.get("details")
+                        + " " + r.get("runId")).toLowerCase(java.util.Locale.ROOT);
+                if (hay.indexOf(q) < 0) continue;
+            }
+            WorkflowDef w = feeds.get(String.valueOf(r.get("feedId")));
+            r.put("sourceId", w == null ? null : w.sourceId);
+            r.put("targetId", w == null ? null : w.targetId);
+            r.put("workflowName", w == null ? null : w.name);
+            r.put("production", w != null && w.production);
+            kept.add(r);
+        }
+        final boolean asc = "ts_asc".equalsIgnoreCase(sort);
+        java.util.Collections.sort(kept, new java.util.Comparator<Map<String, Object>>() {
+            @Override
+            public int compare(Map<String, Object> a, Map<String, Object> b) {
+                long x = ((Number) a.get("tsMillis")).longValue(), y = ((Number) b.get("tsMillis")).longValue();
+                return asc ? Long.compare(x, y) : Long.compare(y, x);
+            }
+        });
+        int fromIdx = Math.min(page * size, kept.size()), toIdx = Math.min(fromIdx + size, kept.size());
+        out.put("total", (long) kept.size());
+        out.put("truncated", rows.size() >= COLD_SCAN_MAX);
+        out.put("rows", new ArrayList<Map<String, Object>>(kept.subList(fromIdx, toIdx)));
+        return out;
+    }
+
     /** Paginated search. {@code sort} is whitelisted: never interpolate a client string into SQL. */
     public Map<String, Object> search(final Filters f, final String sort, final int page, final int size) throws Exception {
         final Map<String, WorkflowDef> feeds = feedMap();
+        final int pageSafe0 = Math.max(0, page);
+        final int sizeSafe0 = Math.min(Math.max(1, size), MAX_SIZE);
+        if (needsColdScan(f)) return coldSearch(f, feeds, sort, pageSafe0, sizeSafe0);
+
         final List<Object> args = new ArrayList<Object>();
         final String w = where(f, feeds, args);
 
-        final int pageSafe = Math.max(0, page);
-        final int sizeSafe = Math.min(Math.max(1, size), MAX_SIZE);
+        final int pageSafe = pageSafe0;
+        final int sizeSafe = sizeSafe0;
 
         final Map<String, Object> out = new LinkedHashMap<String, Object>();
         out.put("page", pageSafe);
@@ -570,6 +645,63 @@ public class LogQueryService {
         }
         if (n == 0) return null;
         return Math.round((sum / (double) n) / 100.0) / 10.0;
+    }
+
+    /** CSV escaping: quote only when needed, double the inner quotes, never emit a raw newline. */
+    private static String csv(Object v) {
+        if (v == null) return "";
+        String s = String.valueOf(v).replace("\r\n", " ").replace("\n", " ").replace("\r", " ");
+        if (s.indexOf(';') >= 0 || s.indexOf('"') >= 0) return "\"" + s.replace("\"", "\"\"") + "\"";
+        return s;
+    }
+
+    /**
+     * Streams the whole filtered set as CSV, paging through the index instead of materialising it, so a
+     * large export costs a bounded amount of memory. Same columns as the grid.
+     */
+    public void exportCsv(Filters f, boolean runs, List<String> status, java.io.Writer w) throws Exception {
+        final String EOL = String.valueOf((char) 13) + String.valueOf((char) 10);
+        int page = 0, size = MAX_SIZE;
+        if (runs) {
+            w.write("feedId;workflowName;production;sourceId;targetId;runId;status;trigger;triggeredBy;"
+                    + "startTs;endTs;stepsOk;stepsTotal;stepsFailed;message;outputData" + EOL);
+        } else {
+            w.write("ts;feedId;workflowName;production;sourceId;targetId;runId;node;event;severity;user;details" + EOL);
+        }
+        while (true) {
+            Map<String, Object> res = runs ? runs(f, status, page, size) : search(f, "ts_desc", page, size);
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> rows = (List<Map<String, Object>>) res.get("rows");
+            if (rows == null || rows.isEmpty()) break;
+            for (Map<String, Object> r : rows) {
+                if (runs) {
+                    StringBuilder od = new StringBuilder();
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> outs = (List<Map<String, Object>>) r.get("outputData");
+                    if (outs != null) {
+                        for (Map<String, Object> o : outs) {
+                            if (od.length() > 0) od.append(" | ");
+                            od.append(o.get("name")).append('=').append(o.get("value"));
+                        }
+                    }
+                    w.write(csv(r.get("feedId")) + ";" + csv(r.get("workflowName")) + ";" + csv(r.get("production"))
+                            + ";" + csv(r.get("sourceId")) + ";" + csv(r.get("targetId")) + ";" + csv(r.get("runId"))
+                            + ";" + csv(r.get("status")) + ";" + csv(r.get("trigger")) + ";" + csv(r.get("triggeredBy"))
+                            + ";" + csv(r.get("startTs")) + ";" + csv(r.get("endTs")) + ";" + csv(r.get("stepsOk"))
+                            + ";" + csv(r.get("stepsTotal")) + ";" + csv(r.get("stepsFailed"))
+                            + ";" + csv(r.get("message")) + ";" + csv(od.toString()) + EOL);
+                } else {
+                    w.write(csv(r.get("ts")) + ";" + csv(r.get("feedId")) + ";" + csv(r.get("workflowName"))
+                            + ";" + csv(r.get("production")) + ";" + csv(r.get("sourceId")) + ";" + csv(r.get("targetId"))
+                            + ";" + csv(r.get("runId")) + ";" + csv(r.get("node")) + ";" + csv(r.get("event"))
+                            + ";" + csv(r.get("severity")) + ";" + csv(r.get("user")) + ";" + csv(r.get("details")) + EOL);
+                }
+            }
+            w.flush();
+            if (rows.size() < size) break;
+            page++;
+            if (page > 2000) break;                                   // hard stop: 1M rows
+        }
     }
 
     /** Values for the filter dropdowns: feeds/sources/targets from the registry, the rest from the index. */

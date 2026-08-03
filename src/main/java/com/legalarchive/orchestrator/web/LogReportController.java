@@ -26,6 +26,9 @@ public class LogReportController {
     private final LogQueryService query;
     private final LogIndexer indexer;
 
+    @org.springframework.beans.factory.annotation.Value("${openproteo.logreport.export-enabled:true}")
+    private boolean exportEnabled = true;
+
     public LogReportController(LogQueryService query, LogIndexer indexer) {
         this.query = query;
         this.indexer = indexer;
@@ -143,6 +146,57 @@ public class LogReportController {
         } catch (Exception e) {
             return error(e);
         }
+    }
+
+    /**
+     * Streamed CSV of the current result set. RBAC Phase 1 is not on main yet, so this endpoint is
+     * ungated: {@code openproteo.logreport.export-enabled=false} turns it off until role scoping lands.
+     */
+    @GetMapping("/api/logs/export")
+    public ResponseEntity<org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody> export(
+            @RequestParam(required = false) List<String> feedId,
+            @RequestParam(required = false) List<String> sourceId,
+            @RequestParam(required = false) List<String> targetId,
+            @RequestParam(required = false) String step,
+            @RequestParam(required = false) List<String> event,
+            @RequestParam(required = false) List<String> severity,
+            @RequestParam(required = false) List<String> status,
+            @RequestParam(required = false) String user,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false, defaultValue = "events") String source) {
+
+        if (!exportEnabled) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+
+        final LogQueryService.Filters f = new LogQueryService.Filters();
+        f.feedId = feedId; f.sourceId = sourceId; f.targetId = targetId;
+        f.step = step; f.event = event; f.severity = severity;
+        f.user = user; f.from = from; f.to = to; f.q = q;
+        final boolean runs = "runs".equalsIgnoreCase(source);
+        final List<String> st = status;
+
+        String name = "openproteo-logs-" + (runs ? "runs" : "events") + "-"
+                + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new java.util.Date()) + ".csv";
+
+        org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody body =
+                new org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody() {
+            @Override
+            public void writeTo(java.io.OutputStream os) throws java.io.IOException {
+                java.io.Writer w = new java.io.OutputStreamWriter(os, java.nio.charset.StandardCharsets.UTF_8);
+                w.write('\uFEFF');                                  // BOM: Excel opens it as UTF-8
+                try {
+                    query.exportCsv(f, runs, st, w);
+                } catch (Exception e) {
+                    w.write("ERROR;" + String.valueOf(e.getMessage()));
+                }
+                w.flush();
+            }
+        };
+        return ResponseEntity.ok()
+                .header("Content-Disposition", "attachment; filename=\"" + name + "\"")
+                .header("Content-Type", "text/csv; charset=UTF-8")
+                .body(body);
     }
 
     /** How much is loaded and when it was last refreshed - the first thing to check if a row is missing. */

@@ -889,3 +889,14 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   nothing, no pairs shows a dash. Cards are clickable filters (severity, feed, step+FAIL) routed through
   the same search(), so cards/chart/grid stay one state; the step filter is cleared by Reset. Note in
   `.claude/2026-08-03-log-report-batch4.md`.
+
+## Log report — Batches 5 and 6 (export, reindex, cold scan)
+* `GET /api/logs/export`: streamed CSV of the filtered set (paged through the index, UTF-8 BOM, 1M-row
+  stop; runs flatten outputData as `name=value | ...`). RBAC is not on main, so it is UNGATED — kill
+  switch `openproteo.logreport.export-enabled=false`, and it must be role-scoped as soon as Phase 1 auth
+  merges. CSV + Reindex buttons added to /logs. * Cold scan: a query whose `from` predates the 90-day
+  window is served by `LogIndexer.coldScan`, reading the audit files for the feeds in the filter only
+  (20k cap, nothing written to the index), with the same predicates re-applied in Java; a cold query
+  naming no feed/source/target is refused rather than scanning all 144 files. Responses carry
+  `coldScan`/`truncated` and the page says which path answered. Note in
+  `.claude/2026-08-03-log-report-batch5-6.md`.
