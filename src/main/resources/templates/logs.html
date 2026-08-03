@@ -38,6 +38,15 @@
             word-break: break-word; }
         .lgpage { display: flex; gap: 10px; align-items: center; margin-top: 10px; font-size: 12.5px; color: var(--ink-dim); }
         .lgprod { color: var(--fail); font-weight: 600; font-size: 10px; }
+        .lgchart { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; }
+        .lgchart .hd { display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--ink-dim); margin-bottom: 4px; }
+        .lgchart svg { display: block; width: 100%; height: 132px; cursor: crosshair; }
+        .lgbar-ok { fill: var(--ok); } .lgbar-fail { fill: var(--fail); } .lgbar-wait { fill: var(--accent); }
+        .lgbar-run { fill: var(--run); } .lgbar-info { fill: #7c8798; }
+        .lgbar:hover { opacity: .75; }
+        .lgbrush { fill: rgba(245,166,35,.18); stroke: var(--accent); stroke-width: 1; }
+        .lglegend span { margin-right: 9px; font-size: 10.5px; }
+        .lglegend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
     </style>
 </head>
 <body>
@@ -74,6 +83,18 @@
         <div class="lgf"><label>User</label><input type="text" id="fuser" placeholder="exact"></div>
         <div class="lgf"><label>&nbsp;</label><button class="btn sm" id="btnSearch">🔎 Search</button></div>
         <div class="lgf"><label>&nbsp;</label><button class="btn sm" id="btnReset">↺ Reset</button></div>
+    </div>
+
+    <div class="lgchart">
+        <div class="hd">
+            <b>Activity</b>
+            <span id="chBucket" class="dim"></span>
+            <span class="lglegend" id="chLegend"></span>
+            <span class="spacer"></span>
+            <span class="dim">drag to select a range · click a bar to zoom into it</span>
+            <button class="btn sm" id="chReset">↺ Full range</button>
+        </div>
+        <svg id="chart" viewBox="0 0 1000 132" preserveAspectRatio="none"></svg>
     </div>
 
     <div class="lgwrap"><table class="lg" id="grid"><thead></thead><tbody></tbody></table></div>
@@ -222,12 +243,117 @@
         $('next').disabled = last >= TOTAL;
     }
 
+    var SEV_CLASS = { OK:'lgbar-ok', FAIL:'lgbar-fail', WAIT:'lgbar-wait', RUN:'lgbar-run', SKIP:'lgbar-info', INFO:'lgbar-info' };
+    var SEV_COLOR = { OK:'var(--ok)', FAIL:'var(--fail)', WAIT:'var(--accent)', RUN:'var(--run)', SKIP:'#7c8798', INFO:'#7c8798' };
+    var SEV_ORDER = ['FAIL', 'WAIT', 'RUN', 'OK', 'SKIP', 'INFO'];
+    var NS = 'http://www.w3.org/2000/svg';
+
+    function fmtTs(ms) {
+        var d = new Date(ms);
+        function p(n) { return (n < 10 ? '0' : '') + n; }
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+            + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    }
+    function svgEl(name, attrs) {
+        var e = document.createElementNS(NS, name);
+        for (var a in attrs) if (attrs.hasOwnProperty(a)) e.setAttribute(a, attrs[a]);
+        return e;
+    }
+
+    function drawChart(j) {
+        var svg = $('chart');
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        var series = (j && j.series) || [];
+        $('chBucket').textContent = series.length ? ('bucket ' + j.bucketLabel + (j.truncated ? ' · truncated' : '')) : '';
+        var lg = '';
+        for (var q1 = 0; q1 < SEV_ORDER.length; q1++) {
+            lg += '<span><i style="background:' + SEV_COLOR[SEV_ORDER[q1]] + '"></i>' + SEV_ORDER[q1] + '</span>';
+        }
+        $('chLegend').innerHTML = series.length ? lg : '';
+        if (!series.length) return;
+
+        var byBucket = {}, order = [], max = 0;
+        for (var k = 0; k < series.length; k++) {
+            var pt = series[k], b = byBucket[pt.bucketMs];
+            if (!b) { b = byBucket[pt.bucketMs] = { ms: pt.bucketMs, total: 0, sev: {} }; order.push(b); }
+            b.sev[pt.severity] = (b.sev[pt.severity] || 0) + pt.count;
+            b.total += pt.count;
+            if (b.total > max) max = b.total;
+        }
+        order.sort(function (x, y) { return x.ms - y.ms; });
+
+        var W = 1000, H = 132, plotH = H - 30;
+        var n = order.length, bw = Math.max(1, (W / n) - 1);
+        var t0 = order[0].ms, t1 = order[n - 1].ms + (j.bucketWidthMs || 1);
+
+        for (var i2 = 0; i2 < n; i2++) {
+            var b2 = order[i2], x = (i2 * W) / n, y = H - 16;
+            for (var s2 = 0; s2 < SEV_ORDER.length; s2++) {
+                var sv = SEV_ORDER[s2], cnt = b2.sev[sv] || 0;
+                if (!cnt) continue;
+                var h = Math.max(1, (cnt / max) * plotH);
+                y -= h;
+                var rect = svgEl('rect', { x: x.toFixed(2), y: y.toFixed(2), width: bw.toFixed(2), height: h.toFixed(2) });
+                rect.setAttribute('class', 'lgbar ' + SEV_CLASS[sv]);
+                var tt = document.createElementNS(NS, 'title');
+                tt.textContent = fmtTs(b2.ms) + '  ' + sv + ': ' + cnt + '  (total ' + b2.total + ')';
+                rect.appendChild(tt);
+                rect.addEventListener('click', (function (bk) {
+                    return function () { zoomTo(bk.ms, bk.ms + (j.bucketWidthMs || 1)); };
+                })(b2));
+                svg.appendChild(rect);
+            }
+        }
+        svg.appendChild(svgEl('line', { x1: 0, y1: H - 16, x2: W, y2: H - 16, stroke: 'var(--line)', 'stroke-width': 1 }));
+        var l0 = svgEl('text', { x: 2, y: H - 4, fill: 'var(--ink-faint)', 'font-size': 10 });
+        l0.textContent = fmtTs(t0); svg.appendChild(l0);
+        var l1 = svgEl('text', { x: W - 2, y: H - 4, fill: 'var(--ink-faint)', 'font-size': 10, 'text-anchor': 'end' });
+        l1.textContent = fmtTs(t1); svg.appendChild(l1);
+
+        var brush = null, startX = 0;
+        svg.onmousedown = function (ev) {
+            var r = svg.getBoundingClientRect();
+            startX = ((ev.clientX - r.left) / r.width) * W;
+            brush = svgEl('rect', { x: startX, y: 0, width: 0, height: H - 16 });
+            brush.setAttribute('class', 'lgbrush');
+            svg.appendChild(brush);
+        };
+        svg.onmousemove = function (ev) {
+            if (!brush) return;
+            var r = svg.getBoundingClientRect(), cur = ((ev.clientX - r.left) / r.width) * W;
+            brush.setAttribute('x', Math.min(startX, cur));
+            brush.setAttribute('width', Math.abs(cur - startX));
+        };
+        svg.onmouseup = function (ev) {
+            if (!brush) return;
+            var r = svg.getBoundingClientRect(), cur = ((ev.clientX - r.left) / r.width) * W;
+            var a = Math.min(startX, cur), b3 = Math.max(startX, cur);
+            svg.removeChild(brush); brush = null;
+            if (b3 - a < 4) return;                       // a click, not a drag: the bar handler takes it
+            zoomTo(t0 + ((t1 - t0) * a) / W, t0 + ((t1 - t0) * b3) / W);
+        };
+        svg.onmouseleave = function () { if (brush) { svg.removeChild(brush); brush = null; } };
+    }
+
+    function zoomTo(fromMs, toMs) {
+        $('ffrom').value = fmtTs(Math.floor(fromMs));
+        $('fto').value = fmtTs(Math.ceil(toMs));
+        PAGE = 0;
+        search();
+    }
+
+    function loadChart() {
+        fetch(CTX + 'api/logs/timeseries?source=' + SRC + '&' + params())
+            .then(json).then(function (j) { if (j && !j.error) drawChart(j); }).catch(function () { });
+    }
+
     function search() {
         var url = CTX + 'api/logs/' + (SRC === 'events' ? 'search' : 'runs') + '?' + params();
         $('pinfo').textContent = 'searching…';
         fetch(url).then(json).then(function (j) {
             if (j && j.error) { $('pinfo').textContent = 'error: ' + j.error; return; }
             render(j);
+            loadChart();
         }).catch(function (e) { $('pinfo').textContent = 'error: ' + e; });
     }
 
@@ -252,6 +378,7 @@
         });
         PAGE = 0; search();
     };
+    $('chReset').onclick = function () { $('ffrom').value = ''; $('fto').value = ''; PAGE = 0; search(); };
     $('prev').onclick = function () { if (PAGE > 0) { PAGE--; search(); } };
     $('next').onclick = function () { PAGE++; search(); };
     $('fq').onkeydown = function (e) { if (e.key === 'Enter') { PAGE = 0; search(); } };

@@ -82,6 +82,33 @@ public class LogReportController {
         }
     }
 
+    /** Counts per time bucket for the activity chart; same filters as the grid. */
+    @GetMapping("/api/logs/timeseries")
+    public ResponseEntity<Map<String, Object>> timeseries(
+            @RequestParam(required = false) List<String> feedId,
+            @RequestParam(required = false) List<String> sourceId,
+            @RequestParam(required = false) List<String> targetId,
+            @RequestParam(required = false) String step,
+            @RequestParam(required = false) List<String> event,
+            @RequestParam(required = false) List<String> severity,
+            @RequestParam(required = false) List<String> status,
+            @RequestParam(required = false) String user,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false, defaultValue = "events") String source,
+            @RequestParam(required = false, defaultValue = "auto") String bucket) {
+        LogQueryService.Filters f = new LogQueryService.Filters();
+        f.feedId = feedId; f.sourceId = sourceId; f.targetId = targetId;
+        f.step = step; f.event = event; f.severity = severity;
+        f.user = user; f.from = from; f.to = to; f.q = q;
+        try {
+            return ResponseEntity.ok(query.timeseries(f, source, status, bucket));
+        } catch (Exception e) {
+            return error(e);
+        }
+    }
+
     /** Distinct values for the filter controls. */
     @GetMapping("/api/logs/facets")
     public ResponseEntity<Map<String, Object>> facets() {

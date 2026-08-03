@@ -295,6 +295,141 @@ public class LogQueryService {
         return m;
     }
 
+    /** Guard: the projection feeding the chart is bounded, so a huge range degrades instead of exploding. */
+    private static final int TIMESERIES_MAX_ROWS = 400000;
+    private static final int TARGET_BUCKETS = 160;
+
+    /**
+     * Counts per time bucket and severity for the activity chart. Bucketing is done in Java over a
+     * bounded (ts, severity) projection rather than with a database-specific date function, so the
+     * behaviour does not depend on the SQL dialect and stays testable.
+     */
+    public Map<String, Object> timeseries(final Filters f, final String source, final List<String> status,
+                                          final String bucket) throws Exception {
+        final boolean runs = "runs".equalsIgnoreCase(source);
+        final Map<String, WorkflowDef> feeds = feedMap();
+        final List<Object> args = new ArrayList<Object>();
+        final String sql;
+
+        if (runs) {
+            List<String> feedIds = resolveFeeds(f, feeds);
+            if (feedIds != null && feedIds.isEmpty()) return emptySeries(bucket);
+            StringBuilder w = new StringBuilder(" WHERE start_ts IS NOT NULL");
+            if (feedIds != null) inClause(w, "feed_id", feedIds, args);
+            if (has(status)) inClause(w, "status", status, args);
+            java.sql.Timestamp from = LogIndexer.parseTs(f.from), to = LogIndexer.parseTs(f.to);
+            if (from != null) { w.append(" AND start_ts >= ?"); args.add(from); }
+            if (to != null) { w.append(" AND start_ts <= ?"); args.add(to); }
+            sql = "SELECT start_ts AS t, status AS sev FROM run_entry" + w + " ORDER BY start_ts LIMIT " + TIMESERIES_MAX_ROWS;
+        } else {
+            String w = where(f, feeds, args);
+            if (w == null) return emptySeries(bucket);
+            sql = "SELECT ts AS t, severity AS sev FROM log_entry" + w + " ORDER BY ts LIMIT " + TIMESERIES_MAX_ROWS;
+        }
+
+        return indexer.withIndex(new LogIndexer.SqlFunction<Map<String, Object>>() {
+            @Override
+            public Map<String, Object> apply(Connection c) throws Exception {
+                List<long[]> stampsIdx = new ArrayList<long[]>();
+                List<String> sevs = new ArrayList<String>();
+                long min = Long.MAX_VALUE, max = Long.MIN_VALUE;
+                try (PreparedStatement ps = c.prepareStatement(sql)) {
+                    bind(ps, args);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) {
+                            java.sql.Timestamp t = rs.getTimestamp("t");
+                            if (t == null) continue;
+                            long ms = t.getTime();
+                            stampsIdx.add(new long[]{ ms });
+                            String sv = rs.getString("sev");
+                            sevs.add(runs ? statusSeverity(sv) : (sv == null ? "INFO" : sv));
+                            if (ms < min) min = ms;
+                            if (ms > max) max = ms;
+                        }
+                    }
+                }
+                if (stampsIdx.isEmpty()) return emptySeries(bucket);
+
+                long width = bucketMs(bucket, max - min);
+                Map<Long, Map<String, Integer>> agg = new java.util.TreeMap<Long, Map<String, Integer>>();
+                for (int i = 0; i < stampsIdx.size(); i++) {
+                    long slot = (stampsIdx.get(i)[0] / width) * width;
+                    Map<String, Integer> m = agg.get(slot);
+                    if (m == null) { m = new LinkedHashMap<String, Integer>(); agg.put(slot, m); }
+                    String sv = sevs.get(i);
+                    Integer prev = m.get(sv);
+                    m.put(sv, prev == null ? 1 : prev + 1);
+                }
+
+                java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                List<Map<String, Object>> series = new ArrayList<Map<String, Object>>();
+                for (Map.Entry<Long, Map<String, Integer>> e : agg.entrySet()) {
+                    for (Map.Entry<String, Integer> sv : e.getValue().entrySet()) {
+                        Map<String, Object> m = new LinkedHashMap<String, Object>();
+                        m.put("bucketStart", fmt.format(new java.util.Date(e.getKey())));
+                        m.put("bucketMs", e.getKey());
+                        m.put("severity", sv.getKey());
+                        m.put("count", sv.getValue());
+                        series.add(m);
+                    }
+                }
+                Map<String, Object> out = new LinkedHashMap<String, Object>();
+                out.put("bucketWidthMs", width);
+                out.put("bucketLabel", labelFor(width));
+                out.put("from", fmt.format(new java.util.Date(min)));
+                out.put("to", fmt.format(new java.util.Date(max)));
+                out.put("truncated", stampsIdx.size() >= TIMESERIES_MAX_ROWS);
+                out.put("series", series);
+                return out;
+            }
+        });
+    }
+
+    private static Map<String, Object> emptySeries(String bucket) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        out.put("bucketWidthMs", 0L);
+        out.put("bucketLabel", bucket == null ? "auto" : bucket);
+        out.put("series", new ArrayList<Map<String, Object>>());
+        out.put("truncated", false);
+        return out;
+    }
+
+    /** A run status painted with the same palette as the event severities. */
+    private static String statusSeverity(String status) {
+        if (status == null) return "INFO";
+        String s = status.toUpperCase(java.util.Locale.ROOT);
+        if (s.contains("FAIL") || s.contains("ERROR") || s.contains("ABORT") || s.contains("REJECT")) return "FAIL";
+        if (s.contains("SUCCESS")) return "OK";
+        if (s.contains("RUNNING") || s.contains("QUEUED")) return "RUN";
+        if (s.contains("HOLD") || s.contains("WAIT")) return "WAIT";
+        if (s.contains("SKIP")) return "SKIP";
+        return "INFO";
+    }
+
+    private static final long MIN = 60000L, HOUR = 3600000L, DAY = 86400000L, WEEK = 7 * DAY;
+
+    /** Explicit width when asked, otherwise the smallest step keeping the chart under ~160 bars. */
+    static long bucketMs(String bucket, long spanMs) {
+        String b = bucket == null ? "auto" : bucket.trim().toLowerCase(java.util.Locale.ROOT);
+        if (b.equals("minute")) return MIN;
+        if (b.equals("hour")) return HOUR;
+        if (b.equals("day")) return DAY;
+        if (b.equals("week")) return WEEK;
+        long[] steps = { MIN, 5 * MIN, 15 * MIN, 30 * MIN, HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, DAY, WEEK, 30 * DAY };
+        long span = Math.max(spanMs, 1);
+        for (long st : steps) {
+            if (span / st <= TARGET_BUCKETS) return st;
+        }
+        return steps[steps.length - 1];
+    }
+
+    static String labelFor(long width) {
+        if (width % WEEK == 0) return (width / WEEK) + "w";
+        if (width % DAY == 0) return (width / DAY) + "d";
+        if (width % HOUR == 0) return (width / HOUR) + "h";
+        return Math.max(1, width / MIN) + "m";
+    }
+
     /** Values for the filter dropdowns: feeds/sources/targets from the registry, the rest from the index. */
     public Map<String, Object> facets() throws Exception {
         final Map<String, WorkflowDef> feeds = feedMap();

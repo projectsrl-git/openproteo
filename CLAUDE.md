@@ -869,3 +869,13 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   `description = value`. Feed and run link into the existing pages. Server-side paging 100/page, footer
   reports index contents (events/runs/outputs/window). Route in PageController, dashboard link, includes
   use the cache-busting `(v=${buildId})`. Note in `.claude/2026-08-03-log-report-batch2b.md`.
+
+## Log report — Batch 3 (activity timeline)
+* `GET /api/logs/timeseries` + SVG chart above the grid, sharing filters and source. Bucketing is done
+  in Java over a bounded (ts, severity) projection (400k cap, `truncated` flag) instead of a
+  dialect-specific SQL date function, so it does not depend on H2 syntax and the sizing is testable:
+  `auto` keeps the chart under ~160 bars (1h->1m, 1d->15m, 30d->6h, 90d->1d, 1y->1w), minute|hour|day|
+  week force a width. Run statuses map onto the event severity palette. Stacked bars with FAIL at the
+  bottom, native <title> tooltips, no library/CDN; click a bar to zoom, drag to brush-select — both
+  write from/to and re-run the search so chart, grid and filters are one state. Note in
+  `.claude/2026-08-03-log-report-batch3.md`.

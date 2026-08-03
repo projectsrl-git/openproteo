@@ -1,30 +1,29 @@
-Log report Batch 2b: the /logs page, one grid with a source selector
+Log report Batch 3: activity timeline with brush-select and click-to-zoom
 
-One page and one grid, with a source switch rather than two tabs: Events reads /api/logs/search and
-Runs & output data reads /api/logs/runs. The filter bar, the paging and the grid are shared; only the
-columns and the two source-specific filters change, so switching source keeps the current selection.
+GET /api/logs/timeseries plus a chart above the grid, sharing the filter bar and the source selector.
 
-The filter bar is built from /api/logs/facets: source id, target id, feed with its name, event,
-severity and run status, plus free text, a from/to range and the user. Event and severity are shown
-for events, run status for runs, and everything else applies to both.
+Bucketing happens in Java rather than in SQL. Counting per time bucket needs a dialect-specific date
+function, and H2 cannot be exercised in the chat sandbox, so the query returns a bounded projection of
+timestamp and severity and the grouping is done in code: no dialect dependency and the sizing logic is
+testable. The projection is capped at four hundred thousand rows and the response carries a truncated
+flag so the page can say so instead of silently lying.
 
-Events show when, feed with its PROD flag and name, source, target, run, step, event, a severity badge,
-user and details. Runs show started and ended, feed, source, target, run, a status badge with the run
-message, the trigger and who started it, the steps ok out of total with failures highlighted, and the
-output data rendered as description equals value -- the same information Operations displays. The feed
-links to the workflow page and the run id to the existing run page, so the grid is a jumping point into
-the app rather than a dead end.
+The auto bucket picks the smallest step that keeps the chart under about a hundred and sixty bars,
+while minute, hour, day and week force a width. Measured: one hour gives one-minute buckets and sixty
+bars, a day gives fifteen minutes and ninety-six bars, thirty days gives six hours and a hundred and
+twenty bars, ninety days gives one day and ninety bars, a year gives one week and fifty-two bars. Run
+statuses are mapped onto the same severity palette, so the chart reads the same in both sources.
 
-Paging is server side, a hundred rows per page, with prev and next and an x-y of N counter. The footer
-also reports what the index currently holds -- events, runs, outputs and the window in days -- so an
-empty result is easy to tell apart from an empty index.
+The chart is stacked bars per bucket coloured by severity, with failures at the bottom so they are
+always visible, native SVG tooltips, and no library or CDN — the same SVG-only approach already used
+for the workflow diagram. Clicking a bar zooms into that bucket, dragging selects a range, and both
+write into the from and to filters and re-run the search, so the chart, the grid and the filters remain
+a single state; Full range clears them. A drag shorter than four units counts as a click, so the two
+gestures never fight each other.
 
-The route was added to PageController with a link on the dashboard, and the page uses the new
-cache-busting includes.
+Docs: .claude/2026-08-03-log-report-batch3.md and CLAUDE.md.
 
-Docs: .claude/2026-08-03-log-report-batch2b.md and CLAUDE.md.
-
-Verify: logs.html passes node --check with zero literal \n or \r and no unsafe Thymeleaf, and all three
-static includes carry the build id. Rendering itself could not be exercised in the chat sandbox since no
-app is running: after deploying, open /logs and read the footer counter to confirm the index is
-populated.
+Verify: the bucket sizing was compiled and executed across seven ranges with the results quoted above,
+and the explicit widths return exactly one minute, one hour, one day and one week. logs.html passes
+node --check with zero literal \n or \r and no unsafe Thymeleaf. The chart could not be rendered in the
+chat sandbox since there is no browser: after deploying open /logs and check the activity strip.
