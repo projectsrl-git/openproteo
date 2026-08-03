@@ -850,3 +850,13 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   No UI, no timeseries/metrics/facets/export, no rolling window, no RBAC gating yet — TEST only until
   Phase 1 auth. H2 could not be exercised in the chat sandbox (Maven Central unreachable): the JDBC
   path runs first on the real build. Note in `.claude/2026-08-03-log-report-batch1.md`.
+
+## Log report — Batch 2a (window, runs + output-data, facets)
+* Decisions: rolling window 90 days (`openproteo.logreport.window-days`, 0 disables), refresh 10s.
+  * SPEC CHANGE: `_runs/{runId}.json` is now indexed, because the audit line only carries
+  exitCode/attempts/reason and the OUTPUT DATA shown in Operations and the run history lives in
+  run.vars matched against the workflow's outputData declarations. New tables `run_entry` and
+  `run_output`; run files are rewritten as a run progresses, so they are stamped by size:mtime and their
+  rows replaced rather than tailed. * `GET /api/logs/runs` (filters + paging, each row carrying its
+  outputData; free text also searches output values/labels/names via EXISTS) and `GET /api/logs/facets`.
+  Outputs for a page are fetched in one query. Note in `.claude/2026-08-03-log-report-batch2a.md`.

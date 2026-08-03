@@ -51,6 +51,9 @@ public class LogIndexer {
     /** Same TTL already used for the dashboard feeds cache. */
     private static final long REFRESH_TTL_MS = 10_000L;
 
+    /** Rolling window: events and runs older than this are not held in memory. */
+    private static final int DEFAULT_WINDOW_DAYS = 90;
+
     private static final String URL = "jdbc:h2:mem:logidx;DB_CLOSE_DELAY=-1";
 
     private final WorkflowRegistry registry;
@@ -63,9 +66,14 @@ public class LogIndexer {
     }
 
     private final Map<String, FeedState> state = new HashMap<String, FeedState>();
+    /** run file -> size:mtime already indexed (a run file is rewritten while the run progresses). */
+    private final Map<String, String> runStamp = new HashMap<String, String>();
     private Connection conn;
     private volatile long lastRefresh = 0L;
     private volatile boolean ready = false;
+
+    @org.springframework.beans.factory.annotation.Value("${openproteo.logreport.window-days:90}")
+    private int windowDays = DEFAULT_WINDOW_DAYS;
 
     public LogIndexer(WorkflowRegistry registry) {
         this.registry = registry;
@@ -87,6 +95,17 @@ public class LogIndexer {
                 st.execute("CREATE INDEX IF NOT EXISTS ix_log_ts ON log_entry(ts)");
                 st.execute("CREATE INDEX IF NOT EXISTS ix_log_event ON log_entry(event)");
                 st.execute("CREATE INDEX IF NOT EXISTS ix_log_feed ON log_entry(feed_id)");
+                // Runs and their declared output data: what Operations and the run history show, and
+                // what the audit line does NOT carry (it only has exitCode/attempts/reason).
+                st.execute("CREATE TABLE IF NOT EXISTS run_entry ("
+                        + "feed_id VARCHAR NOT NULL, run_id VARCHAR NOT NULL, status VARCHAR, trigger_kind VARCHAR, "
+                        + "triggered_by VARCHAR, start_ts TIMESTAMP, end_ts TIMESTAMP, message VARCHAR, "
+                        + "steps_total INT, steps_ok INT, steps_failed INT, PRIMARY KEY (feed_id, run_id))");
+                st.execute("CREATE INDEX IF NOT EXISTS ix_run_start ON run_entry(start_ts)");
+                st.execute("CREATE TABLE IF NOT EXISTS run_output ("
+                        + "feed_id VARCHAR NOT NULL, run_id VARCHAR NOT NULL, var_name VARCHAR NOT NULL, "
+                        + "label VARCHAR, value VARCHAR, ts TIMESTAMP, PRIMARY KEY (feed_id, run_id, var_name))");
+                st.execute("CREATE INDEX IF NOT EXISTS ix_out_var ON run_output(var_name)");
             }
         }
         return conn;
@@ -126,10 +145,19 @@ public class LogIndexer {
     public synchronized void reindex() throws Exception {
         try (Statement st = connection().createStatement()) {
             st.execute("TRUNCATE TABLE log_entry");
+            st.execute("TRUNCATE TABLE run_entry");
+            st.execute("TRUNCATE TABLE run_output");
         }
         state.clear();
+        runStamp.clear();
         ready = false;
         ensureFresh(true);
+    }
+
+    /** Oldest instant kept in memory; null when the window is disabled (window-days <= 0). */
+    private java.sql.Timestamp cutoff() {
+        if (windowDays <= 0) return null;
+        return new java.sql.Timestamp(System.currentTimeMillis() - (long) windowDays * 86400000L);
     }
 
     private long indexAll() throws Exception {
@@ -138,6 +166,7 @@ public class LogIndexer {
             if (wf == null || wf.feedId == null) continue;
             try {
                 total += indexFeed(wf.feedId);
+                total += indexRuns(wf);
             } catch (Exception e) {
                 // one unreadable feed must not stop the others
                 log.warn("log index: feed {} skipped ({})", wf.feedId, e.getMessage());
@@ -177,6 +206,7 @@ public class LogIndexer {
         long consumed = lastNl + 1;
 
         long inserted = 0;
+        final java.sql.Timestamp cut = cutoff();
         Connection c = connection();
         boolean auto = c.getAutoCommit();
         c.setAutoCommit(false);
@@ -195,6 +225,7 @@ public class LogIndexer {
                 if (e == null || e.seq <= fs.lastSeq) continue;
                 java.sql.Timestamp ts = parseTs(e.ts);
                 if (ts == null) continue;
+                if (cut != null && ts.before(cut)) { fs.lastSeq = e.seq; continue; }   // out of window: skip but advance
 
                 ps.setString(1, feedId);
                 ps.setLong(2, e.seq);
@@ -221,6 +252,115 @@ public class LogIndexer {
 
         fs.offset += consumed;
         return inserted;
+    }
+
+    /**
+     * Indexes the run snapshots and their declared output data. Unlike the audit file, run files are
+     * rewritten as the run progresses, so a file is re-read when its size or timestamp changed and its
+     * rows are replaced.
+     */
+    private long indexRuns(WorkflowDef wf) throws Exception {
+        Path probe;
+        try {
+            probe = registry.layout(wf.feedId).runFile("__probe__");
+        } catch (Exception e) {
+            return 0;
+        }
+        Path dir = (probe == null) ? null : probe.getParent();
+        if (dir == null || !Files.isDirectory(dir)) return 0;
+
+        java.sql.Timestamp cut = cutoff();
+        long touched = 0;
+        java.util.List<Path> files = new ArrayList<Path>();
+        try (java.util.stream.Stream<Path> st = Files.list(dir)) {
+            for (java.util.Iterator<Path> it = st.iterator(); it.hasNext(); ) {
+                Path p = it.next();
+                if (p.getFileName().toString().endsWith(".json")) files.add(p);
+            }
+        }
+        for (Path f : files) {
+            String key = wf.feedId + "|" + f.getFileName();
+            String stamp;
+            try {
+                stamp = Files.size(f) + ":" + Files.getLastModifiedTime(f).toMillis();
+            } catch (Exception e) { continue; }
+            if (stamp.equals(runStamp.get(key))) continue;                 // unchanged since last pass
+
+            com.fasterxml.jackson.databind.JsonNode run;
+            try {
+                run = mapper.readTree(f.toFile());
+            } catch (Exception bad) { continue; }
+            if (run == null) continue;
+
+            String runId = text(run, "runId");
+            if (runId == null || runId.isEmpty()) continue;
+            java.sql.Timestamp start = parseTs(text(run, "startTs"));
+            if (cut != null && start != null && start.before(cut)) { runStamp.put(key, stamp); continue; }
+
+            upsertRun(wf, run, runId, start);
+            runStamp.put(key, stamp);
+            touched++;
+        }
+        return touched;
+    }
+
+    private static String text(com.fasterxml.jackson.databind.JsonNode n, String field) {
+        com.fasterxml.jackson.databind.JsonNode v = (n == null) ? null : n.get(field);
+        return (v == null || v.isNull()) ? null : v.asText();
+    }
+
+    private void upsertRun(WorkflowDef wf, com.fasterxml.jackson.databind.JsonNode run,
+                           String runId, java.sql.Timestamp start) throws Exception {
+        Connection c = connection();
+        int total = 0, ok = 0, failed = 0;
+        com.fasterxml.jackson.databind.JsonNode steps = run.get("steps");
+        if (steps != null && steps.isArray()) {
+            for (com.fasterxml.jackson.databind.JsonNode stp : steps) {
+                total++;
+                String s = text(stp, "status");
+                if (s == null) continue;
+                if (s.contains("SUCCESS") || s.contains("COMPLETED")) ok++;
+                else if (s.contains("FAIL") || s.contains("ERROR")) failed++;
+            }
+        }
+        try (PreparedStatement ps = c.prepareStatement("DELETE FROM run_entry WHERE feed_id=? AND run_id=?")) {
+            ps.setString(1, wf.feedId); ps.setString(2, runId); ps.executeUpdate();
+        }
+        try (PreparedStatement ps = c.prepareStatement("INSERT INTO run_entry (feed_id, run_id, status, trigger_kind, "
+                + "triggered_by, start_ts, end_ts, message, steps_total, steps_ok, steps_failed) VALUES (?,?,?,?,?,?,?,?,?,?,?)")) {
+            ps.setString(1, wf.feedId);
+            ps.setString(2, runId);
+            ps.setString(3, text(run, "status"));
+            ps.setString(4, text(run, "trigger"));
+            ps.setString(5, text(run, "triggeredBy"));
+            ps.setTimestamp(6, start);
+            ps.setTimestamp(7, parseTs(text(run, "endTs")));
+            ps.setString(8, text(run, "message"));
+            ps.setInt(9, total); ps.setInt(10, ok); ps.setInt(11, failed);
+            ps.executeUpdate();
+        }
+
+        try (PreparedStatement ps = c.prepareStatement("DELETE FROM run_output WHERE feed_id=? AND run_id=?")) {
+            ps.setString(1, wf.feedId); ps.setString(2, runId); ps.executeUpdate();
+        }
+        Map<String, String> declared = wf.outputData;
+        if (declared == null || declared.isEmpty()) return;
+        com.fasterxml.jackson.databind.JsonNode vars = run.get("vars");
+        try (PreparedStatement ps = c.prepareStatement(
+                "INSERT INTO run_output (feed_id, run_id, var_name, label, value, ts) VALUES (?,?,?,?,?,?)")) {
+            for (Map.Entry<String, String> e : declared.entrySet()) {
+                String var = e.getKey();
+                if (var == null || var.trim().isEmpty()) continue;
+                ps.setString(1, wf.feedId);
+                ps.setString(2, runId);
+                ps.setString(3, var);
+                ps.setString(4, e.getValue());
+                ps.setString(5, (vars == null) ? null : text(vars, var));
+                ps.setTimestamp(6, start);
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
     }
 
     private void deleteFeed(String feedId) throws Exception {
@@ -281,6 +421,9 @@ public class LogIndexer {
             if (rs.next()) rows = rs.getLong(1);
         } catch (Exception ignored) { }
         out.put("events", rows);
+        out.put("windowDays", windowDays);
+        out.put("runs", count("run_entry"));
+        out.put("outputs", count("run_output"));
         out.put("feeds", state.size());
         List<Map<String, Object>> per = new ArrayList<Map<String, Object>>();
         for (Map.Entry<String, FeedState> e : state.entrySet()) {
@@ -292,6 +435,14 @@ public class LogIndexer {
         }
         out.put("perFeed", per);
         return out;
+    }
+
+    private long count(String table) {
+        try (Statement st = connection().createStatement(); ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM " + table)) {
+            return rs.next() ? rs.getLong(1) : 0;
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     /** Small functional handle so callers get a connection without ever keeping it. */

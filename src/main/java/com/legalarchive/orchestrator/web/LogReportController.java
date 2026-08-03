@@ -59,6 +59,39 @@ public class LogReportController {
         }
     }
 
+    /** Runs with their output data: the OUTPUT DATA of Operations and the run history, searchable. */
+    @GetMapping("/api/logs/runs")
+    public ResponseEntity<Map<String, Object>> runs(
+            @RequestParam(required = false) List<String> feedId,
+            @RequestParam(required = false) List<String> sourceId,
+            @RequestParam(required = false) List<String> targetId,
+            @RequestParam(required = false) List<String> status,
+            @RequestParam(required = false) String user,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        LogQueryService.Filters f = new LogQueryService.Filters();
+        f.feedId = feedId; f.sourceId = sourceId; f.targetId = targetId;
+        f.user = user; f.from = from; f.to = to; f.q = q;
+        try {
+            return ResponseEntity.ok(query.runs(f, status, page, size));
+        } catch (Exception e) {
+            return error(e);
+        }
+    }
+
+    /** Distinct values for the filter controls. */
+    @GetMapping("/api/logs/facets")
+    public ResponseEntity<Map<String, Object>> facets() {
+        try {
+            return ResponseEntity.ok(query.facets());
+        } catch (Exception e) {
+            return error(e);
+        }
+    }
+
     /** How much is loaded and when it was last refreshed - the first thing to check if a row is missing. */
     @GetMapping("/api/logs/status")
     public ResponseEntity<Map<String, Object>> status() {

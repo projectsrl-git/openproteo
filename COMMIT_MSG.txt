@@ -1,39 +1,39 @@
-Log report Batch 1: audit indexer, query service and /api/logs/search
+Log report Batch 2a: rolling window, run and output-data indexing, facets
 
-First slice of the cross-feed log report designed in .claude/LOG_REPORT.md (the spec is committed with
-this change). No new logging is added anywhere: this is a read-only aggregation layer over the audit
-JSONL files that already exist, which are opened strictly read-only so the hash chain is untouched.
+Decisions taken on the spec's open items: the rolling window is ninety days and the refresh interval
+stays at ten seconds. The feed and log directories are already configurable and were left untouched.
 
-LogSeverity classifies an event once as OK, FAIL, WAIT, RUN, SKIP or INFO -- the single classifier the
-indexer uses now and the grid, chart and metric cards will reuse later; a failure wins over a completion
-when an event names both.
+This batch changes one design decision of .claude/LOG_REPORT.md. Section 2.2 excluded the run snapshots
+as a search source, but the audit line only carries exitCode, attempts and reason: the output data shown
+in Operations and in the run history is not in the audit trail at all, it lives in the run's vars matched
+against the outputData declarations on the workflow. Indexing runs is therefore required, and the note
+committed with this change supersedes that section.
 
-LogIndexer mirrors the files into an in-memory H2 instance used purely as a SQL engine, exactly as
-csvsql already does: runtime-only driver via Class.forName, no compile dependency and no new artifact.
-Refresh is a real tail rather than a rescan -- the byte offset consumed for each feed is remembered and
-only the appended bytes are parsed, with a trailing partial line left unconsumed for the next pass. A
-file that shrank is detected and that feed reloaded from scratch; a malformed line or an unreadable feed
-is skipped instead of failing the refresh; reindex() truncates and rebuilds. The refresh TTL matches the
-ten seconds already used by the dashboard feeds cache.
+The rolling window is openproteo.logreport.window-days, defaulting to ninety; entries and runs older than
+the cutoff are not loaded, while the per-feed sequence pointer still advances past them so old lines are
+read once and never re-examined. Setting it to zero disables the window.
 
-LogQueryService turns the filters (feed, source, target, step, event, severity, user, time range and
-free text) into one parameterised statement, with a whitelisted sort and the page size capped at 500.
-Source, target, workflow name and the PROD flag are joined live from the registry and deliberately not
-indexed, so renaming a workflow shows up immediately without a reindex.
+Two tables are added: run_entry with the run status, trigger, who started it, start and end, message and
+the step counts, and run_output with the declared output variables, their descriptions and the values
+that run produced. Run files cannot be tailed like the append-only audit because they are rewritten while
+the run progresses, so the indexer stamps each file with its size and modification time, re-reads only
+what changed and replaces that run's rows, which keeps a run that moves from RUNNING to SUCCESS from
+being duplicated.
 
-LogReportController exposes GET /api/logs/search plus GET /api/logs/status and POST /api/logs/reindex,
-in its own controller as the spec requires rather than growing ApiController further.
+GET /api/logs/runs returns those runs with filters on feed, source, target, status, user and time plus
+free text, paginated, each row carrying its output data. The free text also searches inside the output
+values, labels and variable names, so looking for the run that produced a given row count works. The
+outputs for a whole page are fetched in one additional query rather than one per run. GET /api/logs/facets
+returns the values for the filter controls: feeds, sources and targets from the registry, events,
+severities, run statuses, output variable names and users from the index. /api/logs/status now also
+reports the window and the number of indexed runs and outputs.
 
-Not in this batch: the /logs page, timeseries, metrics, facets and export, the rolling window and cold
-scan (full history is loaded on purpose so it can be measured against real volumes), and RBAC scoping --
-search and reindex are ungated, so this batch is for TEST until Phase 1 auth is merged.
+Still to come: the /logs page itself, the timeline, the metric cards, export and RBAC gating.
 
-Verify: LogSeverity.of and LogIndexer.parseTs were compiled and executed over the real event vocabulary
-and four timestamp shapes, including empty, malformed and null input. The byte-offset tail was compiled
-and exercised on a file appended to three times, one append ending mid-line: the partial line is not
-consumed and is correctly reassembled on the next pass. Every SQL statement the service emits -- the
-DDL, IN lists, time range, node prefix, free text, user match, paging and all four sort options -- was
-executed against a real SQL engine and returned the expected rows. H2 itself could not be exercised in
-the chat sandbox because Maven Central is unreachable from it, so the JDBC path runs for the first time
-on your build; start with GET /api/logs/status. Brace balance checked with a string and comment aware
-counter. Java not compiled as a whole here -- run the Maven build on deploy.
+Verify: brace balance checked with a string and comment aware counter. Every new statement -- the run
+DDL, status filtering, the time range, the free-text EXISTS over the output table, the batched per-page
+output fetch and the four facet queries -- was executed against a real SQL engine and returned the
+expected rows; a search for a value that only appears in OUTPUT DATA returns exactly the run that
+produced it. H2 itself still cannot be exercised in the chat sandbox because Maven Central is unreachable
+from it, so the JDBC path runs for the first time on your build: check GET /api/logs/status for the runs
+and outputs counts right after deploying.

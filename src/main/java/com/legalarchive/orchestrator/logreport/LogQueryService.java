@@ -170,6 +170,175 @@ public class LogQueryService {
         });
     }
 
+    /**
+     * Runs with their declared output data - the same information Operations shows in OUTPUT DATA and
+     * the run history lists. Filters reuse the feed/source/target/time selection; the run status can be
+     * narrowed with {@code status}.
+     */
+    public Map<String, Object> runs(final Filters f, final List<String> status, final int page, final int size) throws Exception {
+        final Map<String, WorkflowDef> feeds = feedMap();
+        final List<Object> args = new ArrayList<Object>();
+        List<String> feedIds = resolveFeeds(f, feeds);
+
+        final int pageSafe = Math.max(0, page);
+        final int sizeSafe = Math.min(Math.max(1, size), MAX_SIZE);
+        final Map<String, Object> out = new LinkedHashMap<String, Object>();
+        out.put("page", pageSafe);
+        out.put("size", sizeSafe);
+
+        if (feedIds != null && feedIds.isEmpty()) {
+            out.put("total", 0L);
+            out.put("rows", new ArrayList<Map<String, Object>>());
+            return out;
+        }
+
+        StringBuilder w = new StringBuilder(" WHERE 1=1");
+        if (feedIds != null) inClause(w, "feed_id", feedIds, args);
+        if (has(status)) inClause(w, "status", status, args);
+        java.sql.Timestamp from = LogIndexer.parseTs(f.from), to = LogIndexer.parseTs(f.to);
+        if (from != null) { w.append(" AND start_ts >= ?"); args.add(from); }
+        if (to != null) { w.append(" AND start_ts <= ?"); args.add(to); }
+        if (has(f.user)) {
+            w.append(" AND LOWER(COALESCE(triggered_by,'')) = ?");
+            args.add(f.user.trim().toLowerCase(java.util.Locale.ROOT));
+        }
+        if (has(f.q)) {                                  // free text also searches the output values
+            String like = "%" + f.q.trim().toLowerCase(java.util.Locale.ROOT) + "%";
+            w.append(" AND (LOWER(run_id) LIKE ? OR LOWER(COALESCE(message,'')) LIKE ? OR EXISTS ("
+                    + "SELECT 1 FROM run_output o WHERE o.feed_id = run_entry.feed_id AND o.run_id = run_entry.run_id "
+                    + "AND (LOWER(COALESCE(o.value,'')) LIKE ? OR LOWER(COALESCE(o.label,'')) LIKE ? OR LOWER(o.var_name) LIKE ?)))");
+            args.add(like); args.add(like); args.add(like); args.add(like); args.add(like);
+        }
+        final String where = w.toString();
+
+        return indexer.withIndex(new LogIndexer.SqlFunction<Map<String, Object>>() {
+            @Override
+            public Map<String, Object> apply(Connection c) throws Exception {
+                long total = 0;
+                try (PreparedStatement ps = c.prepareStatement("SELECT COUNT(*) FROM run_entry" + where)) {
+                    bind(ps, args);
+                    try (ResultSet rs = ps.executeQuery()) { if (rs.next()) total = rs.getLong(1); }
+                }
+                List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+                String sql = "SELECT feed_id, run_id, status, trigger_kind, triggered_by, start_ts, end_ts, message, "
+                        + "steps_total, steps_ok, steps_failed FROM run_entry" + where
+                        + " ORDER BY start_ts DESC, run_id DESC LIMIT ? OFFSET ?";
+                try (PreparedStatement ps = c.prepareStatement(sql)) {
+                    int i = bind(ps, args);
+                    ps.setInt(i++, sizeSafe);
+                    ps.setInt(i, pageSafe * sizeSafe);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) rows.add(runRow(rs, feeds));
+                    }
+                }
+                attachOutputs(c, rows);
+                out.put("total", total);
+                out.put("rows", rows);
+                return out;
+            }
+        });
+    }
+
+    /** One extra query for the whole page instead of one per run. */
+    private static void attachOutputs(Connection c, List<Map<String, Object>> rows) throws Exception {
+        if (rows.isEmpty()) return;
+        StringBuilder sql = new StringBuilder("SELECT feed_id, run_id, var_name, label, value FROM run_output WHERE ");
+        for (int i = 0; i < rows.size(); i++) sql.append(i == 0 ? "(feed_id=? AND run_id=?)" : " OR (feed_id=? AND run_id=?)");
+        sql.append(" ORDER BY var_name");
+        try (PreparedStatement ps = c.prepareStatement(sql.toString())) {
+            int i = 1;
+            for (Map<String, Object> r : rows) {
+                ps.setString(i++, String.valueOf(r.get("feedId")));
+                ps.setString(i++, String.valueOf(r.get("runId")));
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String key = rs.getString("feed_id") + "\u0000" + rs.getString("run_id");
+                    for (Map<String, Object> r : rows) {
+                        if (!key.equals(r.get("feedId") + "\u0000" + r.get("runId"))) continue;
+                        @SuppressWarnings("unchecked")
+                        List<Map<String, Object>> outs = (List<Map<String, Object>>) r.get("outputData");
+                        Map<String, Object> o = new LinkedHashMap<String, Object>();
+                        o.put("name", rs.getString("var_name"));
+                        o.put("label", rs.getString("label"));
+                        o.put("value", rs.getString("value"));
+                        outs.add(o);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    private static Map<String, Object> runRow(ResultSet rs, Map<String, WorkflowDef> feeds) throws Exception {
+        Map<String, Object> m = new LinkedHashMap<String, Object>();
+        String feedId = rs.getString("feed_id");
+        java.text.SimpleDateFormat fmt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        m.put("feedId", feedId);
+        m.put("runId", rs.getString("run_id"));
+        m.put("status", rs.getString("status"));
+        m.put("trigger", rs.getString("trigger_kind"));
+        m.put("triggeredBy", rs.getString("triggered_by"));
+        java.sql.Timestamp st = rs.getTimestamp("start_ts"), en = rs.getTimestamp("end_ts");
+        m.put("startTs", st == null ? null : fmt.format(st));
+        m.put("endTs", en == null ? null : fmt.format(en));
+        m.put("message", rs.getString("message"));
+        m.put("stepsTotal", rs.getInt("steps_total"));
+        m.put("stepsOk", rs.getInt("steps_ok"));
+        m.put("stepsFailed", rs.getInt("steps_failed"));
+        WorkflowDef w = feeds.get(feedId);
+        m.put("sourceId", w == null ? null : w.sourceId);
+        m.put("targetId", w == null ? null : w.targetId);
+        m.put("workflowName", w == null ? null : w.name);
+        m.put("production", w != null && w.production);
+        m.put("outputData", new ArrayList<Map<String, Object>>());
+        return m;
+    }
+
+    /** Values for the filter dropdowns: feeds/sources/targets from the registry, the rest from the index. */
+    public Map<String, Object> facets() throws Exception {
+        final Map<String, WorkflowDef> feeds = feedMap();
+        final Map<String, Object> out = new LinkedHashMap<String, Object>();
+        java.util.TreeSet<String> sources = new java.util.TreeSet<String>(), targets = new java.util.TreeSet<String>();
+        List<Map<String, Object>> feedList = new ArrayList<Map<String, Object>>();
+        for (WorkflowDef w : feeds.values()) {
+            if (w.sourceId != null && !w.sourceId.isEmpty()) sources.add(w.sourceId);
+            if (w.targetId != null && !w.targetId.isEmpty()) targets.add(w.targetId);
+            Map<String, Object> m = new LinkedHashMap<String, Object>();
+            m.put("feedId", w.feedId);
+            m.put("name", w.name);
+            m.put("sourceId", w.sourceId);
+            m.put("targetId", w.targetId);
+            m.put("production", w.production);
+            feedList.add(m);
+        }
+        out.put("feeds", feedList);
+        out.put("sources", new ArrayList<String>(sources));
+        out.put("targets", new ArrayList<String>(targets));
+        return indexer.withIndex(new LogIndexer.SqlFunction<Map<String, Object>>() {
+            @Override
+            public Map<String, Object> apply(Connection c) throws Exception {
+                out.put("events", distinct(c, "SELECT DISTINCT event FROM log_entry ORDER BY event"));
+                out.put("severities", distinct(c, "SELECT DISTINCT severity FROM log_entry ORDER BY severity"));
+                out.put("statuses", distinct(c, "SELECT DISTINCT status FROM run_entry WHERE status IS NOT NULL ORDER BY status"));
+                out.put("outputVars", distinct(c, "SELECT DISTINCT var_name FROM run_output ORDER BY var_name"));
+                out.put("users", distinct(c, "SELECT DISTINCT user_name FROM log_entry WHERE user_name IS NOT NULL ORDER BY user_name"));
+                return out;
+            }
+        });
+    }
+
+    private static List<String> distinct(Connection c, String sql) throws Exception {
+        List<String> out = new ArrayList<String>();
+        try (PreparedStatement ps = c.prepareStatement(sql); ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                String v = rs.getString(1);
+                if (v != null && !v.isEmpty()) out.add(v);
+            }
+        }
+        return out;
+    }
+
     private static int bind(PreparedStatement ps, List<Object> args) throws Exception {
         int i = 1;
         for (Object a : args) {
