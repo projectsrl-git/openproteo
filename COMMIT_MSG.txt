@@ -1,46 +1,29 @@
-Cross-feed log report, and bump to 1.1.0
+Promote Operations to every topbar, and build a standalone artifact alongside the WAR
 
-OpenProteo gains a single place to answer questions that previously required opening one feed at a time:
-what happened, to which feed, when, and what it produced. The audit trail and the run snapshots that the
-application already writes are now searchable across all feeds together, with a timeline, statistics and
-an export. Nothing about how feeds run has changed: no new logging was added, the audit files are opened
-strictly read-only and their hash chain is untouched.
+Operations is the view people actually live in, and it was a small button buried in the dashboard
+toolbar. It is now a filled button in the topbar of every page, overview itself excluded, so it is one
+click away from wherever you are. It uses a dedicated .btn.ops class rather than .btn.primary: that
+class already styles other buttons across the application, such as Validate and save, and redefining it
+would have silently restyled all of them.
 
-The data is mirrored into an in-memory H2 instance used purely as a SQL engine, the same disposable-index
-pattern already proven by the csvsql executor: the driver is resolved at runtime, no new Maven dependency
-was introduced, and the index dies with the JVM and is rebuilt from the files. Refresh is a true tail
-rather than a rescan, remembering the byte offset consumed per feed and parsing only what was appended,
-leaving a partial trailing line for the next pass; a file that shrank is detected and reloaded. Run
-snapshots cannot be tailed because they are rewritten while a run progresses, so each is stamped with its
-size and modification time and its rows are replaced when it changes. A rolling window of ninety days
-bounds memory, and a query reaching further back is served by reading the files directly for the feeds in
-the filter, never by scanning all of them.
+The build now produces two artifacts instead of one. target/openproteo.war is the plain WAR you deploy
+on the external Tomcat and is unchanged, byte for byte; target/openproteo-standalone.war is executable
+with an embedded Tomcat and runs with java -jar. This works because the Spring Boot repackage now runs
+with a classifier, so it writes a second file and never touches the one being deployed, and because
+spring-boot-starter-tomcat is already declared provided, which makes Boot place it in
+WEB-INF/lib-provided: on the classpath when the artifact is run directly, ignored when a container
+deploys it. The standalone artifact is not attached to the Maven install, so nothing changes in the
+repository.
 
-Indexing the run snapshots was a deliberate departure from the original design, which had excluded them.
-The audit line carries only the exit code, the attempt count and the failure reason, so the output data
-shown in Operations and in the run history is not in the audit trail at all: it lives in the run's
-variables, matched against the output declarations on the workflow. Without those files the feature could
-not show what a run actually produced.
+One honest limitation: with war packaging Maven cannot emit a file with a .jar extension. The standalone
+artifact is a .war that behaves exactly like a fat jar, and renaming it to .jar also works since the JVM
+only reads the manifest. A genuine jar artifact would require a second Maven module, which is a larger
+change. The usual Boot switches apply when running it, for example --server.port and the OpenProteo base
+directory.
 
-The /logs page is one grid with a source selector rather than two tabs. Events show the audit entries with
-their severity; runs show status, trigger, step counts and the declared output data as description and
-value. The filter bar is shared, so switching source keeps the selection, and both the feed and the run
-link into the existing pages. Above the grid, an activity chart draws stacked bars per time bucket
-coloured by severity, with failures at the bottom so they are always visible; clicking a bar zooms into
-it and dragging selects a range, both writing into the time filters so chart, cards, grid and filters
-remain a single state. The stat cards count events, runs, feeds, failures and successes, average step and
-run durations, and the feeds and steps that fail most, and each card is itself a filter. The whole
-filtered set can be streamed out as CSV.
+Docs: .claude/2026-08-03-operations-nav-and-standalone-jar.md and CLAUDE.md.
 
-Bucketing, duration pairing and the cold scan are done in Java over bounded projections rather than with
-database-specific date functions, so the behaviour does not depend on the SQL dialect and the logic stays
-testable; every bound is explicit and reported to the caller as a truncated flag instead of failing
-silently.
-
-One caveat worth repeating: authentication is not on main yet, so the export endpoint is ungated and
-anyone who can reach the application can download the audit trail. openproteo.logreport.export-enabled set
-to false disables it, and it must be scoped by role as soon as Phase 1 auth is merged.
-
-The pom version moves from 1.0.0 to 1.1.0: a new, backward-compatible feature that changes nothing about
-existing behaviour. The topbar badge becomes v1.1.0.<commits> and the cache-buster token changes with it,
-so the static assets refresh themselves on deploy.
+Verify: pom.xml was validated with an XML parser (version 1.1.0, a single properties block, the
+standalone classifier in place) and all seventeen templates pass the JavaScript and Thymeleaf checks. The
+build could not be run in the chat sandbox because Maven Central is unreachable from it: after mvn clean
+package, confirm both files are in target/ and that the plain WAR still deploys as before.

@@ -93,14 +93,25 @@
             </resource>
         </resources>
         <plugins>
-            <!-- Plain WAR for deployment on an external Tomcat. The Spring Boot repackage
-                 (executable/fat artifact with embedded server) is skipped to keep the WAR light. -->
+            <!-- Two artifacts from one build:
+                   target/openproteo.war             plain WAR, unchanged, for the external Tomcat
+                   target/openproteo-standalone.war  executable, embedded Tomcat: java -jar
+                 The repackage runs with a classifier, so it writes a SECOND file and never touches the
+                 one we deploy. spring-boot-starter-tomcat is 'provided': Boot puts it in
+                 WEB-INF/lib-provided, which is on the classpath when the artifact is run directly and
+                 ignored when a container deploys it. -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
-                    <skip>true</skip>
+                    <classifier>standalone</classifier>
+                    <attach>false</attach>
                 </configuration>
+                <executions>
+                    <execution>
+                        <goals><goal>repackage</goal></goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

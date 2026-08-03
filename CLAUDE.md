@@ -906,3 +906,13 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   nothing existing changed behaviour). The badge becomes `v1.1.0.<commits> · <shortCommit>` and, since
   the cache-buster token is `<build>-<commit>`, the static assets invalidate themselves on this deploy
   as on any other. Patch releases stay 1.1.x.
+
+## Operations in every topbar; standalone artifact
+* Operations moved from a buried dashboard button to a filled button in the topbar of all 16 pages
+  (overview excluded), using a dedicated `.btn.ops` class — NOT `.btn.primary`, which already styles
+  other buttons app-wide. * The build now emits two artifacts: `openproteo.war` (plain, unchanged, for
+  the external Tomcat) and `openproteo-standalone.war` (Boot repackage with
+  `<classifier>standalone</classifier>` + `<attach>false</attach>`, embedded Tomcat, runs with
+  `java -jar`). Works because spring-boot-starter-tomcat is `provided` → WEB-INF/lib-provided. Maven
+  cannot emit `.jar` with war packaging; renaming the file works, a real jar would need a second module.
+  Note in `.claude/2026-08-03-operations-nav-and-standalone-jar.md`.
