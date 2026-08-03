@@ -860,3 +860,12 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   rows replaced rather than tailed. * `GET /api/logs/runs` (filters + paging, each row carrying its
   outputData; free text also searches output values/labels/names via EXISTS) and `GET /api/logs/facets`.
   Outputs for a page are fetched in one query. Note in `.claude/2026-08-03-log-report-batch2a.md`.
+
+## Log report — Batch 2b (/logs page)
+* One page, one grid, with a source switch (Events -> /api/logs/search, Runs & output data ->
+  /api/logs/runs) instead of two tabs. Filter bar fed by /api/logs/facets (source/target/feed/event/
+  severity/status/user/free text/from-to); event+severity show for Events, run status for Runs, the rest
+  is shared so switching keeps the selection. Runs rows render the declared output data as
+  `description = value`. Feed and run link into the existing pages. Server-side paging 100/page, footer
+  reports index contents (events/runs/outputs/window). Route in PageController, dashboard link, includes
+  use the cache-busting `(v=${buildId})`. Note in `.claude/2026-08-03-log-report-batch2b.md`.

@@ -198,6 +198,12 @@ public class PageController {
         return "matrix";
     }
 
+    /** Cross-feed log report: audit events and runs with their output data. */
+    @GetMapping("/logs")
+    public String logs() {
+        return "logs";
+    }
+
     @GetMapping("/import")
     public String importPage() {
         return "import";

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenProteo — Log report</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css(v=${buildId})}">
+    <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+    <style>
+        .lgbar { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 10px; }
+        .lgf { display: flex; flex-direction: column; gap: 3px; }
+        .lgf label { font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--label); }
+        .lgf select, .lgf input { background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+            border-radius: 5px; padding: 5px 7px; font-size: 12.5px; min-width: 120px; }
+        .lgf select[multiple] { min-height: 62px; }
+        .lgf input:focus, .lgf select:focus { outline: none; border-color: var(--accent); }
+        .lgsrc { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+        .lgsrc button { background: var(--bg); color: var(--ink-dim); border: 0; padding: 6px 14px;
+            font-size: 12.5px; cursor: pointer; }
+        .lgsrc button.on { background: var(--accent); color: #14181f; font-weight: 600; }
+        .lgwrap { border: 1px solid var(--line); border-radius: 6px; overflow: auto; max-height: calc(100vh - 300px); }
+        table.lg { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+        table.lg thead th { position: sticky; top: 0; z-index: 2; background: var(--bg-raise); text-align: left;
+            padding: 6px 9px; font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase;
+            color: var(--label); white-space: nowrap; border-bottom: 1px solid var(--line); }
+        table.lg td { padding: 5px 9px; border-bottom: 1px solid var(--line); vertical-align: top; }
+        table.lg tr:hover td { background: rgba(245,166,35,.06); }
+        .lgmono { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+        .lgsev { display: inline-block; border-radius: 9px; padding: 1px 8px; font-size: 10.5px; font-weight: 600; }
+        .sev-OK { background: rgba(60,180,120,.16); color: var(--ok); }
+        .sev-FAIL { background: rgba(220,80,80,.16); color: var(--fail); }
+        .sev-WAIT { background: rgba(245,166,35,.16); color: var(--accent); }
+        .sev-RUN { background: rgba(90,150,230,.16); color: var(--run); }
+        .sev-SKIP, .sev-INFO { background: rgba(140,150,170,.14); color: var(--ink-faint); }
+        .lgod { display: block; font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); }
+        .lgod b { color: var(--ink); font-weight: 600; }
+        .lgdet { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); max-width: 460px;
+            word-break: break-word; }
+        .lgpage { display: flex; gap: 10px; align-items: center; margin-top: 10px; font-size: 12.5px; color: var(--ink-dim); }
+        .lgprod { color: var(--fail); font-weight: 600; font-size: 10px; }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub">Log report</span>
+    <span class="spacer"></span>
+    <a class="btn sm" th:href="@{/}">← Dashboard</a>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap" style="max-width:1600px">
+    <h1>Log report</h1>
+    <p class="page-sub">Every audit event and every run of every feed in one place. Switch the source to
+        search the runs and the output data they produced.</p>
+
+    <div class="lgbar">
+        <div class="lgf">
+            <label>Source</label>
+            <span class="lgsrc">
+                <button type="button" id="srcEvents" class="on">Events</button>
+                <button type="button" id="srcRuns">Runs &amp; output data</button>
+            </span>
+        </div>
+        <div class="lgf"><label>Search</label><input type="text" id="fq" placeholder="free text…" style="min-width:210px"></div>
+        <div class="lgf"><label>From</label><input type="text" id="ffrom" placeholder="2026-08-01 00:00:00"></div>
+        <div class="lgf"><label>To</label><input type="text" id="fto" placeholder="2026-08-03 23:59:59"></div>
+        <div class="lgf"><label>Source id</label><select id="fsource" multiple size="3"></select></div>
+        <div class="lgf"><label>Target id</label><select id="ftarget" multiple size="3"></select></div>
+        <div class="lgf"><label>Feed</label><select id="ffeed" multiple size="3"></select></div>
+        <div class="lgf" id="wrapEvent"><label>Event</label><select id="fevent" multiple size="3"></select></div>
+        <div class="lgf" id="wrapSev"><label>Severity</label><select id="fsev" multiple size="3"></select></div>
+        <div class="lgf" id="wrapStatus" style="display:none"><label>Run status</label><select id="fstatus" multiple size="3"></select></div>
+        <div class="lgf"><label>User</label><input type="text" id="fuser" placeholder="exact"></div>
+        <div class="lgf"><label>&nbsp;</label><button class="btn sm" id="btnSearch">🔎 Search</button></div>
+        <div class="lgf"><label>&nbsp;</label><button class="btn sm" id="btnReset">↺ Reset</button></div>
+    </div>
+
+    <div class="lgwrap"><table class="lg" id="grid"><thead></thead><tbody></tbody></table></div>
+    <div class="lgpage">
+        <button class="btn sm" id="prev">◀ Prev</button>
+        <button class="btn sm" id="next">Next ▶</button>
+        <span id="pinfo"></span>
+        <span class="spacer"></span>
+        <span id="idxinfo" class="dim"></span>
+    </div>
+</div>
+
+<script th:src="@{/js/modal.js(v=${buildId})}"></script>
+<script th:src="@{/js/theme.js(v=${buildId})}"></script>
+<script>
+    var CTX = location.pathname.replace(/logs\/?$/, '');
+    var SRC = 'events', PAGE = 0, SIZE = 100, TOTAL = 0;
+
+    function $(id) { return document.getElementById(id); }
+    function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+    function json(r) { return r.json().catch(function () { return null; }); }
+    function picked(id) {
+        var el = $(id), out = [];
+        if (!el) return out;
+        for (var i = 0; i < el.options.length; i++) if (el.options[i].selected) out.push(el.options[i].value);
+        return out;
+    }
+    function fill(id, values, labels) {
+        var el = $(id);
+        if (!el) return;
+        el.innerHTML = '';
+        for (var i = 0; i < values.length; i++) {
+            var o = document.createElement('option');
+            o.value = values[i];
+            o.textContent = labels ? labels[i] : values[i];
+            el.appendChild(o);
+        }
+    }
+
+    function loadFacets() {
+        fetch(CTX + 'api/logs/facets').then(json).then(function (j) {
+            if (!j) return;
+            fill('fsource', j.sources || []);
+            fill('ftarget', j.targets || []);
+            var feeds = j.feeds || [], ids = [], lbl = [];
+            for (var i = 0; i < feeds.length; i++) {
+                ids.push(feeds[i].feedId);
+                lbl.push(feeds[i].feedId + (feeds[i].name ? ('  ' + feeds[i].name) : ''));
+            }
+            fill('ffeed', ids, lbl);
+            fill('fevent', j.events || []);
+            fill('fsev', j.severities || []);
+            fill('fstatus', j.statuses || []);
+        }).catch(function () { });
+        fetch(CTX + 'api/logs/status').then(json).then(function (j) {
+            if (!j) return;
+            $('idxinfo').textContent = 'index: ' + (j.events || 0) + ' events · ' + (j.runs || 0) + ' runs · '
+                + (j.outputs || 0) + ' outputs · window ' + (j.windowDays || 0) + 'd';
+        }).catch(function () { });
+    }
+
+    function params() {
+        var p = [];
+        function add(k, v) { if (v !== null && v !== undefined && String(v) !== '') p.push(k + '=' + encodeURIComponent(v)); }
+        function addAll(k, arr) { for (var i = 0; i < arr.length; i++) add(k, arr[i]); }
+        add('q', $('fq').value.trim());
+        add('from', $('ffrom').value.trim());
+        add('to', $('fto').value.trim());
+        add('user', $('fuser').value.trim());
+        addAll('sourceId', picked('fsource'));
+        addAll('targetId', picked('ftarget'));
+        addAll('feedId', picked('ffeed'));
+        if (SRC === 'events') {
+            addAll('event', picked('fevent'));
+            addAll('severity', picked('fsev'));
+        } else {
+            addAll('status', picked('fstatus'));
+        }
+        add('page', PAGE);
+        add('size', SIZE);
+        return p.join('&');
+    }
+
+    function feedCell(r) {
+        var h = '<a href="' + CTX + 'workflow/' + encodeURIComponent(r.feedId) + '">' + esc(r.feedId) + '</a>';
+        if (r.production) h += ' <span class="lgprod">PROD</span>';
+        if (r.workflowName) h += '<div class="dim small">' + esc(r.workflowName) + '</div>';
+        return h;
+    }
+    function runCell(r) {
+        if (!r.runId) return '';
+        return '<a class="lgmono" href="' + CTX + 'run/' + encodeURIComponent(r.feedId) + '/' + encodeURIComponent(r.runId) + '">'
+            + esc(r.runId) + '</a>';
+    }
+
+    function render(j) {
+        var head = $('grid').tHead, body = $('grid').tBodies[0];
+        TOTAL = (j && j.total) || 0;
+        var rows = (j && j.rows) || [];
+        var cols = (SRC === 'events')
+            ? ['When', 'Feed', 'Source', 'Target', 'Run', 'Step', 'Event', 'Severity', 'User', 'Details']
+            : ['Started', 'Ended', 'Feed', 'Source', 'Target', 'Run', 'Status', 'Trigger', 'Steps', 'Output data'];
+        var h = '<tr>';
+        for (var i = 0; i < cols.length; i++) h += '<th>' + cols[i] + '</th>';
+        head.innerHTML = h + '</tr>';
+
+        var b = '';
+        for (var k = 0; k < rows.length; k++) {
+            var r = rows[k];
+            b += '<tr>';
+            if (SRC === 'events') {
+                b += '<td class="lgmono">' + esc(r.ts) + '</td>';
+                b += '<td>' + feedCell(r) + '</td>';
+                b += '<td>' + esc(r.sourceId) + '</td><td>' + esc(r.targetId) + '</td>';
+                b += '<td>' + runCell(r) + '</td>';
+                b += '<td class="lgmono">' + esc(r.node) + '</td>';
+                b += '<td class="lgmono">' + esc(r.event) + '</td>';
+                b += '<td><span class="lgsev sev-' + esc(r.severity) + '">' + esc(r.severity) + '</span></td>';
+                b += '<td>' + esc(r.user) + '</td>';
+                b += '<td class="lgdet">' + esc(r.details) + '</td>';
+            } else {
+                b += '<td class="lgmono">' + esc(r.startTs) + '</td><td class="lgmono">' + esc(r.endTs) + '</td>';
+                b += '<td>' + feedCell(r) + '</td>';
+                b += '<td>' + esc(r.sourceId) + '</td><td>' + esc(r.targetId) + '</td>';
+                b += '<td>' + runCell(r) + '</td>';
+                var sev = (r.status && r.status.indexOf('FAIL') >= 0) ? 'FAIL'
+                        : (r.status === 'SUCCESS' ? 'OK' : (r.status === 'RUNNING' ? 'RUN' : 'WAIT'));
+                b += '<td><span class="lgsev sev-' + sev + '">' + esc(r.status) + '</span>'
+                    + (r.message ? ('<div class="dim small">' + esc(r.message) + '</div>') : '') + '</td>';
+                b += '<td>' + esc(r.trigger) + (r.triggeredBy ? ('<div class="dim small">' + esc(r.triggeredBy) + '</div>') : '') + '</td>';
+                b += '<td class="lgmono">' + esc(r.stepsOk) + '/' + esc(r.stepsTotal)
+                    + (r.stepsFailed ? (' <span style="color:var(--fail)">' + esc(r.stepsFailed) + ' failed</span>') : '') + '</td>';
+                var od = r.outputData || [], ods = '';
+                for (var z = 0; z < od.length; z++) {
+                    ods += '<span class="lgod"><b>' + esc(od[z].label || od[z].name) + '</b> = ' + esc(od[z].value) + '</span>';
+                }
+                b += '<td>' + (ods || '<span class="dim">—</span>') + '</td>';
+            }
+            b += '</tr>';
+        }
+        body.innerHTML = b || ('<tr><td colspan="' + cols.length + '" class="dim" style="padding:18px">No rows for these filters.</td></tr>');
+
+        var first = TOTAL === 0 ? 0 : (PAGE * SIZE + 1), last = Math.min(TOTAL, (PAGE + 1) * SIZE);
+        $('pinfo').textContent = TOTAL === 0 ? 'no results' : (first + '–' + last + ' of ' + TOTAL);
+        $('prev').disabled = PAGE <= 0;
+        $('next').disabled = last >= TOTAL;
+    }
+
+    function search() {
+        var url = CTX + 'api/logs/' + (SRC === 'events' ? 'search' : 'runs') + '?' + params();
+        $('pinfo').textContent = 'searching…';
+        fetch(url).then(json).then(function (j) {
+            if (j && j.error) { $('pinfo').textContent = 'error: ' + j.error; return; }
+            render(j);
+        }).catch(function (e) { $('pinfo').textContent = 'error: ' + e; });
+    }
+
+    function setSource(s) {
+        SRC = s; PAGE = 0;
+        $('srcEvents').className = (s === 'events') ? 'on' : '';
+        $('srcRuns').className = (s === 'runs') ? 'on' : '';
+        $('wrapEvent').style.display = (s === 'events') ? '' : 'none';
+        $('wrapSev').style.display = (s === 'events') ? '' : 'none';
+        $('wrapStatus').style.display = (s === 'runs') ? '' : 'none';
+        search();
+    }
+
+    $('srcEvents').onclick = function () { setSource('events'); };
+    $('srcRuns').onclick = function () { setSource('runs'); };
+    $('btnSearch').onclick = function () { PAGE = 0; search(); };
+    $('btnReset').onclick = function () {
+        ['fq', 'ffrom', 'fto', 'fuser'].forEach(function (id) { $(id).value = ''; });
+        ['fsource', 'ftarget', 'ffeed', 'fevent', 'fsev', 'fstatus'].forEach(function (id) {
+            var el = $(id);
+            for (var i = 0; el && i < el.options.length; i++) el.options[i].selected = false;
+        });
+        PAGE = 0; search();
+    };
+    $('prev').onclick = function () { if (PAGE > 0) { PAGE--; search(); } };
+    $('next').onclick = function () { PAGE++; search(); };
+    $('fq').onkeydown = function (e) { if (e.key === 'Enter') { PAGE = 0; search(); } };
+
+    loadFacets();
+    search();
+</script>
+</body>
+</html>

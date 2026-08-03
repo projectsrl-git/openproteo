@@ -1,39 +1,30 @@
-Log report Batch 2a: rolling window, run and output-data indexing, facets
+Log report Batch 2b: the /logs page, one grid with a source selector
 
-Decisions taken on the spec's open items: the rolling window is ninety days and the refresh interval
-stays at ten seconds. The feed and log directories are already configurable and were left untouched.
+One page and one grid, with a source switch rather than two tabs: Events reads /api/logs/search and
+Runs & output data reads /api/logs/runs. The filter bar, the paging and the grid are shared; only the
+columns and the two source-specific filters change, so switching source keeps the current selection.
 
-This batch changes one design decision of .claude/LOG_REPORT.md. Section 2.2 excluded the run snapshots
-as a search source, but the audit line only carries exitCode, attempts and reason: the output data shown
-in Operations and in the run history is not in the audit trail at all, it lives in the run's vars matched
-against the outputData declarations on the workflow. Indexing runs is therefore required, and the note
-committed with this change supersedes that section.
+The filter bar is built from /api/logs/facets: source id, target id, feed with its name, event,
+severity and run status, plus free text, a from/to range and the user. Event and severity are shown
+for events, run status for runs, and everything else applies to both.
 
-The rolling window is openproteo.logreport.window-days, defaulting to ninety; entries and runs older than
-the cutoff are not loaded, while the per-feed sequence pointer still advances past them so old lines are
-read once and never re-examined. Setting it to zero disables the window.
+Events show when, feed with its PROD flag and name, source, target, run, step, event, a severity badge,
+user and details. Runs show started and ended, feed, source, target, run, a status badge with the run
+message, the trigger and who started it, the steps ok out of total with failures highlighted, and the
+output data rendered as description equals value -- the same information Operations displays. The feed
+links to the workflow page and the run id to the existing run page, so the grid is a jumping point into
+the app rather than a dead end.
 
-Two tables are added: run_entry with the run status, trigger, who started it, start and end, message and
-the step counts, and run_output with the declared output variables, their descriptions and the values
-that run produced. Run files cannot be tailed like the append-only audit because they are rewritten while
-the run progresses, so the indexer stamps each file with its size and modification time, re-reads only
-what changed and replaces that run's rows, which keeps a run that moves from RUNNING to SUCCESS from
-being duplicated.
+Paging is server side, a hundred rows per page, with prev and next and an x-y of N counter. The footer
+also reports what the index currently holds -- events, runs, outputs and the window in days -- so an
+empty result is easy to tell apart from an empty index.
 
-GET /api/logs/runs returns those runs with filters on feed, source, target, status, user and time plus
-free text, paginated, each row carrying its output data. The free text also searches inside the output
-values, labels and variable names, so looking for the run that produced a given row count works. The
-outputs for a whole page are fetched in one additional query rather than one per run. GET /api/logs/facets
-returns the values for the filter controls: feeds, sources and targets from the registry, events,
-severities, run statuses, output variable names and users from the index. /api/logs/status now also
-reports the window and the number of indexed runs and outputs.
+The route was added to PageController with a link on the dashboard, and the page uses the new
+cache-busting includes.
 
-Still to come: the /logs page itself, the timeline, the metric cards, export and RBAC gating.
+Docs: .claude/2026-08-03-log-report-batch2b.md and CLAUDE.md.
 
-Verify: brace balance checked with a string and comment aware counter. Every new statement -- the run
-DDL, status filtering, the time range, the free-text EXISTS over the output table, the batched per-page
-output fetch and the four facet queries -- was executed against a real SQL engine and returned the
-expected rows; a search for a value that only appears in OUTPUT DATA returns exactly the run that
-produced it. H2 itself still cannot be exercised in the chat sandbox because Maven Central is unreachable
-from it, so the JDBC path runs for the first time on your build: check GET /api/logs/status for the runs
-and outputs counts right after deploying.
+Verify: logs.html passes node --check with zero literal \n or \r and no unsafe Thymeleaf, and all three
+static includes carry the build id. Rendering itself could not be exercised in the chat sandbox since no
+app is running: after deploying, open /logs and read the footer counter to confirm the index is
+populated.
