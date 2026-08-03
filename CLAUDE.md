@@ -879,3 +879,13 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   bottom, native <title> tooltips, no library/CDN; click a bar to zoom, drag to brush-select — both
   write from/to and re-run the search so chart, grid and filters are one state. Note in
   `.claude/2026-08-03-log-report-batch3.md`.
+
+## Log report — Batch 4 (metric cards)
+* `GET /api/logs/metrics` over the same filtered set as grid and chart; card row above the chart.
+  Events: events/runs/feeds touched, failures, successes, avg step duration, top-5 feeds and top-5 steps
+  by failure. Runs: runs, feeds, succeeded, failed (+failed steps), avg run duration, top-5 feeds.
+  Counting is SQL; durations are paired in Java (STEP_STARTED -> STEP_COMPLETED|STEP_FAILED per
+  feed/run/node, 300k cap) to avoid dialect-specific date arithmetic — unpaired starts contribute
+  nothing, no pairs shows a dash. Cards are clickable filters (severity, feed, step+FAIL) routed through
+  the same search(), so cards/chart/grid stay one state; the step filter is cleared by Reset. Note in
+  `.claude/2026-08-03-log-report-batch4.md`.

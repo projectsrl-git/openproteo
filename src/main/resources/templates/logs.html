@@ -38,6 +38,19 @@
             word-break: break-word; }
         .lgpage { display: flex; gap: 10px; align-items: center; margin-top: 10px; font-size: 12.5px; color: var(--ink-dim); }
         .lgprod { color: var(--fail); font-weight: 600; font-size: 10px; }
+        .lgcards { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+        .lgcard { border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; min-width: 104px; background: var(--bg-raise); }
+        .lgcard.click { cursor: pointer; }
+        .lgcard.click:hover { border-color: var(--accent); }
+        .lgcard .k { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--label); }
+        .lgcard .v { font-size: 19px; font-weight: 700; color: var(--ink); font-family: var(--mono); }
+        .lgcard .v.fail { color: var(--fail); } .lgcard .v.ok { color: var(--ok); }
+        .lgcard .sub { font-size: 10.5px; color: var(--ink-faint); }
+        .lgtop { border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; min-width: 190px; background: var(--bg-raise); }
+        .lgtop .k { font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: var(--label); margin-bottom: 3px; }
+        .lgtop a { display: flex; justify-content: space-between; gap: 12px; font-family: var(--mono); font-size: 11.5px;
+            color: var(--ink-dim); cursor: pointer; padding: 1px 0; }
+        .lgtop a:hover { color: var(--accent); }
         .lgchart { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; }
         .lgchart .hd { display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--ink-dim); margin-bottom: 4px; }
         .lgchart svg { display: block; width: 100%; height: 132px; cursor: crosshair; }
@@ -85,6 +98,8 @@
         <div class="lgf"><label>&nbsp;</label><button class="btn sm" id="btnReset">↺ Reset</button></div>
     </div>
 
+    <div class="lgcards" id="cards"></div>
+
     <div class="lgchart">
         <div class="hd">
             <b>Activity</b>
@@ -111,7 +126,7 @@
 <script th:src="@{/js/theme.js(v=${buildId})}"></script>
 <script>
     var CTX = location.pathname.replace(/logs\/?$/, '');
-    var SRC = 'events', PAGE = 0, SIZE = 100, TOTAL = 0;
+    var SRC = 'events', PAGE = 0, SIZE = 100, TOTAL = 0, STEP = '';
 
     function $(id) { return document.getElementById(id); }
     function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
@@ -164,6 +179,7 @@
         add('from', $('ffrom').value.trim());
         add('to', $('fto').value.trim());
         add('user', $('fuser').value.trim());
+        add('step', STEP);
         addAll('sourceId', picked('fsource'));
         addAll('targetId', picked('ftarget'));
         addAll('feedId', picked('ffeed'));
@@ -342,6 +358,76 @@
         search();
     }
 
+    function card(k, v, sub, cls, onClick) {
+        var d = document.createElement('div');
+        d.className = 'lgcard' + (onClick ? ' click' : '');
+        d.innerHTML = '<div class="k">' + esc(k) + '</div><div class="v ' + (cls || '') + '">' + esc(v) + '</div>'
+            + (sub ? '<div class="sub">' + esc(sub) + '</div>' : '');
+        if (onClick) { d.title = 'click to filter'; d.onclick = onClick; }
+        return d;
+    }
+    function topCard(k, items, onPick) {
+        var d = document.createElement('div');
+        d.className = 'lgtop';
+        var h = '<div class="k">' + esc(k) + '</div>';
+        if (!items || !items.length) h += '<div class="sub">none</div>';
+        d.innerHTML = h;
+        for (var i = 0; i < (items || []).length; i++) {
+            (function (it) {
+                var a = document.createElement('a');
+                a.innerHTML = '<span>' + esc(it.key) + '</span><b>' + esc(it.count) + '</b>';
+                a.onclick = function () { onPick(it.key); };
+                d.appendChild(a);
+            })(items[i]);
+        }
+        return d;
+    }
+    function selectOnly(id, value) {
+        var el = $(id);
+        for (var i = 0; el && i < el.options.length; i++) el.options[i].selected = (el.options[i].value === value);
+    }
+
+    function drawCards(m) {
+        var box = $('cards');
+        box.innerHTML = '';
+        if (!m) return;
+        if (SRC === 'events') {
+            box.appendChild(card('Events', m.events || 0, null, null, null));
+            box.appendChild(card('Runs touched', m.runs || 0, null, null, null));
+            box.appendChild(card('Feeds touched', m.feeds || 0, null, null, null));
+            box.appendChild(card('Failures', m.failures || 0, 'severity FAIL', 'fail', function () {
+                selectOnly('fsev', 'FAIL'); PAGE = 0; search();
+            }));
+            box.appendChild(card('Successes', m.successes || 0, 'severity OK', 'ok', function () {
+                selectOnly('fsev', 'OK'); PAGE = 0; search();
+            }));
+            box.appendChild(card('Avg step', m.avgStepSeconds == null ? '—' : (m.avgStepSeconds + 's'),
+                    'started → completed', null, null));
+            box.appendChild(topCard('Top feeds by failure', m.topFeedsByFailure, function (k) {
+                selectOnly('ffeed', k); PAGE = 0; search();
+            }));
+            box.appendChild(topCard('Top steps by failure', m.topStepsByFailure, function (k) {
+                $('fq').value = ''; selectOnly('fsev', 'FAIL');
+                STEP = k; PAGE = 0; search();
+            }));
+        } else {
+            box.appendChild(card('Runs', m.runs || 0, null, null, null));
+            box.appendChild(card('Feeds touched', m.feeds || 0, null, null, null));
+            box.appendChild(card('Succeeded', m.succeeded || 0, null, 'ok', null));
+            box.appendChild(card('Failed', m.failed || 0, (m.failedSteps || 0) + ' failed step(s)', 'fail', null));
+            box.appendChild(card('Avg run', m.avgRunSeconds == null ? '—' : (m.avgRunSeconds + 's'),
+                    'start → end', null, null));
+            box.appendChild(topCard('Top feeds by failure', m.topFeedsByFailure, function (k) {
+                selectOnly('ffeed', k); PAGE = 0; search();
+            }));
+        }
+    }
+
+    function loadMetrics() {
+        fetch(CTX + 'api/logs/metrics?source=' + SRC + '&' + params())
+            .then(json).then(function (m) { if (m && !m.error) drawCards(m); }).catch(function () { });
+    }
+
     function loadChart() {
         fetch(CTX + 'api/logs/timeseries?source=' + SRC + '&' + params())
             .then(json).then(function (j) { if (j && !j.error) drawChart(j); }).catch(function () { });
@@ -354,6 +440,7 @@
             if (j && j.error) { $('pinfo').textContent = 'error: ' + j.error; return; }
             render(j);
             loadChart();
+            loadMetrics();
         }).catch(function (e) { $('pinfo').textContent = 'error: ' + e; });
     }
 
@@ -372,6 +459,7 @@
     $('btnSearch').onclick = function () { PAGE = 0; search(); };
     $('btnReset').onclick = function () {
         ['fq', 'ffrom', 'fto', 'fuser'].forEach(function (id) { $(id).value = ''; });
+        STEP = '';
         ['fsource', 'ftarget', 'ffeed', 'fevent', 'fsev', 'fstatus'].forEach(function (id) {
             var el = $(id);
             for (var i = 0; el && i < el.options.length; i++) el.options[i].selected = false;

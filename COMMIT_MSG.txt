@@ -1,29 +1,31 @@
-Log report Batch 3: activity timeline with brush-select and click-to-zoom
+Log report Batch 4: metric cards that double as filters
 
-GET /api/logs/timeseries plus a chart above the grid, sharing the filter bar and the source selector.
+GET /api/logs/metrics computes the stat numbers over exactly the same filtered set as the grid and the
+chart, and a card row above the chart displays them.
 
-Bucketing happens in Java rather than in SQL. Counting per time bucket needs a dialect-specific date
-function, and H2 cannot be exercised in the chat sandbox, so the query returns a bounded projection of
-timestamp and severity and the grouping is done in code: no dialect dependency and the sizing logic is
-testable. The projection is capped at four hundred thousand rows and the response carries a truncated
-flag so the page can say so instead of silently lying.
+For the events source: events, runs touched, feeds touched, failures, successes, the average step
+duration and the top five feeds and steps by failure. For the runs source: runs, feeds touched,
+succeeded, failed together with the total of failed steps, the average run duration and the top five
+feeds by failure.
 
-The auto bucket picks the smallest step that keeps the chart under about a hundred and sixty bars,
-while minute, hour, day and week force a width. Measured: one hour gives one-minute buckets and sixty
-bars, a day gives fifteen minutes and ninety-six bars, thirty days gives six hours and a hundred and
-twenty bars, ninety days gives one day and ninety bars, a year gives one week and fifty-two bars. Run
-statuses are mapped onto the same severity palette, so the chart reads the same in both sources.
+Counting is done in SQL. Durations are paired in Java -- STEP_STARTED to STEP_COMPLETED or STEP_FAILED
+for the same feed, run and node, read in an order that makes the pairing deterministic -- because date
+arithmetic is dialect specific and H2 cannot be exercised in the chat sandbox; the projection is capped
+at three hundred thousand rows. Runs use end minus start. An unpaired start, from a run still in flight
+or a step that never completed, contributes nothing rather than skewing the average, and when there is
+no pair at all the card shows a dash instead of a misleading zero.
 
-The chart is stacked bars per bucket coloured by severity, with failures at the bottom so they are
-always visible, native SVG tooltips, and no library or CDN — the same SVG-only approach already used
-for the workflow diagram. Clicking a bar zooms into that bucket, dragging selects a range, and both
-write into the from and to filters and re-run the search, so the chart, the grid and the filters remain
-a single state; Full range clears them. A drag shorter than four units counts as a click, so the two
-gestures never fight each other.
+The cards are also a filter surface: failures and successes select that severity, a feed in the top
+feeds list selects that feed, and a step in the top steps list sets the step filter together with
+severity FAIL. Every click goes through the same search used by the filter bar, so the cards, the chart
+and the grid remain a single state and a card click also redraws the chart and recomputes the cards. The
+step filter is part of the query state and is cleared by Reset.
 
-Docs: .claude/2026-08-03-log-report-batch3.md and CLAUDE.md.
+Docs: .claude/2026-08-03-log-report-batch4.md and CLAUDE.md.
 
-Verify: the bucket sizing was compiled and executed across seven ranges with the results quoted above,
-and the explicit widths return exactly one minute, one hour, one day and one week. logs.html passes
-node --check with zero literal \n or \r and no unsafe Thymeleaf. The chart could not be rendered in the
-chat sandbox since there is no browser: after deploying open /logs and check the activity strip.
+Verify: every metric statement -- the five counters and both top-N queries -- and the duration pairing
+were executed against a real SQL engine on a fixture with two feeds, two runs and three step pairs: the
+counters came back 6/2/2/2/1, the top step was DEQUOTE with two failures, and the average step duration
+23.3 seconds over the expected twenty, ten and forty second pairs. logs.html passes node --check with
+zero literal \n or \r and no unsafe Thymeleaf, and brace balance was checked with the string and comment
+aware counter.

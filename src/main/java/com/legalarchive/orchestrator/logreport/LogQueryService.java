@@ -430,6 +430,148 @@ public class LogQueryService {
         return Math.max(1, width / MIN) + "m";
     }
 
+    /** Bounded, like the chart projection: duration pairing happens in Java, not in dialect SQL. */
+    private static final int METRICS_MAX_PAIR_ROWS = 300000;
+
+    /**
+     * Numbers for the stat cards, over exactly the same filtered set as the grid. Counting is SQL;
+     * step durations are paired in Java (STEP_STARTED -> STEP_COMPLETED|STEP_FAILED for the same
+     * feed/run/node) so no database-specific date arithmetic is needed.
+     */
+    public Map<String, Object> metrics(final Filters f, final String source, final List<String> status) throws Exception {
+        final boolean runs = "runs".equalsIgnoreCase(source);
+        final Map<String, WorkflowDef> feeds = feedMap();
+        final List<Object> args = new ArrayList<Object>();
+        final Map<String, Object> out = new LinkedHashMap<String, Object>();
+
+        if (runs) {
+            List<String> feedIds = resolveFeeds(f, feeds);
+            if (feedIds != null && feedIds.isEmpty()) return out;
+            StringBuilder w = new StringBuilder(" WHERE 1=1");
+            if (feedIds != null) inClause(w, "feed_id", feedIds, args);
+            if (has(status)) inClause(w, "status", status, args);
+            java.sql.Timestamp from = LogIndexer.parseTs(f.from), to = LogIndexer.parseTs(f.to);
+            if (from != null) { w.append(" AND start_ts >= ?"); args.add(from); }
+            if (to != null) { w.append(" AND start_ts <= ?"); args.add(to); }
+            final String where = w.toString();
+            return indexer.withIndex(new LogIndexer.SqlFunction<Map<String, Object>>() {
+                @Override
+                public Map<String, Object> apply(Connection c) throws Exception {
+                    try (PreparedStatement ps = c.prepareStatement("SELECT COUNT(*), COUNT(DISTINCT feed_id), "
+                            + "SUM(CASE WHEN status = 'SUCCESS' THEN 1 ELSE 0 END), "
+                            + "SUM(CASE WHEN status LIKE '%FAIL%' THEN 1 ELSE 0 END), "
+                            + "SUM(steps_failed) FROM run_entry" + where)) {
+                        bind(ps, args);
+                        try (ResultSet rs = ps.executeQuery()) {
+                            if (rs.next()) {
+                                out.put("runs", rs.getLong(1));
+                                out.put("feeds", rs.getLong(2));
+                                out.put("succeeded", rs.getLong(3));
+                                out.put("failed", rs.getLong(4));
+                                out.put("failedSteps", rs.getLong(5));
+                            }
+                        }
+                    }
+                    out.put("topFeedsByFailure", top(c, "SELECT feed_id, COUNT(*) FROM run_entry" + where
+                            + " AND status LIKE '%FAIL%' GROUP BY feed_id ORDER BY 2 DESC, 1 LIMIT 5", args));
+                    out.put("avgRunSeconds", avgRunSeconds(c, where, args));
+                    return out;
+                }
+            });
+        }
+
+        final String w = where(f, feeds, args);
+        if (w == null) return out;
+        return indexer.withIndex(new LogIndexer.SqlFunction<Map<String, Object>>() {
+            @Override
+            public Map<String, Object> apply(Connection c) throws Exception {
+                try (PreparedStatement ps = c.prepareStatement("SELECT COUNT(*), COUNT(DISTINCT run_id), "
+                        + "COUNT(DISTINCT feed_id), "
+                        + "SUM(CASE WHEN severity = 'FAIL' THEN 1 ELSE 0 END), "
+                        + "SUM(CASE WHEN severity = 'OK' THEN 1 ELSE 0 END) FROM log_entry" + w)) {
+                    bind(ps, args);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) {
+                            out.put("events", rs.getLong(1));
+                            out.put("runs", rs.getLong(2));
+                            out.put("feeds", rs.getLong(3));
+                            out.put("failures", rs.getLong(4));
+                            out.put("successes", rs.getLong(5));
+                        }
+                    }
+                }
+                out.put("topFeedsByFailure", top(c, "SELECT feed_id, COUNT(*) FROM log_entry" + w
+                        + " AND severity = 'FAIL' GROUP BY feed_id ORDER BY 2 DESC, 1 LIMIT 5", args));
+                out.put("topStepsByFailure", top(c, "SELECT node, COUNT(*) FROM log_entry" + w
+                        + " AND severity = 'FAIL' AND node IS NOT NULL GROUP BY node ORDER BY 2 DESC, 1 LIMIT 5", args));
+                out.put("avgStepSeconds", avgStepSeconds(c, w, args));
+                return out;
+            }
+        });
+    }
+
+    private static List<Map<String, Object>> top(Connection c, String sql, List<Object> args) throws Exception {
+        List<Map<String, Object>> out = new ArrayList<Map<String, Object>>();
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            bind(ps, args);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Map<String, Object> m = new LinkedHashMap<String, Object>();
+                    m.put("key", rs.getString(1));
+                    m.put("count", rs.getLong(2));
+                    out.add(m);
+                }
+            }
+        }
+        return out;
+    }
+
+    /** STEP_STARTED -> STEP_COMPLETED|STEP_FAILED for the same feed/run/node, paired in insertion order. */
+    private static Double avgStepSeconds(Connection c, String where, List<Object> args) throws Exception {
+        Map<String, Long> started = new LinkedHashMap<String, Long>();
+        long sum = 0, pairs = 0, seen = 0;
+        String sql = "SELECT feed_id, run_id, node, event, ts FROM log_entry" + where
+                + " AND event IN ('STEP_STARTED','STEP_COMPLETED','STEP_FAILED') AND node IS NOT NULL"
+                + " ORDER BY feed_id, run_id, node, ts LIMIT " + METRICS_MAX_PAIR_ROWS;
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            bind(ps, args);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    seen++;
+                    String key = rs.getString(1) + "\u0000" + rs.getString(2) + "\u0000" + rs.getString(3);
+                    java.sql.Timestamp t = rs.getTimestamp(5);
+                    if (t == null) continue;
+                    if ("STEP_STARTED".equals(rs.getString(4))) {
+                        started.put(key, t.getTime());
+                    } else {
+                        Long st = started.remove(key);
+                        if (st != null && t.getTime() >= st) { sum += (t.getTime() - st); pairs++; }
+                    }
+                }
+            }
+        }
+        if (pairs == 0) return null;
+        return Math.round((sum / (double) pairs) / 100.0) / 10.0;      // seconds, one decimal
+    }
+
+    private static Double avgRunSeconds(Connection c, String where, List<Object> args) throws Exception {
+        long sum = 0, n = 0;
+        try (PreparedStatement ps = c.prepareStatement("SELECT start_ts, end_ts FROM run_entry" + where
+                + " AND start_ts IS NOT NULL AND end_ts IS NOT NULL LIMIT " + METRICS_MAX_PAIR_ROWS)) {
+            bind(ps, args);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    java.sql.Timestamp a = rs.getTimestamp(1), b = rs.getTimestamp(2);
+                    if (a == null || b == null || b.before(a)) continue;
+                    sum += (b.getTime() - a.getTime());
+                    n++;
+                }
+            }
+        }
+        if (n == 0) return null;
+        return Math.round((sum / (double) n) / 100.0) / 10.0;
+    }
+
     /** Values for the filter dropdowns: feeds/sources/targets from the registry, the rest from the index. */
     public Map<String, Object> facets() throws Exception {
         final Map<String, WorkflowDef> feeds = feedMap();

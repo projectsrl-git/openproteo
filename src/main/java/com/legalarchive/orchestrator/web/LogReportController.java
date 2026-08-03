@@ -109,6 +109,32 @@ public class LogReportController {
         }
     }
 
+    /** Numbers for the stat cards, over the same filtered set as the grid. */
+    @GetMapping("/api/logs/metrics")
+    public ResponseEntity<Map<String, Object>> metrics(
+            @RequestParam(required = false) List<String> feedId,
+            @RequestParam(required = false) List<String> sourceId,
+            @RequestParam(required = false) List<String> targetId,
+            @RequestParam(required = false) String step,
+            @RequestParam(required = false) List<String> event,
+            @RequestParam(required = false) List<String> severity,
+            @RequestParam(required = false) List<String> status,
+            @RequestParam(required = false) String user,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false, defaultValue = "events") String source) {
+        LogQueryService.Filters f = new LogQueryService.Filters();
+        f.feedId = feedId; f.sourceId = sourceId; f.targetId = targetId;
+        f.step = step; f.event = event; f.severity = severity;
+        f.user = user; f.from = from; f.to = to; f.q = q;
+        try {
+            return ResponseEntity.ok(query.metrics(f, source, status));
+        } catch (Exception e) {
+            return error(e);
+        }
+    }
+
     /** Distinct values for the filter controls. */
     @GetMapping("/api/logs/facets")
     public ResponseEntity<Map<String, Object>> facets() {
