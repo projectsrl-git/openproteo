@@ -380,6 +380,8 @@ ${csvFiles[${loopIndex}]}         path of the file being processed
 ${csvRowCounts[1]}                the first part
 ```
 
+`${name@key}` looks the value up by key instead of by position: it finds `key` in the companion list `${name.keys}` and returns the value at the same position in `${name}`. A step that publishes a column indexed by a key column produces both lists, so `${AMOUNT@CID12345}` gives that client's amount without knowing its row number. A key that is not there, or two lists of different lengths, give an empty string rather than a neighbouring row.
+
 `loopIndex` is 1-based, so `[1]` is the first element. An index out of range, or a missing base variable, resolves to an empty string.
 
 ### Output data and run variables: one value per line, with a total

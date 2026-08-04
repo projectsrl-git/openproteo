@@ -946,3 +946,10 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   reusing `/api/runs/{feedId}/{runId}/log/{stepId}?tail=300` (the run page's own endpoint), clicking
   again collapses. Nothing pre-fetched, cached or indexed; missing/unreadable logs degrade to a message
   in the panel. Note in `.claude/2026-08-04-step-log-lazy-peek.md`.
+
+## Keyed variable lookup `${COL@key}`
+* Decision taken for the sqlreport spec: keyed syntax over aligned lists. `VarResolver.keyed()` resolves
+  `${COL@key}` by finding `key` in the companion `${COL.keys}` list and returning the value at the same
+  position in `${COL}` (both ';'-separated, aligned). Positional `${COL[N]}` is unaffected. Absent key,
+  or lists of different lengths, resolve to "" — never a neighbouring row, which in a reconciliation
+  would be worse than nothing. Spec: `.claude/SQLREPORT_VERSIONING_VARIABLES.md`.

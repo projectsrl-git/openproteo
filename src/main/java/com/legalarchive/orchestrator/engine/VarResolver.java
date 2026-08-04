@@ -20,6 +20,9 @@ public final class VarResolver {
     private static final Pattern VAR = Pattern.compile("\\$\\{([^${}]+)\\}");
     // list indexing: name[N] -> N-th element (1-based) of a ';'-separated list value
     private static final Pattern INDEX = Pattern.compile("^(.+)\\[([0-9]+)\\]$");
+    // keyed lookup: name@key -> the value of 'name' on the row whose key column equals 'key'.
+    // Requires the companion list ${name.keys}, aligned position by position with ${name}.
+    private static final Pattern KEYED = Pattern.compile("^([^@\\[\\]]+)@(.+)$");
     private static final int MAX_DEPTH = 12;
 
     private VarResolver() {}
@@ -32,6 +35,30 @@ public final class VarResolver {
      * A self-referential value (e.g. a -> ${a}) is left as-is once it stops changing; the depth
      * cap is a final safety net.
      */
+    /**
+     * Keyed lookup {@code ${name@key}}: finds 'key' in the companion list {@code ${name.keys}} and
+     * returns the value at the same position in {@code ${name}}. Both lists are ';'-separated and
+     * aligned, which is how a query result indexed by a key column is published.
+     *
+     * <p>The key is compared trimmed and case-sensitively. A key that is absent, or lists of different
+     * lengths (a sign the two variables were not produced together), resolve to the empty string rather
+     * than to a wrong value - silently returning a neighbouring row would be worse than returning
+     * nothing in a reconciliation.</p>
+     */
+    static String keyed(String name, Map<String, String> vars) {
+        Matcher km = KEYED.matcher(name);
+        if (!km.matches()) return null;
+        String base = km.group(1).trim(), key = km.group(2).trim();
+        String values = vars.get(base), keys = vars.get(base + ".keys");
+        if (values == null || keys == null) return null;
+        String[] vs = values.split(";", -1), ks = keys.split(";", -1);
+        if (vs.length != ks.length) return "";
+        for (int i = 0; i < ks.length; i++) {
+            if (ks[i].trim().equals(key)) return vs[i].trim();
+        }
+        return "";
+    }
+
     public static String resolve(String input, Map<String, String> vars) {
         if (input == null) return null;
         String s = input;
@@ -55,6 +82,7 @@ public final class VarResolver {
                             val = (zi >= 0 && zi < parts.length) ? parts[zi].trim() : "";
                         }
                     }
+                    if (val == null) val = keyed(name, vars);
                 }
                 m.appendReplacement(sb, Matcher.quoteReplacement(val != null ? val : ""));
             }

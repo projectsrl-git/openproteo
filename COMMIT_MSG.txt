@@ -1,25 +1,22 @@
-Spec: audit-proof SQL report executor, workflow versioning on structural edits, missing steps in Variables
+Keyed variable lookup ${COL@key}
 
-Design and handoff spec for the three requested changes, committed before any implementation so the
-decisions are made explicitly and each batch can be reviewed on its own.
+Prerequisite for the sqlreport executor, and the decision recorded in its spec: values collected from a
+query are addressed by key rather than by position.
 
-The sqlreport executor runs a list of read-only queries and produces a Markdown document rather than a
-CSV: each query with its own execution timestamp and duration, the text as executed after variable
-substitution, the datasource host, user and database, the run id, the row count and the result table. It
-is a new executor rather than a mode of sql, because sql exists to move data while this one exists to
-prove something, and the deliverable is the document itself. Read-only is enforced in two layers, a
-statement check and a read-only connection, and the spec states plainly that the real guarantee is the
-database account's own rights. Variable collection is specified with a decision left open: aligned
-semicolon-separated lists, which reuse the existing list indexing and OUTPUT DATA rendering, or a new
-keyed resolver syntax that is more expressive but touches VarResolver.
+VarResolver now resolves ${COL@key} by finding key in the companion list ${COL.keys} and returning the
+value at the same position in ${COL}. Both lists are semicolon separated and aligned, which is how a
+result set indexed by a key column is published, so a step can write the amounts and the client ids
+together and a later step can ask for ${AMOUNT@CID12345} without knowing which row that client is on.
+Positional indexing keeps working exactly as before and OUTPUT DATA still renders the lists unchanged.
 
-Workflow versioning proposes a copy with the id suffixed .v1 when steps are added or removed on a feed
-that already has runs, with the open questions spelled out: whether the original keeps the schedule, and
-whether a dotted suffix is acceptable in a feed id given those ids appear in paths and in the Legal
-Archive naming.
+Two deliberate choices in the lookup: a key that is not present resolves to an empty string, and so do
+two lists of different lengths, which is the signal that the variables were not produced together.
+Returning a neighbouring row would be far worse than returning nothing in a reconciliation. Keys are
+compared trimmed and case-sensitively.
 
-The Variables page change lists steps present in only some of the selected feeds as greyed-out disabled
-rows with a badge, and an action to add them to all selected feeds; the spec flags that the insertion
-position must be explicit, and asks what to do when the same step id carries a different executor.
+Docs: USAGE.md, the spec in .claude/SQLREPORT_VERSIONING_VARIABLES.md and CLAUDE.md.
 
-No code changes.
+Verify: the real resolver was compiled and executed - lookups by key on two different collected columns,
+a key in the middle and at both ends, an absent key, deliberately misaligned lists, positional indexing
+still working alongside, the bare list variable untouched, an unknown base variable, and two keyed
+references inside one string.

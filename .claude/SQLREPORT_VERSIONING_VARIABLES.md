@@ -84,8 +84,15 @@ report) works unchanged:
   in OUTPUT DATA, and a later comparison step can join them by position. A real keyed lookup
   (`${AMOUNT@CID12345}`) would need a new resolver syntax - worth doing only if you actually need it.
 
-**Decision needed**: aligned lists (cheap, consistent) or a new keyed syntax (more expressive, touches
-VarResolver)?
+**DECIDED: keyed syntax.** `${COL@key}` returns the value of `COL` on the row whose key column equals
+`key`. The executor publishes, for each collected column, the `;`-separated values in row order AND the
+companion `${COL.keys}` list of keys in the same order; VarResolver resolves `@` against that pair.
+Positional `${COL[N]}` keeps working and OUTPUT DATA renders the lists as before.
+
+Deliberate choices in the resolver: an absent key resolves to the empty string, and so do two lists of
+different lengths - the signal that the variables were not produced together. Returning a neighbouring
+row would be far worse than returning nothing in a reconciliation. Keys are compared trimmed and
+case-sensitively. Implemented as batch 0; the executor that produces the pair follows.
 
 ### 1.6 Batches
 1. Executor + read-only validation + Markdown report + designer UI + docs.
