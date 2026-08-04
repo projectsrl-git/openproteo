@@ -1112,3 +1112,25 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   running the real `renderCommon` against a fake DOM: badges, conflict detection, missing-feed lists,
   and the invariant that every disabled input has no scope while every enabled one has one. Note in
   `.claude/2026-08-04-variables-partial-steps.md`.
+
+## Variables page: [+ Add to N feeds] for a partial step (section 3, batch 2)
+* Completes section 3. A non-conflicting partial step can now be CREATED in the feeds that lack it,
+  copied from one that has it. The request never carries a step definition: the client sends
+  `{stepId, fromFeedId, afterStepId}` and the server copies the node out of a fresh `toDto(src)`, so
+  what is inserted is always an already-validated step, not client-supplied content. New
+  `FeedEdit.addSteps` + `applyStepAdditions`, applied BEFORE `applyEditsToDto` so the field edits land
+  on the freshly inserted step and the existing all-or-nothing staging covers both in one pass. * The
+  two things that cannot be guessed are refused rather than guessed: the **insertion position** is a
+  dropdown of the steps common to the whole selection, defaulted only when every source feed puts the
+  step after the SAME common step (guessing is how a step ends up running after the send), and a field
+  the source feeds **disagree** on is blanked and marked required instead of being copied from
+  whichever feed came first. * Guards: a feed with a LIVE run is refused — via `activeRunsByFeed()`,
+  NOT `activeRunId()`, since a gate/ON_HOLD run has released the slot and would look inactive — plus
+  duplicate id, unknown source feed, step absent from the source, and an anchor absent from the
+  TARGET (the server does not trust the UI's dropdown). `validateChecks` is deep-copied because
+  `toDto` hands it over by reference from the registry's StepDef: without that, editing the inserted
+  step would mutate the SOURCE workflow in memory. * An executor conflict keeps the step read-only
+  with no button. PROD feeds need the Clear-History-style required checkbox. * The add form uses class
+  `avval`, never `vval`, so `collect()` (`.vval[data-dirty="1"]`) cannot see it and it can never ride
+  along with an ordinary Save — asserted directly in the tests. Note in
+  `.claude/2026-08-04-variables-add-step.md`.

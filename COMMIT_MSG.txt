@@ -1,61 +1,70 @@
-Variables page: show steps only SOME selected feeds have
+Variables: add a partial step to the feeds that lack it
 
-Implements the read-only half of section 3 of
-.claude/SQLREPORT_VERSIONING_VARIABLES.md and answers its two open questions.
-[Add to all selected] is batch 2 and is deliberately not in here.
+Completes section 3 of .claude/SQLREPORT_VERSIONING_VARIABLES.md. Batch 1 made
+the difference visible; this makes it actionable. It is the most invasive
+change of the series - it writes a new node into N workflow XML files - so the
+guards are the substance of it.
 
-The multi-feed editor showed only the INTERSECTION of step ids, which silently
-hid every difference: a step you cannot see is a difference you cannot act on.
-A new "Steps missing from some feeds" section now lists every id present in
-some but not all of the selection, each with an "in N of M feeds" badge, its
-executor, the feeds it is missing from (truncated at six, full list in the
-title on hover) and a read-only preview of the fields and params common to the
-feeds that do have it.
+The client sends {stepId, fromFeedId, afterStepId} per target feed and NEVER a
+step definition: the server copies the node out of a fresh toDto(sourceDef),
+so what is inserted is always a real, already-parsed step from a workflow that
+exists. New FeedEdit.addSteps and applyStepAdditions, applied BEFORE
+applyEditsToDto, which is what makes it cheap: the field edits then land on
+the freshly inserted node through the existing code path, and the existing
+all-or-nothing staging (regenerate, parse, stage, write only if every feed
+passed) covers the structural change for free.
 
-Open question one, answered: when the same step id uses a DIFFERENT executor
-depending on the feed it is flagged as a conflict naming both executors,
-rather than hidden. The reason is not tidiness - "query" on a sql step and
-"query" on a csvsql step are different things, so a mass edit would write a
-value that is wrong in half the feeds. Batch 2 must refuse to add those.
+Two things must not be guessed and are refused instead. The insertion position
+is a dropdown of the steps common to the whole selection plus "at the very
+beginning", defaulted only when every feed that already has the step puts it
+after the SAME common step; otherwise the operator must choose. Appending at
+the end, or copying the position from the first feed, is how a step ends up
+running after the send. And a field the source feeds DISAGREE on is blanked
+and marked required, not copied from whichever feed came first: a query taken
+from feed A and written into three others is wrong in three places and looks
+right in the XML. Fields they agree on are copied as they are.
 
-Open question two, agreed and deferred to batch 2 where the action will exist:
-adding a step to a PRODUCTION feed will require the same explicit confirmation
-as Clear History, opConfirm with danger and a required checkbox naming how
-many PROD feeds are included.
+Guards. A feed with a live run is refused, because this is a structural edit
+and the engine walks def.nodes by index, so inserting a node under a running
+workflow shifts what it executes next; the check uses
+engine.activeRunsByFeed() and not activeRunId(), because a run paused on a
+manual gate or ON HOLD has released the engine slot and would otherwise look
+inactive - the same trap fixed in deleteRun earlier. Also refused: a duplicate
+id in the target (this creates, it never overwrites), an unknown source feed,
+a source feed that does not have the step, and an anchor that is not in the
+TARGET - the UI only offers anchors common to the selection, but the server
+does not trust the UI. An executor conflict keeps the step read-only with no
+button at all. PRODUCTION feeds in the target set require the same explicit
+checkbox as Clear History.
 
-The section is deliberately read-only. Rendering editable inputs here was
-rejected: an edit made in a section titled "missing from some feeds" would
-apply to a subset and the operator would have no way to tell from the result.
-The preview inputs are disabled AND carry no data-scope, which is the actual
-safety mechanism - saveVariables() collects .vval[data-dirty="1"] and
-dispatches on data-scope, so an input with neither can never enter the
-payload.
+Two subtle ones worth naming. validateChecks is deep-copied on insertion:
+toDto assigns nd.validateChecks = st.validateChecks, the same List instance
+the registry's StepDef holds, so inserting that node and then editing it would
+have mutated the SOURCE workflow in memory. And the add form uses class avval,
+not vval: saveVariables() collects .vval[data-dirty="1"], so an add-form input
+could otherwise have ridden along with an ordinary Save and silently written a
+value into every selected feed.
 
-Why the split: making the difference visible is pure UI, touches one template
-and cannot damage anything, while creating a step in the feeds that lack it is
-a structural write to N workflow XML files, needs an explicit insertion
-position, and interacts with the versioning trigger of section 2 - adding a
-step to a feed that already ran is exactly what section 2 wants to intercept.
-Shipping them together would have put a zero-risk improvement behind a change
-that deserves its own review.
+Verified. The insertion core was transcribed against stub DTOs, compiled with
+-source 8 and run: order after an anchor, after the last node, at the
+beginning with an empty and with a null anchor, two chained adds, and every
+guard above rejecting while leaving the node list untouched, plus the
+validateChecks aliasing test which fails without the defensive copy. The real
+renderCommon was run against a fake DOM: the anchor defaults to the shared
+position when the sources agree and to "(choose)" when they do not; a field
+the sources agree on is copied and not required while one they disagree on is
+blanked and required; a conflicting step gets no anchor select, no button, a
+vlocked section and disabled inputs; and every add input carries data-add, has
+no data-scope and does not carry the vval class. node --check on the page's
+inline JS passes, with zero literal newline/CR escape sequences and no
+Thymeleaf inlining markers; every CSS variable used by the page was checked to
+exist in app.css; brace and paren balance is 0/0 on ApiController and the
+import checker is green on every added line.
 
-Verified. The real renderCommon was extracted from the template and run
-against a fake DOM with five synthetic feeds: a common step, a step missing
-from one feed, one missing from three, one present in a single feed, and an id
-whose executor differs. Asserted, all passing: the common section still counts
-only the truly common id, the partial section counts three, every badge reads
-the right N of M, the executor conflict is detected and names both executors,
-the missing-feed lists are correct, the hover title carries the full list, and
-the invariant that matters - every disabled input has no data-scope while
-every enabled one has one, and no disabled input is dirty. node --check on the
-page's inline JS passes, there are zero literal newline/CR escape sequences
-(the hover title builds its line breaks with String.fromCharCode(10)) and no
-Thymeleaf inlining markers. Every CSS variable used by the page style block
-was checked against app.css: --bg-raise, --ink-faint, --fail and the rest are
-all defined, none invented.
+NOT verified: mvn clean package, and the whole thing end to end - an actual
+insertion into real workflow files, the resulting XML, and the page in a
+browser. Try it first on two non-production feeds and read the generated XML
+before using it on anything that ships.
 
-NOT verified: mvn clean package (no Java changed in this patch, but the build
-is still the only final proof) and the page as rendered by a real browser.
-
-Note: .claude/2026-08-04-variables-partial-steps.md
+Note: .claude/2026-08-04-variables-add-step.md
 Spec: .claude/SQLREPORT_VERSIONING_VARIABLES.md section 3

@@ -28,8 +28,10 @@
         .rolabel { font-size: 11px; color: var(--ink-faint); }
         .res-ok { color: var(--ok); } .res-fail { color: var(--fail); }
         .lockrow { display: -webkit-flex; display: flex; gap: 8px; align-items: center; margin: 4px 0; font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
-        .vpartial { opacity: .62; }
-        .vpartial input, .vpartial textarea { background: var(--bg-raise); color: var(--ink-faint); }
+        .vpartial { border-style: dashed; }
+        .vpartial > .vhead { color: var(--accent); }
+        .vlocked { opacity: .62; }
+        .vlocked input, .vlocked textarea { background: var(--bg-raise); color: var(--ink-faint); }
         .vhead .vbadge { text-transform: none; letter-spacing: 0; margin-left: 8px; }
         .vconflict { color: var(--fail); }
         .vmissing { font-size: 11.5px; color: var(--ink-dim); margin: 2px 0 8px; }
@@ -340,46 +342,159 @@
             el('div','dim small',pbd).textContent='These step ids exist in only part of the selection. They are shown read-only: editing them here would apply to a subset without saying so. Adding a missing step to the other feeds is a separate action, not available yet.';
         }
         var LFC=String.fromCharCode(10);
+        var commonSet={}; commonSteps.forEach(function(x){ commonSet[x]=1; });
+        PARTIAL={};
         partialIds.forEach(function(id){
             var arr=stepById[id], present=stepFeeds[id]||[];
             var presentSet={}; present.forEach(function(x){ presentSet[x]=1; });
             var missing=feeds.map(function(f){ return f.feedId; }).filter(function(x){ return !presentSet[x]; });
             var execs=[]; arr.forEach(function(st){ var e=st.exec||'(auto)'; if(execs.indexOf(e)<0) execs.push(e); });
             var names=[]; arr.forEach(function(st){ if(st.name && names.indexOf(st.name)<0) names.push(st.name); });
-
-            var grp=el('div','vsection',pbd); grp.className='vsection vpartial';
+            var conflict=execs.length>1;
+            var grp=el('div','vsection',pbd); grp.className='vsection vpartial'+(conflict?' vlocked':'');
             var gh=el('div','vhead',grp);
             gh.textContent='Step: '+id+(names.length===1?(' \u2014 '+names[0]):'');
             var badge=el('span','tagb vbadge',gh); badge.textContent='in '+present.length+' of '+feeds.length+' feeds';
-            if(execs.length>1){
-                // same id, different executor: the fields do not mean the same thing in each feed,
-                // so this can never be mass-added or mass-edited - flagged rather than hidden
+            if(conflict){
+                // same id, different executor: the fields do not mean the same thing in each feed, so
+                // this can never be mass-added or mass-edited - flagged rather than hidden
                 var cf=el('span','tagb vbadge vconflict',gh);
                 cf.textContent='conflict: '+execs.join(' / ');
-                cf.title='The same step id uses a different executor depending on the feed, so its fields do not mean the same thing everywhere.';
-            } else if(execs.length===1){
+                cf.title='The same step id uses a different executor depending on the feed, so its fields do not mean the same thing everywhere. It cannot be added to the other feeds.';
+            } else {
                 var ex=el('span','tagb vbadge',gh); ex.textContent=execs[0];
             }
             var gb=el('div','vbody',grp);
             var miss=el('div','vmissing',gb);
             miss.textContent='Missing from: '+(missing.length<=6 ? missing.join(', ') : (missing.slice(0,6).join(', ')+' and '+(missing.length-6)+' more'));
             miss.title='Missing from:'+LFC+missing.join(LFC);
-            // preview of what the step looks like where it DOES exist, disabled: no data-scope, so
-            // it can never become dirty and can never reach the save payload
-            commonFieldKeys(arr).forEach(function(fk){
+
+            if(conflict){
+                el('div','dim small',gb).textContent='Read-only: resolve the executor difference in the designer before this step can be added anywhere.';
+                commonFieldKeys(arr).forEach(function(fk){
+                    var vals=arr.map(function(st){ return st.fields[fk]; });
+                    var allEq=vals.every(function(x){ return x===vals[0]; });
+                    var inp=valLine(gb, fk, allEq?vals[0]:'', '(read-only)', fk==='query');
+                    inp.disabled=true;
+                });
+                return;
+            }
+
+            // ---- insertion position ----
+            // Guessing a position in a pipeline is how a step ends up running after the send, so the
+            // default is offered ONLY when every feed that already has the step puts it after the same
+            // common step. Otherwise there is no default and the operator must choose.
+            var anchors=[];
+            feeds.forEach(function(f){
+                if(!presentSet[f.feedId]) return;
+                var list=f.steps||[], pos=-1;
+                for(var k=0;k<list.length;k++){ if(list[k].id===id){ pos=k; break; } }
+                var a='';
+                for(var k2=pos-1;k2>=0;k2--){ if(commonSet[list[k2].id]){ a=list[k2].id; break; } }
+                anchors.push(a);
+            });
+            var consistent=anchors.length>0 && anchors.every(function(x){ return x===anchors[0]; });
+            var opts=[{value:'__none__',label:'(choose where to insert it)'},{value:'',label:'at the very beginning'}];
+            commonSteps.forEach(function(cid){ opts.push({value:cid,label:'after '+cid}); });
+            var posSel=addSelect(gb, 'insert', opts,
+                consistent ? 'same position as in the feeds that already have it' : 'the feeds that have it do not agree on the position \u2014 choose explicitly');
+            posSel.value = consistent ? anchors[0] : '__none__';
+            posSel.setAttribute('data-add', id);
+            posSel.setAttribute('data-role', 'anchor');
+
+            // ---- the definition to insert ----
+            el('div','dim small',gb).textContent='The step is copied from a feed that already has it. Fields the source feeds agree on are copied as they are; a field they DISAGREE on must be filled in here, because copying one feed\u2019s value into the others would be wrong.';
+            var fieldKeys=commonFieldKeys(arr), paramKeys=commonParamKeys(arr).filter(function(pn){ return !isResParam(pn); });
+            fieldKeys.forEach(function(fk){
                 var vals=arr.map(function(st){ return st.fields[fk]; });
                 var allEq=vals.every(function(x){ return x===vals[0]; });
-                var inp=valLine(gb, fk, allEq?vals[0]:'', allEq?'(read-only)':'(read-only \u2014 differs across the feeds that have it)', fk==='query');
-                inp.disabled=true;
+                var inp=addLine(gb, fk, allEq?vals[0]:'', allEq?'copied as-is':'\u26a0 differs across the source feeds \u2014 required', fk==='query');
+                inp.setAttribute('data-add', id); inp.setAttribute('data-role','field');
+                if(!allEq) inp.setAttribute('data-required','1');
             });
-            commonParamKeys(arr).forEach(function(pn){
-                if(isResParam(pn)) return;
+            paramKeys.forEach(function(pn){
                 var vals=arr.map(function(st){ return paramVal(st,pn); });
                 var allEq=vals.every(function(x){ return x===vals[0]; });
-                var inp=valLine(gb, pn, allEq?vals[0]:'', allEq?'(read-only)':'(read-only \u2014 differs across the feeds that have it)');
-                inp.disabled=true;
+                var inp=addLine(gb, pn, allEq?vals[0]:'', allEq?'copied as-is':'\u26a0 differs across the source feeds \u2014 required');
+                inp.setAttribute('data-add', id); inp.setAttribute('data-role','param');
+                if(!allEq) inp.setAttribute('data-required','1');
             });
+
+            PARTIAL[id]={ from: present[0], missing: missing };
+            var bar=el('div','vline',gb);
+            var btn=el('button','btn sm primary',bar);
+            btn.type='button';
+            btn.textContent='\uff0b Add to '+missing.length+' feed(s)';
+            btn.addEventListener('click', function(){ addStepToMissing(id); });
         });
+    }
+
+    /** Per partial step: which feed to copy from and which feeds lack it. Rebuilt on every render. */
+    var PARTIAL={};
+
+    function addLine(host, name, value, hint, multi){
+        var line=el('div','vline',host);
+        var n=el('div','vname',line); n.textContent=name;
+        var inp;
+        if(multi){ inp=el('textarea','avval',line); inp.rows=4; inp.style.width='100%'; inp.style.fontFamily='monospace'; }
+        else { inp=el('input','avval',line); }
+        inp.value=(value==null?'':value); inp.setAttribute('data-name',name);
+        if(hint){ var h=el('span','vhint',line); h.textContent=hint; }
+        return inp;
+    }
+    function addSelect(host, name, options, hint){
+        var line=el('div','vline',host);
+        var n=el('div','vname',line); n.textContent=name;
+        var sel=el('select','avval',line); sel.setAttribute('data-name',name);
+        options.forEach(function(o){ var op=document.createElement('option'); op.value=o.value; op.textContent=o.label; sel.appendChild(op); });
+        if(hint){ var h=el('span','vhint',line); h.textContent=hint; }
+        return sel;
+    }
+
+    /**
+     * Create a partial step in the feeds that lack it. The inputs of this form use class 'avval', not
+     * 'vval', so they are invisible to collect() and can never ride along with an ordinary Save.
+     */
+    function addStepToMissing(id){
+        var info=PARTIAL[id];
+        if(!info){ return; }
+        var host=document.getElementById('editorWrap');
+        var nodes=host.querySelectorAll('.avval[data-add="'+id+'"]');
+        var anchor=null, fields=[], params=[], blanks=[];
+        for(var i=0;i<nodes.length;i++){
+            var n=nodes[i], role=n.getAttribute('data-role'), nm=n.getAttribute('data-name');
+            if(role==='anchor'){ anchor=n.value; continue; }
+            if(n.getAttribute('data-required')==='1' && !String(n.value).trim()){ blanks.push(nm); continue; }
+            var kv={name:nm, value:n.value};
+            if(role==='field') fields.push(kv); else params.push(kv);
+        }
+        if(anchor===null || anchor==='__none__'){
+            banner(false,'Choose where to insert "'+esc(id)+'" before adding it.'); window.scrollTo(0,0); return;
+        }
+        if(blanks.length){
+            banner(false,'"'+esc(id)+'": the source feeds disagree on '+esc(blanks.join(', '))+'. Fill '+(blanks.length===1?'it':'them')+' in \u2014 copying one feed\u2019s value into the others would be wrong.');
+            window.scrollTo(0,0); return;
+        }
+        var prodFeeds=CATALOG.workflows.filter(function(w){ return info.missing.indexOf(w.feedId)>=0 && w.production; });
+        var checks=[];
+        if(prodFeeds.length) checks.push({ id:'prod', required:true,
+            label:'I understand '+prodFeeds.length+' PRODUCTION feed(s) are included \u2014 add the step to them too' });
+        var where = anchor==='' ? 'at the very beginning' : ('after '+anchor);
+        opConfirm('Add the step "'+id+'" '+where+' to '+info.missing.length+' feed(s), copying it from '+info.from+'? This changes the workflow structure; nothing is written unless every feed validates.',
+            function(){
+                var edits=info.missing.map(function(fid){
+                    return { feedId:fid,
+                             addSteps:[{ stepId:id, fromFeedId:info.from, afterStepId:anchor }],
+                             steps:(fields.length||params.length)?[{ stepId:id, fields:fields, params:params }]:[] };
+                });
+                fetch(CTX+'api/variables/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({edits:edits})})
+                    .then(readJson).then(function(j){
+                        if(j&&j.ok){ banner(true,'Step "'+esc(id)+'" added to '+j.saved+' feed(s).'); load(); }
+                        else { banner(false,'Nothing was saved. '+esc((j&&j.error)||'Save failed.')); }
+                        window.scrollTo(0,0);
+                    })
+                    .catch(function(e){ banner(false,'Save failed: '+esc(String(e))); window.scrollTo(0,0); });
+            }, { danger:true, okText:'Add step', checks:checks });
     }
 
     // ---------------- save variables ----------------

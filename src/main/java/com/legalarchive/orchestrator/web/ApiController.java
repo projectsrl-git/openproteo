@@ -2141,9 +2141,20 @@ public class ApiController {
             public String feedId;
             public java.util.List<WorkflowDto.KV> vars;     // workflow-level variables to set
             public java.util.List<StepEdit> steps;          // optional per-step param edits
+            public java.util.List<StepAdd> addSteps;        // optional: steps to CREATE in this feed
             public String tags;                              // optional: comma-separated workflow tags (null = unchanged)
             public String outputData;                        // null=unchanged; workflow-level output data (lines: var = description)
             public Boolean production;                       // null = unchanged; mass-editable PROD flag
+        }
+        /**
+         * Create a step that this feed does not have, copying its definition from a feed that does.
+         * The client never sends a step definition: it names the source feed, so what is inserted is
+         * always a real, already-validated step and not client-supplied content.
+         */
+        public static class StepAdd {
+            public String stepId;        // id to create (must not already exist in the target)
+            public String fromFeedId;    // feed to copy the definition from
+            public String afterStepId;   // insert after this node id; null/empty = at the very beginning
         }
         public static class StepEdit {
             public String stepId;
@@ -2154,6 +2165,68 @@ public class ApiController {
             public String deleteOnSuccessType;              // null=unchanged; empty=remove
             public String stepMode;                         // null/empty=unchanged; normal | skip | onHold
         }
+    }
+
+    /**
+     * Inserts steps this feed does not have, copied from a feed that does. Returns null on success or
+     * the reason to fail the whole save - nothing is written until every feed validated, so returning
+     * an error here aborts the batch exactly like a parse failure.
+     *
+     * Guards, in order of how much damage they prevent:
+     * <ul>
+     *   <li>a feed with a LIVE run is refused. This is a structural edit: the engine walks def.nodes
+     *       by index, so inserting a node under a running workflow would shift what it executes next.
+     *       The check uses activeRunsByFeed(), not activeRunId(), because a run paused on a gate or
+     *       ON HOLD has released the engine slot and would otherwise look inactive;</li>
+     *   <li>the step id must not already exist in the target - this creates, it never overwrites;</li>
+     *   <li>the source feed must exist and actually have that step;</li>
+     *   <li>the anchor must exist in the TARGET. The UI only offers anchors common to the whole
+     *       selection, but the server does not trust that.</li>
+     * </ul>
+     */
+    private String applyStepAdditions(WorkflowDto dto, String feedId, java.util.List<VarSaveReq.StepAdd> adds) {
+        java.util.Map<String, WorkflowRun> live = engine.activeRunsByFeed();
+        WorkflowRun lr = live.get(feedId);
+        if (lr != null || engine.activeRunId(feedId) != null) {
+            return "the feed has a run in progress" + (lr != null && lr.status != null ? (" (" + lr.status.name() + ")") : "")
+                    + " - adding a step would change what that run executes next; stop it or wait for it to finish";
+        }
+        for (VarSaveReq.StepAdd add : adds) {
+            if (add == null || add.stepId == null || add.stepId.trim().isEmpty()) return "a step to add has no id";
+            String stepId = add.stepId.trim();
+            for (WorkflowDto.NodeDto nd : dto.nodes) {
+                if (stepId.equals(nd.id)) return "node '" + stepId + "' already exists in this feed";
+            }
+            if (add.fromFeedId == null || add.fromFeedId.trim().isEmpty()) return "step '" + stepId + "': no source feed to copy from";
+            WorkflowDef src = registry.get(add.fromFeedId.trim());
+            if (src == null) return "step '" + stepId + "': source feed '" + add.fromFeedId + "' not found";
+            WorkflowDto srcDto = toDto(src);          // a fresh object graph per target feed
+            WorkflowDto.NodeDto template = null;
+            for (WorkflowDto.NodeDto nd : srcDto.nodes) {
+                if ("STEP".equals(nd.kind) && stepId.equals(nd.id)) { template = nd; break; }
+            }
+            if (template == null) return "step '" + stepId + "' does not exist in the source feed '" + add.fromFeedId + "'";
+            // validateChecks is handed over BY REFERENCE from the registry's StepDef in toDto: copy it
+            // so an edit on the inserted step can never reach the source workflow in memory
+            if (template.validateChecks != null) {
+                template.validateChecks = new java.util.ArrayList<String>(template.validateChecks);
+            }
+
+            String anchor = add.afterStepId == null ? "" : add.afterStepId.trim();
+            int at;
+            if (anchor.isEmpty()) {
+                at = 0;
+            } else {
+                int idx = -1;
+                for (int i = 0; i < dto.nodes.size(); i++) {
+                    if (anchor.equals(dto.nodes.get(i).id)) { idx = i; break; }
+                }
+                if (idx < 0) return "step '" + stepId + "': the node '" + anchor + "' it should follow does not exist in this feed";
+                at = idx + 1;
+            }
+            dto.nodes.add(at, template);
+        }
+        return null;
     }
 
     /**
@@ -2177,6 +2250,14 @@ public class ApiController {
             if (def == null) { r.put("ok", false); r.put("error", "workflow not found"); results.add(r); allOk = false; continue; }
             WorkflowDto dto = toDto(def);
             if (fe.production != null) dto.production = fe.production.booleanValue();
+            // Structural change first, so the field edits below land on the freshly inserted step and
+            // the existing all-or-nothing validation covers both in one pass.
+            if (fe.addSteps != null && !fe.addSteps.isEmpty()) {
+                String addErr = applyStepAdditions(dto, fe.feedId, fe.addSteps);
+                if (addErr != null) {
+                    r.put("ok", false); r.put("error", addErr); results.add(r); allOk = false; continue;
+                }
+            }
             applyEditsToDto(dto, fe.vars, fe.tags, fe.steps, fe.outputData);
             // regenerate + validate
             String fileName = def.sourceFile != null ? def.sourceFile : def.feedId + ".xml";
