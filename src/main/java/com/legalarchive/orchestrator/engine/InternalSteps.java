@@ -99,6 +99,8 @@ public class InternalSteps {
                 runXlsx2Csv(step, resolvedParams, vars, res, line);
             } else if ("diff".equals(kind)) {
                 runDiff(step, resolvedParams, vars, res, line, control);
+            } else if ("sqlreport".equals(kind)) {
+                runSqlReport(step, resolvedParams, vars, res, line, control);
             } else {
                 line.accept("unknown internal step kind: " + kind);
                 res.exitCode = -996;
@@ -1077,6 +1079,185 @@ public class InternalSteps {
             }
         }
         for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
+        res.exitCode = 0;
+    }
+
+    // ------------------------------------------------------------- sqlreport
+    /**
+     * Runs a list of READ-ONLY queries against one datasource and writes a single Markdown evidence
+     * report. No CSV, no data file: the report IS the deliverable, so it carries everything a reader
+     * needs to trust it - the statement as executed (after ${var} substitution), its own timestamp
+     * and duration, the datasource / host / user / database, the run id, and the real row count even
+     * when the rendered table is truncated.
+     *
+     * Read-only is enforced at two levels, both before anything runs: every statement must survive
+     * SqlReportSupport.readOnlyError, and the JDBC connection is put in read-only mode. Both are a
+     * net against mistakes rather than a guarantee - the report says so itself, because the only real
+     * guarantee is the rights of the database account.
+     *
+     * Batch 1 does NOT collect variables: keyColumn and collect are parsed, stored and round-tripped
+     * but unused, and are wired in batch 2.
+     */
+    private void runSqlReport(StepDef step, Map<String, String> params, Map<String, String> vars,
+                              StepExecutor.Result res, java.util.function.Consumer<String> line,
+                              RunControl control) throws Exception {
+        DataSourceDef d = dataSources.get(step.datasource);
+        if (d == null) { line.accept("sqlreport: datasource not found: " + step.datasource); res.exitCode = 2; return; }
+        List<com.legalarchive.orchestrator.model.def.ReportQuery> queries = step.reportQueries;
+        if (queries == null || queries.isEmpty()) {
+            line.accept("sqlreport: no queries configured - add at least one with [+ Add query]");
+            res.exitCode = 2; return;
+        }
+
+        int defaultMaxRows = (int) pLong(params.get("maxRows"), 200L);
+        if (defaultMaxRows < 0) defaultMaxRows = 0;
+        boolean failOnEmpty = "true".equalsIgnoreCase(params.get("failOnEmpty"));
+        boolean trim = !"false".equalsIgnoreCase(params.get("trim"));
+        int qto = stepTimeoutSec(step.id, step.timeoutSec, vars, props != null ? props.getDefaultStepTimeoutSec() : 0);
+
+        String feedId = nz(vars.get("feedId"));
+        String stepId = step.id == null ? "step" : step.id;
+        String reportFile = blankToNull(VarResolver.resolve(params.get("reportFile"), vars));
+        if (reportFile == null) {
+            String stepDir = blankToNull(vars.get("stepDir"));
+            String base = feedId.isEmpty() ? stepId : (feedId + "_" + stepId);
+            reportFile = (stepDir == null ? base : (stepDir + java.io.File.separator + base)) + ".md";
+        }
+
+        // 1) resolve and validate EVERY statement before opening a connection: a rejected query must
+        //    not leave half the report written and half the queries executed.
+        List<String> sqls = new ArrayList<String>();
+        List<String> titles = new ArrayList<String>();
+        List<String> problems = new ArrayList<String>();
+        for (int i = 0; i < queries.size(); i++) {
+            com.legalarchive.orchestrator.model.def.ReportQuery rq = queries.get(i);
+            String title = blankToNull(VarResolver.resolve(rq == null ? null : rq.title, vars));
+            String stmt = rq == null ? null : VarResolver.resolve(rq.sql, vars);
+            titles.add(title == null ? ("Query " + (i + 1)) : title);
+            sqls.add(stmt == null ? "" : stmt);
+            String err = SqlReportSupport.readOnlyError(stmt);
+            if (err != null) problems.add("query " + (i + 1) + " (" + titles.get(i) + "): " + err);
+            if (rq != null && (blankToNull(rq.collect) != null || blankToNull(rq.keyColumn) != null)) {
+                line.accept("sqlreport: query " + (i + 1) + " declares collect/keyColumn - variable collection arrives in batch 2, ignored for now");
+            }
+        }
+        if (!problems.isEmpty()) {
+            for (String p : problems) line.accept("sqlreport: REJECTED - " + p);
+            line.accept("sqlreport: nothing was executed; a report query must be a single read-only SELECT (or WITH)");
+            res.exitCode = 2;
+            return;
+        }
+
+        String zone = java.util.TimeZone.getDefault().getID();
+        StringBuilder md = new StringBuilder();
+        md.append("# SQL report - ").append(feedId.isEmpty() ? stepId : feedId).append("\n");
+        md.append("\n");
+        md.append("Run: ").append(nz(vars.get("runId"))).append(" - executed ")
+          .append(LocalDateTime.now().format(TS)).append(" (").append(zone).append(")").append("\n");
+        md.append("\n");
+
+        long rowsTotal = 0;
+        int executed = 0;
+        int emptyQueries = 0;
+        java.sql.Connection conn = null;
+        try {
+            conn = sql.open(d);
+            boolean readOnlySet = false;
+            try { conn.setReadOnly(true); readOnlySet = conn.isReadOnly(); }
+            catch (Exception e) { line.accept("sqlreport: the driver refused setReadOnly(true) (" + e.getMessage() + ") - statement validation still applies"); }
+
+            String host = "as400".equalsIgnoreCase(d.type) ? nz(d.host) : SqlReportSupport.redactJdbcUrl(d.jdbcUrl);
+            String database = "";
+            String product = "";
+            try { database = nz(conn.getCatalog()); } catch (Exception ignored) { }
+            try { product = nz(conn.getMetaData().getDatabaseProductName()); } catch (Exception ignored) { }
+
+            md.append("Datasource: ").append(nz(d.id)).append(" (").append(nz(d.type)).append(")")
+              .append(" - host ").append(host.isEmpty() ? "(n/a)" : host)
+              .append(" - user ").append(nz(d.user).isEmpty() ? "(n/a)" : nz(d.user))
+              .append(" - database ").append(database.isEmpty() ? "(n/a)" : database);
+            if (!product.isEmpty()) md.append(" - ").append(product);
+            md.append("\n").append("\n");
+            md.append("Workflow: ").append(feedId).append(" \"").append(nz(vars.get("feedName")))
+              .append("\" - step ").append(stepId).append("\n").append("\n");
+            md.append("Read-only: every statement was checked to be a single SELECT/WITH before execution")
+              .append(readOnlySet ? " and the JDBC connection was set read-only." : " (the driver did not honour a read-only connection).")
+              .append(" This is a guard against mistakes, not a guarantee: a SELECT can still call a function with side effects.")
+              .append(" The real guarantee is the rights of the database account.").append("\n").append("\n");
+
+            line.accept("sqlreport: datasource " + d.id + " (" + d.type + "), " + queries.size() + " query(ies), maxRows " + defaultMaxRows
+                    + (qto > 0 ? (", query timeout " + qto + "s") : ""));
+
+            for (int i = 0; i < sqls.size(); i++) {
+                if (control != null && control.aborted) { line.accept("sqlreport: aborted by user"); res.exitCode = -997; return; }
+                com.legalarchive.orchestrator.model.def.ReportQuery rq = queries.get(i);
+                int cap = (rq != null && rq.maxRows > 0) ? rq.maxRows : defaultMaxRows;
+                String stmt = sqls.get(i);
+
+                md.append("## ").append(i + 1).append(". ").append(titles.get(i)).append("\n").append("\n");
+
+                List<String> cols = new ArrayList<String>();
+                List<List<String>> rows = new ArrayList<List<String>>();
+                long count = 0;
+                String startedAt = LocalDateTime.now().format(TS);
+                long t0 = System.currentTimeMillis();
+                java.sql.Statement st = null;
+                try {
+                    st = conn.createStatement();
+                    if (qto > 0) { try { st.setQueryTimeout(qto); } catch (Exception ignored) { } }
+                    if (control != null) control.statement = st;   // so an operator Stop can cancel it
+                    java.sql.ResultSet rs = st.executeQuery(stmt);
+                    java.sql.ResultSetMetaData mdta = rs.getMetaData();
+                    int nc = mdta.getColumnCount();
+                    for (int c = 1; c <= nc; c++) cols.add(mdta.getColumnLabel(c));
+                    while (rs.next()) {
+                        count++;
+                        // the table is capped, the COUNT never is: a truncated table hiding the real
+                        // number would be misleading in a document meant as evidence
+                        if (cap > 0 && rows.size() >= cap) continue;
+                        List<String> row = new ArrayList<String>(nc);
+                        for (int c = 1; c <= nc; c++) row.add(SqlReportSupport.cell(rs.getObject(c), trim));
+                        rows.add(row);
+                    }
+                } finally {
+                    if (control != null) control.statement = null;
+                    if (st != null) try { st.close(); } catch (Exception ignored) { }
+                }
+                long ms = System.currentTimeMillis() - t0;
+                executed++;
+                rowsTotal += count;
+                if (count == 0) emptyQueries++;
+
+                md.append("Executed ").append(startedAt).append(", ")
+                  .append(String.format(java.util.Locale.ROOT, "%.2f", ms / 1000.0)).append(" s, ")
+                  .append(count).append(count == 1 ? " row" : " rows");
+                if (cap > 0 && count > rows.size()) md.append(" (table truncated to the first ").append(rows.size()).append(")");
+                md.append("\n").append("\n");
+                md.append("```sql").append("\n").append(stmt.trim()).append("\n").append("```").append("\n").append("\n");
+                md.append(SqlReportSupport.markdownTable(cols, rows)).append("\n");
+
+                line.accept("sqlreport: query " + (i + 1) + " \"" + titles.get(i) + "\" -> " + count + " row(s) in " + ms + " ms");
+            }
+        } finally {
+            if (conn != null) try { conn.close(); } catch (Exception ignored) { }
+        }
+
+        java.io.File out = new java.io.File(reportFile);
+        if (out.getParentFile() != null) out.getParentFile().mkdirs();
+        Files.write(out.toPath(), md.toString().getBytes(StandardCharsets.UTF_8));
+
+        res.outVars.put("reportFile", out.getAbsolutePath());
+        res.outVars.put("queriesExecuted", String.valueOf(executed));
+        res.outVars.put("rowsTotal", String.valueOf(rowsTotal));
+        for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
+        line.accept("sqlreport: report written to " + out.getAbsolutePath());
+
+        if (failOnEmpty && emptyQueries > 0) {
+            line.accept("sqlreport: " + emptyQueries + " query(ies) returned no rows and 'fail on empty' is on - the report was written anyway");
+            res.lastLines = emptyQueries + " query(ies) returned no rows";
+            res.exitCode = 1;
+            return;
+        }
         res.exitCode = 0;
     }
 
@@ -2850,6 +3031,8 @@ public class InternalSteps {
             r.close();
         }
     }
+
+    private static String nz(String v) { return v == null ? "" : v; }
 
     private static String blankToNull(String s) { return (s == null || s.trim().isEmpty()) ? null : s.trim(); }
 

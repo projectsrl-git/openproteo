@@ -76,6 +76,8 @@ public class WorkflowDto {
         public java.util.List<CsvInputDto> inputs;
         public static class ColumnSelDto { public String src; public String as; }
         public java.util.List<ColumnSelDto> columns;
+        public static class ReportQueryDto { public String title; public String sql; public String keyColumn; public String collect; public Integer maxRows; }
+        public java.util.List<ReportQueryDto> reportQueries;
         public String delimiter;
         // parallel fan-out
         public String forEach;

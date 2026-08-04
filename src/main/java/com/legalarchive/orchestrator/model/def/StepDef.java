@@ -71,6 +71,8 @@ public class StepDef extends NodeDef {
     public java.util.List<CsvInput> inputs = new java.util.ArrayList<CsvInput>();
     /** xlsx2csv: selected columns (src header/letter -> as output name). */
     public java.util.List<ColumnSel> columns = new java.util.ArrayList<ColumnSel>();
+    /** sqlreport: the read-only queries rendered as sections of the Markdown report. */
+    public java.util.List<ReportQuery> reportQueries = new java.util.ArrayList<ReportQuery>();
     /** Delimiter for joined list output vars (default ;). */
     public String delimiter;
 

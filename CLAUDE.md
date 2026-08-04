@@ -1041,3 +1041,31 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   refuses any non-terminal run (`WorkflowEngine.isTerminalStatus`). * FIX: `loadFeeds(force)` declared
   `force` and never used it; `/api/overview/feeds?refresh=1` now drops the cache so a bulk action is
   visible immediately. Note in `.claude/2026-08-04-DESIGN-operations-bulk-stop-continue.md`.
+
+## sqlreport executor — Batch 1
+* New internal executor `sqlreport`: a LIST of read-only queries against one JDBC datasource, no CSV,
+  one Markdown evidence report. Registered in the four locations (parser whitelist + error message,
+  parser `internal` set, `WorkflowEngine.internalKind()`, `InternalSteps` dispatch) plus the two
+  designer ones (dropdown `<option>`, `clientValidate`). * **Storage is `<reportQuery>`, NOT
+  `<query>`**: `<query>` is already the single-statement child of the `sql` executor
+  (`textOrAttr(el,"query")`), so reusing it would have made the first report query silently become
+  `StepDef.query`. One element per query, so a `;` inside SQL cannot corrupt the definition. New
+  `model/def/ReportQuery`, `StepDef.reportQueries`, parser/writer round-trip, `ReportQueryDto` +
+  `toDto`. * **Read-only, two levels, both before execution.** New `engine/SqlReportSupport` — no
+  Spring, no JDBC, no project types, so the provable logic compiles and runs standalone —
+  `readOnlyError()` strips comments and blanks quoted literals/identifiers, then requires: not empty,
+  no second statement after `;`, leading keyword SELECT or WITH, and no DML/DDL keyword anywhere. The
+  last check is STRICTER than the spec on purpose: `WITH x AS (...) DELETE FROM t` begins with WITH
+  and is a single statement. Then `Connection.setReadOnly(true)` (effect read back with
+  `isReadOnly()` and reported) + TIMEOUT SEC as query timeout. If any query is rejected NOTHING runs.
+  The report, the docs and the designer all state this is a net against mistakes, not a guarantee —
+  the guarantee is the database account's rights. * Report: run id, timestamp + zone, datasource /
+  host / user / database, workflow + step; per query its own timestamp, duration, row count, the
+  statement AS EXECUTED in a fenced block, and the table with `|` escaped and CR/LF folded to a
+  space. **The row count is always real**: the ResultSet is consumed to the end and only `maxRows`
+  (default 200) rows are kept, so `setMaxRows` is deliberately not used. **Never a password**:
+  `redactJdbcUrl` masks `password/passwd/pwd` and the `user:pw@host` form. * Outputs `${reportFile}`,
+  `${queriesExecuted}`, `${rowsTotal}`; `failOnEmpty` (default off) fails AFTER writing the report.
+  The running statement is registered in `control.statement` so Stop can cancel it. * `keyColumn` and
+  `collect` are parsed, stored and shown but UNUSED — variable collection is batch 2. Note in
+  `.claude/2026-08-04-sqlreport-batch1.md`, spec in `.claude/SQLREPORT_VERSIONING_VARIABLES.md`.

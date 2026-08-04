@@ -502,6 +502,13 @@
     function addCol(i) { var n = wf.nodes[i]; n.columns = n.columns || []; n.columns.push({ src: '', as: '' }); renderNodes(); }
     function delCol(i, ci) { wf.nodes[i].columns.splice(ci, 1); renderNodes(); preview(); }
     function updCol(i, ci, f, v) { wf.nodes[i].columns[ci][f] = v; preview(); }
+    function addRq(i) { var n = wf.nodes[i]; n.reportQueries = n.reportQueries || []; n.reportQueries.push({ title: '', sql: '' }); renderNodes(); }
+    function delRq(i, qi) { wf.nodes[i].reportQueries.splice(qi, 1); renderNodes(); preview(); }
+    function updRq(i, qi, f, v) {
+        if (f === 'maxRows') { var m = parseInt(v, 10); wf.nodes[i].reportQueries[qi].maxRows = (isNaN(m) || m <= 0) ? null : m; }
+        else { wf.nodes[i].reportQueries[qi][f] = v; }
+        preview();
+    }
 
     function addParam(i) { wf.nodes[i].params.push({ name: '', value: '' }); renderNodes(); }
     function delParam(i, j) { wf.nodes[i].params.splice(j, 1); renderNodes(); preview(); }
@@ -525,6 +532,27 @@
     }
 
     function isExternal(ex) { return ex === 'auto' || ex === 'powershell' || ex === 'cmd' || ex === 'jar'; }
+
+    /* First SQL keyword of a statement, uppercased: leading whitespace, '(' and comments are skipped.
+       Mirrors SqlReportSupport.leadingKeyword so the designer refuses obviously non-read-only
+       queries before saving; the server re-checks and remains the authority.
+       Newline/CR are built with String.fromCharCode: literal escapes in JS strings are rewritten
+       by the corporate proxy. */
+    function leadingSqlWord(sql) {
+        if (!sql) return null;
+        var s = String(sql), i = 0, n = s.length;
+        var TABC = String.fromCharCode(9), LFC = String.fromCharCode(10), CRC = String.fromCharCode(13);
+        while (i < n) {
+            var c = s.charAt(i);
+            if (c === ' ' || c === TABC || c === LFC || c === CRC || c === '(') { i++; continue; }
+            if (c === '-' && s.charAt(i + 1) === '-') { while (i < n && s.charAt(i) !== LFC && s.charAt(i) !== CRC) i++; continue; }
+            if (c === '/' && s.charAt(i + 1) === '*') { var e = s.indexOf('*/', i + 2); i = (e < 0) ? n : e + 2; continue; }
+            break;
+        }
+        var start = i;
+        while (i < n && /[A-Za-z_]/.test(s.charAt(i))) i++;
+        return i > start ? s.substring(start, i).toUpperCase() : null;
+    }
 
     function dsSelect(i, current) {
         var opts = '<option value="">(select datasource)</option>';
@@ -817,6 +845,7 @@
                     '<option value="csvsql"' + (ex === 'csvsql' ? ' selected' : '') + '>csvsql (H2 SQL/joins across CSVs)</option>' +
                     '<option value="xlsx2csv"' + (ex === 'xlsx2csv' ? ' selected' : '') + '>xlsx2csv (Excel sheet → CSV)</option>' +
                     '<option value="diff"' + (ex === 'diff' ? ' selected' : '') + '>diff (reconcile two CSVs)</option>' +
+                    '<option value="sqlreport"' + (ex === 'sqlreport' ? ' selected' : '') + '>sqlreport (read-only queries → Markdown report)</option>' +
                     '</select></div>';
                 h += '<div class="field wide"><label>Script / executable (relative to scripts dir or absolute)' + (isExternal(ex) ? ' *' : '') + '</label>' +
                     '<input value="' + attresc(n.script) + '" placeholder="' + (isExternal(ex) ? 'Prepare-Feed.ps1 | tool.bat | app.jar' : '(not used for this executor)') + '" oninput="updNode(' + i + ',\'script\',this.value)"' + (isExternal(ex) ? '' : ' disabled') + '></div>' +
@@ -1138,6 +1167,25 @@
                     }
                     h += '<div class="form-row"><div class="field wide"><label><input type="checkbox"' + (nodeParam(n, 'failOnDifferences') === 'true' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'failOnDifferences\',this.checked?\'true\':\'\')"> Fail the step if any difference is found</label></div></div>';
                     h += '<div class="dim small" style="margin-top:6px">Outputs: <b>${' + esc(n.id) + '.diffResult}</b> (PERFECT_MATCH|DIFFERENCES), <b>diffCount</b>, and two files under the step dir: <code>&lt;name&gt;_recon_report.md</code> + <code>&lt;name&gt;_recon_differences.csv</code>.</div>';
+                } else if (ex === 'sqlreport') {
+                    h += '<div class="form-row">' + dsSelect(i, n.datasource) +
+                        '<div class="field"><label>Max rows in each table</label><input type="number" min="0" value="' + attresc(nodeParam(n, 'maxRows')) + '" placeholder="200" title="Rows rendered per table. The row count in the report is always the real one, even when the table is truncated." oninput="setNodeParam(' + i + ',\'maxRows\',this.value)"></div>' +
+                        '<div class="field"><label>Fail on empty</label><label class="dim small"><input type="checkbox"' + (nodeParam(n, 'failOnEmpty') === 'true' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'failOnEmpty\',this.checked?\'true\':\'\')"> a query with zero rows fails the step</label></div></div>';
+                    h += '<div class="form-row"><div class="field wide"><label>Report file (Markdown)</label>' +
+                        '<input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'reportFile')) + '" placeholder="${stepDir}/${feedId}_' + attresc(n.id) + '.md" oninput="setNodeParam(' + i + ',\'reportFile\',this.value)"></div></div>';
+                    h += '<div class="subsection"><div class="sub-label">Read-only queries — one section per query in the report</div>';
+                    (n.reportQueries || []).forEach(function (rq, qi) {
+                        h += '<div class="form-row">' +
+                            '<div class="field wide"><label>Title *</label><input value="' + attresc(rq.title) + '" placeholder="Row count on the source" oninput="updRq(' + i + ',' + qi + ',\'title\',this.value)"></div>' +
+                            '<div class="field"><label>Key column (batch 2)</label><input value="' + attresc(rq.keyColumn) + '" placeholder="CID" title="Reserved for variable collection (batch 2): stored and kept, not used yet." oninput="updRq(' + i + ',' + qi + ',\'keyColumn\',this.value)"></div>' +
+                            '<div class="field"><label>Collect (batch 2)</label><input value="' + attresc(rq.collect) + '" placeholder="AMOUNT,STATUS" title="Reserved for variable collection (batch 2): stored and kept, not used yet." oninput="updRq(' + i + ',' + qi + ',\'collect\',this.value)"></div>' +
+                            '<div class="field" style="max-width:110px"><label>Max rows</label><input type="number" min="0" value="' + (rq.maxRows || '') + '" placeholder="(step)" oninput="updRq(' + i + ',' + qi + ',\'maxRows\',this.value)"></div>' +
+                            '<div class="field" style="max-width:60px"><label>&nbsp;</label><button class="btn sm danger" onclick="delRq(' + i + ',' + qi + ')">✕</button></div></div>';
+                        h += '<div class="form-row"><div class="field wide">' +
+                            '<textarea class="inline-input" style="width:100%;min-height:80px" placeholder="SELECT COUNT(*) AS N FROM ${originTableName} WHERE DT = ' + String.fromCharCode(39) + '${runDate}' + String.fromCharCode(39) + '" oninput="updRq(' + i + ',' + qi + ',\'sql\',this.value)">' + esc(rq.sql) + '</textarea></div></div>';
+                    });
+                    h += '<button class="ghost-btn" onclick="addRq(' + i + ')">＋ Add query</button></div>';
+                    h += '<div class="dim small" style="margin-top:6px">Every statement must be a single <b>SELECT</b> or <b>WITH</b>: it is checked before anything runs and the connection is opened read-only. That is a net against mistakes, <b>not</b> a guarantee — the real guarantee is the rights of the database account. No CSV is produced. Outputs: <b>${reportFile}</b>, <b>${queriesExecuted}</b>, <b>${rowsTotal}</b>.</div>';
                 } else if (ex === 'split') {
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Input file *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${anonymize.outputFile} | ${landingOut}/data.csv" oninput="updNode(' + i + ',\'source\',this.value)"></div></div>';
@@ -1429,6 +1477,19 @@
                     var asNames = {};
                     (n.columns || []).forEach(function (c) {
                         if (c.as) { if (asNames[c.as]) errs.push(label + ' (' + n.id + '): duplicate output column "' + c.as + '"'); asNames[c.as] = true; }
+                    });
+                }
+                if (ex === 'sqlreport') {
+                    if (!n.datasource) errs.push(label + ' (' + n.id + '): sqlreport needs a datasource');
+                    var rqs = n.reportQueries || [];
+                    if (!rqs.length) errs.push(label + ' (' + n.id + '): at least one query is required');
+                    rqs.forEach(function (rq, qi) {
+                        if (!rq.title || !rq.title.trim()) errs.push(label + ' (' + n.id + '): query #' + (qi + 1) + ' needs a title');
+                        if (!rq.sql || !rq.sql.trim()) errs.push(label + ' (' + n.id + '): query #' + (qi + 1) + ' needs a SQL statement');
+                        else {
+                            var lead = leadingSqlWord(rq.sql);
+                            if (lead !== 'SELECT' && lead !== 'WITH') errs.push(label + ' (' + n.id + '): query #' + (qi + 1) + ' must start with SELECT or WITH (found ' + (lead || '?') + ')');
+                        }
                     });
                 }
                 if (ex === 'safecopy' && (!n.source || !n.dest)) errs.push(label + ' (' + n.id + '): source and dest directories are required');

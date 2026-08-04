@@ -1906,6 +1906,15 @@ public class ApiController {
                         nd.columns.add(cd);
                     }
                 }
+                if (st.reportQueries != null && !st.reportQueries.isEmpty()) {
+                    nd.reportQueries = new java.util.ArrayList<WorkflowDto.NodeDto.ReportQueryDto>();
+                    for (com.legalarchive.orchestrator.model.def.ReportQuery rq : st.reportQueries) {
+                        WorkflowDto.NodeDto.ReportQueryDto qd = new WorkflowDto.NodeDto.ReportQueryDto();
+                        qd.title = rq.title; qd.sql = rq.sql; qd.keyColumn = rq.keyColumn;
+                        qd.collect = rq.collect; qd.maxRows = rq.maxRows > 0 ? rq.maxRows : null;
+                        nd.reportQueries.add(qd);
+                    }
+                }
                 nd.delimiter = st.delimiter;
                 nd.forEach = st.forEach;
                 nd.concurrency = st.concurrency != 4 ? st.concurrency : null;

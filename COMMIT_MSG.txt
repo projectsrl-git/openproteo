@@ -1,62 +1,100 @@
-Operations bulk bar: Continue/Stop, Delete feed vs run, delete guard
+sqlreport executor (batch 1): read-only queries, Markdown evidence
 
-Adds bulk CONTINUE and STOP to the Operations drill-grid action bar, so a set
-of paused feeds can be resumed or aborted in one go instead of one run at a
-time, and disambiguates the DELETE button.
+Implements batch 1 of section 1 of .claude/SQLREPORT_VERSIONING_VARIABLES.md:
+a new internal executor that runs a LIST of read-only queries against one JDBC
+datasource and writes a single Markdown evidence report. No CSV and no data
+file: the report is the deliverable, so it can be attached to a
+reconciliation.
 
-CONTINUE resumes the selected runs that are ON HOLD; STOP aborts the selected
-RUNNING / QUEUED / WAITING_APPROVAL / ON_HOLD runs, which end as ABORTED. No
-engine change was required to reach a held run: the ON HOLD suspend path only
-removes the feed from runningFeeds, the run stays in activeRuns, and both
-stop() and resumeHold() resolve by runId with a store.load fallback - so a
-hold is reachable while the JVM is up and after a Tomcat restart. Treating
-ON_HOLD as active in runningFeeds was deliberately rejected: it would
-re-occupy the engine slot for a run that was parked on purpose.
+Registered in the four locations the project's rule requires - the exec
+whitelist AND its error message in WorkflowXmlParser, the parser 'internal'
+set, WorkflowEngine.internalKind(), the InternalSteps dispatch - plus the two
+designer ones, the executor dropdown option and clientValidate. Missing one of
+these is what makes an executor invisible in the dropdown.
 
-The bar targets liveRunId || lastRunId. New WorkflowEngine.activeRunsByFeed()
-snapshots the non-terminal runs still held in memory, including the ones that
-released the slot, newest per feed and test runs excluded; ApiController
-publishes it as liveRunId/liveStatus in the LIVE (non-cached) part of
-/api/overview/feeds, because lastRunId is cached for 10s and would miss a run
-started inside that window, while lastRunId still covers a hold orphaned by a
-restart. Eligibility is filtered client-side and feeds with no actionable run
-are reported as skipped; the endpoints stay authoritative, so a stale grid can
-never act on the wrong run. PRODUCTION feeds require an explicit checkbox in
-the confirm dialog, as for Clear history; this is UI-level only, since the
-per-run /stop and /resume contracts are shared with the run page.
+Storage is one <reportQuery> element per query, never a delimited string, so a
+';' inside a statement cannot corrupt the definition. The element is NOT
+<query>: that tag is already the single-statement child of the sql executor
+(textOrAttr(el,"query") looks for a child before the attribute), so reusing it
+would have made the first report query silently become StepDef.query. New
+model/def/ReportQuery, StepDef.reportQueries, parser and writer round-trip,
+NodeDto.ReportQueryDto and the toDto mapping.
 
-The bulk DELETE button posts to /api/workflows/{id}/delete, which removes the
-WORKFLOW DEFINITION, not a run: it is relabelled "Delete feed" with a clearer
-confirm text, and a separate "Delete last run" action is added for the
-run-level operation. Labelling the existing button "Delete run" would have
-presented a feed deletion as a run deletion.
+Read-only is enforced at two levels, both before anything is executed. New
+engine/SqlReportSupport - deliberately free of Spring, JDBC and project types,
+so the part whose behaviour must be provable without a database compiles and
+runs on its own - strips comments and blanks the content of string literals
+and quoted identifiers, then requires: not empty, no second statement after a
+';', a leading SELECT or WITH, and no DML/DDL keyword anywhere. That last
+check is stricter than the spec asked, deliberately: a data-modifying CTE such
+as WITH x AS (...) DELETE FROM t begins with WITH and is a single statement,
+so the spec's two checks would have accepted it. Second level: the JDBC
+connection is opened with setReadOnly(true) - its real effect is read back
+with isReadOnly() and stated in the document, since drivers may ignore it -
+plus the step's TIMEOUT SEC as query timeout. If any query is rejected,
+nothing runs at all. The report, USAGE.md and the designer all say the same
+thing: this is a net against mistakes, NOT a guarantee, because a SELECT can
+still call a function with side effects; the real guarantee is the rights of
+the database account, which is the right place for it.
 
-FIX: deleteRun guarded on engine.activeRunId(feedId), which returns null for a
-run suspended on a manual gate (WAITING_APPROVAL) or on a held step (ON_HOLD),
-because both release the engine slot - so a suspended but live run could be
-deleted from disk while still present in activeRuns. It now refuses any run
-whose status is not terminal (new public WorkflowEngine.isTerminalStatus).
+The report is UTF-8 Markdown at the reportFile param, default
+${stepDir}/${feedId}_${stepId}.md. Header: run id, timestamp with the JVM
+zone, datasource id/type/host/user/database plus product name, workflow and
+step. Per query: its own timestamp, its own duration, the row count, the
+statement AS EXECUTED (after variable substitution) in a fenced block, and the
+result table with '|' escaped and CR/LF folded to a space so a multi-line
+value cannot break the table. The row count is ALWAYS real: the ResultSet is
+consumed to the end and only maxRows (default 200) rows are kept for the
+table, so Statement.setMaxRows is deliberately not used - it would falsify the
+count - and the header says "table truncated to the first N" when they differ.
+A password is never written: only datasource id, host and user, and for a
+custom datasource the JDBC URL goes through redactJdbcUrl, which masks
+password/passwd/pwd values and the user:pw@host form.
 
-FIX: loadFeeds(force) in overview.html declared its parameter and never used
-it, so after a bulk action the grid kept the pre-action status for up to the
-10s cache TTL. /api/overview/feeds now accepts an optional refresh=1 that
-drops the cache; the default polling path is unchanged.
+Publishes ${reportFile}, ${queriesExecuted} and ${rowsTotal}. failOnEmpty
+(default off) fails the step when a query returned no rows, AFTER writing the
+report so the evidence survives the failure. The running statement is
+registered in control.statement so an operator Stop can cancel it.
 
-Verified: node --check on the extracted overview.html inline script; zero
-literal escape sequences for newline/CR in JS and zero uncommented Thymeleaf
-inlining markers in the template; string/comment-aware brace and paren balance
-on both Java files (0/0); activeRunsByFeed and isTerminalStatus extracted
-verbatim, compiled with -source 8 and run against synthetic runs (newest-wins
-when a feed holds both a parked ON_HOLD and a newer RUNNING run, ON_HOLD and
-WAITING_APPROVAL reported, terminal and test runs excluded, startTs ties
-broken by runId); the real drillPickRuns / drillIsTerminal / drillUrls /
-drillProdChecks extracted from the template and run in node against synthetic
-grid rows (CONTINUE selects only ON_HOLD, STOP selects every live status and
-picks liveRunId for a run started inside the cache window, an orphaned hold is
-reached via lastRunId, Delete last run selects only finished runs with no live
-run, skip counts and the PROD checkbox correct).
+Conservative: a new executor id, a new optional child element, a new model
+list empty on every existing step, and designer code behind ex ===
+'sqlreport'. No existing feed changes behaviour and no new Maven dependency -
+plain JDBC through the existing SqlSupport.open. Java 8 throughout.
 
-NOT verified: mvn clean package, and all live engine behaviour - the bulk stop
-over real ON HOLD runs must be confirmed on the UBS deploy.
+keyColumn and collect are parsed, stored, round-tripped and shown in the
+designer marked "batch 2", but unused; the step log says so when a query
+declares them. Collecting query results into run variables is batch 2.
 
-Spec: .claude/2026-08-04-DESIGN-operations-bulk-stop-continue.md
+Verified. SqlReportSupport compiled standalone with -source 8 and exercised by
+42 assertions, all passing: 16 statements that must be accepted (lowercase,
+leading line and block comments, a read-only CTE, a parenthesised UNION, a
+trailing ';', a ';' inside a literal, the word DELETE inside a literal, DROP
+inside a comment, a column named LAST_UPDATE, GROUPING SETS and OFFSET not
+tripping the SET keyword, doubled-quote escapes) and 13 that must be rejected
+(null, empty, comment-only, INSERT/UPDATE/DELETE/DROP/CALL/SET, a second
+statement with and without a newline, DML hidden behind comments, and the
+data-modifying CTE); the Markdown table renderer (pipe escaping, CRLF folding,
+short rows padded, no columns, header-only); and redactJdbcUrl (password
+param, pwd mid-URL, user:pw@host, nothing-to-redact untouched, and text before
+a skipped near-match not being dropped). The <reportQuery> round trip was
+proved through a real DOM write-then-parse: a statement containing ';', '&',
+'<' and '>' survives intact, attributes round-trip, an absent maxRows falls
+back to the step default, and - the point of the tag choice -
+textOrAttr("query") returns empty when only reportQuery children exist while a
+real <query> child still reads back, so the sql executor is untouched.
+designer.html: node --check on all 147k of extracted inline JS passes, zero
+literal newline/CR escape sequences, and the only Thymeleaf inlining marker in
+the file is the pre-existing commented /*[[${feedId}]]*/. The new
+leadingSqlWord helper was extracted and run in node against the same 12 cases
+as the Java validator, all matching. String/comment-aware brace and paren
+balance is 0/0 on all nine touched Java files, and an import checker confirmed
+every type on an added code line is imported, fully qualified, nested in a
+resolvable outer type, in java.lang or in the same package.
+
+NOT verified: mvn clean package (Maven Central is unreachable from the chat
+sandbox), and everything that needs a live database - the JDBC path, whether a
+given driver honours setReadOnly(true), the query timeout, and the report as
+actually written by a run. Please build and run one step on deploy.
+
+Spec: .claude/SQLREPORT_VERSIONING_VARIABLES.md
+Note: .claude/2026-08-04-sqlreport-batch1.md

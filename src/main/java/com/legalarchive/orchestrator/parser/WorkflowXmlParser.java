@@ -86,12 +86,12 @@ public class WorkflowXmlParser {
                     s.name = el.hasAttribute("name") ? el.getAttribute("name") : s.id;
                     s.exec = trimToNull(el.getAttribute("exec"));
                     if (s.exec != null && !java.util.Arrays.asList(
-                            "auto", "powershell", "cmd", "jar", "sql", "ifscopy", "filecopy", "setvar", "validate", "csvreplace", "encoding", "anonymize", "mask", "split", "safecopy", "dequote", "csvsql", "xlsx2csv", "diff")
+                            "auto", "powershell", "cmd", "jar", "sql", "ifscopy", "filecopy", "setvar", "validate", "csvreplace", "encoding", "anonymize", "mask", "split", "safecopy", "dequote", "csvsql", "xlsx2csv", "diff", "sqlreport")
                             .contains(s.exec.toLowerCase())) {
-                        throw new IllegalArgumentException("Step '" + s.id + "': exec must be auto, powershell, cmd, jar, sql, ifscopy, filecopy, setvar, validate, csvreplace, encoding, anonymize, mask, split, safecopy, dequote, csvsql, xlsx2csv or diff");
+                        throw new IllegalArgumentException("Step '" + s.id + "': exec must be auto, powershell, cmd, jar, sql, ifscopy, filecopy, setvar, validate, csvreplace, encoding, anonymize, mask, split, safecopy, dequote, csvsql, xlsx2csv, diff or sqlreport");
                     }
                     String ik = s.exec == null ? null : s.exec.toLowerCase();
-                    boolean internal = "sql".equals(ik) || "ifscopy".equals(ik) || "filecopy".equals(ik) || "setvar".equals(ik) || "validate".equals(ik) || "csvreplace".equals(ik) || "encoding".equals(ik) || "anonymize".equals(ik) || "mask".equals(ik) || "split".equals(ik) || "safecopy".equals(ik) || "dequote".equals(ik) || "csvsql".equals(ik) || "xlsx2csv".equals(ik) || "diff".equals(ik);
+                    boolean internal = "sql".equals(ik) || "ifscopy".equals(ik) || "filecopy".equals(ik) || "setvar".equals(ik) || "validate".equals(ik) || "csvreplace".equals(ik) || "encoding".equals(ik) || "anonymize".equals(ik) || "mask".equals(ik) || "split".equals(ik) || "safecopy".equals(ik) || "dequote".equals(ik) || "csvsql".equals(ik) || "xlsx2csv".equals(ik) || "diff".equals(ik) || "sqlreport".equals(ik);
                     // script is required only for external (process) steps
                     s.script = internal ? trimToNull(el.getAttribute("script")) : req(el, "script", xmlFile);
                     // built-in step attributes
@@ -133,6 +133,20 @@ public class WorkflowXmlParser {
                         cs.src = col.getAttribute("src");
                         cs.as = col.hasAttribute("as") ? col.getAttribute("as") : col.getAttribute("src");
                         s.columns.add(cs);
+                    }
+                    for (Element rqe : directChildren(el, "reportQuery")) {
+                        // NOT <query>: that tag is the single-statement text of the 'sql' executor
+                        // (textOrAttr above), and reusing it would silently turn the first report
+                        // query into StepDef.query. One element per query, so a ';' inside the SQL
+                        // can never corrupt the definition.
+                        com.legalarchive.orchestrator.model.def.ReportQuery rq =
+                                new com.legalarchive.orchestrator.model.def.ReportQuery();
+                        rq.title = trimToNull(rqe.getAttribute("title"));
+                        rq.keyColumn = trimToNull(rqe.getAttribute("keyColumn"));
+                        rq.collect = trimToNull(rqe.getAttribute("collect"));
+                        rq.maxRows = intAttr(rqe, "maxRows", 0);
+                        rq.sql = trimToNull(rqe.getTextContent());
+                        s.reportQueries.add(rq);
                     }
                     s.forEach = trimToNull(el.getAttribute("forEach"));
                     s.concurrency = intAttr(el, "concurrency", 4);

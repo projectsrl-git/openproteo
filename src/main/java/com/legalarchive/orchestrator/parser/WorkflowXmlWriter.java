@@ -148,6 +148,16 @@ public class WorkflowXmlWriter {
                             if (cs.as != null && !cs.as.isEmpty()) ce.setAttribute("as", cs.as);
                             s.appendChild(ce);
                         }
+                        if (n.reportQueries != null) for (com.legalarchive.orchestrator.web.dto.WorkflowDto.NodeDto.ReportQueryDto rq : n.reportQueries) {
+                            if (rq == null) continue;
+                            org.w3c.dom.Element qe = doc.createElement("reportQuery");
+                            if (rq.title != null && !rq.title.trim().isEmpty()) qe.setAttribute("title", rq.title.trim());
+                            if (rq.keyColumn != null && !rq.keyColumn.trim().isEmpty()) qe.setAttribute("keyColumn", rq.keyColumn.trim());
+                            if (rq.collect != null && !rq.collect.trim().isEmpty()) qe.setAttribute("collect", rq.collect.trim());
+                            if (rq.maxRows != null && rq.maxRows > 0) qe.setAttribute("maxRows", String.valueOf(rq.maxRows));
+                            qe.setTextContent(rq.sql == null ? "" : rq.sql);
+                            s.appendChild(qe);
+                        }
                         if (n.csvSplitRows != null && n.csvSplitRows > 0) s.setAttribute("csvSplitRows", String.valueOf(n.csvSplitRows));
                         if (n.csvSplitMb != null && n.csvSplitMb > 0) s.setAttribute("csvSplitMb", String.valueOf(n.csvSplitMb));
                         attr(s, "delimiter", n.delimiter);
