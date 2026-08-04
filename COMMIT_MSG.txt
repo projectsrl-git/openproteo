@@ -1,22 +1,25 @@
-Log report: lazy peek at the step log from the grid
+Spec: audit-proof SQL report executor, workflow versioning on structural edits, missing steps in Variables
 
-The details column shows the audit payload, which is all the audit line carries. The step log, the
-script output itself, lives in per-step files under the run directory and is deliberately not indexed: it
-is one to three orders of magnitude larger than the audit and indexing it would have turned a disposable
-in-memory index into something needing a persistent store and a real search engine.
+Design and handoff spec for the three requested changes, committed before any implementation so the
+decisions are made explicitly and each batch can be reviewed on its own.
 
-Every event row that has both a run and a step now carries a step log chip in its details cell. Clicking
-it expands a panel under the row with the last three hundred lines, fetched on demand for that row alone
-and reusing the endpoint the run page already uses; clicking again collapses it. Nothing is pre-fetched,
-cached or indexed, the cost is one request per peek, and the log files remain the only copy of that data.
+The sqlreport executor runs a list of read-only queries and produces a Markdown document rather than a
+CSV: each query with its own execution timestamp and duration, the text as executed after variable
+substitution, the datasource host, user and database, the run id, the row count and the result table. It
+is a new executor rather than a mode of sql, because sql exists to move data while this one exists to
+prove something, and the deliverable is the document itself. Read-only is enforced in two layers, a
+statement check and a read-only connection, and the spec states plainly that the real guarantee is the
+database account's own rights. Variable collection is specified with a decision left open: aligned
+semicolon-separated lists, which reuse the existing list indexing and OUTPUT DATA rendering, or a new
+keyed resolver syntax that is more expressive but touches VarResolver.
 
-Failures degrade politely: a missing or unreadable log shows a message with the HTTP status inside the
-panel rather than breaking the row, and an empty file says so explicitly. Rows without a run or a step
-get no chip because there is no step log to show.
+Workflow versioning proposes a copy with the id suffixed .v1 when steps are added or removed on a feed
+that already has runs, with the open questions spelled out: whether the original keeps the schedule, and
+whether a dotted suffix is acceptable in a feed id given those ids appear in paths and in the Legal
+Archive naming.
 
-Docs: .claude/2026-08-04-step-log-lazy-peek.md and CLAUDE.md.
+The Variables page change lists steps present in only some of the selected feeds as greyed-out disabled
+rows with a badge, and an action to add them to all selected feeds; the spec flags that the insertion
+position must be explicit, and asks what to do when the same step id carries a different executor.
 
-Verify: logs.html passes node --check with zero literal \n or \r and no unsafe Thymeleaf, and no backend
-change was needed since the endpoint is the one already used by the run page. The interaction could not
-be exercised in the chat sandbox: after deploying, open the log report on Events and click the chip on a
-row that has a step.
+No code changes.
