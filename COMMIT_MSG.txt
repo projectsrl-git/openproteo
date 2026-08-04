@@ -1,26 +1,22 @@
-Log report next to Operations, and index the output data declared on the steps
+Log report: lazy peek at the step log from the grid
 
-Log report now sits next to Operations in the topbar of every page, with the same filled style, and the
-duplicate small button on the dashboard toolbar was removed.
+The details column shows the audit payload, which is all the audit line carries. The step log, the
+script output itself, lives in per-step files under the run directory and is deliberately not indexed: it
+is one to three orders of magnitude larger than the audit and indexing it would have turned a disposable
+in-memory index into something needing a persistent store and a real search engine.
 
-The index was reporting zero outputs and the runs grid showed no output data. The cause was in the
-indexer: output variables are declared in two places and it only read one. Operations reads both the
-outputData.<var> parameters on each step, which is what the designer's OUTPUT DATA box writes, and the
-workflow-level outputData block. upsertRun used only the workflow-level map, which is empty for every
-feed that declares its outputs on the step, so in practice nothing was indexed. It now collects the
-declarations from the steps first and lets the workflow-level block override them, matching exactly what
-Operations displays. The index is rebuilt from the files, so a Reindex or a restart is needed after
-deploying before the outputs appear.
+Every event row that has both a run and a step now carries a step log chip in its details cell. Clicking
+it expands a panel under the row with the last three hundred lines, fetched on demand for that row alone
+and reusing the endpoint the run page already uses; clicking again collapses it. Nothing is pre-fetched,
+cached or indexed, the cost is one request per peek, and the log files remain the only copy of that data.
 
-Note on the details column, which is not addressed here: it shows the audit payload, because that is
-what the audit line carries. The step log itself lives in separate per-step files under the run directory
-and is not part of the audit trail.
+Failures degrade politely: a missing or unreadable log shows a message with the HTTP status inside the
+panel rather than breaking the row, and an empty file says so explicitly. Rows without a run or a step
+get no chip because there is no step log to show.
 
-Docs: .claude/2026-08-04-logs-nav-and-output-indexing-fix.md and CLAUDE.md.
+Docs: .claude/2026-08-04-step-log-lazy-peek.md and CLAUDE.md.
 
-Verify: the previous attempt at this change failed to compile because the new code used LinkedHashMap
-while the file imported only HashMap; the import is now present and every logreport file was
-cross-checked for bare java.util, java.io and java.nio identifiers missing from its import list, which is
-the class of mistake a brace-balance check cannot catch. Brace balance checked with the string and
-comment aware counter, all sixteen templates carry both buttons exactly once. The full project still
-cannot be compiled in the chat sandbox: the Maven build on deploy remains the real check.
+Verify: logs.html passes node --check with zero literal \n or \r and no unsafe Thymeleaf, and no backend
+change was needed since the endpoint is the one already used by the run page. The interaction could not
+be exercised in the chat sandbox: after deploying, open the log report on Events and click the chip on a
+row that has a step.

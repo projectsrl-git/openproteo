@@ -36,6 +36,14 @@
         .lgod b { color: var(--ink); font-weight: 600; }
         .lgdet { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); max-width: 460px;
             word-break: break-word; }
+        .lgpeek { display: inline-block; margin-left: 6px; font-size: 10.5px; color: var(--accent);
+            border: 1px solid var(--line); border-radius: 9px; padding: 0 7px; cursor: pointer; white-space: nowrap; }
+        .lgpeek:hover { border-color: var(--accent); }
+        tr.lglogrow td { background: var(--bg); padding: 0 9px 8px; }
+        .lglog { margin: 0; max-height: 300px; overflow: auto; background: var(--bg-raise); border: 1px solid var(--line);
+            border-radius: 5px; padding: 8px 10px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim);
+            white-space: pre-wrap; word-break: break-word; }
+        .lglog .hd { color: var(--ink-faint); margin-bottom: 4px; }
         .lgpage { display: flex; gap: 10px; align-items: center; margin-top: 10px; font-size: 12.5px; color: var(--ink-dim); }
         .lgprod { color: var(--fail); font-weight: 600; font-size: 10px; }
         .lgcards { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
@@ -234,7 +242,11 @@
                 b += '<td class="lgmono">' + esc(r.event) + '</td>';
                 b += '<td><span class="lgsev sev-' + esc(r.severity) + '">' + esc(r.severity) + '</span></td>';
                 b += '<td>' + esc(r.user) + '</td>';
-                b += '<td class="lgdet">' + esc(r.details) + '</td>';
+                var peek = (r.runId && r.node)
+                    ? ('<span class="lgpeek" data-feed="' + esc(r.feedId) + '" data-run="' + esc(r.runId)
+                        + '" data-step="' + esc(r.node) + '">\u2261 step log</span>')
+                    : '';
+                b += '<td class="lgdet">' + esc(r.details) + peek + '</td>';
             } else {
                 b += '<td class="lgmono">' + esc(r.startTs) + '</td><td class="lgmono">' + esc(r.endTs) + '</td>';
                 b += '<td>' + feedCell(r) + '</td>';
@@ -256,6 +268,7 @@
             b += '</tr>';
         }
         body.innerHTML = b || ('<tr><td colspan="' + cols.length + '" class="dim" style="padding:18px">No rows for these filters.</td></tr>');
+        bindPeeks();
 
         var first = TOTAL === 0 ? 0 : (PAGE * SIZE + 1), last = Math.min(TOTAL, (PAGE + 1) * SIZE);
         $('pinfo').textContent = (TOTAL === 0 ? 'no results' : (first + '–' + last + ' of ' + TOTAL))
@@ -438,6 +451,44 @@
     function loadChart() {
         fetch(CTX + 'api/logs/timeseries?source=' + SRC + '&' + params())
             .then(json).then(function (j) { if (j && !j.error) drawChart(j); }).catch(function () { });
+    }
+
+    /* Lazy peek: the step log is NOT indexed - it lives in per-step files under the run directory and is
+       fetched only when asked for, one row at a time, reusing the endpoint the run page already uses. */
+    function bindPeeks() {
+        var els = document.querySelectorAll('.lgpeek');
+        for (var i = 0; i < els.length; i++) {
+            (function (el) {
+                el.onclick = function () {
+                    var tr = el.parentNode.parentNode;
+                    var next = tr.nextSibling;
+                    if (next && next.className === 'lglogrow') { next.parentNode.removeChild(next); return; }
+                    var feed = el.getAttribute('data-feed'), run = el.getAttribute('data-run'), step = el.getAttribute('data-step');
+                    var row = document.createElement('tr');
+                    row.className = 'lglogrow';
+                    var td = document.createElement('td');
+                    td.setAttribute('colspan', String(tr.cells.length));
+                    var pre = document.createElement('pre');
+                    pre.className = 'lglog';
+                    pre.textContent = 'loading the last lines of ' + step + '\u2026';
+                    td.appendChild(pre); row.appendChild(td);
+                    tr.parentNode.insertBefore(row, tr.nextSibling);
+                    fetch(CTX + 'api/runs/' + encodeURIComponent(feed) + '/' + encodeURIComponent(run)
+                            + '/log/' + encodeURIComponent(step) + '?tail=300')
+                        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+                        .then(function (t) {
+                            pre.innerHTML = '';
+                            var hd = document.createElement('div');
+                            hd.className = 'hd';
+                            hd.textContent = feed + ' \u00b7 ' + run + ' \u00b7 ' + step
+                                + '  (last 300 lines, read from the file - click again to close)';
+                            pre.appendChild(hd);
+                            pre.appendChild(document.createTextNode(t && t.length ? t : '(the step log is empty)'));
+                        })
+                        .catch(function (e) { pre.textContent = 'step log not available: ' + e; });
+                };
+            })(els[i]);
+        }
     }
 
     function search() {

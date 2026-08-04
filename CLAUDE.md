@@ -938,3 +938,11 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   column shows the audit payload; the step LOG lives in per-step files under the run dir and is not in
   the audit trail, so showing it needs either a link, a lazy tail fetch, or indexing a third source.
   Note in `.claude/2026-08-04-logs-nav-and-output-indexing-fix.md`.
+
+## Step log: lazy peek in the log report
+* Chosen over indexing the step logs: they are 1-3 orders of magnitude bigger than the audit and would
+  have required a persistent index / search engine. Each event row with a run and a step shows a
+  "≡ step log" chip in DETAILS; clicking expands the last 300 lines fetched on demand for that row only,
+  reusing `/api/runs/{feedId}/{runId}/log/{stepId}?tail=300` (the run page's own endpoint), clicking
+  again collapses. Nothing pre-fetched, cached or indexed; missing/unreadable logs degrade to a message
+  in the panel. Note in `.claude/2026-08-04-step-log-lazy-peek.md`.
