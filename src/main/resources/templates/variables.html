@@ -480,7 +480,7 @@
         if(prodFeeds.length) checks.push({ id:'prod', required:true,
             label:'I understand '+prodFeeds.length+' PRODUCTION feed(s) are included \u2014 add the step to them too' });
         var where = anchor==='' ? 'at the very beginning' : ('after '+anchor);
-        opConfirm('Add the step "'+id+'" '+where+' to '+info.missing.length+' feed(s), copying it from '+info.from+'? This changes the workflow structure; nothing is written unless every feed validates.',
+        opConfirm('Add the step "'+id+'" '+where+' to '+info.missing.length+' feed(s), copying it from '+info.from+'? This changes the workflow structure and modifies the feeds IN PLACE \u2014 it creates no versions, unlike the same change made in the designer. Nothing is written unless every feed validates.',
             function(){
                 var edits=info.missing.map(function(fid){
                     return { feedId:fid,

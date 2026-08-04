@@ -1563,7 +1563,27 @@
     }
     if (dRunBtn) { dCheckActive(); setInterval(dCheckActive, 3000); }
 
-    function save(forceOverwrite) {
+    /**
+     * Turn this save into a new VERSION of the workflow instead of an overwrite. Reuses the
+     * Duplicate-as-new machinery: DUP_FROM makes the server copy the uploaded files once the new feed
+     * exists, and clearing EDIT_FEED_ID makes this a create rather than an update. The cron is
+     * cleared so the version is scheduling-inert - the ORIGINAL keeps the schedule, which is the
+     * whole point: a version must never start running on its own the night it is created.
+     */
+    function saveAsVersion(newId, wasScheduled) {
+        window.DUP_FROM = EDIT_FEED_ID;
+        window.VERSION_OF = EDIT_FEED_ID;
+        window.VERSION_WAS_SCHEDULED = !!wasScheduled;
+        EDIT_FEED_ID = null;
+        wf.feedId = newId;
+        wf.cron = '';
+        var fe = document.getElementById('f_feedId');
+        if (fe) { fe.value = newId; }
+        preview();
+        save(true, false);
+    }
+
+    function save(forceOverwrite, structuralOverwrite) {
         if (forceOverwrite !== true) { opConfirm('Validate and save this workflow? Existing definition will be overwritten and cron rescheduled.', function(){ save(true); }, { okText:'Save' }); return; }
         var errs = clientValidate();
         if (errs.length) {
@@ -1572,14 +1592,20 @@
             return;
         }
         var overwrite = EDIT_FEED_ID !== null || forceOverwrite === true;
-        fetch(CTX + 'api/workflows/save?overwrite=' + overwrite, {
+        fetch(CTX + 'api/workflows/save?overwrite=' + overwrite + '&structuralOverwrite=' + (structuralOverwrite === true), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(wf)
         }).then(function (r) { var st = r.status; return readJson(r).then(function (j) { return { st: st, j: j }; }); })
           .then(function (res) {
             if (res.j.ok) {
-                banner(true, 'Saved as <b>' + esc(res.j.file) + '</b> — definitions reloaded and cron rescheduled. ' +
+                var extra = '';
+                if (window.VERSION_OF) {
+                    extra = ' New version of <b>' + esc(window.VERSION_OF) + '</b>, created with no cron'
+                        + (window.VERSION_WAS_SCHEDULED ? ' — <b>' + esc(window.VERSION_OF) + '</b> is still the scheduled one.' : '.');
+                    window.VERSION_OF = null; window.VERSION_WAS_SCHEDULED = false;
+                }
+                banner(true, 'Saved as <b>' + esc(res.j.file) + '</b> — definitions reloaded and cron rescheduled.' + extra + ' ' +
                     '<a href="/workflow/' + encodeURIComponent(res.j.feedId) + '">Open workflow page</a>');
                 EDIT_FEED_ID = res.j.feedId;                 // now an existing feed: enable workflow files
                 if (window.DUP_FROM && window.DUP_FROM !== res.j.feedId) {
@@ -1589,8 +1615,26 @@
                 }
                 if (window.__mountWfFiles) window.__mountWfFiles();
                 window.scrollTo(0, 0);
+            } else if (res.st === 409 && res.j.versionSuggested) {
+                // adds or removes steps on a workflow that has already run: the definition a past run
+                // was audited against would stop matching what the history says was executed
+                var parts = [];
+                if (res.j.addedSteps && res.j.addedSteps.length) parts.push('adds ' + res.j.addedSteps.map(esc).join(', '));
+                if (res.j.removedSteps && res.j.removedSteps.length) parts.push('removes ' + res.j.removedSteps.map(esc).join(', '));
+                var msg = 'This save ' + parts.join(' and ') + ' on a workflow that has already run.'
+                    + ' By default it is saved as the new version <b>' + esc(res.j.nextVersionId) + '</b>, leaving "'
+                    + esc(wf.feedId) + '" and its run history untouched'
+                    + (res.j.scheduled ? ' \u2014 and still the scheduled one: the new version is created with no cron and runs only when started by hand.'
+                                       : '. Neither workflow has a cron, so both are manual.')
+                    + ' Uploaded files are copied to the new version.';
+                var origId = wf.feedId, nextId = res.j.nextVersionId, wasSched = !!res.j.scheduled;
+                opConfirm(msg, function (st) {
+                    if (st && st.ow) { save(true, true); }
+                    else { saveAsVersion(nextId, wasSched); }
+                }, { okText:'Save', checks:[ { id:'ow',
+                    label:'Overwrite "' + origId + '" in place instead \u2014 its past runs will no longer match its definition' } ] });
             } else if (res.st === 409 && res.j.exists) {
-                opConfirm('Workflow "' + wf.feedId + '" already exists. Overwrite its definition?', function(){ save(true); }, { danger:true, okText:'Overwrite' });
+                opConfirm('Workflow "' + wf.feedId + '" already exists. Overwrite its definition?', function(){ save(true, structuralOverwrite === true); }, { danger:true, okText:'Overwrite' });
             } else {
                 banner(false, esc(res.j.error || 'Save failed'));
                 window.scrollTo(0, 0);

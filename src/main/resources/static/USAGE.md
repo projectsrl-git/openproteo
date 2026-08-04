@@ -369,6 +369,20 @@ The **Variables** page edits the properties that the selected feeds have in comm
 - Arrow Up/Down and Enter move between cells, and pasting a block copied from Excel fills the cells to the right and below.
 - Filters: feeds, column names, and **only columns that differ** — which shows just the variables whose value is not identical across the visible feeds.
 
+### Workflow versions
+
+Saving from the designer a change that **adds or removes steps** on a workflow that has **already run** is intercepted: nothing is written, and a dialog offers to save it as a new **version** instead. The reason is that the run history is audited against a definition — if the steps change under it, a past run no longer matches the workflow it says it executed, and a reconciliation done months later has no way to tell.
+
+Only **STEP** nodes count. Adding, removing or re-arranging gates and LOOP/ENDLOOP is an ordinary edit and saves normally; so does reordering steps without adding or removing any, and so does any edit at all on a workflow that has never run. Renaming a step id counts as one removed and one added, because that is what it is as far as the history is concerned.
+
+The default is **Save as a new version**: the next free id in the family, `tf0003819.v1`, then `.v2` and so on. Versions form a flat list under one parent, so editing `tf0003819.v2` allocates `tf0003819.v3`, not `tf0003819.v2.v1`. Gaps are never reused. The new workflow is created **with no cron**: the original keeps the schedule and remains the one that runs tonight, and the version runs only when started by hand — the dialog and the confirmation banner both say which is which. Uploaded files are copied to the version, exactly as for **Duplicate as new**. The original and its run history are left completely untouched.
+
+To change the workflow in place anyway, tick **Overwrite ... instead** in the dialog. It is deliberately a checkbox rather than a second button: overwriting is the exception, and its label spells out the consequence — the past runs will no longer match the definition.
+
+A version **inherits nothing at runtime**: runs, output data and the audit trail are per feed id, which is the point. `${parentId}` (see above) is what carries the link, and since `${feedId}` names directories and files, anything that must keep the **original** naming across versions — typically the delivered file name — has to say `${parentId}` explicitly.
+
+Note that the mass **＋ Add to N feed(s)** action on the Variables page does **not** trigger this: it modifies the selected feeds in place and creates no versions. Producing one version per feed would leave a pile of unscheduled workflows and change nothing about what actually runs.
+
 ### `parentId`: the id a versioned feed descends from
 
 A feed id ending in `.v<digits>` is a **version** of the id before that suffix: `tf0003819.v2` is a version of `tf0003819`. Versioning is a pure naming convention — a dot is already a legal character in a feed id, so nothing in the registry treats these feeds specially.

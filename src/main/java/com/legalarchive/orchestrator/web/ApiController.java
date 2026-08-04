@@ -2312,9 +2312,65 @@ public class ApiController {
      * load time, written to the workflows directory, then registry and scheduler
      * are reloaded. The save is recorded in the feed audit log.
      */
+    /**
+     * STEP node ids of a definition, in order. GATE, LOOP and ENDLOOP are deliberately ignored: the
+     * versioning trigger is about steps, so re-arranging control flow is an ordinary edit.
+     */
+    private static java.util.List<String> stepIdsOf(WorkflowDto dto) {
+        java.util.List<String> ids = new java.util.ArrayList<String>();
+        if (dto == null || dto.nodes == null) return ids;
+        for (WorkflowDto.NodeDto nd : dto.nodes) {
+            if ("STEP".equals(nd.kind) && nd.id != null) ids.add(nd.id);
+        }
+        return ids;
+    }
+
+    /** True when the feed has at least one run on disk. */
+    private boolean hasRuns(String feedId) {
+        FeedLayout layout = registry.layout(feedId);
+        if (layout == null) return false;
+        try {
+            java.util.List<WorkflowRun> runs = store.list(layout, 1);
+            return runs != null && !runs.isEmpty();
+        } catch (Exception e) {
+            // if the history cannot be read, assume there IS one: suggesting a version needlessly is
+            // recoverable, silently overwriting the definition a run was audited against is not
+            return true;
+        }
+    }
+
+    /**
+     * Next free id in a feed's version family. The family is keyed on {@code parentId}, so editing
+     * {@code tf0003819.v2} allocates against {@code tf0003819.v1}, {@code .v2}... and not against the
+     * edited id - versions form a flat list under one parent, not a chain. The candidate is checked
+     * against BOTH the registry and the workflows directory, because a definition that fails to parse
+     * is absent from the registry while its file is very much still there.
+     */
+    private String nextVersionId(String feedId) {
+        String parent = com.legalarchive.orchestrator.engine.VarResolver.parentId(feedId);
+        int max = 0;
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("^" + java.util.regex.Pattern.quote(parent) + "\\.v([0-9]+)$");
+        for (WorkflowDef d : registry.all()) {
+            if (d == null || d.feedId == null) continue;
+            java.util.regex.Matcher m = p.matcher(d.feedId);
+            if (m.matches()) {
+                try { max = Math.max(max, Integer.parseInt(m.group(1))); } catch (Exception ignored) { }
+            }
+        }
+        java.io.File dir = new java.io.File(props.getWorkflowsDir());
+        for (int n = max + 1; n < max + 1000; n++) {
+            String cand = parent + ".v" + n;
+            if (registry.get(cand) != null) continue;
+            if (new java.io.File(dir, cand + ".xml").exists()) continue;
+            return cand;
+        }
+        return parent + ".v" + (max + 1);
+    }
+
     @PostMapping("/api/workflows/save")
     public ResponseEntity<Map<String, Object>> save(@RequestBody WorkflowDto dto,
                                                     @RequestParam(defaultValue = "false") boolean overwrite,
+                                                    @RequestParam(defaultValue = "false") boolean structuralOverwrite,
                                                     HttpServletRequest req) {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
         try {
@@ -2343,6 +2399,30 @@ public class ApiController {
             }
 
             WorkflowDef existing = registry.get(dto.feedId);
+
+            // Structural change on a feed that has already run: the definition a past run was audited
+            // against would stop matching what the run history says was executed. Nothing is written;
+            // the client is told the next free version id and asks the operator. Only STEP nodes count
+            // (gates and loops are ordinary edits), and only if the feed actually has a run.
+            if (!structuralOverwrite && existing != null) {
+                java.util.List<String> before = stepIdsOf(toDto(existing));
+                java.util.List<String> after = stepIdsOf(dto);
+                java.util.List<String> added = new java.util.ArrayList<String>(after);
+                added.removeAll(before);
+                java.util.List<String> removed = new java.util.ArrayList<String>(before);
+                removed.removeAll(after);
+                if ((!added.isEmpty() || !removed.isEmpty()) && hasRuns(dto.feedId)) {
+                    out.put("ok", false);
+                    out.put("versionSuggested", true);
+                    out.put("nextVersionId", nextVersionId(dto.feedId));
+                    out.put("addedSteps", added);
+                    out.put("removedSteps", removed);
+                    out.put("scheduled", existing.cron != null && !existing.cron.trim().isEmpty());
+                    out.put("error", "This save adds or removes steps on a workflow that has already run.");
+                    return ResponseEntity.status(HttpStatus.CONFLICT).body(out);
+                }
+            }
+
             String fileName = existing != null && existing.sourceFile != null
                     ? existing.sourceFile : dto.feedId + ".xml";
             Path target = dir.toPath().resolve(fileName);
@@ -2363,6 +2443,7 @@ public class ApiController {
                 det.put("file", fileName);
                 det.put("action", existing != null ? "UPDATED" : "CREATED");
                 det.put("nodes", String.valueOf(dto.nodes == null ? 0 : dto.nodes.size()));
+                if (com.legalarchive.orchestrator.engine.VarResolver.isVersioned(dto.feedId)) det.put("parentId", com.legalarchive.orchestrator.engine.VarResolver.parentId(dto.feedId));
                 audit.log(layout.auditFile(), dto.feedId, null, null, "WORKFLOW_SAVED", user(req), det);
             }
 

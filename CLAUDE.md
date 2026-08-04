@@ -1155,3 +1155,26 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   designer save, the version/overwrite dialog, `.v<n>` allocation, uploads copied like
   Duplicate-as-new, scheduling-inert creation, and Operations showing a version next to its parent.
   Note in `.claude/2026-08-04-parentid-builtin.md`.
+
+## Workflow versioning on structural changes (section 2, batch 2)
+* Saving from the designer a change that ADDS or REMOVES steps on a workflow that has ALREADY RUN is
+  intercepted server-side: nothing is written, 409 with `{versionSuggested, nextVersionId, addedSteps,
+  removedSteps, scheduled}`, and the designer offers a version. Rationale: the run history is audited
+  against a definition; if the steps change under it, a past run no longer matches the workflow it
+  says it executed. * **Only STEP nodes count** (decided): gates and LOOP/ENDLOOP added, removed or
+  moved are ordinary edits, as is reordering steps without adding or removing any. Renaming a step id
+  counts as one removed + one added, which is what it is for the history. All THREE conditions are
+  required — structural step delta, feed exists, feed has >=1 run — and `structuralOverwrite=true`
+  bypasses. * `nextVersionId` allocates in the family keyed on `parentId`, so editing `tf0003819.v2`
+  gives `tf0003819.v3`, NOT `.v2.v1` — versions are a flat list, not a chain. max+1, gaps never
+  reused; candidates checked against BOTH the registry and the workflows dir, because an unparseable
+  file is absent from the registry while its id is still taken. * `hasRuns` fails SAFE: if the history
+  cannot be read it returns true — suggesting a version needlessly is recoverable, silently
+  overwriting a definition a run was audited against is not. * Client `saveAsVersion()` reuses the
+  Duplicate-as-new machinery: `DUP_FROM` copies uploaded files, `EDIT_FEED_ID=null` makes it a create,
+  and **`wf.cron=''` makes the version scheduling-inert** (`WorkflowScheduler` skips `cron==null`) so
+  the ORIGINAL stays the scheduled one — dialog and banner both say which. Overwrite is a CHECKBOX in
+  the version dialog, not a second button: it is the exception and its label states the consequence.
+  * PROD, locked and tags are inherited unchanged; only the cron is cleared. Audit gains `parentId` on
+  a versioned save. * The Variables-page bulk add still does NOT version (decided last batch); its
+  confirm text now says so. Note in `.claude/2026-08-04-workflow-versioning.md`.
