@@ -1,93 +1,61 @@
-sqlreport (batch 2): collect query results into run variables
+Variables page: show steps only SOME selected feeds have
 
-Completes section 1.5 of .claude/SQLREPORT_VERSIONING_VARIABLES.md. The
-keyColumn and collect fields, which batch 1 parsed, stored and round-tripped
-without using, are now live. No new file: the executor, SqlReportSupport and
-the designer branch are extended.
+Implements the read-only half of section 3 of
+.claude/SQLREPORT_VERSIONING_VARIABLES.md and answers its two open questions.
+[Add to all selected] is batch 2 and is deliberately not in here.
 
-What a query publishes. With collect=COL and one row, the scalar ${COL}; with
-several rows, the ;-separated list in row order, so ${COL[N]} resolves
-positionally. With keyColumn=K, every collected column additionally gets its
-companion ${COL.keys} list, aligned position by position - the pair
-VarResolver.keyed() needs to resolve ${COL@key} - plus ${K}, the key list
-under the key column's own name, as the spec's first formulation asked. A
-single-column result with no collect is published implicitly under its own
-label, which is the scalar case of the spec. A query returning no rows
-publishes the empty string, so nothing downstream reads a stale value. Names
-are the RESULT's column labels matched case-insensitively against what the
-author declared, so collect=amount on a column labelled AMOUNT publishes
-${AMOUNT}.
+The multi-feed editor showed only the INTERSECTION of step ids, which silently
+hid every difference: a step you cannot see is a difference you cannot act on.
+A new "Steps missing from some feeds" section now lists every id present in
+some but not all of the selection, each with an "in N of M feeds" badge, its
+executor, the feeds it is missing from (truncated at six, full list in the
+title on hover) and a read-only preview of the fields and params common to the
+feeds that do have it.
 
-The separator is ';' and step.delimiter is deliberately NOT honoured:
-VarResolver.keyed() and the positional ${list[N]} both split on a hardcoded
-';', so letting the step pick another separator would produce lists that look
-right and silently fail every lookup. For the same reason a collected value
-containing a ';' or a line break has it replaced by a space and the number of
-touched values is counted in the report and the step log, following the
-newlinesSanitized precedent of the sql executor: one such value would shift
-every later position and misalign the companion keys list.
+Open question one, answered: when the same step id uses a DIFFERENT executor
+depending on the feed it is flagged as a conflict naming both executors,
+rather than hidden. The reason is not tidiness - "query" on a sql step and
+"query" on a csvsql step are different things, so a mass edit would write a
+value that is wrong in half the feeds. Batch 2 must refuse to add those.
 
-Explicit intent fails hard, implicit convenience degrades quietly. A collect
-list naming a column that is not in the result, a keyColumn that is not in the
-result, a keyColumn with no collect, a label that is not a plain identifier,
-or a name that would overwrite a built-in run variable (the new
-SqlReportSupport.RESERVED_VARS: feedId, runId, stepDir and the rest) all fail
-the step - a reconciliation that silently loses a variable is worse than one
-that stops, and collecting into ${feedId} would redirect every later path. The
-implicit single-column case instead skips publication and says why in the log,
-because the author never asked for it and it must not break their report.
+Open question two, agreed and deferred to batch 2 where the action will exist:
+adding a step to a PRODUCTION feed will require the same explicit confirmation
+as Clear History, opConfirm with danger and a required checkbox naming how
+many PROD feeds are included.
 
-Overflow publishes nothing and fails. Collection is NOT capped by maxRows,
-which caps only the rendered table; it is capped by the new collectMaxRows
-param (default 5000, 0 = no cap). Above it the query's variables are not
-published at all: a partially collected list is the worst outcome, because
-every missing key would resolve to the empty string and be indistinguishable
-from a legitimate absence. Duplicate keys warn in the report and the log but
-do not fail, since ${COL@key} returns the first match and a non-unique key can
-be a legitimate positional list.
+The section is deliberately read-only. Rendering editable inputs here was
+rejected: an edit made in a section titled "missing from some feeds" would
+apply to a subset and the operator would have no way to tell from the result.
+The preview inputs are disabled AND carry no data-scope, which is the actual
+safety mechanism - saveVariables() collects .vval[data-dirty="1"] and
+dispatches on data-scope, so an input with neither can never enter the
+payload.
 
-Collected values are never echoed to the step log: the ##VAR lines print the
-value only for the step's own three outputs and name a collected variable with
-"(collected, value not logged)". The limit of that is stated rather than
-implied - the ENGINE still audits every out var with its value
-(STEP_OUTPUT_VAR) and OUTPUT DATA displays it, which is shared behaviour for
-all executors and was not changed here - so the docs say plainly: collect
-counts, sums, statuses and keys, not personal data.
+Why the split: making the difference visible is pure UI, touches one template
+and cannot damage anything, while creating a step in the feeds that lack it is
+a structural write to N workflow XML files, needs an explicit insertion
+position, and interacts with the versioning trigger of section 2 - adding a
+step to a feed that already ran is exactly what section 2 wants to intercept.
+Shipping them together would have put a zero-risk improvement behind a change
+that deserves its own review.
 
-Designer: the two per-query fields lose their "(batch 2)" labels and gain real
-tooltips, a Collect max rows field sits next to Max rows and Fail on empty,
-and clientValidate refuses a key column with no collect and a collected name
-that is not a plain identifier. A paragraph under the block explains the
-scalar/list/keyed forms and repeats the PII warning. USAGE.md gains a
-"sqlreport notes: collecting variables" paragraph next to the csvsql and
-xlsx2csv ones.
+Verified. The real renderCommon was extracted from the template and run
+against a fake DOM with five synthetic feeds: a common step, a step missing
+from one feed, one missing from three, one present in a single feed, and an id
+whose executor differs. Asserted, all passing: the common section still counts
+only the truly common id, the partial section counts three, every badge reads
+the right N of M, the executor conflict is detected and names both executors,
+the missing-feed lists are correct, the hover title carries the full list, and
+the invariant that matters - every disabled input has no data-scope while
+every enabled one has one, and no disabled input is dirty. node --check on the
+page's inline JS passes, there are zero literal newline/CR escape sequences
+(the hover title builds its line breaks with String.fromCharCode(10)) and no
+Thymeleaf inlining markers. Every CSS variable used by the page style block
+was checked against app.css: --bg-raise, --ink-faint, --fail and the rest are
+all defined, none invented.
 
-Conservative: collection happens only where an author sets collect, or on a
-single-column result of a step that did not exist before this feature. No
-existing feed changes behaviour, no new Maven dependency, Java 8 throughout.
+NOT verified: mvn clean package (no Java changed in this patch, but the build
+is still the only final proof) and the page as rendered by a real browser.
 
-Verified. SqlReportSupport compiled standalone with -source 8 and exercised by
-43 new assertions, with the 42 from batch 1 re-run as a regression, all
-passing. The end-to-end assertions publish variables through a copy of the
-executor's publication block and then read them back through a
-re-implementation of VarResolver.keyed() and ${list[N]} copied from the real
-resolver, so what is proved is the contract and not merely the string join:
-${AMOUNT@CID2} returns 0200 with its leading zero, an absent key returns the
-empty string rather than a neighbouring row, ${AMOUNT[2]} still resolves
-positionally, a value containing ';' is found under its key after sanitising,
-the scalar and multi-row forms differ as specified, overflow publishes an
-empty map, and every rejection listed above is rejected while the implicit
-cases are not. node --check on the designer's inline JS caught a real defect:
-the first placement of the new validation split an if/else pair and would have
-broken the whole designer page - fixed and re-checked, with zero literal
-newline/CR escape sequences and the only Thymeleaf inlining marker in the file
-being the pre-existing commented one. Brace and paren balance is 0/0 on both
-Java files and the import checker passes on every added line.
-
-NOT verified: mvn clean package (Maven Central is unreachable from the chat
-sandbox) and everything that needs a live database - the JDBC path, collection
-over a real result set, and how a collected list renders in OUTPUT DATA and
-the audit trail. Please build and run one step with a keyed collect on deploy.
-
-Spec: .claude/SQLREPORT_VERSIONING_VARIABLES.md
-Note: .claude/2026-08-04-sqlreport-batch2-collect.md
+Note: .claude/2026-08-04-variables-partial-steps.md
+Spec: .claude/SQLREPORT_VERSIONING_VARIABLES.md section 3

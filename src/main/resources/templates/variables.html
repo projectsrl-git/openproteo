@@ -28,6 +28,11 @@
         .rolabel { font-size: 11px; color: var(--ink-faint); }
         .res-ok { color: var(--ok); } .res-fail { color: var(--fail); }
         .lockrow { display: -webkit-flex; display: flex; gap: 8px; align-items: center; margin: 4px 0; font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
+        .vpartial { opacity: .62; }
+        .vpartial input, .vpartial textarea { background: var(--bg-raise); color: var(--ink-faint); }
+        .vhead .vbadge { text-transform: none; letter-spacing: 0; margin-left: 8px; }
+        .vconflict { color: var(--fail); }
+        .vmissing { font-size: 11.5px; color: var(--ink-dim); margin: 2px 0 8px; }
     </style>
 </head>
 <body>
@@ -286,8 +291,8 @@
             inp.setAttribute('data-scope','var');
         });
         // common steps: same step id present in ALL selected feeds
-        var stepCount={}, stepById={};
-        feeds.forEach(function(f){ var seen={}; (f.steps||[]).forEach(function(st){ if(seen[st.id])return; seen[st.id]=1; stepCount[st.id]=(stepCount[st.id]||0)+1; (stepById[st.id]=stepById[st.id]||[]).push(st); }); });
+        var stepCount={}, stepById={}, stepFeeds={};
+        feeds.forEach(function(f){ var seen={}; (f.steps||[]).forEach(function(st){ if(seen[st.id])return; seen[st.id]=1; stepCount[st.id]=(stepCount[st.id]||0)+1; (stepById[st.id]=stepById[st.id]||[]).push(st); (stepFeeds[st.id]=stepFeeds[st.id]||[]).push(f.feedId); }); });
         var commonSteps=Object.keys(stepCount).filter(function(id){ return stepCount[id]===feeds.length; });
         var ssec=el('div','vsection',host); var sh=el('div','vhead',ssec); sh.textContent='Common steps ('+commonSteps.length+')';
         var sbd=el('div','vbody',ssec);
@@ -320,6 +325,60 @@
                 var sms=arr.map(function(st){ return stepModeOf(st); }); var smEq=sms.every(function(x){ return x===sms[0]; });
                 var smi=valSelect(gb, 'step mode', stepModeOpts(), smEq?('currently: '+stepModeLabel(sms[0])):'(differ across feeds \u2014 pick to set for all)'); smi.setAttribute('data-scope','stepMode'); smi.setAttribute('data-step', id);
             })();
+        });
+        // Steps present in SOME but not all of the selection. The intersection above silently hid
+        // them, which is the whole point of this addition: a step you cannot see is a difference you
+        // cannot act on. Read-only for now - editing them here would apply to a subset without
+        // saying so, and creating the missing ones is a separate, confirmed action.
+        var partialIds=Object.keys(stepCount).filter(function(id){ return stepCount[id]>0 && stepCount[id]<feeds.length; }).sort();
+        var psec=el('div','vsection',host); var ph=el('div','vhead',psec);
+        ph.textContent='Steps missing from some feeds ('+partialIds.length+')';
+        var pbd=el('div','vbody',psec);
+        if(!partialIds.length){
+            el('div','dim small',pbd).textContent='Every step id in this selection is present in all '+feeds.length+' feeds.';
+        } else {
+            el('div','dim small',pbd).textContent='These step ids exist in only part of the selection. They are shown read-only: editing them here would apply to a subset without saying so. Adding a missing step to the other feeds is a separate action, not available yet.';
+        }
+        var LFC=String.fromCharCode(10);
+        partialIds.forEach(function(id){
+            var arr=stepById[id], present=stepFeeds[id]||[];
+            var presentSet={}; present.forEach(function(x){ presentSet[x]=1; });
+            var missing=feeds.map(function(f){ return f.feedId; }).filter(function(x){ return !presentSet[x]; });
+            var execs=[]; arr.forEach(function(st){ var e=st.exec||'(auto)'; if(execs.indexOf(e)<0) execs.push(e); });
+            var names=[]; arr.forEach(function(st){ if(st.name && names.indexOf(st.name)<0) names.push(st.name); });
+
+            var grp=el('div','vsection',pbd); grp.className='vsection vpartial';
+            var gh=el('div','vhead',grp);
+            gh.textContent='Step: '+id+(names.length===1?(' \u2014 '+names[0]):'');
+            var badge=el('span','tagb vbadge',gh); badge.textContent='in '+present.length+' of '+feeds.length+' feeds';
+            if(execs.length>1){
+                // same id, different executor: the fields do not mean the same thing in each feed,
+                // so this can never be mass-added or mass-edited - flagged rather than hidden
+                var cf=el('span','tagb vbadge vconflict',gh);
+                cf.textContent='conflict: '+execs.join(' / ');
+                cf.title='The same step id uses a different executor depending on the feed, so its fields do not mean the same thing everywhere.';
+            } else if(execs.length===1){
+                var ex=el('span','tagb vbadge',gh); ex.textContent=execs[0];
+            }
+            var gb=el('div','vbody',grp);
+            var miss=el('div','vmissing',gb);
+            miss.textContent='Missing from: '+(missing.length<=6 ? missing.join(', ') : (missing.slice(0,6).join(', ')+' and '+(missing.length-6)+' more'));
+            miss.title='Missing from:'+LFC+missing.join(LFC);
+            // preview of what the step looks like where it DOES exist, disabled: no data-scope, so
+            // it can never become dirty and can never reach the save payload
+            commonFieldKeys(arr).forEach(function(fk){
+                var vals=arr.map(function(st){ return st.fields[fk]; });
+                var allEq=vals.every(function(x){ return x===vals[0]; });
+                var inp=valLine(gb, fk, allEq?vals[0]:'', allEq?'(read-only)':'(read-only \u2014 differs across the feeds that have it)', fk==='query');
+                inp.disabled=true;
+            });
+            commonParamKeys(arr).forEach(function(pn){
+                if(isResParam(pn)) return;
+                var vals=arr.map(function(st){ return paramVal(st,pn); });
+                var allEq=vals.every(function(x){ return x===vals[0]; });
+                var inp=valLine(gb, pn, allEq?vals[0]:'', allEq?'(read-only)':'(read-only \u2014 differs across the feeds that have it)');
+                inp.disabled=true;
+            });
         });
     }
 

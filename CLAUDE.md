@@ -1094,3 +1094,21 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   not personal data. * Designer: labels lose "(batch 2)", new Collect max rows field, `clientValidate`
   refuses a key column with no collect and non-identifier names; `USAGE.md` gains a "sqlreport notes:
   collecting variables" paragraph. Note in `.claude/2026-08-04-sqlreport-batch2-collect.md`.
+
+## Variables page: steps that only SOME selected feeds have (section 3, batch 1)
+* The multi-feed editor showed only the INTERSECTION of step ids, which silently hid every
+  difference: a step you cannot see is a difference you cannot act on. A new **Steps missing from
+  some feeds** section lists the ids present in some but not all of the selection, each with an
+  "in N of M feeds" badge, its executor, the feeds it is missing from (truncated at 6, full list in
+  the title on hover) and a read-only preview of the common fields/params where it does exist.
+  * **Executor conflict answered here**: when the same id uses a different executor across feeds it is
+  flagged `conflict: sql / csvsql` rather than hidden — the fields do not mean the same thing in each
+  feed, so it can never be mass-edited or mass-added. That resolves the first open question of the
+  spec in the read-only batch, where it costs nothing. * **Deliberately read-only.** The preview
+  inputs are `disabled` and carry NO `data-scope`, and `saveVariables()` collects only
+  `.vval[data-dirty="1"]` with a scope — so a partial step can never reach the save payload. Editing
+  one here would apply to a subset without saying so. * [Add to all selected] (insertion position,
+  server-side creation, PROD confirmation) is the NEXT batch and is not in this one. * Verified by
+  running the real `renderCommon` against a fake DOM: badges, conflict detection, missing-feed lists,
+  and the invariant that every disabled input has no scope while every enabled one has one. Note in
+  `.claude/2026-08-04-variables-partial-steps.md`.
