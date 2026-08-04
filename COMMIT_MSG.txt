@@ -1,30 +1,26 @@
-Document the standalone launch, verify both artifacts in the build script, name the SQL executor by JDBC
+Log report next to Operations, and index the output data declared on the steps
 
-The build script now checks that the Spring Boot repackage really produced the standalone artifact and
-fails with an explicit message naming the likely cause if it did not, then prints both paths with their
-sizes so a build that silently produced only the deployable WAR cannot go unnoticed. While fixing that, a
-latent bug surfaced: the summary still referenced $REPO, a variable the earlier project-resolution change
-had removed, so under set -u the script would have aborted on its very last line.
+Log report now sits next to Operations in the topbar of every page, with the same filled style, and the
+duplicate small button on the dashboard toolbar was removed.
 
-The note for this feature now documents running the standalone artifact in detail. Only a JVM is
-required, since every dependency is inside the file and the embedded Tomcat comes from lib-provided. It
-gives the full command line and, more importantly, the table of defaults: port 8080, and workflows,
-feeds, scripts, shared, datasources and logs all resolved relative to the working directory rather than
-to the file. Launching from an empty directory therefore starts a perfectly working instance with no
-feeds, which looks fine but is simply a different installation, while launching inside the production
-directory makes that instance operate on live data. The tidier alternative, an application.properties
-next to the artifact, is documented too, along with the context path and IIS differences from the Tomcat
-deployment.
+The index was reporting zero outputs and the runs grid showed no output data. The cause was in the
+indexer: output variables are declared in two places and it only read one. Operations reads both the
+outputData.<var> parameters on each step, which is what the designer's OUTPUT DATA box writes, and the
+workflow-level outputData block. upsertRun used only the workflow-level map, which is empty for every
+feed that declares its outputs on the step, so in practice nothing was indexed. It now collects the
+declarations from the steps first and lets the workflow-level block override them, matching exactly what
+Operations displays. The index is rebuilt from the files, so a Reindex or a restart is needed after
+deploying before the outputs appear.
 
-The sql executor is now labelled as a JDBC query rather than DB2/AS400. It always was plain JDBC and
-works with both datasource types, as400 for DB2 for i, which additionally carries the IFS credentials,
-and custom, where the JDBC URL and driver class are supplied; the old label suggested it only worked with
-AS/400. Only labels and documentation changed: the executor id remains sql, so existing workflows are
-untouched. The ifscopy executor keeps its AS/400 wording because it genuinely is IFS specific.
+Note on the details column, which is not addressed here: it shows the audit payload, because that is
+what the audit line carries. The step log itself lives in separate per-step files under the run directory
+and is not part of the audit trail.
 
-Docs: .claude/2026-08-03-operations-nav-and-standalone-jar.md, USAGE.md and CLAUDE.md.
+Docs: .claude/2026-08-04-logs-nav-and-output-indexing-fix.md and CLAUDE.md.
 
-Verify: the build script was exercised against a stubbed Maven in a throwaway repository, both when the
-repackage produces the two artifacts, where it lists both, and when it produces only the plain WAR, where
-it stops with the explicit error; checked with bash -n. Templates and USAGE.md pass the usual JavaScript
-and Thymeleaf checks.
+Verify: the previous attempt at this change failed to compile because the new code used LinkedHashMap
+while the file imported only HashMap; the import is now present and every logreport file was
+cross-checked for bare java.util, java.io and java.nio identifiers missing from its import list, which is
+the class of mistake a brace-balance check cannot catch. Brace balance checked with the string and
+comment aware counter, all sixteen templates carry both buttons exactly once. The full project still
+cannot be compiled in the chat sandbox: the Maven build on deploy remains the real check.

@@ -14,6 +14,7 @@
     <span class="sub">Workflow Designer</span>
     <span class="spacer"></span>
     <a class="btn sm ops" th:href="@{/overview}">▦ Operations</a>
+    <a class="btn sm ops" th:href="@{/logs}">🗒 Log report</a>
     <span class="clock" id="clock"></span>
 </div>
 
@@ -801,7 +802,7 @@
                     '<option value="powershell"' + (ex === 'powershell' ? ' selected' : '') + '>powershell (.ps1)</option>' +
                     '<option value="cmd"' + (ex === 'cmd' ? ' selected' : '') + '>cmd (.bat/.cmd)</option>' +
                     '<option value="jar"' + (ex === 'jar' ? ' selected' : '') + '>jar (java -jar)</option>' +
-                    '<option value="sql"' + (ex === 'sql' ? ' selected' : '') + '>sql (JDBC query)</option>' +
+                    '<option value="sql"' + (ex === 'sql' ? ' selected' : '') + '>sql (DB2/AS400 query)</option>' +
                     '<option value="ifscopy"' + (ex === 'ifscopy' ? ' selected' : '') + '>ifscopy (AS400 IFS → local)</option>' +
                     '<option value="filecopy"' + (ex === 'filecopy' ? ' selected' : '') + '>filecopy (copy/move/list)</option>' +
                     '<option value="safecopy"' + (ex === 'safecopy' ? ' selected' : '') + '>safecopy (wildcard copy via .on_fly_ temp)</option>' +

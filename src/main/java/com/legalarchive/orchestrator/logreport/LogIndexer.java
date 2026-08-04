@@ -13,6 +13,7 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -343,8 +344,32 @@ public class LogIndexer {
         try (PreparedStatement ps = c.prepareStatement("DELETE FROM run_output WHERE feed_id=? AND run_id=?")) {
             ps.setString(1, wf.feedId); ps.setString(2, runId); ps.executeUpdate();
         }
-        Map<String, String> declared = wf.outputData;
-        if (declared == null || declared.isEmpty()) return;
+        // Declarations live in TWO places, exactly as Operations reads them: the outputData.<var>
+        // parameters on the steps, and the workflow-level <outputData> block. Using only the latter
+        // left the index empty for every feed that declares its outputs on the step.
+        Map<String, String> declared = new LinkedHashMap<String, String>();
+        try {
+            for (com.legalarchive.orchestrator.model.def.StepDef st : wf.steps()) {
+                if (st == null || st.params == null) continue;
+                for (Map.Entry<String, String> pe : st.params.entrySet()) {
+                    String k = pe.getKey();
+                    if (k == null || !k.startsWith("outputData.")) continue;
+                    String var = k.substring("outputData.".length()).trim();
+                    if (var.isEmpty()) continue;
+                    String desc = pe.getValue();
+                    declared.put(var, (desc == null || desc.trim().isEmpty()) ? var : desc.trim());
+                }
+            }
+        } catch (Exception ignored) { }
+        if (wf.outputData != null) {
+            for (Map.Entry<String, String> oe : wf.outputData.entrySet()) {
+                String var = oe.getKey() == null ? "" : oe.getKey().trim();
+                if (var.isEmpty()) continue;
+                String desc = oe.getValue();
+                declared.put(var, (desc == null || desc.trim().isEmpty()) ? var : desc.trim());
+            }
+        }
+        if (declared.isEmpty()) return;
         com.fasterxml.jackson.databind.JsonNode vars = run.get("vars");
         try (PreparedStatement ps = c.prepareStatement(
                 "INSERT INTO run_output (feed_id, run_id, var_name, label, value, ts) VALUES (?,?,?,?,?,?)")) {

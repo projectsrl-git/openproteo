@@ -928,3 +928,13 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   aborted the script on its last line. * The `sql` executor is labelled "sql (JDBC query)" instead of
   "DB2/AS400": it is plain JDBC and works with both datasource types (`as400` and `custom`). Only labels
   and docs changed — the executor id stays `sql`, so existing workflows are untouched.
+
+## Log report in the topbar; output-data indexing fix
+* "Log report" sits next to Operations in every topbar (16 pages); the duplicate dashboard button was
+  removed. * FIX: the index reported `0 outputs` because `upsertRun` read only the workflow-level
+  `<outputData>` block, while the designer writes declarations as `outputData.<var>` PARAMETERS ON THE
+  STEPS — which is what Operations reads. The indexer now collects from the steps and lets the
+  workflow-level block override. Requires a Reindex (or restart) after deploy. * Still open: the DETAILS
+  column shows the audit payload; the step LOG lives in per-step files under the run dir and is not in
+  the audit trail, so showing it needs either a link, a lazy tail fetch, or indexing a third source.
+  Note in `.claude/2026-08-04-logs-nav-and-output-indexing-fix.md`.
