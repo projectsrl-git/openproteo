@@ -1082,6 +1082,9 @@ public class InternalSteps {
         res.exitCode = 0;
     }
 
+    private static final java.util.Set<String> STEP_OUTPUT_VARS = new java.util.HashSet<String>(
+            java.util.Arrays.asList("reportFile", "queriesExecuted", "rowsTotal"));
+
     // ------------------------------------------------------------- sqlreport
     /**
      * Runs a list of READ-ONLY queries against one datasource and writes a single Markdown evidence
@@ -1095,8 +1098,13 @@ public class InternalSteps {
      * net against mistakes rather than a guarantee - the report says so itself, because the only real
      * guarantee is the rights of the database account.
      *
-     * Batch 1 does NOT collect variables: keyColumn and collect are parsed, stored and round-tripped
-     * but unused, and are wired in batch 2.
+     * Batch 2 adds variable collection. A query with a 'collect' list publishes each named column as
+     * a run variable; with a 'keyColumn' it publishes the ';'-separated values in row order plus the
+     * companion '<name>.keys' list, which is the pair VarResolver.keyed() needs to resolve
+     * ${COL@key}. A single-column result with no 'collect' is published implicitly under its own
+     * label (the scalar case). Collection is NOT limited by maxRows, which caps only the rendered
+     * table; it is limited by collectMaxRows, and overflowing publishes NOTHING for that query
+     * rather than a partial list, because a partial list in a reconciliation is a trap.
      */
     private void runSqlReport(StepDef step, Map<String, String> params, Map<String, String> vars,
                               StepExecutor.Result res, java.util.function.Consumer<String> line,
@@ -1111,6 +1119,9 @@ public class InternalSteps {
 
         int defaultMaxRows = (int) pLong(params.get("maxRows"), 200L);
         if (defaultMaxRows < 0) defaultMaxRows = 0;
+        int collectMaxRows = (int) pLong(params.get("collectMaxRows"), 5000L);
+        if (collectMaxRows < 0) collectMaxRows = 0;
+        List<String> collectErrors = new ArrayList<String>();
         boolean failOnEmpty = "true".equalsIgnoreCase(params.get("failOnEmpty"));
         boolean trim = !"false".equalsIgnoreCase(params.get("trim"));
         int qto = stepTimeoutSec(step.id, step.timeoutSec, vars, props != null ? props.getDefaultStepTimeoutSec() : 0);
@@ -1137,9 +1148,6 @@ public class InternalSteps {
             sqls.add(stmt == null ? "" : stmt);
             String err = SqlReportSupport.readOnlyError(stmt);
             if (err != null) problems.add("query " + (i + 1) + " (" + titles.get(i) + "): " + err);
-            if (rq != null && (blankToNull(rq.collect) != null || blankToNull(rq.keyColumn) != null)) {
-                line.accept("sqlreport: query " + (i + 1) + " declares collect/keyColumn - variable collection arrives in batch 2, ignored for now");
-            }
         }
         if (!problems.isEmpty()) {
             for (String p : problems) line.accept("sqlreport: REJECTED - " + p);
@@ -1198,6 +1206,11 @@ public class InternalSteps {
 
                 List<String> cols = new ArrayList<String>();
                 List<List<String>> rows = new ArrayList<List<String>>();
+                List<List<String>> collected = null;   // one list per collected column, ALL rows (not capped by maxRows)
+                List<String> collectedKeys = null;
+                SqlReportSupport.CollectPlan plan = null;
+                boolean collectOverflow = false;
+                int sanitized = 0;
                 long count = 0;
                 String startedAt = LocalDateTime.now().format(TS);
                 long t0 = System.currentTimeMillis();
@@ -1210,14 +1223,44 @@ public class InternalSteps {
                     java.sql.ResultSetMetaData mdta = rs.getMetaData();
                     int nc = mdta.getColumnCount();
                     for (int c = 1; c <= nc; c++) cols.add(mdta.getColumnLabel(c));
+
+                    plan = SqlReportSupport.planCollect(cols, rq == null ? null : rq.collect, rq == null ? null : rq.keyColumn);
+                    if (plan.error != null) {
+                        collectErrors.add("query " + (i + 1) + " (" + titles.get(i) + "): " + plan.error);
+                    } else if (plan.active()) {
+                        collected = new ArrayList<List<String>>();
+                        for (int k = 0; k < plan.names.size(); k++) collected.add(new ArrayList<String>());
+                        if (plan.keyed()) collectedKeys = new ArrayList<String>();
+                    }
+                    for (String note : plan.notes) line.accept("sqlreport: query " + (i + 1) + ": " + note);
+
                     while (rs.next()) {
                         count++;
+                        List<String> full = null;
+                        boolean keepForTable = (cap <= 0 || rows.size() < cap);
+                        if (keepForTable || collected != null) {
+                            full = new ArrayList<String>(nc);
+                            for (int c = 1; c <= nc; c++) full.add(SqlReportSupport.cell(rs.getObject(c), trim));
+                        }
                         // the table is capped, the COUNT never is: a truncated table hiding the real
                         // number would be misleading in a document meant as evidence
-                        if (cap > 0 && rows.size() >= cap) continue;
-                        List<String> row = new ArrayList<String>(nc);
-                        for (int c = 1; c <= nc; c++) row.add(SqlReportSupport.cell(rs.getObject(c), trim));
-                        rows.add(row);
+                        if (keepForTable) rows.add(full);
+                        if (collected != null && !collectOverflow) {
+                            if (collectMaxRows > 0 && collected.get(0).size() >= collectMaxRows) {
+                                collectOverflow = true;   // a partially collected list is a trap: publish nothing
+                                continue;
+                            }
+                            for (int k = 0; k < plan.indexes.size(); k++) {
+                                String v = full.get(plan.indexes.get(k).intValue());
+                                if (SqlReportSupport.needsSanitizing(v)) sanitized++;
+                                collected.get(k).add(SqlReportSupport.sanitizeListValue(v));
+                            }
+                            if (collectedKeys != null) {
+                                String kv = full.get(plan.keyIndex);
+                                if (SqlReportSupport.needsSanitizing(kv)) sanitized++;
+                                collectedKeys.add(SqlReportSupport.sanitizeListValue(kv));
+                            }
+                        }
                     }
                 } finally {
                     if (control != null) control.statement = null;
@@ -1236,6 +1279,51 @@ public class InternalSteps {
                 md.append("```sql").append("\n").append(stmt.trim()).append("\n").append("```").append("\n").append("\n");
                 md.append(SqlReportSupport.markdownTable(cols, rows)).append("\n");
 
+                // ---- publish the collected variables (batch 2) ----
+                if (collectOverflow) {
+                    String msg = "query " + (i + 1) + " (" + titles.get(i) + "): more than " + collectMaxRows
+                            + " rows to collect - nothing was published for it. Narrow the query or raise 'Collect max rows'.";
+                    collectErrors.add(msg);
+                    md.append("Collected: NOTHING - the result exceeds the collect limit of ").append(collectMaxRows)
+                      .append(" rows, so no variable was published (a partially collected list would be misleading).").append("\n").append("\n");
+                } else if (plan != null && plan.active()) {
+                    List<String> shown = new ArrayList<String>();
+                    for (int k = 0; k < plan.names.size(); k++) {
+                        String name = plan.names.get(k);
+                        List<String> vals = collected.get(k);
+                        if (plan.keyed()) {
+                            res.outVars.put(name, SqlReportSupport.joinList(vals));
+                            res.outVars.put(name + ".keys", SqlReportSupport.joinList(collectedKeys));
+                            shown.add(name + " (" + vals.size() + (vals.size() == 1 ? " value" : " values") + " keyed by " + plan.keyName + ")");
+                        } else if (vals.size() == 1) {
+                            res.outVars.put(name, vals.get(0));            // the scalar case
+                            shown.add(name + " = " + vals.get(0));
+                        } else {
+                            res.outVars.put(name, SqlReportSupport.joinList(vals));
+                            shown.add(name + " (" + vals.size() + (vals.size() == 1 ? " value" : " values") + ")");
+                        }
+                    }
+                    if (plan.keyed()) {
+                        res.outVars.put(plan.keyName, SqlReportSupport.joinList(collectedKeys));
+                        int dup = SqlReportSupport.duplicateKeys(collectedKeys);
+                        if (dup > 0) {
+                            String warn = "query " + (i + 1) + ": the key column " + plan.keyName + " has " + dup
+                                    + " duplicate key(s) - ${COL@key} returns the FIRST match for those";
+                            line.accept("sqlreport: WARNING - " + warn);
+                            md.append("Warning: ").append(warn).append(".").append("\n").append("\n");
+                        }
+                    }
+                    md.append("Collected: ").append(String.join(", ", shown)).append("\n").append("\n");
+                    if (sanitized > 0) {
+                        md.append("Note: ").append(sanitized).append(" collected value(s) contained a ';' or a line break and had it replaced")
+                          .append(" by a space, because run variable lists are ';'-separated.").append("\n").append("\n");
+                        line.accept("sqlreport: query " + (i + 1) + ": " + sanitized + " collected value(s) sanitized (';' or line break -> space)");
+                    }
+                    // names and counts only in the step log - never the values (PII rule)
+                    line.accept("sqlreport: query " + (i + 1) + " collected " + plan.names.size() + " variable(s): " + String.join(", ", plan.names)
+                            + (plan.keyed() ? (" keyed by " + plan.keyName + " (+ .keys companion lists)") : ""));
+                }
+
                 line.accept("sqlreport: query " + (i + 1) + " \"" + titles.get(i) + "\" -> " + count + " row(s) in " + ms + " ms");
             }
         } finally {
@@ -1249,8 +1337,22 @@ public class InternalSteps {
         res.outVars.put("reportFile", out.getAbsolutePath());
         res.outVars.put("queriesExecuted", String.valueOf(executed));
         res.outVars.put("rowsTotal", String.valueOf(rowsTotal));
-        for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
+        // Only the step's own outputs are echoed with their value. A COLLECTED variable holds query
+        // data, which may be PII, so the log names it and counts it but never prints it. (Note the
+        // engine still audits every out var with its value: collect counts, sums, statuses and keys,
+        // not personal data - the docs say so.)
+        for (Map.Entry<String, String> e : res.outVars.entrySet()) {
+            if (STEP_OUTPUT_VARS.contains(e.getKey())) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
+            else line.accept("##VAR " + e.getKey() + " (collected, value not logged)");
+        }
         line.accept("sqlreport: report written to " + out.getAbsolutePath());
+
+        if (!collectErrors.isEmpty()) {
+            for (String ce : collectErrors) line.accept("sqlreport: COLLECT FAILED - " + ce);
+            res.lastLines = collectErrors.get(0);
+            res.exitCode = 1;
+            return;
+        }
 
         if (failOnEmpty && emptyQueries > 0) {
             line.accept("sqlreport: " + emptyQueries + " query(ies) returned no rows and 'fail on empty' is on - the report was written anyway");

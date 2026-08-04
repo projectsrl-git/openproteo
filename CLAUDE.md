@@ -1069,3 +1069,28 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   The running statement is registered in `control.statement` so Stop can cancel it. * `keyColumn` and
   `collect` are parsed, stored and shown but UNUSED — variable collection is batch 2. Note in
   `.claude/2026-08-04-sqlreport-batch1.md`, spec in `.claude/SQLREPORT_VERSIONING_VARIABLES.md`.
+
+## sqlreport — Batch 2 (collecting query results into run variables)
+* Completes section 1.5 of the spec; `keyColumn`/`collect`, parsed and kept unused by batch 1, are now
+  live. Per query: `collect=COL` on one row publishes the scalar `${COL}`, on several rows the
+  `;`-separated list (so `${COL[N]}` works); with `keyColumn=K` every collected column also gets its
+  companion `${COL.keys}` — the pair `VarResolver.keyed()` needs — plus `${K}` as the key list itself;
+  a single-column result with no `collect` is published implicitly under its own label; no rows
+  publishes the empty string. Names are the RESULT's labels, matched case-insensitively against what
+  the author declared. * **The separator is `;`, always — `step.delimiter` is deliberately NOT
+  honoured**: `keyed()` and `${list[N]}` both split on a hardcoded `;`, so another separator would
+  produce lists that look right and fail every lookup. A collected value containing `;` or a line
+  break is replaced by a space and COUNTED (report + log), because one such value would shift every
+  later position and misalign the keys. * **Explicit intent fails hard, implicit degrades quietly**:
+  an unknown collect/key column, a key column without collect, a label that is not a plain identifier,
+  or a name in `SqlReportSupport.RESERVED_VARS` (`feedId`, `runId`, `stepDir`…) fails the step; the
+  implicit single-column case just skips and logs. * **Overflow publishes NOTHING and fails**:
+  collection is capped by `collectMaxRows` (default 5000, 0 = none), NOT by `maxRows` which caps only
+  the table — a partial list is the worst outcome, since every missing key resolves to "" and looks
+  like a legitimate absence. Duplicate keys warn but do not fail (`${COL@key}` takes the first match).
+  * **Collected values are never echoed to the step log** (`##VAR name (collected, value not
+  logged)`); the limit is stated: the ENGINE still audits every out var WITH its value and OUTPUT DATA
+  shows it — shared behaviour, unchanged — so the docs say collect counts, sums, statuses and keys,
+  not personal data. * Designer: labels lose "(batch 2)", new Collect max rows field, `clientValidate`
+  refuses a key column with no collect and non-identifier names; `USAGE.md` gains a "sqlreport notes:
+  collecting variables" paragraph. Note in `.claude/2026-08-04-sqlreport-batch2-collect.md`.

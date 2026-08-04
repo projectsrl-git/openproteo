@@ -1170,6 +1170,7 @@
                 } else if (ex === 'sqlreport') {
                     h += '<div class="form-row">' + dsSelect(i, n.datasource) +
                         '<div class="field"><label>Max rows in each table</label><input type="number" min="0" value="' + attresc(nodeParam(n, 'maxRows')) + '" placeholder="200" title="Rows rendered per table. The row count in the report is always the real one, even when the table is truncated." oninput="setNodeParam(' + i + ',\'maxRows\',this.value)"></div>' +
+                        '<div class="field"><label>Collect max rows</label><input type="number" min="0" value="' + attresc(nodeParam(n, 'collectMaxRows')) + '" placeholder="5000" title="Safety cap on collected variables (0 = no cap). Above it nothing is published for that query: a partially collected list would be misleading." oninput="setNodeParam(' + i + ',\'collectMaxRows\',this.value)"></div>' +
                         '<div class="field"><label>Fail on empty</label><label class="dim small"><input type="checkbox"' + (nodeParam(n, 'failOnEmpty') === 'true' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'failOnEmpty\',this.checked?\'true\':\'\')"> a query with zero rows fails the step</label></div></div>';
                     h += '<div class="form-row"><div class="field wide"><label>Report file (Markdown)</label>' +
                         '<input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'reportFile')) + '" placeholder="${stepDir}/${feedId}_' + attresc(n.id) + '.md" oninput="setNodeParam(' + i + ',\'reportFile\',this.value)"></div></div>';
@@ -1177,8 +1178,8 @@
                     (n.reportQueries || []).forEach(function (rq, qi) {
                         h += '<div class="form-row">' +
                             '<div class="field wide"><label>Title *</label><input value="' + attresc(rq.title) + '" placeholder="Row count on the source" oninput="updRq(' + i + ',' + qi + ',\'title\',this.value)"></div>' +
-                            '<div class="field"><label>Key column (batch 2)</label><input value="' + attresc(rq.keyColumn) + '" placeholder="CID" title="Reserved for variable collection (batch 2): stored and kept, not used yet." oninput="updRq(' + i + ',' + qi + ',\'keyColumn\',this.value)"></div>' +
-                            '<div class="field"><label>Collect (batch 2)</label><input value="' + attresc(rq.collect) + '" placeholder="AMOUNT,STATUS" title="Reserved for variable collection (batch 2): stored and kept, not used yet." oninput="updRq(' + i + ',' + qi + ',\'collect\',this.value)"></div>' +
+                            '<div class="field"><label>Key column</label><input value="' + attresc(rq.keyColumn) + '" placeholder="CID" title="Index the collected columns by this one: publishes ${COL} and the companion ${COL.keys}, so ${COL@key} resolves. Needs Collect." oninput="updRq(' + i + ',' + qi + ',\'keyColumn\',this.value)"></div>' +
+                            '<div class="field"><label>Collect</label><input value="' + attresc(rq.collect) + '" placeholder="AMOUNT,STATUS" title="Comma-separated result columns to publish as run variables. One row = a scalar, several rows = a ;-separated list." oninput="updRq(' + i + ',' + qi + ',\'collect\',this.value)"></div>' +
                             '<div class="field" style="max-width:110px"><label>Max rows</label><input type="number" min="0" value="' + (rq.maxRows || '') + '" placeholder="(step)" oninput="updRq(' + i + ',' + qi + ',\'maxRows\',this.value)"></div>' +
                             '<div class="field" style="max-width:60px"><label>&nbsp;</label><button class="btn sm danger" onclick="delRq(' + i + ',' + qi + ')">✕</button></div></div>';
                         h += '<div class="form-row"><div class="field wide">' +
@@ -1186,6 +1187,7 @@
                     });
                     h += '<button class="ghost-btn" onclick="addRq(' + i + ')">＋ Add query</button></div>';
                     h += '<div class="dim small" style="margin-top:6px">Every statement must be a single <b>SELECT</b> or <b>WITH</b>: it is checked before anything runs and the connection is opened read-only. That is a net against mistakes, <b>not</b> a guarantee — the real guarantee is the rights of the database account. No CSV is produced. Outputs: <b>${reportFile}</b>, <b>${queriesExecuted}</b>, <b>${rowsTotal}</b>.</div>';
+                    h += '<div class="dim small" style="margin-top:4px"><b>Collect</b> publishes result columns as run variables: a single row gives a scalar <code>${COL}</code>, several rows a <code>;</code>-separated list usable as <code>${COL[N]}</code>. Add a <b>Key column</b> and each collected column also gets its <code>${COL.keys}</code> companion, so <code>${COL@key}</code> returns the value on the row with that key (an absent key gives an empty string, never a neighbouring row). Column names must be plain identifiers — use a SQL alias such as <code>AS N</code>. Collected values become run variables, which are shown in OUTPUT DATA and written to the audit trail: collect counts, sums, statuses and keys, <b>not personal data</b>.</div>';
                 } else if (ex === 'split') {
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Input file *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${anonymize.outputFile} | ${landingOut}/data.csv" oninput="updNode(' + i + ',\'source\',this.value)"></div></div>';
@@ -1490,6 +1492,11 @@
                             var lead = leadingSqlWord(rq.sql);
                             if (lead !== 'SELECT' && lead !== 'WITH') errs.push(label + ' (' + n.id + '): query #' + (qi + 1) + ' must start with SELECT or WITH (found ' + (lead || '?') + ')');
                         }
+                        if (rq.keyColumn && rq.keyColumn.trim() && !(rq.collect && rq.collect.trim())) errs.push(label + ' (' + n.id + '): query #' + (qi + 1) + ' sets a key column but collects nothing');
+                        (rq.collect || '').split(',').forEach(function (cn) {
+                            cn = cn.trim();
+                            if (cn && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(cn)) errs.push(label + ' (' + n.id + '): query #' + (qi + 1) + ': "' + cn + '" is not a usable variable name — give the column a SQL alias');
+                        });
                     });
                 }
                 if (ex === 'safecopy' && (!n.source || !n.dest)) errs.push(label + ' (' + n.id + '): source and dest directories are required');

@@ -1,100 +1,93 @@
-sqlreport executor (batch 1): read-only queries, Markdown evidence
+sqlreport (batch 2): collect query results into run variables
 
-Implements batch 1 of section 1 of .claude/SQLREPORT_VERSIONING_VARIABLES.md:
-a new internal executor that runs a LIST of read-only queries against one JDBC
-datasource and writes a single Markdown evidence report. No CSV and no data
-file: the report is the deliverable, so it can be attached to a
-reconciliation.
+Completes section 1.5 of .claude/SQLREPORT_VERSIONING_VARIABLES.md. The
+keyColumn and collect fields, which batch 1 parsed, stored and round-tripped
+without using, are now live. No new file: the executor, SqlReportSupport and
+the designer branch are extended.
 
-Registered in the four locations the project's rule requires - the exec
-whitelist AND its error message in WorkflowXmlParser, the parser 'internal'
-set, WorkflowEngine.internalKind(), the InternalSteps dispatch - plus the two
-designer ones, the executor dropdown option and clientValidate. Missing one of
-these is what makes an executor invisible in the dropdown.
+What a query publishes. With collect=COL and one row, the scalar ${COL}; with
+several rows, the ;-separated list in row order, so ${COL[N]} resolves
+positionally. With keyColumn=K, every collected column additionally gets its
+companion ${COL.keys} list, aligned position by position - the pair
+VarResolver.keyed() needs to resolve ${COL@key} - plus ${K}, the key list
+under the key column's own name, as the spec's first formulation asked. A
+single-column result with no collect is published implicitly under its own
+label, which is the scalar case of the spec. A query returning no rows
+publishes the empty string, so nothing downstream reads a stale value. Names
+are the RESULT's column labels matched case-insensitively against what the
+author declared, so collect=amount on a column labelled AMOUNT publishes
+${AMOUNT}.
 
-Storage is one <reportQuery> element per query, never a delimited string, so a
-';' inside a statement cannot corrupt the definition. The element is NOT
-<query>: that tag is already the single-statement child of the sql executor
-(textOrAttr(el,"query") looks for a child before the attribute), so reusing it
-would have made the first report query silently become StepDef.query. New
-model/def/ReportQuery, StepDef.reportQueries, parser and writer round-trip,
-NodeDto.ReportQueryDto and the toDto mapping.
+The separator is ';' and step.delimiter is deliberately NOT honoured:
+VarResolver.keyed() and the positional ${list[N]} both split on a hardcoded
+';', so letting the step pick another separator would produce lists that look
+right and silently fail every lookup. For the same reason a collected value
+containing a ';' or a line break has it replaced by a space and the number of
+touched values is counted in the report and the step log, following the
+newlinesSanitized precedent of the sql executor: one such value would shift
+every later position and misalign the companion keys list.
 
-Read-only is enforced at two levels, both before anything is executed. New
-engine/SqlReportSupport - deliberately free of Spring, JDBC and project types,
-so the part whose behaviour must be provable without a database compiles and
-runs on its own - strips comments and blanks the content of string literals
-and quoted identifiers, then requires: not empty, no second statement after a
-';', a leading SELECT or WITH, and no DML/DDL keyword anywhere. That last
-check is stricter than the spec asked, deliberately: a data-modifying CTE such
-as WITH x AS (...) DELETE FROM t begins with WITH and is a single statement,
-so the spec's two checks would have accepted it. Second level: the JDBC
-connection is opened with setReadOnly(true) - its real effect is read back
-with isReadOnly() and stated in the document, since drivers may ignore it -
-plus the step's TIMEOUT SEC as query timeout. If any query is rejected,
-nothing runs at all. The report, USAGE.md and the designer all say the same
-thing: this is a net against mistakes, NOT a guarantee, because a SELECT can
-still call a function with side effects; the real guarantee is the rights of
-the database account, which is the right place for it.
+Explicit intent fails hard, implicit convenience degrades quietly. A collect
+list naming a column that is not in the result, a keyColumn that is not in the
+result, a keyColumn with no collect, a label that is not a plain identifier,
+or a name that would overwrite a built-in run variable (the new
+SqlReportSupport.RESERVED_VARS: feedId, runId, stepDir and the rest) all fail
+the step - a reconciliation that silently loses a variable is worse than one
+that stops, and collecting into ${feedId} would redirect every later path. The
+implicit single-column case instead skips publication and says why in the log,
+because the author never asked for it and it must not break their report.
 
-The report is UTF-8 Markdown at the reportFile param, default
-${stepDir}/${feedId}_${stepId}.md. Header: run id, timestamp with the JVM
-zone, datasource id/type/host/user/database plus product name, workflow and
-step. Per query: its own timestamp, its own duration, the row count, the
-statement AS EXECUTED (after variable substitution) in a fenced block, and the
-result table with '|' escaped and CR/LF folded to a space so a multi-line
-value cannot break the table. The row count is ALWAYS real: the ResultSet is
-consumed to the end and only maxRows (default 200) rows are kept for the
-table, so Statement.setMaxRows is deliberately not used - it would falsify the
-count - and the header says "table truncated to the first N" when they differ.
-A password is never written: only datasource id, host and user, and for a
-custom datasource the JDBC URL goes through redactJdbcUrl, which masks
-password/passwd/pwd values and the user:pw@host form.
+Overflow publishes nothing and fails. Collection is NOT capped by maxRows,
+which caps only the rendered table; it is capped by the new collectMaxRows
+param (default 5000, 0 = no cap). Above it the query's variables are not
+published at all: a partially collected list is the worst outcome, because
+every missing key would resolve to the empty string and be indistinguishable
+from a legitimate absence. Duplicate keys warn in the report and the log but
+do not fail, since ${COL@key} returns the first match and a non-unique key can
+be a legitimate positional list.
 
-Publishes ${reportFile}, ${queriesExecuted} and ${rowsTotal}. failOnEmpty
-(default off) fails the step when a query returned no rows, AFTER writing the
-report so the evidence survives the failure. The running statement is
-registered in control.statement so an operator Stop can cancel it.
+Collected values are never echoed to the step log: the ##VAR lines print the
+value only for the step's own three outputs and name a collected variable with
+"(collected, value not logged)". The limit of that is stated rather than
+implied - the ENGINE still audits every out var with its value
+(STEP_OUTPUT_VAR) and OUTPUT DATA displays it, which is shared behaviour for
+all executors and was not changed here - so the docs say plainly: collect
+counts, sums, statuses and keys, not personal data.
 
-Conservative: a new executor id, a new optional child element, a new model
-list empty on every existing step, and designer code behind ex ===
-'sqlreport'. No existing feed changes behaviour and no new Maven dependency -
-plain JDBC through the existing SqlSupport.open. Java 8 throughout.
+Designer: the two per-query fields lose their "(batch 2)" labels and gain real
+tooltips, a Collect max rows field sits next to Max rows and Fail on empty,
+and clientValidate refuses a key column with no collect and a collected name
+that is not a plain identifier. A paragraph under the block explains the
+scalar/list/keyed forms and repeats the PII warning. USAGE.md gains a
+"sqlreport notes: collecting variables" paragraph next to the csvsql and
+xlsx2csv ones.
 
-keyColumn and collect are parsed, stored, round-tripped and shown in the
-designer marked "batch 2", but unused; the step log says so when a query
-declares them. Collecting query results into run variables is batch 2.
+Conservative: collection happens only where an author sets collect, or on a
+single-column result of a step that did not exist before this feature. No
+existing feed changes behaviour, no new Maven dependency, Java 8 throughout.
 
 Verified. SqlReportSupport compiled standalone with -source 8 and exercised by
-42 assertions, all passing: 16 statements that must be accepted (lowercase,
-leading line and block comments, a read-only CTE, a parenthesised UNION, a
-trailing ';', a ';' inside a literal, the word DELETE inside a literal, DROP
-inside a comment, a column named LAST_UPDATE, GROUPING SETS and OFFSET not
-tripping the SET keyword, doubled-quote escapes) and 13 that must be rejected
-(null, empty, comment-only, INSERT/UPDATE/DELETE/DROP/CALL/SET, a second
-statement with and without a newline, DML hidden behind comments, and the
-data-modifying CTE); the Markdown table renderer (pipe escaping, CRLF folding,
-short rows padded, no columns, header-only); and redactJdbcUrl (password
-param, pwd mid-URL, user:pw@host, nothing-to-redact untouched, and text before
-a skipped near-match not being dropped). The <reportQuery> round trip was
-proved through a real DOM write-then-parse: a statement containing ';', '&',
-'<' and '>' survives intact, attributes round-trip, an absent maxRows falls
-back to the step default, and - the point of the tag choice -
-textOrAttr("query") returns empty when only reportQuery children exist while a
-real <query> child still reads back, so the sql executor is untouched.
-designer.html: node --check on all 147k of extracted inline JS passes, zero
-literal newline/CR escape sequences, and the only Thymeleaf inlining marker in
-the file is the pre-existing commented /*[[${feedId}]]*/. The new
-leadingSqlWord helper was extracted and run in node against the same 12 cases
-as the Java validator, all matching. String/comment-aware brace and paren
-balance is 0/0 on all nine touched Java files, and an import checker confirmed
-every type on an added code line is imported, fully qualified, nested in a
-resolvable outer type, in java.lang or in the same package.
+43 new assertions, with the 42 from batch 1 re-run as a regression, all
+passing. The end-to-end assertions publish variables through a copy of the
+executor's publication block and then read them back through a
+re-implementation of VarResolver.keyed() and ${list[N]} copied from the real
+resolver, so what is proved is the contract and not merely the string join:
+${AMOUNT@CID2} returns 0200 with its leading zero, an absent key returns the
+empty string rather than a neighbouring row, ${AMOUNT[2]} still resolves
+positionally, a value containing ';' is found under its key after sanitising,
+the scalar and multi-row forms differ as specified, overflow publishes an
+empty map, and every rejection listed above is rejected while the implicit
+cases are not. node --check on the designer's inline JS caught a real defect:
+the first placement of the new validation split an if/else pair and would have
+broken the whole designer page - fixed and re-checked, with zero literal
+newline/CR escape sequences and the only Thymeleaf inlining marker in the file
+being the pre-existing commented one. Brace and paren balance is 0/0 on both
+Java files and the import checker passes on every added line.
 
 NOT verified: mvn clean package (Maven Central is unreachable from the chat
-sandbox), and everything that needs a live database - the JDBC path, whether a
-given driver honours setReadOnly(true), the query timeout, and the report as
-actually written by a run. Please build and run one step on deploy.
+sandbox) and everything that needs a live database - the JDBC path, collection
+over a real result set, and how a collected list renders in OUTPUT DATA and
+the audit trail. Please build and run one step with a keyed collect on deploy.
 
 Spec: .claude/SQLREPORT_VERSIONING_VARIABLES.md
-Note: .claude/2026-08-04-sqlreport-batch1.md
+Note: .claude/2026-08-04-sqlreport-batch2-collect.md

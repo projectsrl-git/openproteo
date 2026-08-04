@@ -218,6 +218,173 @@ public final class SqlReportSupport {
         return trim ? s.trim() : s;
     }
 
+    // ------------------------------------------------------------------ variable collection
+
+    /**
+     * Run variables a collected column must never overwrite. Collecting into one of these would
+     * silently break every later step: {@code ${feedId}} names directories, {@code ${runId}} is the
+     * audit key, and so on. An explicit {@code collect} naming one of them fails the step; an
+     * implicit single-column collection just skips it.
+     */
+    public static final java.util.Set<String> RESERVED_VARS;
+    static {
+        java.util.Set<String> r = new java.util.LinkedHashSet<String>(java.util.Arrays.asList(
+                "feedId", "parentId", "feedName", "runId", "stepId", "stepDir", "feedDir",
+                "sourceId", "targetId", "runDate", "runTs", "currentDate", "currentTs",
+                "landingIn", "landingOut", "sharedDir", "stepTimeoutMins",
+                "reportFile", "queriesExecuted", "rowsTotal", "rowCount", "item", "loopIndex", "loopCount"));
+        RESERVED_VARS = java.util.Collections.unmodifiableSet(r);
+    }
+
+    /** What to collect from one result set, resolved against its actual column labels. */
+    public static class CollectPlan {
+        /** Variable names to publish, in declaration order (the result's own column labels). */
+        public final List<String> names = new java.util.ArrayList<String>();
+        /** 0-based positions of those columns in the result. Aligned with {@link #names}. */
+        public final List<Integer> indexes = new java.util.ArrayList<Integer>();
+        /** 0-based position of the key column, or -1 when the collection is not keyed. */
+        public int keyIndex = -1;
+        public String keyName;
+        /** Non-null when the step must fail: the author asked for something that cannot be done. */
+        public String error;
+        /** Non-fatal remarks for the step log. */
+        public final List<String> notes = new java.util.ArrayList<String>();
+        /** True when the author wrote a collect list, false for the implicit single-column case. */
+        public boolean explicit;
+        public boolean keyed() { return keyIndex >= 0; }
+        public boolean active() { return error == null && !names.isEmpty(); }
+    }
+
+    /**
+     * Decides what a query collects.
+     *
+     * With an explicit {@code collect} list every problem is fatal: a reconciliation that silently
+     * loses a variable is worse than one that stops. Without it, a result with exactly ONE column
+     * is collected implicitly under that column's label (the scalar case of the spec), and any
+     * problem merely skips the publication - the author never asked for it, so it must not fail
+     * their report.
+     */
+    public static CollectPlan planCollect(List<String> resultColumns, String collect, String keyColumn) {
+        CollectPlan p = new CollectPlan();
+        String col = trimToNull(collect), key = trimToNull(keyColumn);
+        p.explicit = (col != null);
+        if (col == null && key != null) {
+            p.error = "key column '" + key + "' is set but 'collect' lists no column to index by it";
+            return p;
+        }
+        List<String> wanted = new java.util.ArrayList<String>();
+        if (col != null) {
+            for (String t : col.split(",")) {
+                String n = t.trim();
+                if (!n.isEmpty() && !containsIgnoreCase(wanted, n)) wanted.add(n);
+            }
+            if (wanted.isEmpty()) { p.error = "'collect' is set but lists no column name"; return p; }
+        } else {
+            if (resultColumns == null || resultColumns.size() != 1) return p;   // nothing implicit to collect
+            wanted.add(resultColumns.get(0));
+        }
+        if (key != null) {
+            int ki = indexOfColumn(resultColumns, key);
+            if (ki < 0) { p.error = "key column '" + key + "' is not among the result columns " + resultColumns; return p; }
+            p.keyIndex = ki;
+            p.keyName = resultColumns.get(ki);
+            String bad = varNameProblem(p.keyName);
+            if (bad != null) { p.error = "key column '" + p.keyName + "' " + bad; return p; }
+        }
+        for (String n : wanted) {
+            int idx = indexOfColumn(resultColumns, n);
+            if (idx < 0) {
+                if (p.explicit) { p.error = "collected column '" + n + "' is not among the result columns " + resultColumns; return p; }
+                continue;
+            }
+            String varName = resultColumns.get(idx);
+            String bad = varNameProblem(varName);
+            if (bad != null) {
+                if (p.explicit) { p.error = "collected column '" + varName + "' " + bad; return p; }
+                p.notes.add("column '" + varName + "' " + bad + " - not published");
+                continue;
+            }
+            p.names.add(varName);
+            p.indexes.add(Integer.valueOf(idx));
+        }
+        return p;
+    }
+
+    /** null when the label is usable as a run variable name, otherwise why it is not. */
+    public static String varNameProblem(String name) {
+        if (name == null || name.trim().isEmpty()) return "has no name - give the column a SQL alias (e.g. AS N)";
+        String n = name.trim();
+        if (!n.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+            return "is not usable as a variable name - give the column a SQL alias (e.g. AS N)";
+        }
+        if (RESERVED_VARS.contains(n)) return "is a reserved run variable and would overwrite it - use a SQL alias";
+        return null;
+    }
+
+    /** Case-insensitive lookup of a column label; -1 when absent. */
+    public static int indexOfColumn(List<String> columns, String name) {
+        if (columns == null || name == null) return -1;
+        String want = name.trim();
+        for (int i = 0; i < columns.size(); i++) {
+            String c = columns.get(i);
+            if (c != null && c.trim().equalsIgnoreCase(want)) return i;
+        }
+        return -1;
+    }
+
+    private static boolean containsIgnoreCase(List<String> list, String v) {
+        for (String s : list) if (s.equalsIgnoreCase(v)) return true;
+        return false;
+    }
+
+    private static String trimToNull(String v) { return (v == null || v.trim().isEmpty()) ? null : v.trim(); }
+
+    /**
+     * A collected value must not contain the list separator or a line break: run variable lists are
+     * ';'-separated and BOTH {@code ${COL[N]}} and {@code ${COL@key}} split on ';' (hardcoded in
+     * VarResolver), so one value containing a ';' would shift every later position and misalign the
+     * companion keys list. Both are replaced by a single space and the number of touched values is
+     * reported, rather than being dropped silently.
+     */
+    public static String sanitizeListValue(String v) {
+        if (v == null) return "";
+        StringBuilder sb = new StringBuilder(v.length());
+        for (int i = 0; i < v.length(); i++) {
+            char c = v.charAt(i);
+            if (c == ';' || c == '\r' || c == '\n') sb.append(' ');
+            else sb.append(c);
+        }
+        return sb.toString();
+    }
+
+    /** True when {@link #sanitizeListValue} would change the value. */
+    public static boolean needsSanitizing(String v) {
+        if (v == null) return false;
+        return v.indexOf(';') >= 0 || v.indexOf('\r') >= 0 || v.indexOf('\n') >= 0;
+    }
+
+    /** Joins already-sanitized values with ';', the separator VarResolver splits on. */
+    public static String joinList(List<String> values) {
+        StringBuilder sb = new StringBuilder();
+        if (values == null) return "";
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) sb.append(';');
+            sb.append(values.get(i) == null ? "" : values.get(i));
+        }
+        return sb.toString();
+    }
+
+    /** Number of duplicated keys in a key list (0 when every key is distinct). */
+    public static int duplicateKeys(List<String> keys) {
+        if (keys == null) return 0;
+        java.util.Set<String> seen = new java.util.HashSet<String>();
+        int dup = 0;
+        for (String k : keys) {
+            if (!seen.add(k == null ? "" : k.trim())) dup++;
+        }
+        return dup;
+    }
+
     // ------------------------------------------------------------------ credential redaction
 
     /**
