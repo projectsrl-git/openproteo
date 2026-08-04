@@ -532,6 +532,7 @@ public class WorkflowEngine {
         run.vars.put("stepTimeoutMins", "5");   // standard default (minutes); overridable globally, per-workflow, or per-step via stepTimeoutMins.<stepId>
         run.vars.putAll(globalVars.all());   // common vars for all workflows (lowest precedence)
         run.vars.put("feedId", def.feedId);
+        run.vars.put("parentId", VarResolver.parentId(def.feedId));   // = feedId on an unversioned feed, so it is never null
         run.vars.put("sourceId", def.sourceId == null ? "" : def.sourceId);
         run.vars.put("targetId", def.targetId == null ? "" : def.targetId);
         run.vars.put("__prod", def.production ? "true" : "false");

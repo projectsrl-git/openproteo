@@ -25,6 +25,40 @@ public final class VarResolver {
     private static final Pattern KEYED = Pattern.compile("^([^@\\[\\]]+)@(.+)$");
     private static final int MAX_DEPTH = 12;
 
+    // a feed id ending in .v<digits> is a VERSION of the id before that suffix
+    private static final Pattern VERSION_SUFFIX = Pattern.compile("^(.+)\\.v[0-9]+$");
+
+    /**
+     * The id a versioned feed descends from: the feed id with a trailing {@code .v<digits>} stripped,
+     * so {@code tf0003819.v2} gives {@code tf0003819}. Published as the built-in {@code ${parentId}}.
+     *
+     * <p>The derivation is textual and TOTAL: on a feed that is not a version it returns the feed id
+     * unchanged, so {@code ${parentId}} is never null and a query, a path or a report can use it
+     * unconditionally without its author knowing whether that feed happens to be a version. Only ONE
+     * suffix is stripped - a version of a version keeps its intermediate id, which is what the naming
+     * says. A suffix with no digits ({@code x.v}) is not a version, and a value that would strip down
+     * to nothing ({@code .v1}) is returned unchanged rather than becoming the empty string.</p>
+     *
+     * <p>Note what this is NOT: it carries information, not a link. Runs, output data and the audit
+     * trail stay separate per feed id, which is the point of versioning. And since {@code ${feedId}}
+     * is what names directories and files, anything that must keep the ORIGINAL naming across
+     * versions - typically the delivered file name - has to use {@code ${parentId}} explicitly.</p>
+     */
+    public static String parentId(String feedId) {
+        if (feedId == null) return "";
+        String id = feedId.trim();
+        if (id.isEmpty()) return "";
+        Matcher m = VERSION_SUFFIX.matcher(id);
+        if (!m.matches()) return id;
+        String parent = m.group(1);
+        return parent.isEmpty() ? id : parent;
+    }
+
+    /** True when the feed id carries a {@code .v<digits>} version suffix. */
+    public static boolean isVersioned(String feedId) {
+        return feedId != null && !parentId(feedId).equals(feedId.trim());
+    }
+
     private VarResolver() {}
 
     /**

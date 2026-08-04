@@ -171,6 +171,7 @@ public class ApiController {
         Map<String, String> vars = new LinkedHashMap<String, String>();
         vars.putAll(globalVars.all());
         vars.put("feedId", def.feedId);
+        vars.put("parentId", com.legalarchive.orchestrator.engine.VarResolver.parentId(def.feedId));
         vars.put("sourceId", def.sourceId == null ? "" : def.sourceId);
         vars.put("targetId", def.targetId == null ? "" : def.targetId);
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
@@ -239,6 +240,7 @@ public class ApiController {
         Map<String, String> vars = new LinkedHashMap<String, String>();
         vars.putAll(globalVars.all());
         vars.put("feedId", def.feedId);
+        vars.put("parentId", com.legalarchive.orchestrator.engine.VarResolver.parentId(def.feedId));
         vars.put("sourceId", def.sourceId == null ? "" : def.sourceId);
         vars.put("targetId", def.targetId == null ? "" : def.targetId);
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
@@ -1519,6 +1521,7 @@ public class ApiController {
                     Map<String, String> tagVars = new LinkedHashMap<String, String>();
                     tagVars.putAll(globalVars.all());
                     tagVars.put("feedId", def.feedId);
+                    tagVars.put("parentId", com.legalarchive.orchestrator.engine.VarResolver.parentId(def.feedId));
                     tagVars.put("sourceId", def.sourceId == null ? "" : def.sourceId);
                     tagVars.put("targetId", def.targetId == null ? "" : def.targetId);
                     java.time.LocalDateTime tnow = java.time.LocalDateTime.now();

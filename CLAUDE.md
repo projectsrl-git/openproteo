@@ -1134,3 +1134,24 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   `avval`, never `vval`, so `collect()` (`.vval[data-dirty="1"]`) cannot see it and it can never ride
   along with an ordinary Save — asserted directly in the tests. Note in
   `.claude/2026-08-04-variables-add-step.md`.
+
+## `${parentId}` built-in (section 2, batch 1)
+* `VarResolver.parentId(feedId)` strips ONE trailing `.v<digits>`, so `tf0003819.v2` -> `tf0003819`.
+  Textual and TOTAL: on an unversioned feed it returns the feed id unchanged, so `${parentId}` is
+  never empty and can be used unconditionally without the author knowing whether that feed is a
+  version — that is why it is a variable and not a UI label. `x.v` (no digits) is not a version, `.v1`
+  would strip to nothing so it is returned unchanged, null/blank give "". Companion `isVersioned()`.
+  * Published in all SIX places `${feedId}` is: `buildRun` run vars, both design-time preview maps in
+  ApiController (`feedVars` + csvsql preview), the Operations tag-resolution map, and in designer.html
+  both the Builtin-vars cheat sheet and the path autocomplete. * VERIFIED rather than assumed: the
+  spec's "`tf0003819.v1` is an acceptable feed id, the registry is untouched" holds — every feed-id
+  validation (`WorkflowXmlParser:65`, `ApiController:1806`/`:2321`, `clientValidate` x2) uses
+  `[A-Za-z0-9._-]+`, which already admits a dot. No change needed. * DECISION: **the versioning
+  trigger will apply to the DESIGNER SAVE ONLY, not to the Variables-page bulk add.** A version is
+  scheduling-inert and the original keeps its schedule, so triggering it on a 40-feed bulk add would
+  produce 40 unscheduled workflows and change nothing about tonight's run — the operator's intended
+  change simply would not happen. The bulk-add confirm text must say it modifies in place and creates
+  no versions (fold into the next batch). * Remaining for section 2: structural-change detection on
+  designer save, the version/overwrite dialog, `.v<n>` allocation, uploads copied like
+  Duplicate-as-new, scheduling-inert creation, and Operations showing a version next to its parent.
+  Note in `.claude/2026-08-04-parentid-builtin.md`.

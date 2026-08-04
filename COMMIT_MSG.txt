@@ -1,70 +1,63 @@
-Variables: add a partial step to the feeds that lack it
+Built-in ${parentId}: the id a versioned feed descends from
 
-Completes section 3 of .claude/SQLREPORT_VERSIONING_VARIABLES.md. Batch 1 made
-the difference visible; this makes it actionable. It is the most invasive
-change of the series - it writes a new node into N workflow XML files - so the
-guards are the substance of it.
+First batch of section 2 of .claude/SQLREPORT_VERSIONING_VARIABLES.md. Only
+the built-in variable; the structural-change detection and the
+version/overwrite dialog are the next batch.
 
-The client sends {stepId, fromFeedId, afterStepId} per target feed and NEVER a
-step definition: the server copies the node out of a fresh toDto(sourceDef),
-so what is inserted is always a real, already-parsed step from a workflow that
-exists. New FeedEdit.addSteps and applyStepAdditions, applied BEFORE
-applyEditsToDto, which is what makes it cheap: the field edits then land on
-the freshly inserted node through the existing code path, and the existing
-all-or-nothing staging (regenerate, parse, stage, write only if every feed
-passed) covers the structural change for free.
+VarResolver.parentId(feedId) strips ONE trailing .v<digits>, so tf0003819.v2
+gives tf0003819. The derivation is textual and TOTAL: on a feed that is not a
+version it returns the feed id unchanged, so ${parentId} is never empty and a
+query, a path or a report can use it unconditionally without its author
+knowing whether that particular feed happens to be a version. That is the
+whole reason it is a variable and not a UI label. Only the last suffix is
+stripped (tf0003819.v1.v2 gives tf0003819.v1), x.v with no digits is not a
+version, .v1 would strip down to nothing so it is returned unchanged, and null
+or blank give the empty string rather than null. Companion isVersioned() for
+the UI batch.
 
-Two things must not be guessed and are refused instead. The insertion position
-is a dropdown of the steps common to the whole selection plus "at the very
-beginning", defaulted only when every feed that already has the step puts it
-after the SAME common step; otherwise the operator must choose. Appending at
-the end, or copying the position from the first feed, is how a step ends up
-running after the send. And a field the source feeds DISAGREE on is blanked
-and marked required, not copied from whichever feed came first: a query taken
-from feed A and written into three others is wrong in three places and looks
-right in the XML. Fields they agree on are copied as they are.
+Published in all six places ${feedId} is: WorkflowEngine.buildRun run
+variables, both design-time preview maps in ApiController (feedVars and the
+csvsql preview), the tag-resolution map used by Operations, and in
+designer.html both the Builtin-vars cheat sheet and the path autocomplete
+list.
 
-Guards. A feed with a live run is refused, because this is a structural edit
-and the engine walks def.nodes by index, so inserting a node under a running
-workflow shifts what it executes next; the check uses
-engine.activeRunsByFeed() and not activeRunId(), because a run paused on a
-manual gate or ON HOLD has released the engine slot and would otherwise look
-inactive - the same trap fixed in deleteRun earlier. Also refused: a duplicate
-id in the target (this creates, it never overwrites), an unknown source feed,
-a source feed that does not have the step, and an anchor that is not in the
-TARGET - the UI only offers anchors common to the selection, but the server
-does not trust the UI. An executor conflict keeps the step read-only with no
-button at all. PRODUCTION feeds in the target set require the same explicit
-checkbox as Clear History.
+Verified rather than assumed: the spec DECIDED that tf0003819.v1 is an
+acceptable feed id so the registry stays untouched, and that now holds against
+the code - every place a feed id is validated (WorkflowXmlParser:65,
+ApiController:1806 and :2321, clientValidate twice in designer.html) uses
+[A-Za-z0-9._-]+, which already admits a dot. No change was needed anywhere.
 
-Two subtle ones worth naming. validateChecks is deep-copied on insertion:
-toDto assigns nd.validateChecks = st.validateChecks, the same List instance
-the registry's StepDef holds, so inserting that node and then editing it would
-have mutated the SOURCE workflow in memory. And the add form uses class avval,
-not vval: saveVariables() collects .vval[data-dirty="1"], so an add-form input
-could otherwise have ridden along with an ordinary Save and silently written a
-value into every selected feed.
+Why this batch first: ${parentId} is the only part of section 2 that is
+provable in isolation, changes no behaviour, and is useful on its own - an
+author can start writing ${parentId} into delivered file names before any
+version exists, because on an unversioned feed it equals ${feedId}. Shipping
+it separately also means the risky part of section 2 arrives on a codebase
+where the variable is already deployed and observed.
 
-Verified. The insertion core was transcribed against stub DTOs, compiled with
--source 8 and run: order after an anchor, after the last node, at the
-beginning with an empty and with a null anchor, two chained adds, and every
-guard above rejecting while leaving the node list untouched, plus the
-validateChecks aliasing test which fails without the defensive copy. The real
-renderCommon was run against a fake DOM: the anchor defaults to the shared
-position when the sources agree and to "(choose)" when they do not; a field
-the sources agree on is copied and not required while one they disagree on is
-blanked and required; a conflicting step gets no anchor select, no button, a
-vlocked section and disabled inputs; and every add input carries data-add, has
-no data-scope and does not carry the vval class. node --check on the page's
-inline JS passes, with zero literal newline/CR escape sequences and no
-Thymeleaf inlining markers; every CSS variable used by the page was checked to
-exist in app.css; brace and paren balance is 0/0 on ApiController and the
-import checker is green on every added line.
+Decision recorded here, left open at the end of the previous batch: the
+versioning trigger will apply to the DESIGNER SAVE ONLY, not to the
+Variables-page bulk add. The reason is arithmetic. A version is created
+scheduling-inert and the original keeps its schedule, so triggering it on a
+bulk add across forty feeds would produce forty new unscheduled workflow ids
+and change nothing about what runs tonight - the operator's intended change
+would simply not happen, and there would be forty workflows to clean up. A
+version is an interactive, one-feed-at-a-time decision by the author; a
+fleet-wide add is a deliberate operation where the operator has already
+confirmed PROD inclusion in the dialog. The bulk-add confirmation text must
+say plainly that it modifies the feeds in place and creates no versions, which
+folds into the next batch.
 
-NOT verified: mvn clean package, and the whole thing end to end - an actual
-insertion into real workflow files, the resulting XML, and the page in a
-browser. Try it first on two non-production feeds and read the generated XML
-before using it on anything that ships.
+Verified: parentId and isVersioned were transcribed verbatim, compiled with
+-source 8 and run against 18 assertions - unversioned returns itself, null and
+blank give the empty string, .v1 and .v12 and .v0 all strip, only one suffix
+strips, surrounding whitespace is trimmed, and x.v, x.V1, xv1, tf.0003819, .v1
+and a bare dot are all correctly NOT treated as versions. Brace and paren
+balance is 0/0 on the three Java files, the import checker is green on every
+added line, and node --check on the designer's inline JS passes with zero
+literal newline/CR escape sequences and only the pre-existing commented
+Thymeleaf marker.
 
-Note: .claude/2026-08-04-variables-add-step.md
-Spec: .claude/SQLREPORT_VERSIONING_VARIABLES.md section 3
+NOT verified: mvn clean package, and ${parentId} resolving inside a real run.
+
+Note: .claude/2026-08-04-parentid-builtin.md
+Spec: .claude/SQLREPORT_VERSIONING_VARIABLES.md section 2

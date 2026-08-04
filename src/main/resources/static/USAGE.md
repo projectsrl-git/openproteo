@@ -19,7 +19,7 @@ There are four node kinds: **STEP** (does work via an executor), **GATE** (route
 a condition or waits for human approval), **LOOP** and **ENDLOOP** (repeat the steps between
 them once per item of a list).
 
-Variables are referenced as `${name}`. Resolution is iterative and innermost-first, so a variable can build the **name** of another variable (indirection / factory pattern): with `targetId=T1`, `${TargetDestination.${targetId}}` first becomes `${TargetDestination.T1}` and is then resolved to that variable's value. Unknown names resolve to the empty string. The engine seeds `feedId`, `sourceId`, `targetId`,
+Variables are referenced as `${name}`. Resolution is iterative and innermost-first, so a variable can build the **name** of another variable (indirection / factory pattern): with `targetId=T1`, `${TargetDestination.${targetId}}` first becomes `${TargetDestination.T1}` and is then resolved to that variable's value. Unknown names resolve to the empty string. The engine seeds `feedId`, `parentId`, `sourceId`, `targetId`,
 `feedName`, `runId`, `runDate`, layout paths (e.g. `feedDir`, `landingIn`, `landingOut`,
 `stepDir`), `sharedDir` (the shared-files directory), `stepId` and `stepName` (the id and name
 of the step currently running), plus every workflow variable you declare. A step can publish
@@ -368,6 +368,14 @@ The **Variables** page edits the properties that the selected feeds have in comm
 - The **▾** button in a column header copies that value down to every visible feed.
 - Arrow Up/Down and Enter move between cells, and pasting a block copied from Excel fills the cells to the right and below.
 - Filters: feeds, column names, and **only columns that differ** — which shows just the variables whose value is not identical across the visible feeds.
+
+### `parentId`: the id a versioned feed descends from
+
+A feed id ending in `.v<digits>` is a **version** of the id before that suffix: `tf0003819.v2` is a version of `tf0003819`. Versioning is a pure naming convention — a dot is already a legal character in a feed id, so nothing in the registry treats these feeds specially.
+
+`${parentId}` is the feed id with **one** trailing `.v<digits>` stripped. The derivation is textual and total: on a feed that is not a version it equals `${feedId}`, so it is **never empty** and a query, a path or a report can use it unconditionally without its author knowing whether that particular feed happens to be a version. `tf0003819.v1.v2` gives `tf0003819.v1` (only the last suffix goes), and `tf0003819.v` is not a version at all because there are no digits. It is published everywhere `${feedId}` is: run variables, the designer preview and autocomplete, and tag resolution.
+
+Two things to keep in mind. A version **inherits nothing**: runs, output data and the audit trail stay separate per feed id, which is exactly the point of versioning — `${parentId}` carries information, not a link. And since `${feedId}` is what names directories and files, anything that must keep the **original** naming across versions — typically the delivered file name — has to say `${parentId}` explicitly. That is the one decision an author has to make per step.
 
 ### `currentDate` / `currentTs`
 
