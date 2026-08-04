@@ -144,7 +144,7 @@ orchestrator.mask-pools-dir=       # opzionale: override dei pool senza rebuild
   volta, verifica reale sul deploy UBS, poi si prosegue.
 * **GitHub**: `https://github.com/projectsrl-git/openproteo` (pubblico).
 * **Sviluppo**: direttamente sulla working copy git (`D:\SVILUPPO\openproteo`)
-  con **Claude Code**. Niente zip, niente `robocopy /MIR`, niente
+  con **Claude Code**. Vedi «Deploy & commit»: la modalita' chat consegna a patch. Mai `robocopy /MIR`, mai
   `deploy_openproteo.bat`. Commit e push diretti da git.
 * **Deploy locale**: `mvn clean package` nella working copy, poi deploy
   manuale del WAR su Tomcat (stop → rimuovi WAR + esploso + work → copia WAR
@@ -181,17 +181,74 @@ Ogni turno di sviluppo (= ogni "consegna" di Claude) produce:
 
 ## Deploy & commit
 
-Sviluppo diretto sulla working copy git con Claude Code. Niente più zip /
-`robocopy /MIR` / `deploy_openproteo.bat`.
+Due modalita', stesse regole di qualita'. **`COMMIT_MSG.txt` e' obbligatorio in
+entrambe**: ogni prompt che produce modifiche deve creare/aggiornare
+`COMMIT_MSG.txt` nella root (riga 1 <= 72 char, riga 2 vuota, corpo wrap a 78);
+il commit si esegue con `git commit -F COMMIT_MSG.txt` e il file e' versionato,
+quindi entra nel commit stesso.
 
-Flusso: modifica codice → `mvn clean package` (verifica build) →
-generare `COMMIT_MSG.txt` → commit → push.
+### Modalita' A - Claude Code (working copy)
 
-**COMMIT_MSG.txt**: ad ogni prompt che produce modifiche, Claude **DEVE**
-creare/aggiornare `COMMIT_MSG.txt` nella root del repo con il messaggio di
-commit (riga 1 ≤ 72 char, riga 2 vuota, corpo wrap a 78). Il commit si
-esegue con `git commit -F COMMIT_MSG.txt`. Il file è versionato (entra nel
-commit stesso). Il WAR prodotto si deploya manualmente su Tomcat.
+Modifica diretta dei file -> `mvn clean package` (verifica build) ->
+`COMMIT_MSG.txt` -> commit -> push. Il WAR si deploya poi su Tomcat.
+
+### Modalita' B - chat (consegna a patch)
+
+Chi lavora in chat **non ha accesso alla working copy**: consegna **un solo
+`.zip` per turno**, che `scripts/deploy_openproteo_patch.bat` applica, builda,
+committa e pusha. Contenuto:
+
+| file | note |
+|---|---|
+| `<nome>.patch` | `git diff` generato **su un clone fresco del main corrente** |
+| `COMMIT_MSG.txt` | come sopra |
+| `csv-viewer.html` | **sempre**, in chiaro: file grande, sta fuori dal patch per evitare conflitti CRLF |
+
+Regole imparate sul campo:
+
+* **Generare sempre da un clone fresco di `main`**, applicando li' le modifiche.
+  Copiare file da alberi di lavoro precedenti ha gia' prodotto un patch che
+  cancellava una riga altrui.
+* **`git apply --check` su un secondo clone pulito** prima di consegnare.
+* **Un patch per intervento.** Due patch che appendono entrambi in coda a
+  `CLAUDE.md` vanno in conflitto: dichiarare l'ordine o rigenerare il secondo
+  sopra il primo.
+* `main` **avanza a ogni turno**: rileggere l'HEAD prima di generare.
+* Se rimandi una versione corretta, **dillo esplicitamente**: lo script prende
+  lo zip piu' recente in `D:\downloads` e puo' ripescare quello vecchio.
+
+## Verifica prima della consegna (obbligatoria in modalita' B)
+
+In chat **non si puo' compilare il progetto** (Maven Central non raggiungibile
+dal sandbox): la build sulla macchina dell'utente e' l'unica prova finale. Va
+quindi verificato tutto il verificabile, e **dichiarato** cio' che non lo e'.
+
+* **JS**: estrarre gli `<script>` inline e passarli a `node --check`.
+* **Zero `\n` / `\r` letterali nel sorgente JS** - il proxy UBS li riscrive in
+  newline reali e rompe l'esecuzione. Usare `String.fromCharCode(10)`/`(13)`.
+* **Zero `[[` / `[(`** fuori dai commenti Thymeleaf `/*[[${...}]]*/`.
+* **Java**: bilanciamento graffe con un contatore **che ignora stringhe e
+  commenti** (quello ingenuo da' falsi positivi noti su `InternalSteps`), e
+  **verifica degli import**: un `LinkedHashMap` non importato e' gia' costato
+  una build rotta, e il contatore non lo vede.
+* **`pom.xml`**: validare con un parser XML (niente `--` nei commenti, un solo
+  blocco `<properties>`).
+* **Logica isolabile**: estrarre il metodo e **compilarlo ed eseguirlo** con
+  `javac` (JDK: `apt-get install -y openjdk-17-jdk-headless`). L'SQL portabile
+  si prova su SQLite.
+* Nel `COMMIT_MSG.txt` **dichiarare cosa e' stato verificato e cosa no**.
+
+## Principi non negoziabili (entrambe le modalita')
+
+* **Default conservativi**: ogni nuovo comportamento nasce spento. Un deploy non
+  deve cambiare l'output dei feed in produzione; l'attivazione e' per step o di
+  massa da Variables / matrice.
+* **Spec-first**: per una feature non banale, prima una `.md` in `.claude/` con
+  le decisioni, poi implementazione a batch con conferma tra uno e l'altro.
+* **Lingua**: conversazione in italiano; codice, commit e documentazione in
+  inglese.
+* **Dichiarare i limiti**: se qualcosa non e' stato provato, dirlo nella
+  consegna invece di lasciarlo intendere.
 
 ## Regola delle 4 location per nuovi executor interni
 

@@ -1,31 +1,32 @@
-Spec: versioned feed ids and the built-in ${parentId}
+CLAUDE.md: one development contract covering both Claude Code and chat delivery
 
-Records the two decisions taken for the workflow versioning change, so the implementation batch starts
-from settled ground.
+The contract described only work on the git working copy with Claude Code and stated "no zip", which
+directly contradicted how the last months of work were actually delivered: patches packaged as a zip and
+applied by scripts/deploy_openproteo_patch.bat. Anyone opening a fresh session from this file was being
+pointed at the wrong workflow.
 
-Ids like tf0003819.v1 are acceptable, which keeps versioning a pure naming convention and leaves the
-registry untouched.
+Deploy and commit now describes two modes with the same quality rules and one shared requirement,
+COMMIT_MSG.txt. Mode A is Claude Code on the working copy. Mode B is chat delivery: one zip per turn
+containing the patch, the commit message and csv-viewer.html in the clear, that file being kept out of
+the patch because its size and CRLF handling caused repeated conflicts.
 
-A built-in ${parentId} carries the original id. The derivation is textual and total: a trailing .v
-followed by digits is stripped, so tf0003819.v2 gives tf0003819, and on a feed that was never versioned
-${parentId} simply equals ${feedId}. It is therefore never null, and a query, a path or a report can use
-it unconditionally without its author knowing whether that particular feed happens to be a version. It
-will be published wherever ${feedId} already is.
+The rules written down for mode B are the ones learned the hard way. Patches must be generated on a
+fresh clone of the current main and applied there, because copying files from earlier working trees has
+already produced a patch that deleted someone else's line. Every patch is dry-run applied on a second
+clean clone before delivery. One patch per change, with the order declared when two of them both append
+to the end of CLAUDE.md, since that conflicts. And main moves every turn, so the head has to be re-read
+before generating anything.
 
-Two consequences are written down with it. A version inherits nothing automatically: ${parentId} is
-information, not a link, and run history, output data and audit stay separate per feed id, which is the
-whole point of versioning. And since ids end up in file paths, ${feedId} remains what names directories
-and files, so anything that must keep the original naming across versions, typically the delivered file
-name, has to use ${parentId} explicitly; that is the one decision an author makes per step and the
-documentation has to say so plainly.
+A verification section makes explicit that the project cannot be compiled in the chat sandbox, since
+Maven Central is unreachable from it, and that everything verifiable must therefore be verified and
+everything else declared: node --check on extracted inline scripts, no literal backslash-n or
+backslash-r in JavaScript because the corporate proxy rewrites them, no unsafe Thymeleaf brackets, brace
+balance with a counter that ignores strings and comments, an import check after a missing LinkedHashMap
+cost a broken build, pom.xml validated with a real XML parser, and isolated logic actually compiled and
+executed with javac.
 
-The third decision: the original keeps its schedule. Creating a version changes nothing about what runs
-tonight, the new workflow is created scheduling-inert, and the operator retargets deliberately when
-ready, because silently moving a schedule onto a freshly edited workflow is the kind of surprise that
-costs a night. Three consequences follow for the implementation. The save dialog must state which
-workflow is still scheduled, so nobody assumes the switch happened. Operations must make a version
-recognisable, showing the id together with its parent, since the two workflows are both live and would
-both deliver if the new one were scheduled as well. And retargeting stays an ordinary edit of the
-schedule with no special path, which is one less mechanism to get wrong.
+Finally the non-negotiable principles are stated once for both modes: conservative defaults so a deploy
+never changes production output, spec-first in .claude for anything non-trivial, Italian conversation
+with English code and documentation, and stating plainly what was not verified.
 
 No code changes.
