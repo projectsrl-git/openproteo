@@ -393,6 +393,35 @@ public class WorkflowEngine {
     /** runId del run attivo per il feed, o null se nessuno è in corso/in coda. */
     public String activeRunId(String feedId) { return runningFeeds.get(feedId); }
 
+    /**
+     * Snapshot of the non-terminal runs the engine still holds in memory, keyed by feed id.
+     * Unlike {@link #activeRunId(String)} this also reports runs that have RELEASED the engine
+     * slot while staying alive - WAITING_APPROVAL on a manual gate and ON_HOLD on a held step -
+     * which are exactly the ones a bulk Stop/Continue must be able to address. Test runs are
+     * excluded, as they are for the 'running' flag. When a feed has more than one live run
+     * (possible: a parked ON_HOLD run does not block a new one), the most recently started wins,
+     * so this agrees with the last-run shown by the Operations grid.
+     */
+    public java.util.Map<String, WorkflowRun> activeRunsByFeed() {
+        java.util.Map<String, WorkflowRun> byFeed = new java.util.LinkedHashMap<String, WorkflowRun>();
+        for (WorkflowRun r : activeRuns.values()) {
+            if (r == null || r.feedId == null || r.status == null) continue;
+            if (isTerminal(r.status)) continue;
+            if (r.runId != null && r.runId.contains("_test_")) continue;
+            WorkflowRun prev = byFeed.get(r.feedId);
+            if (prev == null || startedLater(r, prev)) byFeed.put(r.feedId, r);
+        }
+        return byFeed;
+    }
+
+    private static boolean startedLater(WorkflowRun a, WorkflowRun b) {
+        String sa = a.startTs == null ? "" : a.startTs, sb = b.startTs == null ? "" : b.startTs;
+        int c = sa.compareTo(sb);
+        if (c != 0) return c > 0;
+        String ia = a.runId == null ? "" : a.runId, ib = b.runId == null ? "" : b.runId;
+        return ia.compareTo(ib) > 0;
+    }
+
     /** Snapshot of the FIFO execution queue: RUNNING / WAITING_APPROVAL first, then QUEUED
         in submission order (by startTs, ms precision). Empty when nothing is active. */
     public java.util.List<WorkflowRun> queueSnapshot() {
@@ -472,9 +501,19 @@ public class WorkflowEngine {
         return true;
     }
 
-    private static boolean isTerminal(RunStatus s) {
+    /**
+     * True when a run status is final and no further transition is possible. Exposed because a
+     * caller that must refuse an operation on a run which is still alive cannot use
+     * {@link #activeRunId(String)}: a WAITING_APPROVAL or ON_HOLD run has released the engine
+     * slot and would look inactive there.
+     */
+    public static boolean isTerminalStatus(RunStatus s) {
         return s == RunStatus.SUCCESS || s == RunStatus.FAILED || s == RunStatus.SKIPPED
                 || s == RunStatus.REJECTED || s == RunStatus.ABORTED;
+    }
+
+    private static boolean isTerminal(RunStatus s) {
+        return isTerminalStatus(s);
     }
 
     // ------------------------------------------------------------------ core

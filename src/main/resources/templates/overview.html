@@ -284,17 +284,20 @@
                 '<td>' + statusChip(f.lastStatus) + (f.failedStep ? ' <span class="mono small">@ ' + esc(f.failedStep) + '</span>' : '') + ' <span class="mono small dim">' + esc(f.lastRunTs||'') + '</span></td>' +
                 '<td class="mono small dim">' + esc(f.lastSuccessTs||'—') + '</td>' +
                 '<td>' + odCell(f) + '</td>' +
-                '<td style="white-space:nowrap"><a class="btn sm" href="' + CTX + 'workflow/' + encodeURIComponent(f.feedId) + '">open workflow</a>' + ' <a class="btn sm" href="' + CTX + 'designer/' + encodeURIComponent(f.feedId) + '">\u270E edit</a>' + (f.lastRunId ? ' <a class="btn sm" href="' + CTX + 'run/' + encodeURIComponent(f.feedId) + '/' + encodeURIComponent(f.lastRunId) + '">open last run</a>' : '') + ((f.lastStatus === 'ON_HOLD' && f.lastRunId) ? ' <button class="btn sm" onclick="resumeRun(\'' + esc(f.feedId) + '\',\'' + esc(f.lastRunId) + '\')">\u25B6 Continue</button>' : '') + '</td>' +
+                '<td style="white-space:nowrap"><a class="btn sm" href="' + CTX + 'workflow/' + encodeURIComponent(f.feedId) + '">open workflow</a>' + ' <a class="btn sm" href="' + CTX + 'designer/' + encodeURIComponent(f.feedId) + '">\u270E edit</a>' + (f.lastRunId ? ' <a class="btn sm" href="' + CTX + 'run/' + encodeURIComponent(f.feedId) + '/' + encodeURIComponent(f.lastRunId) + '">open last run</a>' : '') + ((drillStatusOf(f) === 'ON_HOLD' && drillRunOf(f)) ? ' <button class="btn sm ok" onclick="resumeRun(\'' + esc(f.feedId) + '\',\'' + esc(drillRunOf(f)) + '\')">\u25B6 Continue</button>' : '') + '</td>' +
                 '</tr>';
         }
         h += '</tbody></table>';
         var bar = '<div id="drillBulk" class="bulk-bar" style="display:none;margin-bottom:8px;gap:6px;align-items:center">' +
             '<span id="drillBulkCount" class="mono" style="margin-right:8px"></span>' +
             '<button class="btn sm primary" onclick="drillBulkRun()">\u25B6 Run</button> ' +
+            '<button class="btn sm ok" onclick="drillBulkContinue()" title="Resume the selected runs that are ON HOLD">\u25B6 Continue</button> ' +
+            '<button class="btn sm" onclick="drillBulkStop()" title="Stop the selected runs (they end as ABORTED)">\u23F9 Stop</button> ' +
             '<button class="btn sm" onclick="drillBulkLock()">\uD83D\uDD12 Lock</button> ' +
             '<button class="btn sm" onclick="drillBulkUnlock()">\uD83D\uDD13 Unlock</button> ' +
             '<button class="btn sm" onclick="drillBulkClear()">\uD83E\uDDF9 Clear history</button> ' +
-            '<button class="btn sm danger" onclick="drillBulkDelete()">\uD83D\uDDD1 Delete</button> ' +
+            '<button class="btn sm danger" onclick="drillBulkDeleteRun()" title="Delete the most recent run of the selected feeds">\uD83D\uDDD1 Delete last run</button> ' +
+            '<button class="btn sm danger" onclick="drillBulkDelete()" title="Delete the workflow definition of the selected feeds">\uD83D\uDDD1 Delete feed</button> ' +
             '<button class="btn sm" onclick="drillClearSel()">Clear</button>' +
             '</div>';
         document.getElementById('drillWrap').innerHTML = bar + h;
@@ -321,15 +324,67 @@
     function drillBarUpdate(){ var n=drillSelected().length; var bar=document.getElementById('drillBulk'); if(!bar) return; document.getElementById('drillBulkCount').textContent = n + (n===1?' feed selected':' feeds selected'); bar.style.display = n>0?'':'none'; }
     function resumeRun(feedId, runId){ fetch(CTX+'api/runs/'+encodeURIComponent(feedId)+'/'+encodeURIComponent(runId)+'/resume',{method:'POST'}).then(function(r){ return r.json().catch(function(){ return {ok:r.ok}; }); }).then(function(j){ if(!j||!j.ok){ if(window.opAlert) opAlert((j&&j.error)||'Could not resume.'); else alert((j&&j.error)||'Could not resume.'); } loadFeeds(true); }).catch(function(){ loadFeeds(true); }); }
     function drillRunSeq(feeds, urlFn, done){ var i=0,ok=0,fail=0; (function next(){ if(i>=feeds.length){ done(ok,fail); return; } var f=feeds[i++]; fetch(urlFn(f),{method:'POST'}).then(function(r){ return r.json().catch(function(){ return {ok:r.ok}; }); }).then(function(j){ if(j&&j.ok)ok++; else fail++; }).catch(function(){ fail++; }).then(next); })(); }
+    // ---- run-targeted bulk actions (Continue / Stop / Delete last run) ----
+    // The engine is authoritative: /stop refuses a terminal run and /resume refuses one that is not
+    // ON HOLD, so a stale grid can never act on the wrong run - the runId is pinned client-side.
+    var DRILL_TERMINAL = ['SUCCESS','FAILED','SKIPPED','REJECTED','ABORTED'];
+    function drillIsTerminal(s){ if(!s) return false; for(var i=0;i<DRILL_TERMINAL.length;i++){ if(DRILL_TERMINAL[i]===s) return true; } return false; }
+    // liveRunId/liveStatus come from in-memory engine state (fresh); lastRunId/lastStatus are read
+    // from disk and cached, but survive a restart. Prefer live, fall back to last.
+    function drillRunOf(f){ return f.liveRunId || f.lastRunId || null; }
+    function drillStatusOf(f){ return f.liveStatus || f.lastStatus || null; }
+    function drillPostSeq(urls, done){ var i=0,ok=0,fail=0; (function next(){ if(i>=urls.length){ done(ok,fail); return; } var u=urls[i++]; fetch(u,{method:'POST'}).then(function(r){ return r.json().catch(function(){ return {ok:r.ok}; }); }).then(function(j){ if(j&&j.ok)ok++; else fail++; }).catch(function(){ fail++; }).then(next); })(); }
+    function drillNote(msg){ if(window.opAlert) opAlert(msg); else alert(msg); }
+    function drillDone(label, skipped){ return function(ok,fail){ var m=label+': '+ok; if(fail) m+=', failed: '+fail; if(skipped) m+=', skipped: '+skipped; drillNote(m+'.'); drillSelSet={}; loadFeeds(true); }; }
+    function drillProdChecks(items, verb){ var n=0; for(var i=0;i<items.length;i++){ if(items[i].production) n++; } if(!n) return []; return [ { id:'prod', label:'I understand '+n+' PRODUCTION feed(s) are included \u2014 '+verb+' them too', required:true } ]; }
+    function drillRunUrl(feedId, runId, action){ return CTX+'api/runs/'+encodeURIComponent(feedId)+'/'+encodeURIComponent(runId)+'/'+action; }
+    /** Selected feeds that have a run to act on, according to a status predicate. */
+    function drillPickRuns(pred){ var sel=selectedFeedObjs(), act=[], skipped=0; for(var i=0;i<sel.length;i++){ var f=sel[i], rid=drillRunOf(f), st=drillStatusOf(f); if(rid && pred(st,f)) act.push({ feedId:f.feedId, runId:rid, production:!!f.production }); else skipped++; } return { act:act, skipped:skipped }; }
+    function drillUrls(items, action){ var u=[]; for(var i=0;i<items.length;i++){ u.push(drillRunUrl(items[i].feedId, items[i].runId, action)); } return u; }
     function drillAfter(label){ return function(ok,fail){ alert(label+': '+ok+(fail?', skipped/failed: '+fail:'')+'.'); drillSelSet={}; loadFeeds(true); }; }
     function drillBulkRun(){ var f=drillSelected(); if(!f.length) return; if(!confirm('Start a run for '+f.length+' selected feed(s)?')) return; drillRunSeq(f, function(x){ return CTX+'api/workflows/'+encodeURIComponent(x)+'/run'; }, drillAfter('Runs started')); }
     function drillBulkLock(){ var f=drillSelected(); if(!f.length) return; if(!confirm('Lock '+f.length+' selected feed(s) for maintenance?')) return; drillRunSeq(f, function(x){ return CTX+'api/workflows/'+encodeURIComponent(x)+'/lock?locked=true'; }, drillAfter('Locked')); }
     function drillBulkUnlock(){ var f=drillSelected(); if(!f.length) return; if(!confirm('Unlock '+f.length+' selected feed(s)?')) return; drillRunSeq(f, function(x){ return CTX+'api/workflows/'+encodeURIComponent(x)+'/lock?locked=false'; }, drillAfter('Unlocked')); }
     function drillBulkClear(){ var f=drillSelected(); if(!f.length) return; var prodSet={}; FEEDS.forEach(function(x){ if(x.production) prodSet[x.feedId]=1; }); var prodCount=f.filter(function(x){ return prodSet[x]; }).length; var checks=[]; if(prodCount>0) checks.push({ id:'prod', label:'I understand '+prodCount+' PRODUCTION feed(s) are included \u2014 clear their history too', required:true }); checks.push({ id:'keep', label:'Keep the most recent run of each feed' }); opConfirm('Clear run history for '+f.length+' selected feed(s)? Feeds with an active run are skipped.', function(st){ var cp=(st&&st.prod)?'true':'false'; var kl=(st&&st.keep)?'true':'false'; drillRunSeq(f, function(x){ return CTX+'api/workflows/'+encodeURIComponent(x)+'/clear-history?confirmProduction='+cp+'&keepLast='+kl; }, drillAfter('History cleared')); }, { danger:true, okText:'Clear', checks:checks }); }
-    function drillBulkDelete(){ var f=drillSelected(); if(!f.length) return; if(!confirm('Delete '+f.length+' feed(s) permanently? Definition files are removed (run history and data on disk are kept).')) return; drillRunSeq(f, function(x){ return CTX+'api/workflows/'+encodeURIComponent(x)+'/delete'; }, drillAfter('Deleted')); }
+    function drillBulkContinue(){
+        var p=drillPickRuns(function(st){ return st==='ON_HOLD'; });
+        if(!p.act.length){ drillNote('None of the selected feeds has a run ON HOLD to continue.'); return; }
+        var msg='Continue '+p.act.length+' run(s) held on a step? Each resumes from the step it is holding on.';
+        if(p.skipped) msg+=' '+p.skipped+' selected feed(s) are not ON HOLD and are skipped.';
+        opConfirm(msg, function(){ drillPostSeq(drillUrls(p.act,'resume'), drillDone('Runs resumed', p.skipped)); },
+            { okText:'Continue', checks:drillProdChecks(p.act,'resume') });
+    }
+    function drillBulkStop(){
+        var p=drillPickRuns(function(st){ return st==='RUNNING'||st==='QUEUED'||st==='WAITING_APPROVAL'||st==='ON_HOLD'; });
+        if(!p.act.length){ drillNote('None of the selected feeds has a run to stop.'); return; }
+        var msg='Stop '+p.act.length+' run(s)? They end as ABORTED and are not resumable - a new run must be started.';
+        if(p.skipped) msg+=' '+p.skipped+' selected feed(s) have no run in progress and are skipped.';
+        opConfirm(msg, function(){ drillPostSeq(drillUrls(p.act,'stop'), drillDone('Runs stopped', p.skipped)); },
+            { danger:true, okText:'Stop', checks:drillProdChecks(p.act,'stop') });
+    }
+    function drillBulkDeleteRun(){
+        // Only feeds whose most recent run is finished: the engine refuses to delete a live run, and
+        // a feed with any live run is left alone rather than silently targeting an older run.
+        var sel=selectedFeedObjs(), act=[], skipped=0;
+        for(var i=0;i<sel.length;i++){ var f=sel[i]; if(f.lastRunId && !f.liveRunId && drillIsTerminal(f.lastStatus)) act.push({ feedId:f.feedId, runId:f.lastRunId, production:!!f.production }); else skipped++; }
+        if(!act.length){ drillNote('None of the selected feeds has a finished run to delete.'); return; }
+        var msg='Delete the most recent run of '+act.length+' feed(s)? Its logs are removed and this cannot be undone; the feed and its older runs are kept.';
+        if(skipped) msg+=' '+skipped+' selected feed(s) have no finished run and are skipped.';
+        opConfirm(msg, function(){ drillPostSeq(drillUrls(act,'delete'), drillDone('Runs deleted', skipped)); },
+            { danger:true, okText:'Delete run', checks:drillProdChecks(act,'delete the last run of') });
+    }
+    function drillBulkDelete(){
+        var f=selectedFeedObjs(); if(!f.length) return;
+        var ids=f.map(function(x){ return x.feedId; });
+        opConfirm('Delete '+ids.length+' FEED(S) permanently? The workflow definition files are removed and the feeds disappear from Operations. Run history and data on disk are kept. Feeds with an active run are skipped.',
+            function(){ drillRunSeq(ids, function(x){ return CTX+'api/workflows/'+encodeURIComponent(x)+'/delete'; }, drillDone('Feeds deleted', 0)); },
+            { danger:true, okText:'Delete feed', checks:drillProdChecks(f,'delete') });
+    }
 
     function loadFeeds(force){
-        fetch(CTX + 'api/overview/feeds').then(readJson).then(function(j){
+        // 'force' was declared and never used: the last-run fields are cached server-side, so after a
+        // bulk action the grid kept showing the pre-action status. refresh=1 drops that cache.
+        fetch(CTX + 'api/overview/feeds' + (force ? '?refresh=1' : '')).then(readJson).then(function(j){
             FEEDS = (j && j.feeds) || [];
             document.getElementById('rollupHint').textContent = '· ' + FEEDS.length + ' feeds';
             renderRollup();

@@ -1,32 +1,62 @@
-CLAUDE.md: one development contract covering both Claude Code and chat delivery
+Operations bulk bar: Continue/Stop, Delete feed vs run, delete guard
 
-The contract described only work on the git working copy with Claude Code and stated "no zip", which
-directly contradicted how the last months of work were actually delivered: patches packaged as a zip and
-applied by scripts/deploy_openproteo_patch.bat. Anyone opening a fresh session from this file was being
-pointed at the wrong workflow.
+Adds bulk CONTINUE and STOP to the Operations drill-grid action bar, so a set
+of paused feeds can be resumed or aborted in one go instead of one run at a
+time, and disambiguates the DELETE button.
 
-Deploy and commit now describes two modes with the same quality rules and one shared requirement,
-COMMIT_MSG.txt. Mode A is Claude Code on the working copy. Mode B is chat delivery: one zip per turn
-containing the patch, the commit message and csv-viewer.html in the clear, that file being kept out of
-the patch because its size and CRLF handling caused repeated conflicts.
+CONTINUE resumes the selected runs that are ON HOLD; STOP aborts the selected
+RUNNING / QUEUED / WAITING_APPROVAL / ON_HOLD runs, which end as ABORTED. No
+engine change was required to reach a held run: the ON HOLD suspend path only
+removes the feed from runningFeeds, the run stays in activeRuns, and both
+stop() and resumeHold() resolve by runId with a store.load fallback - so a
+hold is reachable while the JVM is up and after a Tomcat restart. Treating
+ON_HOLD as active in runningFeeds was deliberately rejected: it would
+re-occupy the engine slot for a run that was parked on purpose.
 
-The rules written down for mode B are the ones learned the hard way. Patches must be generated on a
-fresh clone of the current main and applied there, because copying files from earlier working trees has
-already produced a patch that deleted someone else's line. Every patch is dry-run applied on a second
-clean clone before delivery. One patch per change, with the order declared when two of them both append
-to the end of CLAUDE.md, since that conflicts. And main moves every turn, so the head has to be re-read
-before generating anything.
+The bar targets liveRunId || lastRunId. New WorkflowEngine.activeRunsByFeed()
+snapshots the non-terminal runs still held in memory, including the ones that
+released the slot, newest per feed and test runs excluded; ApiController
+publishes it as liveRunId/liveStatus in the LIVE (non-cached) part of
+/api/overview/feeds, because lastRunId is cached for 10s and would miss a run
+started inside that window, while lastRunId still covers a hold orphaned by a
+restart. Eligibility is filtered client-side and feeds with no actionable run
+are reported as skipped; the endpoints stay authoritative, so a stale grid can
+never act on the wrong run. PRODUCTION feeds require an explicit checkbox in
+the confirm dialog, as for Clear history; this is UI-level only, since the
+per-run /stop and /resume contracts are shared with the run page.
 
-A verification section makes explicit that the project cannot be compiled in the chat sandbox, since
-Maven Central is unreachable from it, and that everything verifiable must therefore be verified and
-everything else declared: node --check on extracted inline scripts, no literal backslash-n or
-backslash-r in JavaScript because the corporate proxy rewrites them, no unsafe Thymeleaf brackets, brace
-balance with a counter that ignores strings and comments, an import check after a missing LinkedHashMap
-cost a broken build, pom.xml validated with a real XML parser, and isolated logic actually compiled and
-executed with javac.
+The bulk DELETE button posts to /api/workflows/{id}/delete, which removes the
+WORKFLOW DEFINITION, not a run: it is relabelled "Delete feed" with a clearer
+confirm text, and a separate "Delete last run" action is added for the
+run-level operation. Labelling the existing button "Delete run" would have
+presented a feed deletion as a run deletion.
 
-Finally the non-negotiable principles are stated once for both modes: conservative defaults so a deploy
-never changes production output, spec-first in .claude for anything non-trivial, Italian conversation
-with English code and documentation, and stating plainly what was not verified.
+FIX: deleteRun guarded on engine.activeRunId(feedId), which returns null for a
+run suspended on a manual gate (WAITING_APPROVAL) or on a held step (ON_HOLD),
+because both release the engine slot - so a suspended but live run could be
+deleted from disk while still present in activeRuns. It now refuses any run
+whose status is not terminal (new public WorkflowEngine.isTerminalStatus).
 
-No code changes.
+FIX: loadFeeds(force) in overview.html declared its parameter and never used
+it, so after a bulk action the grid kept the pre-action status for up to the
+10s cache TTL. /api/overview/feeds now accepts an optional refresh=1 that
+drops the cache; the default polling path is unchanged.
+
+Verified: node --check on the extracted overview.html inline script; zero
+literal escape sequences for newline/CR in JS and zero uncommented Thymeleaf
+inlining markers in the template; string/comment-aware brace and paren balance
+on both Java files (0/0); activeRunsByFeed and isTerminalStatus extracted
+verbatim, compiled with -source 8 and run against synthetic runs (newest-wins
+when a feed holds both a parked ON_HOLD and a newer RUNNING run, ON_HOLD and
+WAITING_APPROVAL reported, terminal and test runs excluded, startTs ties
+broken by runId); the real drillPickRuns / drillIsTerminal / drillUrls /
+drillProdChecks extracted from the template and run in node against synthetic
+grid rows (CONTINUE selects only ON_HOLD, STOP selects every live status and
+picks liveRunId for a run started inside the cache window, an orphaned hold is
+reached via lastRunId, Delete last run selects only finished runs with no live
+run, skip counts and the PROD checkbox correct).
+
+NOT verified: mvn clean package, and all live engine behaviour - the bulk stop
+over real ON HOLD runs must be confirmed on the UBS deploy.
+
+Spec: .claude/2026-08-04-DESIGN-operations-bulk-stop-continue.md

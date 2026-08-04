@@ -1097,11 +1097,19 @@ public class ApiController {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
         WorkflowDef wf = registry.get(feedId);
         if (wf == null) { out.put("ok", false); out.put("error", "Unknown feed"); return ResponseEntity.status(HttpStatus.NOT_FOUND).body(out); }
-        if (runId.equals(engine.activeRunId(feedId))) {
-            out.put("ok", false); out.put("error", "Run is currently active — stop it before deleting");
+        FeedLayout layout = registry.layout(feedId);
+        // Guard on the RUN's own status, not on engine.activeRunId(): a run suspended on a manual
+        // gate (WAITING_APPROVAL) or on a held step (ON_HOLD) has released the engine slot, so
+        // activeRunId returns null for it and the deletion used to go through while the run was
+        // still alive in activeRuns - leaving a live run with no file on disk.
+        WorkflowRun target = engine.activeRun(runId);
+        if (target == null && layout != null) target = store.load(layout, runId);
+        if (target != null && target.status != null
+                && !WorkflowEngine.isTerminalStatus(target.status)) {
+            out.put("ok", false);
+            out.put("error", "Run is not finished (" + target.status.name() + ") - stop it before deleting");
             return ResponseEntity.status(HttpStatus.CONFLICT).body(out);
         }
-        FeedLayout layout = registry.layout(feedId);
         boolean removed = store.delete(layout, runId);
         audit.log(layout.auditFile(), feedId, runId, null, "RUN_DELETED", user(req), new java.util.LinkedHashMap<String, String>());
         out.put("ok", removed);
@@ -1485,9 +1493,14 @@ public class ApiController {
     }
 
     @GetMapping("/api/overview/feeds")
-    public ResponseEntity<Map<String, Object>> overviewFeeds() {
+    public ResponseEntity<Map<String, Object>> overviewFeeds(
+            @RequestParam(value = "refresh", defaultValue = "false") boolean refresh) {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
         long now = System.currentTimeMillis();
+        // 'refresh=1' drops the cache so the disk-backed last-run fields are re-read now: used right
+        // after a bulk action, which would otherwise be invisible for up to FEEDS_TTL_MS. Default
+        // false, so the normal polling path is unchanged.
+        if (refresh) feedsCache = null;
         java.util.List<Map<String, Object>> feeds = feedsCache;
         if (feeds == null || now - feedsCacheTs > FEEDS_TTL_MS) {
             feeds = new java.util.ArrayList<Map<String, Object>>();
@@ -1613,12 +1626,20 @@ public class ApiController {
         // 'running' must be LIVE (not cached): recompute from in-memory engine state on every call, so
         // Operations drops a feed from RUNNING the instant its run ends, instead of up to one cache TTL
         // later. The heavy last-status/last-run/last-success fields stay cached (disk reads).
+        // liveRunId/liveStatus are the run the engine still holds for the feed, INCLUDING one that
+        // released the slot (WAITING_APPROVAL / ON_HOLD). They let the Operations bulk bar address a
+        // run started within the cache window, which the cached lastRunId does not yet know about;
+        // for a hold orphaned by a restart the engine holds nothing and lastRunId is the fallback.
+        java.util.Map<String, WorkflowRun> liveByFeed = engine.activeRunsByFeed();
         for (Map<String, Object> m : feeds) {
             String fid = (String) m.get("feedId");
             String activeId = engine.activeRunId(fid);
             boolean running = activeId != null && !activeId.contains("_test_");
             m.put("running", running);
             m.put("bucket", bucketFor(running, (String) m.get("lastStatus")));
+            WorkflowRun live = liveByFeed.get(fid);
+            m.put("liveRunId", live == null ? null : live.runId);
+            m.put("liveStatus", (live == null || live.status == null) ? null : live.status.name());
         }
         out.put("ok", true);
         out.put("feeds", feeds);

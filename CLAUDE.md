@@ -1019,3 +1019,25 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   names directories and files: anything that must keep the ORIGINAL naming across versions must use
   `${parentId}` explicitly. The ORIGINAL KEEPS ITS SCHEDULE: a version is created scheduling-inert and
   the operator retargets deliberately; the save dialog states which workflow is still scheduled. Spec: `.claude/SQLREPORT_VERSIONING_VARIABLES.md`.
+
+## Operations bulk bar: CONTINUE / STOP, DELETE relabelled, delete-run guard
+* The drill-grid bulk bar gains **▶ Continue** (resume the selected ON HOLD runs) and **⏹ Stop**
+  (RUNNING/QUEUED/WAITING_APPROVAL/ON_HOLD -> ABORTED). No engine change was needed: an ON HOLD run
+  only releases `runningFeeds`, it STAYS in `activeRuns`, and `stop()`/`resumeHold()` resolve by runId
+  with a `store.load` fallback — so a hold is reachable both live and after a Tomcat restart. Putting
+  ON_HOLD back into `runningFeeds` was rejected: it would re-occupy the engine slot for a deliberately
+  parked run. * The bar targets `liveRunId || lastRunId`: new `engine.activeRunsByFeed()` (non-terminal
+  runs still in `activeRuns`, incl. slot-released ones, newest per feed, test runs out) feeds new
+  `liveRunId`/`liveStatus` fields in the LIVE part of `/api/overview/feeds`, because `lastRunId` is
+  cached 10s and would miss a run started inside that window. Eligibility is filtered client-side; the
+  endpoints stay authoritative, so a stale grid can never abort the wrong run. PROD confirmation is
+  UI-level (`opConfirm` + required checkbox), deliberately asymmetric with `clear-history`, which
+  enforces server-side — the per-run `/stop` and `/resume` contracts are shared with the run page and
+  were left alone. * **DELETE relabelled `🗑 Delete feed`**: it posts to `/api/workflows/{id}/delete`
+  and removes the WORKFLOW DEFINITION, so labelling it "Delete run" would have been a safety
+  regression. A separate **🗑 Delete last run** was added for the run-level action. * FIX: `deleteRun`
+  guarded on `activeRunId`, which is null for WAITING_APPROVAL and ON_HOLD runs (both release the
+  slot) — a suspended-but-live run could be deleted from disk while still in `activeRuns`. It now
+  refuses any non-terminal run (`WorkflowEngine.isTerminalStatus`). * FIX: `loadFeeds(force)` declared
+  `force` and never used it; `/api/overview/feeds?refresh=1` now drops the cache so a bulk action is
+  visible immediately. Note in `.claude/2026-08-04-DESIGN-operations-bulk-stop-continue.md`.
