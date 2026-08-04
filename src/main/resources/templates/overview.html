@@ -253,8 +253,36 @@
     function msfToggle(kind, cb, encV){ var v=decodeURIComponent(encV), sel=msfSel(kind); if(cb.checked) sel[v]=1; else delete sel[v]; renderMsfPanel(kind); msfUpdateBtn(kind); renderDrill(); }
     document.addEventListener('mousedown', function(e){ if(!e.target.closest || !e.target.closest('.msf')){ var sp=document.getElementById('srcFilterPanel'), tp=document.getElementById('tgtFilterPanel'), dp=document.getElementById('dashSrcPanel'); if(sp) sp.style.display='none'; if(tp) tp.style.display='none'; if(dp) dp.style.display='none'; } });
 
+    // ---- version families ----
+    // A version is a separate feed with its own runs and its own audit trail: nothing here groups or
+    // merges them. The badge exists so tf0003819 and tf0003819.v1 stop looking like unrelated feeds,
+    // and one click filters the grid down to the whole family.
+    var FAMILY={};
+    function buildFamilies(){
+        FAMILY={};
+        FEEDS.forEach(function(f){ if(f.version){ FAMILY[f.parentId]=(FAMILY[f.parentId]||0)+1; } });
+    }
+    function drillFamily(pid){
+        var q=document.getElementById('drillQuery');
+        if(q){ q.value=pid; }
+        renderDrill();
+    }
+    function versionBadge(f){
+        if(f.version){
+            var orphan = !FEEDS.some(function(x){ return x.feedId===f.parentId; });
+            return ' <span class="tagb" style="cursor:pointer" onclick="drillFamily(\'' + esc(f.parentId) + '\')" title="' +
+                (orphan ? 'Version ' + esc(f.version) + '. The original ' + esc(f.parentId) + ' no longer exists.'
+                        : 'Version ' + esc(f.version) + ' of ' + esc(f.parentId) + ' \u2014 click to show the whole family') +
+                '">v' + esc(f.version) + (orphan ? '' : ' of ' + esc(f.parentId)) + '</span>';
+        }
+        var n=FAMILY[f.feedId]||0;
+        if(!n) return '';
+        return ' <span class="tagb" style="cursor:pointer" onclick="drillFamily(\'' + esc(f.feedId) + '\')" title="This workflow has ' + n + ' version(s) \u2014 click to show the whole family">' + n + (n===1?' version':' versions') + '</span>';
+    }
+
     function renderDrill(){
         if (!drill){ document.getElementById('drillPanel').style.display='none'; return; }
+        buildFamilies();
         var q = ((document.getElementById('drillQuery')||{}).value || '').trim().toLowerCase();
         var list = dashFeeds().filter(function(f){
             if (drill.source != null && (f.source||'—') !== drill.source) return false;
@@ -278,7 +306,7 @@
             var f = list[i];
             h += '<tr>' +
                 '<td style="width:1%"><input type="checkbox" class="drillcb" data-feed="' + esc(f.feedId) + '"' + (drillSelSet[f.feedId] ? ' checked' : '') + ' onclick="drillOnCb(this)"></td>' +
-                '<td><span class="mono feed-id">' + esc(f.feedId) + '</span>' + (f.production?' <span class="opprod">PROD</span>':'') + (f.locked?' \uD83D\uDD12':'') + '<div class="dim small">' + esc(f.name||'') + '</div>' + (f.tags ? '<div class="tag-badges">' + f.tags.split(', ').map(function(t){ t=(t||'').trim(); return t ? ('<span class="tagb">' + esc(t) + '</span>') : ''; }).join('') + '</div>' : '') + '</td>' +
+                '<td><span class="mono feed-id">' + esc(f.feedId) + '</span>' + versionBadge(f) + (f.production?' <span class="opprod">PROD</span>':'') + (f.locked?' \uD83D\uDD12':'') + '<div class="dim small">' + esc(f.name||'') + '</div>' + (f.tags ? '<div class="tag-badges">' + f.tags.split(', ').map(function(t){ t=(t||'').trim(); return t ? ('<span class="tagb">' + esc(t) + '</span>') : ''; }).join('') + '</div>' : '') + '</td>' +
                 '<td class="small dim"><span class="mono">' + esc(f.source||'—') + '</span>' + (f.sourceDescription ? '<div>' + esc(f.sourceDescription) + '</div>' : '') + '</td>' +
                 '<td class="small dim"><span class="mono">' + esc(f.targetId||'—') + '</span>' + (f.targetDescription ? '<div>' + esc(f.targetDescription) + '</div>' : '') + '</td>' +
                 '<td>' + statusChip(f.lastStatus) + (f.failedStep ? ' <span class="mono small">@ ' + esc(f.failedStep) + '</span>' : '') + ' <span class="mono small dim">' + esc(f.lastRunTs||'') + '</span></td>' +

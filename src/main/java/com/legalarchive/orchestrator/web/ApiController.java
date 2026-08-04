@@ -1563,6 +1563,11 @@ public class ApiController {
                 m.put("running", running);
                 m.put("locked", def.locked);
                 m.put("production", def.production);
+                // version family: derived server-side from the same VarResolver the engine uses, so
+                // Operations can never disagree with ${parentId} about what a feed descends from
+                String pid = com.legalarchive.orchestrator.engine.VarResolver.parentId(def.feedId);
+                m.put("parentId", pid);
+                m.put("version", pid.equals(def.feedId) ? "" : def.feedId.substring(pid.length() + 2));
                 m.put("lastStatus", lastStatus);
                 m.put("lastRunTs", lastRunTs);
                 m.put("lastRunId", lastRunId);

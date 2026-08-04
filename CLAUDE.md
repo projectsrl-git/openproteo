@@ -1178,3 +1178,16 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   * PROD, locked and tags are inherited unchanged; only the cron is cleared. Audit gains `parentId` on
   a versioned save. * The Variables-page bulk add still does NOT version (decided last batch); its
   confirm text now says so. Note in `.claude/2026-08-04-workflow-versioning.md`.
+
+## Operations: version badge and family filter (section 2, batch 3 — closes section 2)
+* `/api/overview/feeds` gains `parentId` and `version` per feed, derived server-side from
+  `VarResolver.parentId` — the same function the engine uses for `${parentId}` — so Operations can
+  never disagree with the runtime about what a feed descends from. `version` is the digits after
+  `.v`, empty on an unversioned feed. * The Feed cell gains a badge: on a version `v1 of tf0003819`,
+  on an original `2 versions`. Clicking either puts the family id in the existing search box and
+  re-renders, so parent + versions appear together — the substring filter already matched them, the
+  badge just makes it one click. * An ORPHANED version (parent deleted) shows only `v1` and explains
+  on hover, instead of naming a workflow that no longer exists. * Nothing is grouped, merged or
+  re-sorted: they stay separate feeds with separate runs and separate audit trails, which is the point
+  of versioning. The badge is a signpost, not a relationship. Section 2 is now complete.
+  Note in `.claude/2026-08-04-operations-version-badge.md`.

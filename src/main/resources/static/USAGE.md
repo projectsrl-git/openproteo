@@ -379,6 +379,8 @@ The default is **Save as a new version**: the next free id in the family, `tf000
 
 To change the workflow in place anyway, tick **Overwrite ... instead** in the dialog. It is deliberately a checkbox rather than a second button: overwriting is the exception, and its label spells out the consequence — the past runs will no longer match the definition.
 
+In **Operations** a version carries a badge reading `v1 of tf0003819`, and the original carries one reading how many versions it has; clicking either filters the grid down to the whole family, so a parent and its versions stop looking like unrelated feeds. If the original has since been deleted the badge shows only `v1` and says so on hover, rather than naming a workflow that is no longer there. Nothing is grouped or merged: they remain separate feeds with separate runs, and the badge is a signpost, not a relationship.
+
 A version **inherits nothing at runtime**: runs, output data and the audit trail are per feed id, which is the point. `${parentId}` (see above) is what carries the link, and since `${feedId}` names directories and files, anything that must keep the **original** naming across versions — typically the delivered file name — has to say `${parentId}` explicitly.
 
 Note that the mass **＋ Add to N feed(s)** action on the Variables page does **not** trigger this: it modifies the selected feeds in place and creates no versions. Producing one version per feed would leave a pile of unscheduled workflows and change nothing about what actually runs.

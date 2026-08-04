@@ -1,88 +1,58 @@
-Version a workflow when a save adds or removes steps
+Operations: show a version next to its parent
 
-Second and main batch of section 2 of
-.claude/SQLREPORT_VERSIONING_VARIABLES.md. Batch 1 shipped ${parentId}; this
-adds the trigger, the dialog and the version save. Operations showing a
-version next to its parent is still outstanding.
+Last piece of section 2 of .claude/SQLREPORT_VERSIONING_VARIABLES.md. Batch 1
+added ${parentId}, batch 2 the structural-change trigger and the version save;
+without this, tf0003819 and tf0003819.v1 sat in the Operations grid looking
+like two unrelated feeds.
 
-Saving from the designer a change that adds or removes steps on a workflow
-that has already run is now refused server-side before anything is written,
-with 409 and {versionSuggested, nextVersionId, addedSteps, removedSteps,
-scheduled}, and the designer offers to save it as a new version instead. It is
-a refusal and not a warning because the run history is audited against a
-definition: if the steps change under it, a run recorded months ago no longer
-matches the workflow it claims to have executed, and nothing on disk records
-that the definition moved.
+/api/overview/feeds publishes two more fields per feed: parentId, and version
+(the digits after .v, empty when the feed is not a version). Both are derived
+server-side from VarResolver.parentId, the same function that produces the
+runtime ${parentId}, so the grid can never disagree with the engine about what
+a feed descends from. Deriving them again in JavaScript would have been zero
+backend change and a second definition of "version" waiting to drift.
 
-Only STEP nodes count. Gates and LOOP/ENDLOOP added, removed or moved are
-ordinary edits, as is reordering steps without adding or removing any.
-Renaming a step id counts as one removed plus one added, which is exactly what
-it is as far as the history is concerned. All three conditions are required -
-the feed exists, the step id set changed, and the feed has at least one run -
-and structuralOverwrite=true bypasses the check, which is what the overwrite
-path sends. Detection compares stepIdsOf(toDto(existing)) against
-stepIdsOf(dto), so both sides go through the same representation the designer
-loads and a difference can only be a real edit.
+The Feed cell then carries a badge: on a version it reads "v1 of tf0003819",
+on an original that has versions it reads "2 versions", and on everything else
+there is nothing. Clicking either puts the family id into the existing search
+box and re-renders. The substring filter already matched a parent id against
+its versions, so this adds no filtering logic - it just makes it one click
+instead of typing.
 
-Version ids are allocated in the family keyed on parentId, so editing
-tf0003819.v2 allocates tf0003819.v3 and not tf0003819.v2.v1: versions are a
-flat list under one parent, not a chain. It takes max+1, so a gap left by a
-deleted version is never reused - reusing an id would attach a new definition
-to the old one's run directory. Candidates are checked against both the
-registry and the workflows directory, because a definition that fails to parse
-is absent from the registry while its file, and therefore its id, is still
-taken.
+What it deliberately does not do: no grouping, no merging, no change to the
+sort. Versions are separate feeds with separate runs, separate output data and
+separate audit trails, and that separation is the whole point of versioning -
+a grid that visually merged them would suggest a relationship the system does
+not have. The badge is a signpost.
 
-hasRuns fails safe: when the run history cannot be read it returns true.
-Suggesting a version that was not needed costs the operator one checkbox;
-silently overwriting a definition that a run was audited against cannot be
-undone.
+A version whose original has since been deleted shows only "v1", with a
+tooltip saying the original no longer exists. Printing "v1 of tf0003819" when
+tf0003819 is gone would send the operator looking for a workflow that is not
+there, and the family filter would return a single row with no explanation.
 
-The version save reuses the Duplicate-as-new machinery rather than inventing a
-second path: DUP_FROM makes the server copy the uploaded files once the new
-feed exists, EDIT_FEED_ID = null turns the save into a create, and the Feed ID
-field is updated so the operator sees the new id. The one addition is clearing
-the cron. WorkflowScheduler skips a workflow whose cron is null, so that is
-what makes the version scheduling-inert: the ORIGINAL keeps the schedule and
-remains the one that runs tonight, and both the dialog and the success banner
-say which workflow that is, because it is the question an operator will
-actually have. Everything else - PROD, locked, tags, variables - is inherited
-unchanged; clearing PROD would weaken the guards on a copy of a production
-definition, and locking it would produce an undiagnosable "why won't it run".
-A versioned save also records parentId in the audit entry.
+Verified. The version extraction was compiled with -source 8 and run against
+the same corpus as parentId: .v1, .v12, .v0, an unversioned id, a version of a
+version which reports only the last, and the four shapes that are not versions
+(x.v, x.V1, tf.0003819, .v1) - all consistent with parentId, which is what
+keeps the two fields from contradicting each other. buildFamilies, drillFamily
+and versionBadge were extracted from the template and run in node against
+synthetic feeds: the family map counts only versions, a parent reports the
+right count with correct singular and plural, a feed with no versions gets no
+badge at all, a version names itself and its parent, both badges filter on the
+PARENT id, the orphan shows v1 without claiming a parent and explains on
+hover, clicking sets the search box and re-renders, and an id containing a
+quote is escaped in the attribute rather than interpolated raw. node --check
+on the page's inline JS passes, with zero literal newline/CR escape sequences
+and no Thymeleaf inlining markers.
 
-Overwriting in place is a checkbox in the version dialog, not a second button:
-that keeps the version as the default the spec asked for, works with the
-existing opConfirm API, and puts the consequence in the label - "its past runs
-will no longer match its definition" - rather than in a tooltip.
+NOT verified: mvn clean package, and the grid in a browser with a real version
+present.
 
-For consistency, the mass Add to N feeds action on the Variables page still
-does not version, as decided in the previous batch, because one click across
-forty feeds would produce forty unscheduled workflows and change nothing about
-what runs tonight; its confirmation text now says so explicitly, so the two
-paths do not look arbitrary.
+Section 2 is now complete: ${parentId}, the structural-change trigger with the
+version/overwrite dialog, and the Operations signposting. What remains of the
+original spec document is only the optional batch 3 of section 1, a helper to
+compare two collected sqlreport lists, which was marked "if wanted" and has
+not been asked for.
 
-Verified. The trigger and the id allocation were transcribed against stubs,
-compiled with -source 8 and run against 19 assertions: a step added, removed
-and renamed all trigger, while a gate or a LOOP/ENDLOOP added or removed does
-not, and steps merely reordered do not; no runs, a brand-new feed, or
-structuralOverwrite each suppress it; and first version, second version, max+1
-across a gap, a version editing its own family, an unparseable file still
-occupying an id, and near-miss ids in other families all allocate correctly.
-saveAsVersion was extracted from the template and run in node against stubs,
-asserting the mutations that matter: cron cleared, feedId and the visible
-field updated, EDIT_FEED_ID cleared, DUP_FROM set to the original, the
-schedule fact carried to the banner, and the re-save issued without
-re-prompting and without the structural bypass. node --check passes on all
-152k of the designer's inline JS with zero literal newline/CR escape sequences
-and only the pre-existing commented Thymeleaf marker; brace and paren balance
-is 0/0 on ApiController; the import checker is green on every added line,
-including the two VarResolver references which had to be fully qualified
-because this file never imports it.
-
-NOT verified: mvn clean package, and the flow end to end - an actual refusal
-against a real run history, the created .v1 file, the copied uploads and the
-reschedule. Try it first on a non-production feed that has at least one run.
-
-Note: .claude/2026-08-04-workflow-versioning.md
+Note: .claude/2026-08-04-operations-version-badge.md
 Spec: .claude/SQLREPORT_VERSIONING_VARIABLES.md section 2
