@@ -110,11 +110,37 @@ one run. Renaming or reordering is out of scope for the trigger unless you say o
 proposed id is the current one plus `.v1`, incrementing to `.v2`... if taken; the name gets ` v1`
 appended. Uploaded files are copied to the new feed, exactly like Duplicate as new.
 
-**Open questions**:
-- does the original stay active, or should the new version take over the schedule? (proposal: original
-  untouched, the operator decides - silently retargeting a schedule would be dangerous);
-- is `tf0003819.v1` acceptable as a feed id, given feed ids appear in file paths and in the Legal
-  Archive naming? If not, a separate `version` attribute is cleaner but touches the registry.
+**DECIDED: `tf0003819.v1` is an acceptable feed id**, so versioning stays a pure naming convention and
+the registry is untouched.
+
+**DECIDED: built-in `${parentId}`** carrying the original id. Derivation is textual and total: strip a
+trailing `.v<digits>` from the feed id, so `tf0003819.v2` -> `tf0003819`, and on an unversioned feed
+`${parentId}` equals `${feedId}`. Never null, so a query, a path or a report can use it unconditionally
+without the author knowing whether that feed happens to be a version. Published wherever `${feedId}`
+already is (run variables and the design-time preview map), and worth showing next to the id in
+Operations so a version is recognisable at a glance.
+
+Two consequences to keep in mind while implementing:
+- the version inherits nothing automatically. `${parentId}` is information, not a link: run history,
+  output data and audit stay separate per feed id, which is the point of versioning;
+- since ids end up in file paths, `${feedId}` remains what names directories and files. Anything that
+  must keep the ORIGINAL naming across versions - typically the delivered file name - has to use
+  `${parentId}` explicitly. This is the single decision an author has to make per step, and the docs
+  must say so plainly.
+
+**DECIDED: the original keeps its schedule.** Creating a version changes nothing about what runs
+tonight; the new workflow is created inactive as far as scheduling is concerned, and the operator
+retargets deliberately when ready. Silently moving a schedule onto a freshly edited workflow is the kind
+of surprise that costs a night.
+
+Practical consequences for the implementation:
+- after saving a version, the dialog says explicitly which workflow is still scheduled, so nobody
+  assumes the switch happened;
+- the two workflows are both live and would both deliver if the new one were scheduled too - Operations
+  must make the version visible (id plus `${parentId}`) rather than letting `tf0003819` and
+  `tf0003819.v1` look like unrelated feeds;
+- retargeting stays a normal edit of the schedule, with no special path: one less mechanism to get
+  wrong.
 
 Detecting "has runs" is cheap (the run directory is already read for the history).
 

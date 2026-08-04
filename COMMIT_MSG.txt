@@ -1,22 +1,31 @@
-Keyed variable lookup ${COL@key}
+Spec: versioned feed ids and the built-in ${parentId}
 
-Prerequisite for the sqlreport executor, and the decision recorded in its spec: values collected from a
-query are addressed by key rather than by position.
+Records the two decisions taken for the workflow versioning change, so the implementation batch starts
+from settled ground.
 
-VarResolver now resolves ${COL@key} by finding key in the companion list ${COL.keys} and returning the
-value at the same position in ${COL}. Both lists are semicolon separated and aligned, which is how a
-result set indexed by a key column is published, so a step can write the amounts and the client ids
-together and a later step can ask for ${AMOUNT@CID12345} without knowing which row that client is on.
-Positional indexing keeps working exactly as before and OUTPUT DATA still renders the lists unchanged.
+Ids like tf0003819.v1 are acceptable, which keeps versioning a pure naming convention and leaves the
+registry untouched.
 
-Two deliberate choices in the lookup: a key that is not present resolves to an empty string, and so do
-two lists of different lengths, which is the signal that the variables were not produced together.
-Returning a neighbouring row would be far worse than returning nothing in a reconciliation. Keys are
-compared trimmed and case-sensitively.
+A built-in ${parentId} carries the original id. The derivation is textual and total: a trailing .v
+followed by digits is stripped, so tf0003819.v2 gives tf0003819, and on a feed that was never versioned
+${parentId} simply equals ${feedId}. It is therefore never null, and a query, a path or a report can use
+it unconditionally without its author knowing whether that particular feed happens to be a version. It
+will be published wherever ${feedId} already is.
 
-Docs: USAGE.md, the spec in .claude/SQLREPORT_VERSIONING_VARIABLES.md and CLAUDE.md.
+Two consequences are written down with it. A version inherits nothing automatically: ${parentId} is
+information, not a link, and run history, output data and audit stay separate per feed id, which is the
+whole point of versioning. And since ids end up in file paths, ${feedId} remains what names directories
+and files, so anything that must keep the original naming across versions, typically the delivered file
+name, has to use ${parentId} explicitly; that is the one decision an author makes per step and the
+documentation has to say so plainly.
 
-Verify: the real resolver was compiled and executed - lookups by key on two different collected columns,
-a key in the middle and at both ends, an absent key, deliberately misaligned lists, positional indexing
-still working alongside, the bare list variable untouched, an unknown base variable, and two keyed
-references inside one string.
+The third decision: the original keeps its schedule. Creating a version changes nothing about what runs
+tonight, the new workflow is created scheduling-inert, and the operator retargets deliberately when
+ready, because silently moving a schedule onto a freshly edited workflow is the kind of surprise that
+costs a night. Three consequences follow for the implementation. The save dialog must state which
+workflow is still scheduled, so nobody assumes the switch happened. Operations must make a version
+recognisable, showing the id together with its parent, since the two workflows are both live and would
+both deliver if the new one were scheduled as well. And retargeting stays an ordinary edit of the
+schedule with no special path, which is one less mechanism to get wrong.
+
+No code changes.

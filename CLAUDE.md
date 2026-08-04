@@ -953,3 +953,12 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   position in `${COL}` (both ';'-separated, aligned). Positional `${COL[N]}` is unaffected. Absent key,
   or lists of different lengths, resolve to "" — never a neighbouring row, which in a reconciliation
   would be worse than nothing. Spec: `.claude/SQLREPORT_VERSIONING_VARIABLES.md`.
+
+## Versioning decisions: `.v1` ids and `${parentId}`
+* `tf0003819.v1` accepted as a feed id, so versioning is a naming convention and the registry is
+  untouched. New built-in `${parentId}` = feed id with a trailing `.v<digits>` stripped, equal to
+  `${feedId}` on unversioned feeds so it is never null. Published wherever `${feedId}` is. Note that a
+  version inherits nothing (separate runs/audit/output — that is the point), and that `${feedId}` still
+  names directories and files: anything that must keep the ORIGINAL naming across versions must use
+  `${parentId}` explicitly. The ORIGINAL KEEPS ITS SCHEDULE: a version is created scheduling-inert and
+  the operator retargets deliberately; the save dialog states which workflow is still scheduled. Spec: `.claude/SQLREPORT_VERSIONING_VARIABLES.md`.
