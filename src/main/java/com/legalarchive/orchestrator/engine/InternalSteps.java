@@ -1630,24 +1630,41 @@ public class InternalSteps {
         return b.toString();
     }
 
-    /** Evaluate "A + B" or "A - B" as integers when both sides are integers; otherwise return as-is. */
-    private String evalArithmetic(String expr) {
+    /**
+     * Evaluate a chain of integer additions and subtractions, left to right: {@code "A + B - C + D"}.
+     * Anything that is not exactly that shape is returned unchanged, which is the normal case - most
+     * setvar values are paths, names and dates, not sums.
+     *
+     * The space around each operator is REQUIRED, and that is a guard rather than an inconvenience:
+     * without it a literal like {@code 2026-08-05} would be read as arithmetic and silently become
+     * 2013. Only whitespace-separated terms are considered, so any value with no spaces - a path, a
+     * date, a ';'-separated list - passes straight through untouched.
+     *
+     * Left to right with no precedence: only + and - are supported, so there is nothing to disagree
+     * about. Overflow returns the input unchanged rather than a wrapped number.
+     */
+    static String evalArithmetic(String expr) {
         if (expr == null) return "";
         String s = expr.trim();
-        for (String op : new String[]{"+", "-"}) {
-            int idx = s.indexOf(' ' + op + ' ');
-            if (idx > 0) {
-                String a = s.substring(0, idx).trim();
-                String b = s.substring(idx + 3).trim();
-                try {
-                    long la = Long.parseLong(a), lb = Long.parseLong(b);
-                    return String.valueOf("+".equals(op) ? la + lb : la - lb);
-                } catch (NumberFormatException ignored) {
-                    return s;
-                }
+        if (s.isEmpty()) return s;
+        String[] t = s.split("\\s+");
+        if (t.length < 3 || (t.length % 2) == 0) return s;   // must be term (op term)+
+        long acc;
+        try {
+            acc = Long.parseLong(t[0]);
+            for (int i = 1; i < t.length; i += 2) {
+                String op = t[i];
+                long v = Long.parseLong(t[i + 1]);
+                if ("+".equals(op)) acc = Math.addExact(acc, v);
+                else if ("-".equals(op)) acc = Math.subtractExact(acc, v);
+                else return s;                                // not an operator we evaluate
             }
+        } catch (NumberFormatException e) {
+            return s;                                        // not all terms are integers
+        } catch (ArithmeticException e) {
+            return s;                                        // overflow: better the input than a wrong number
         }
-        return s;
+        return String.valueOf(acc);
     }
 
     // -------------------------------------------------------------- csvreplace

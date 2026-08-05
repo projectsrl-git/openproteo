@@ -1231,3 +1231,17 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   title/keyColumn/collect/maxRows and the SQL as text, skipping a row that is entirely empty.
   * Lesson recorded: any new child element must be added in FIVE places, not four — parser, writer,
   DTO, toDto, **and `buildXml` in the designer** — or the preview silently disagrees with the file.
+
+## setvar: chained integer arithmetic
+* `evalArithmetic` evaluated exactly TWO operands: `74023 + 5164 - 12` matched `" + "`, then tried
+  `Long.parseLong("5164 - 12")`, failed and returned the expression AS TEXT. Reported from the field.
+  Now a left-to-right chain over whitespace-separated terms: `A + B - C + D`, no precedence, `+` and
+  `-` only. * **The mandatory space around each operator was KEPT deliberately** — it is the guard,
+  not a formatting rule. Accepting `A-B` would make a literal `2026-08-05` evaluate to 2013; with the
+  space requirement any value without spaces (path, date, `;`-list) passes through untouched. * Only
+  one shape changes besides genuine chains: `2026 - 08 - 05` WITH spaces now evaluates to 2013 where
+  the old code returned it as text. Declared rather than hidden; nobody writes a date that way, and
+  the space is the documented signal for arithmetic. * Overflow returns the input unchanged
+  (`Math.addExact`/`subtractExact`) rather than a wrapped number. * Assignments within ONE step still
+  cannot refer to each other — a step's params are all resolved before it runs — so a value computed
+  from another assignment needs a second setvar step. Documented in USAGE.md and the designer label.

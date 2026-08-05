@@ -175,7 +175,7 @@ A STEP runs one executor. Built-in (internal) executors:
 - **csvreplace** — string substitution inside CSV columns.
 - **validate** — run a checklist of validations over a CSV.
 - **anonymize** — ARX-based CSV anonymization (statistical; in progress).
-- **setvar** — assign workflow variables.
+- **setvar** — assign workflow variables. Each assignment is `name = expression`, where the expression is resolved for `${vars}` first and then, if what remains is a chain of whole numbers joined by `+` and `-`, evaluated **left to right** with no operator precedence: `${A} + ${B} - ${C}` gives one number. A **space on each side of every operator is required** — that is a guard, not a formatting rule: without it a literal like `2026-08-05` would be read as arithmetic and silently become 2013, so any value with no spaces (a path, a date, a `;`-separated list) passes through untouched. Anything that is not exactly a chain of integers is also left as it is, which is the normal case. Only `+` and `-` are evaluated; `*` and `/` are not. An overflow returns the expression unchanged rather than a wrapped number. Note that assignments within one step cannot refer to each other: every parameter of a step is resolved before the step runs, so a value computed from another assignment needs a second `setvar` step.
 
 External executors run a PowerShell (or other) script from the scripts directory or an
 absolute path; the script path can use `${alias}` of an uploaded executable.

@@ -1,50 +1,53 @@
-Fix: version dialog blocked by IIS, and reportQuery missing from preview
+setvar: evaluate a chain of integer additions and subtractions
 
-Two field-reported defects from tf0003868, both introduced by earlier batches
-in this series.
+Reported from the field: an assignment of 74023 + 5164 - 12 wrote the
+expression as text instead of the number. evalArithmetic handled exactly TWO
+operands - it found the first " + ", then tried Long.parseLong on "5164 - 12",
+failed, and returned the input unchanged. It now evaluates a chain of
+whitespace-separated terms left to right, with no operator precedence: A + B -
+C + D gives one number. Only + and - are evaluated; * and / are not, so there
+is nothing to disagree about on precedence.
 
-HTTP 409 is unusable in this deployment. IIS replaces the body of an error
-response with its own page (httpErrors existingResponse="Replace"), so the
-browser received "The page was not displayed because there was a conflict" as
-text/html instead of the JSON payload, and OpenProteo's own proxy-detection
-reported it as such. The structural-change version suggestion returned 409, so
-it failed every time - and it fires on the FIRST save attempt of any feed that
-has runs and gained a step, which is exactly what happened when the RECON
-sqlreport step was added to a workflow that had already run. All three save
-conflicts now return 200 with ok:false in the body: versionSuggested, and the
-two "already exists" branches in /api/workflows/save and
-/api/workflows/save-xml. The designer branches on res.j.versionSuggested and
-res.j.exists instead of res.st === 409, so a proxy rewriting the status can no
-longer swallow the outcome. The rule this leaves for the codebase: never carry
-an actionable outcome in a 4xx status, put it in the body.
+The space on each side of every operator is still required, and that was kept
+deliberately rather than relaxed. It is the guard, not a formatting rule:
+accepting A-B would make a literal like 2026-08-05 read as arithmetic and
+silently become 2013, which is exactly the kind of regression that would go
+unnoticed on an existing feed. With the space requirement, any value that has
+no spaces - a path, a date, a ;-separated list - passes through untouched, and
+so does anything that is not a chain of whole numbers, which is the normal
+case for a setvar value.
 
-The GENERATED XML panel is a client-side preview, buildXml() in designer.html,
-not the server writer. The sqlreport <reportQuery> element was added to
-WorkflowXmlWriter but not to buildXml, so a query typed into the designer
-appeared to vanish from the XML. It was not being lost - the save path
-serialises it correctly through the writer and reads it back through the
-parser - but the preview is what an author checks before saving, and a preview
-that disagrees with the file is worse than no preview. buildXml now emits
-<reportQuery> with its title, keyColumn, collect and maxRows attributes and
-the SQL as element text, skipping a row that is entirely empty.
+One shape other than genuine chains does change and is declared rather than
+hidden: "2026 - 08 - 05" WITH spaces around the hyphens now evaluates to 2013,
+where the old code returned it as text. Nobody writes a date that way, and the
+space is the documented signal for arithmetic, but it is the one difference
+worth knowing about. An overflow returns the expression unchanged via
+Math.addExact and subtractExact rather than a wrapped number: a wrong figure
+in a reconciliation is worse than an unevaluated one.
 
-The lesson is recorded in CLAUDE.md: a new child element needs adding in five
-places, not the four of the executor rule - parser, writer, DTO, toDto, and
-buildXml in the designer.
+Also documented, because it caused the original confusion: assignments within
+ONE setvar step cannot refer to each other. Every parameter of a step is
+resolved before the step runs, so a value computed from another assignment
+needs a second setvar step. The designer label and the USAGE entry now say all
+of this instead of the previous "simple A + B / A - B math", which was easy to
+read as "simple arithmetic" rather than "exactly two operands".
 
-Verified. buildXml was extracted from the template and run in node against a
-node shaped like the reported one: the element is emitted with all four
-attributes, multi-line SQL is preserved in full, a ${var} inside the FROM
-survives, maxRows is omitted when unset, an entirely empty query row is
-skipped, the step stops being self-closing once it has a child, and xesc
-escapes &, < and > as it must for SQL text. node --check on the designer's
-inline JS passes with zero literal newline/CR escape sequences and only the
-pre-existing commented Thymeleaf marker; brace and paren balance is 0/0 on
-ApiController.
+Verified. The new evaluator was compiled with -source 8 and run against 29
+assertions, all passing, alongside a transcription of the OLD implementation
+so that every case can be compared directly. The reported expression now gives
+79175 and the same expression without spaces is still returned as text. Chains
+of three, four and six terms, mixed + and -, extra whitespace and tabs, a
+negative first term, subtracting a negative and zero all evaluate. Left
+untouched: a literal date in both the hyphen and slash forms, a Windows path,
+a ;-separated list, plain text with spaces, non-numeric terms, a dangling
+operator, an operator alone, multiplication, division, a mixed expression, a
+single number, empty and null. Overflow returns the input. The
+backward-compatibility block runs old and new side by side on eight
+expressions that already worked and asserts they agree, so the only behaviour
+changes are the chains themselves and the spaced-hyphen date noted above.
+Brace and paren balance is 0/0 on InternalSteps, node --check passes on the
+designer's inline JS with zero literal newline/CR escape sequences.
 
-NOT verified: mvn clean package, and the two fixes against the real IIS
-deployment - which is the only place the 409 behaviour can actually be
-confirmed. Please retry the save on tf0003868 first: the version dialog should
-now open and offer tf0003868.v1.
-
-Spec: .claude/SQLREPORT_VERSIONING_VARIABLES.md
+NOT verified: mvn clean package, and a real run. On tf0003071 the assignment
+expectedRows = ${RECORD_COUNTER@2.1} + ${RECORD_COUNTER@2.2} -
+${RECORD_COUNTER@2.3} should give 79175.

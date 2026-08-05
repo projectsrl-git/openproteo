@@ -980,7 +980,7 @@
                         ((n.mode||'copy') !== 'list' ? '<div class="form-row"><div class="field wide"><label>Destination dir *</label><input value="' + attresc(n.dest) + '" placeholder="${dir.next_step}" oninput="updNode(' + i + ',\'dest\',this.value)"></div></div>' : '') +
                         '<div class="subsection dim small" style="padding-bottom:12px">outputs: ##VAR matchedCount, matchedFiles' + ((n.mode||'copy')!=='list' ? ', bytesCopied' : '') + ' &nbsp;(list = scan only)</div>';
                 } else if (ex === 'setvar') {
-                    h += '<div class="subsection"><div class="sub-label">Assignments — Name = expression (${vars}, plus simple A + B / A - B integer math)</div>';
+                    h += '<div class="subsection"><div class="sub-label">Assignments — Name = expression (${vars}, plus integer math: A + B - C, left to right, spaces around each operator required)</div>';
                     n.params.forEach(function (p, j) {
                         h += '<div class="kvrow">' +
                             '<input class="inline-input k" placeholder="counter" value="' + attresc(p.name) + '" oninput="updParam(' + i + ',' + j + ',\'name\',this.value)">' +
