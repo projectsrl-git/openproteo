@@ -44,6 +44,20 @@
         var dl = API + 'download?path=' + encodeURIComponent(name);
         return CTX + 'view?src=' + encodeURIComponent(dl) + '&name=' + encodeURIComponent(name) + '&api=' + encodeURIComponent(API) + '&path=' + encodeURIComponent(name);
     }
+
+    /* Writes the per-run audit report. Offered only on a SUCCESS run: a failed run's evidence is its
+       log and its audit trail, and calling a document for it a "report" invites it being read as a
+       delivery record. */
+    function auditReport(rid){
+        fetch(CTX+'api/runs/'+encodeURIComponent(FEED_ID)+'/'+encodeURIComponent(rid)+'/audit-report',{method:'POST'})
+            .then(function(r){ return r.json().catch(function(){ return {ok:false,error:'HTTP '+r.status}; }); })
+            .then(function(j){
+                if(j&&j.ok) opAlert('Audit report written to '+j.file);
+                else opAlert('Report not created. '+((j&&j.error)||'Unknown error'));
+            })
+            .catch(function(e){ opAlert('Report not created: '+e); });
+    }
+
     function buildTree(){
         fetch(CTX + 'api/audit/' + encodeURIComponent(FEED_ID) + '/entries').then(function(r){return r.json();}).then(function(j){
             var box=document.getElementById('runTree');
@@ -83,6 +97,7 @@
                 h+='<details class="run-node" data-rid="'+esch(rid)+'"'+(open[rid]?' open':'')+'><summary><span class="chip '+esch(stClass)+'">'+esch(r.status||'?')+'</span> <span class="mono">'+esch(rid)+'</span>'+
                    (r.start?(' <span class="dim small">'+esch(r.start)+'</span>'):'')+
                    ' <a class="btn sm" href="'+CTX+'run/'+encodeURIComponent(FEED_ID)+'/'+encodeURIComponent(rid)+'">open ▷</a>'+
+                   ((r.status==='SUCCESS' && rid.indexOf('_test_')<0) ? ' <button class="btn sm" onclick="event.preventDefault();event.stopPropagation();auditReport(\''+esch(rid)+'\')" title="Write _logs/runs/'+esch(rid)+'/audit_report.md: output data, and one paragraph per step with its timestamps, variables and standard output">⎘ create audit report</button>' : '')+
                    ' <button class="btn sm danger" data-del-run="'+esch(rid)+'">🗑 Delete</button></summary><div class="run-body">';
                 r.events.forEach(function(e){
                     if(e.event==='STEP_OUTPUT_VAR') return;

@@ -1191,3 +1191,26 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   re-sorted: they stay separate feeds with separate runs and separate audit trails, which is the point
   of versioning. The badge is a signpost, not a relationship. Section 2 is now complete.
   Note in `.claude/2026-08-04-operations-version-badge.md`.
+
+## audit_report.md: per-run evidence report
+* New `engine/RunAuditReport` (no Spring, no IO — everything passed in, so it compiles and runs
+  standalone) renders `{feedDir}/_logs/runs/{runId}/audit_report.md`. On request only, never on run
+  completion: button beside "open" in Run history for one run, and "Audit report (last run)" in the
+  Operations bulk bar for the last run of each selected feed. Only SUCCESS runs; `_test_` excluded.
+  * **KEY FINDING that makes the backfill possible**: `run.vars` looks flat but `WorkflowEngine:947-951`
+  writes BOTH `var` and `stepId.var` on every step output, so per-step attribution is already in the
+  persisted run JSON — no audit-trail replay, no parsing of logs. A run with no `stepId.` key predates
+  that and gets an explicit note instead of an empty section that would read as "produced nothing".
+  * **Two different sets, kept apart**: the *Output data* section is the DECLARED list
+  (`outputData.<var>` params + workflow-level), i.e. exactly the Operations column; the per-step
+  tables are what each step actually published. `declaredOutputVars(def)` was EXTRACTED from the feeds
+  endpoint and is now shared, so report and grid cannot disagree. A declared var the run never produced
+  shows empty rather than being dropped. * Steps AND gates are merged chronologically — a report that
+  drops the approval step is not evidence. Each step paragraph carries startTs/endTs + computed
+  duration, status, exit code, attempts, checks, its variables, and its standard output. * Step logs:
+  head 100 + tail 400 with the omission marked, NOT a pure tail like the run page — the query, the
+  datasource and the parameters are printed at the START of a step log and a tail would cut exactly
+  what the report is for. A ``` inside a log is neutralised so it cannot close the fence. * Caveat
+  stated in the report and the docs: the declared list is the definition AS IT IS NOW, so for an old
+  run a variable added since shows empty and one removed since is absent — which is what versions
+  exist to avoid. Spec `.claude/2026-08-05-DESIGN-run-audit-report.md`.

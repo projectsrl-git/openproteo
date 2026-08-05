@@ -1,58 +1,88 @@
-Operations: show a version next to its parent
+audit_report.md: a per-run evidence report
 
-Last piece of section 2 of .claude/SQLREPORT_VERSIONING_VARIABLES.md. Batch 1
-added ${parentId}, batch 2 the structural-change trigger and the version save;
-without this, tf0003819 and tf0003819.v1 sat in the Operations grid looking
-like two unrelated feeds.
+Writes a single Markdown document per successful run at
+{feedDir}/_logs/runs/{runId}/audit_report.md, next to that run's step logs:
+the workflow's output data as Operations shows it, and one paragraph per step
+with its timestamps, its variables and its standard output.
 
-/api/overview/feeds publishes two more fields per feed: parentId, and version
-(the digits after .v, empty when the feed is not a version). Both are derived
-server-side from VarResolver.parentId, the same function that produces the
-runtime ${parentId}, so the grid can never disagree with the engine about what
-a feed descends from. Deriving them again in JavaScript would have been zero
-backend change and a second definition of "version" waiting to drift.
+The finding that made the "also for past runs" part feasible: run.vars looks
+like a flat map with no record of which step produced what, but
+WorkflowEngine:947-951 writes BOTH forms on every step output - the plain name
+and the namespaced stepId.var. Per-step attribution is therefore already in
+the persisted run JSON, so no audit-trail replay and no parsing of step logs
+is needed to document a run that happened months ago. A run whose vars carry
+no stepId. key predates that recording and gets an explicit note saying the
+per-step breakdown is unavailable, rather than an empty section that would
+read as "this step produced nothing".
 
-The Feed cell then carries a badge: on a version it reads "v1 of tf0003819",
-on an original that has versions it reads "2 versions", and on everything else
-there is nothing. Clicking either puts the family id into the existing search
-box and re-renders. The substring filter already matched a parent id against
-its versions, so this adds no filtering logic - it just makes it one click
-instead of typing.
+Two different sets of variables, deliberately kept apart because the request
+named both. The Output data section is the list the workflow DECLARES -
+outputData.<var> step params plus the workflow-level ones - which is exactly
+what the Operations grid shows in its "output data" column;
+declaredOutputVars(def) was extracted out of the feeds endpoint rather than
+duplicated, so the report and the column are the same code path by
+construction and cannot drift. A declared variable the run never produced
+appears with an empty value instead of being dropped, so the reader can see it
+was expected. The per-step tables are the separate matter of what each step
+actually published.
 
-What it deliberately does not do: no grouping, no merging, no change to the
-sort. Versions are separate feeds with separate runs, separate output data and
-separate audit trails, and that separation is the whole point of versioning -
-a grid that visually merged them would suggest a relationship the system does
-not have. The badge is a signpost.
+Each step paragraph carries status, exit code, attempts, start and end
+timestamp with the duration computed between them, its validate checks when it
+has any, the variables it published, and its standard output - the same lines
+the run page shows when you click open on a step, so for a sql step the
+executed query is in the report. Gates are merged into the same chronological
+sequence with their condition, outcome and who decided: a report that silently
+dropped the approval step would not be evidence. A long log is shortened to
+its first 100 and last 400 lines with the omission marked, keeping the head
+rather than taking the pure tail the run page takes, because the query, the
+datasource and the parameters are printed at the START of a step log and a
+tail would cut exactly what the report is for. A fence inside a log is
+neutralised so it cannot close the block and turn the rest of the log into
+Markdown.
 
-A version whose original has since been deleted shows only "v1", with a
-tooltip saying the original no longer exists. Printing "v1 of tf0003819" when
-tf0003819 is gone would send the operator looking for a workflow that is not
-there, and the family filter would return a single row with no explanation.
+Generated on request only, never on run completion and never by a scan at
+startup. POST /api/runs/{feedId}/{runId}/audit-report writes one run, from a
+button beside the "open" link in Run history that appears only on a SUCCESS
+run. POST /api/workflows/{feedId}/audit-report/last writes the last run of one
+feed and is driven by the new "Audit report (last run)" button in the
+Operations multi-select bar, which loops it over the selected feeds and
+reports how many were skipped. Only SUCCESS runs are accepted and test runs
+are excluded: a failed run's evidence is its log and its audit trail, and
+calling a document for it a report invites it being read as a delivery record.
+Re-running overwrites, so both are safe to repeat.
 
-Verified. The version extraction was compiled with -source 8 and run against
-the same corpus as parentId: .v1, .v12, .v0, an unversioned id, a version of a
-version which reports only the last, and the four shapes that are not versions
-(x.v, x.V1, tf.0003819, .v1) - all consistent with parentId, which is what
-keeps the two fields from contradicting each other. buildFamilies, drillFamily
-and versionBadge were extracted from the template and run in node against
-synthetic feeds: the family map counts only versions, a parent reports the
-right count with correct singular and plural, a feed with no versions gets no
-badge at all, a version names itself and its parent, both badges filter on the
-PARENT id, the orphan shows v1 without claiming a parent and explains on
-hover, clicking sets the search box and re-renders, and an id containing a
-quote is escaped in the attribute rather than interpolated raw. node --check
-on the page's inline JS passes, with zero literal newline/CR escape sequences
-and no Thymeleaf inlining markers.
+One limitation is stated in the report itself, in the docs and in the spec
+rather than left to be discovered: the declared output-data list is the
+definition AS IT IS NOW, so for an old run a variable added since will show
+empty and one removed since will not appear at all. The definition of the day
+is not kept alongside the run, so this cannot be fixed for history - it is
+precisely what workflow versions exist to avoid going forward.
 
-NOT verified: mvn clean package, and the grid in a browser with a real version
-present.
+New engine/RunAuditReport is free of Spring and of any IO, everything it needs
+being passed in, so the rendering compiles and runs on its own. No new
+dependency; Java 8.
 
-Section 2 is now complete: ${parentId}, the structural-change trigger with the
-version/overwrite dialog, and the Operations signposting. What remains of the
-original spec document is only the optional batch 3 of section 1, a helper to
-compare two collected sqlreport lists, which was marked "if wanted" and has
-not been asked for.
+Verified. RunAuditReport compiled standalone with -source 8 against the real
+run model and exercised by 34 assertions, all passing: the header and the
+computed run duration; the Output data section including a declared variable
+the run never produced showing empty rather than dropped; steps numbered in
+order with a gate placed chronologically between them; per-step start and end
+timestamps and duration; per-step variables, with a grandchild key correctly
+NOT listed as a step variable and the plain non-namespaced feedId correctly
+not attributed to any step; the executed SQL query present in the inlined
+standard output; a step with no log saying so; a run predating the namespaced
+vars getting the note and no misleading empty variables table while its Output
+data still resolves; the "Version of" row appearing only for a versioned feed;
+and the escaping helpers - pipe escaped, newline folded, a fence inside a log
+neutralised while a mid-line backtick run is left alone, negative, unparseable
+and missing durations all returning null, and the ms/s/h formatting. Brace and
+paren balance is 0/0 on both Java files, the import checker is green, node
+--check passes on the inline JS of both overview.html and runs.html with zero
+literal newline/CR escape sequences, and the only Thymeleaf inlining marker is
+the pre-existing commented one in runs.html.
 
-Note: .claude/2026-08-04-operations-version-badge.md
-Spec: .claude/SQLREPORT_VERSIONING_VARIABLES.md section 2
+NOT verified: mvn clean package, and a report generated from a real run on
+disk. Try one successful run from Run history first and read the file before
+using the Operations bulk button.
+
+Spec: .claude/2026-08-05-DESIGN-run-audit-report.md

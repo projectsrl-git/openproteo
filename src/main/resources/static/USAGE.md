@@ -369,6 +369,18 @@ The **Variables** page edits the properties that the selected feeds have in comm
 - Arrow Up/Down and Enter move between cells, and pasting a block copied from Excel fills the cells to the right and below.
 - Filters: feeds, column names, and **only columns that differ** — which shows just the variables whose value is not identical across the visible feeds.
 
+### `audit_report.md`: the evidence report of a run
+
+Any **successful** run can be turned into a single Markdown document at `{feedDir}/_logs/runs/{runId}/audit_report.md`, next to that run's step logs. It is written on request, never automatically, and writing it again simply overwrites it.
+
+Two ways to ask for it. From **Run history**, each successful run carries a **⎘ create audit report** button beside its **open ▷** link. From **Operations**, select feeds and use **⎘ Audit report (last run)** in the action bar: that writes the report for the **last run** of each selected feed, skipping the feeds whose last run did not succeed and reporting how many were skipped. Only SUCCESS runs are accepted — a failed run's evidence is its log and its audit trail, and calling a document for it a "report" invites it being read as a delivery record.
+
+The document opens with the run summary (feed, workflow, run id, trigger, who started it, start, end and computed duration, and the parent id when the feed is a version), then an **Output data** section reproducing exactly the list the Operations grid shows in its "output data" column for that run — same variables, same labels, same order, because both are built from the same resolution of the workflow's declared output data. A variable declared but never produced by that run appears with an empty value rather than being dropped, so the reader can see it was expected.
+
+Then one **paragraph per step**, in execution order, each with its status, exit code, attempts, **start and end timestamp and the duration between them**, its validate checks when it has any, the variables that step published, and its **standard output** — the same lines the run page shows when you click **open** on a step, so for a `sql` step the executed query is in the report. Manual and automatic gates appear in the same sequence with their condition, outcome and who decided: a report that silently dropped the approval step would not be evidence. A very long log is shortened to its first 100 and last 400 lines with the omission marked, keeping the head because what an auditor opens the report for — the query, the datasource, the parameters — is printed at the start of a step log.
+
+One limitation is stated in the report itself when it applies: the per-step attribution of variables comes from the namespaced `${stepId.var}` entries the engine records in the run, so a run older than that recording gets a note saying the per-step breakdown is unavailable for it. The Output data section is unaffected. Note also that the declared output-data list is the one in the workflow **as it is now**, so for an old run a variable added since will show empty and one removed since will not appear at all — which is precisely what workflow versions exist to avoid.
+
 ### Workflow versions
 
 Saving from the designer a change that **adds or removes steps** on a workflow that has **already run** is intercepted: nothing is written, and a dialog offers to save it as a new **version** instead. The reason is that the run history is audited against a definition — if the steps change under it, a past run no longer matches the workflow it says it executed, and a reconciliation done months later has no way to tell.

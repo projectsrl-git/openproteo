@@ -1119,6 +1119,152 @@ public class ApiController {
         return removed ? ResponseEntity.ok(out) : ResponseEntity.status(HttpStatus.NOT_FOUND).body(out);
     }
 
+    /**
+     * The output-data list a workflow DECLARES: {@code outputData.<var>} params on its steps, then the
+     * workflow-level ones. Returns {varName, label} pairs in display order.
+     *
+     * Single source for the Operations "output data" column and for the audit report, so the report
+     * cannot end up listing a different set from the grid it is meant to document.
+     */
+    private java.util.List<String[]> declaredOutputVars(WorkflowDef def) {
+        java.util.List<String[]> odVars = new java.util.ArrayList<String[]>();
+        if (def == null) return odVars;
+        for (com.legalarchive.orchestrator.model.def.StepDef st : def.steps()) {
+            if (st.params == null) continue;
+            for (Map.Entry<String, String> pe : st.params.entrySet()) {
+                String k = pe.getKey();
+                if (k == null || !k.startsWith("outputData.")) continue;
+                String varName = k.substring("outputData.".length()).trim();
+                if (varName.isEmpty()) continue;
+                String desc = pe.getValue();
+                String label = (desc != null && !desc.trim().isEmpty()) ? desc.trim() : varName;
+                odVars.add(new String[]{ varName, label });
+            }
+        }
+        if (def.outputData != null) for (Map.Entry<String, String> oe : def.outputData.entrySet()) {
+            String varName = oe.getKey() == null ? "" : oe.getKey().trim();
+            if (varName.isEmpty()) continue;
+            String desc = oe.getValue();
+            odVars.add(new String[]{ varName, (desc != null && !desc.trim().isEmpty()) ? desc.trim() : varName });
+        }
+        return odVars;
+    }
+
+    /**
+     * One step's standard output as the run page shows it, same tag formatting.
+     *
+     * The run page shows the LAST 500 lines. A long log is shortened here too, but as head + tail
+     * rather than tail alone: what an auditor opens the report for - the executed query, the
+     * datasource, the parameters - is printed at the START of a step log, and a pure tail would cut
+     * exactly that. The elision is marked in the text.
+     */
+    private com.legalarchive.orchestrator.engine.RunAuditReport.StepLog reportStepLog(FeedLayout layout, String runId, String stepId) {
+        Path log = layout.stepLog(runId, stepId);
+        if (!Files.exists(log)) return new com.legalarchive.orchestrator.engine.RunAuditReport.StepLog("", false);
+        final int HEAD = 100, TAIL = 400;
+        try {
+            java.util.List<String> head = new java.util.ArrayList<String>();
+            java.util.ArrayDeque<String> tail = new java.util.ArrayDeque<String>();
+            long total = 0;
+            java.io.BufferedReader r = Files.newBufferedReader(log, StandardCharsets.UTF_8);
+            try {
+                String ln;
+                while ((ln = r.readLine()) != null) {
+                    total++;
+                    String[] p = parseLogLine(ln);
+                    String tag = "E".equals(p[0]) ? "[ERR] " : ("S".equals(p[0]) ? "[SYS] " : "");
+                    String out = (p[1].isEmpty() ? "" : (p[1] + "  ")) + tag + p[2];
+                    if (head.size() < HEAD) head.add(out);
+                    else { if (tail.size() >= TAIL) tail.pollFirst(); tail.addLast(out); }
+                }
+            } finally { r.close(); }
+            boolean truncated = total > (head.size() + tail.size());
+            StringBuilder sb = new StringBuilder();
+            for (String l : head) sb.append(l).append(System.lineSeparator());
+            if (truncated) {
+                sb.append("... (").append(total - head.size() - tail.size())
+                  .append(" line(s) omitted of ").append(total).append(" total)").append(System.lineSeparator());
+            }
+            for (String l : tail) sb.append(l).append(System.lineSeparator());
+            return new com.legalarchive.orchestrator.engine.RunAuditReport.StepLog(sb.toString(), truncated);
+        } catch (Exception e) {
+            return new com.legalarchive.orchestrator.engine.RunAuditReport.StepLog("(log could not be read: " + e.getMessage() + ")", false);
+        }
+    }
+
+    /**
+     * Writes {@code _logs/runs/{runId}/audit_report.md} for one run. Returns null on success or the
+     * reason it was not written. Only SUCCESS runs get a report: a failed run's evidence is its log
+     * and its audit trail, and calling a document for it a "report" invites it being read as a
+     * delivery record.
+     */
+    private String writeAuditReport(String feedId, String runId, String userName) {
+        WorkflowDef def = registry.get(feedId);
+        FeedLayout layout = registry.layout(feedId);
+        if (def == null || layout == null) return "unknown workflow";
+        if (runId == null || !runId.matches("[A-Za-z0-9._-]+")) return "invalid run id";
+        WorkflowRun run;
+        try { run = store.load(layout, runId); } catch (Exception e) { return "run not found"; }
+        if (run == null) return "run not found";
+        if (run.status != com.legalarchive.orchestrator.model.run.RunStatus.SUCCESS) {
+            return "the run is " + (run.status == null ? "unknown" : run.status.name()) + ", not SUCCESS";
+        }
+        java.util.Map<String, com.legalarchive.orchestrator.engine.RunAuditReport.StepLog> logs = new LinkedHashMap<String, com.legalarchive.orchestrator.engine.RunAuditReport.StepLog>();
+        if (run.steps != null) {
+            for (com.legalarchive.orchestrator.model.run.StepExec se : run.steps) {
+                if (se == null || se.stepId == null || !se.stepId.matches("[A-Za-z0-9._-]+")) continue;
+                logs.put(se.stepId, reportStepLog(layout, runId, se.stepId));
+            }
+        }
+        String md = com.legalarchive.orchestrator.engine.RunAuditReport.render(run, declaredOutputVars(def), logs, userName,
+                com.legalarchive.orchestrator.engine.VarResolver.parentId(feedId));
+        try {
+            Path dir = layout.logsDir.resolve("runs").resolve(runId);
+            Files.createDirectories(dir);
+            Files.write(dir.resolve("audit_report.md"), md.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            return "could not write the report: " + e.getMessage();
+        }
+        Map<String, String> det = new LinkedHashMap<String, String>();
+        det.put("file", "runs/" + runId + "/audit_report.md");
+        audit.log(layout.auditFile(), feedId, runId, null, "AUDIT_REPORT_CREATED", userName, det);
+        return null;
+    }
+
+    /** 3.1 - report for one specific run, from the run-history page. */
+    @PostMapping("/api/runs/{feedId}/{runId}/audit-report")
+    public ResponseEntity<Map<String, Object>> auditReport(@PathVariable String feedId, @PathVariable String runId,
+                                                           HttpServletRequest req) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        String err = writeAuditReport(feedId, runId, user(req));
+        if (err != null) return badRequest(out, err);
+        out.put("ok", true);
+        out.put("file", "_logs/runs/" + runId + "/audit_report.md");
+        return ResponseEntity.ok(out);
+    }
+
+    /** 3.2 - report for the LAST run of one feed, driven by the Operations multi-select bar. */
+    @PostMapping("/api/workflows/{feedId}/audit-report/last")
+    public ResponseEntity<Map<String, Object>> auditReportLast(@PathVariable String feedId, HttpServletRequest req) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        FeedLayout layout = registry.layout(feedId);
+        if (layout == null) return badRequest(out, "Unknown workflow");
+        WorkflowRun last = null;
+        try {
+            for (WorkflowRun r : store.list(layout, 10)) {
+                if (r == null || r.runId == null || r.runId.contains("_test_")) continue;
+                last = r; break;                      // list() is newest first
+            }
+        } catch (Exception e) { return badRequest(out, "Could not read the run history"); }
+        if (last == null) return badRequest(out, "This feed has no run yet");
+        String err = writeAuditReport(feedId, last.runId, user(req));
+        if (err != null) return badRequest(out, "Last run " + last.runId + ": " + err);
+        out.put("ok", true);
+        out.put("runId", last.runId);
+        out.put("file", "_logs/runs/" + last.runId + "/audit_report.md");
+        return ResponseEntity.ok(out);
+    }
+
     @GetMapping(value = "/api/runs/{feedId}/{runId}/log/{stepId}", produces = MediaType.TEXT_PLAIN_VALUE)
     public ResponseEntity<String> stepLog(@PathVariable String feedId, @PathVariable String runId,
                                           @PathVariable String stepId,
@@ -1573,25 +1719,7 @@ public class ApiController {
                 m.put("lastRunId", lastRunId);
                 m.put("failedStep", failedStep);
                 m.put("lastSuccessTs", lastSuccessTs);
-                java.util.List<String[]> odVars = new java.util.ArrayList<String[]>();
-                for (com.legalarchive.orchestrator.model.def.StepDef st : def.steps()) {
-                    if (st.params == null) continue;
-                    for (Map.Entry<String, String> pe : st.params.entrySet()) {
-                        String k = pe.getKey();
-                        if (k == null || !k.startsWith("outputData.")) continue;
-                        String varName = k.substring("outputData.".length()).trim();
-                        if (varName.isEmpty()) continue;
-                        String desc = pe.getValue();
-                        String label = (desc != null && !desc.trim().isEmpty()) ? desc.trim() : varName;
-                        odVars.add(new String[]{ varName, label });
-                    }
-                }
-                if (def.outputData != null) for (Map.Entry<String, String> oe : def.outputData.entrySet()) {
-                    String varName = oe.getKey() == null ? "" : oe.getKey().trim();
-                    if (varName.isEmpty()) continue;
-                    String desc = oe.getValue();
-                    odVars.add(new String[]{ varName, (desc != null && !desc.trim().isEmpty()) ? desc.trim() : varName });
-                }
+                java.util.List<String[]> odVars = declaredOutputVars(def);
                 java.util.List<Map<String, Object>> outputData = new java.util.ArrayList<Map<String, Object>>();
                 for (String[] v : odVars) {
                     Map<String, Object> od = new LinkedHashMap<String, Object>();
