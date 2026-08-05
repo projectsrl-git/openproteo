@@ -1214,3 +1214,20 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   stated in the report and the docs: the declared list is the definition AS IT IS NOW, so for an old
   run a variable added since shows empty and one removed since is absent — which is what versions
   exist to avoid. Spec `.claude/2026-08-05-DESIGN-run-audit-report.md`.
+
+## FIX: the version dialog never opened behind IIS, and the preview hid <reportQuery>
+* **HTTP 409 is unusable in this deployment.** IIS replaces the body of an error response with its own
+  page (`httpErrors existingResponse="Replace"`), so the client received "The page was not displayed
+  because there was a conflict" as text/html instead of the JSON payload. The structural-change
+  version suggestion returned 409 and therefore ALWAYS failed as soon as a feed with runs gained a
+  step — reported from the field on tf0003868. All three save conflicts (`versionSuggested` and the
+  two `exists` branches, in `/api/workflows/save` and `/api/workflows/save-xml`) now return **200 with
+  `ok:false` in the body**, and the designer branches on `res.j.versionSuggested` / `res.j.exists`
+  instead of `res.st === 409`. **Rule for this codebase: never carry an actionable outcome in a 4xx
+  status — put it in the body.** * **The GENERATED XML panel is a CLIENT-side preview** (`buildXml()`
+  in designer.html), not the server writer: `<reportQuery>` was added to `WorkflowXmlWriter` but not
+  to `buildXml`, so a typed sqlreport query looked as if it were being lost. It was not — the save
+  path was correct — but the panel is what an author checks. `buildXml` now emits `<reportQuery>` with
+  title/keyColumn/collect/maxRows and the SQL as text, skipping a row that is entirely empty.
+  * Lesson recorded: any new child element must be added in FIVE places, not four — parser, writer,
+  DTO, toDto, **and `buildXml` in the designer** — or the preview silently disagrees with the file.

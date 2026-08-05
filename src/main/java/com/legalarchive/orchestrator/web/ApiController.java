@@ -1949,7 +1949,7 @@ public class ApiController {
             if ((existing != null || Files.exists(target)) && !overwrite) {
                 out.put("ok", false); out.put("exists", true);
                 out.put("error", "Workflow '" + feedId + "' already exists. Confirm overwrite.");
-                return ResponseEntity.status(HttpStatus.CONFLICT).body(out);
+                return ResponseEntity.ok(out);   // 200 for the same reason: IIS replaces 4xx bodies
             }
             Files.write(target, xml.getBytes(StandardCharsets.UTF_8));
             registry.reload();
@@ -2552,7 +2552,11 @@ public class ApiController {
                     out.put("removedSteps", removed);
                     out.put("scheduled", existing.cron != null && !existing.cron.trim().isEmpty());
                     out.put("error", "This save adds or removes steps on a workflow that has already run.");
-                    return ResponseEntity.status(HttpStatus.CONFLICT).body(out);
+                    // 200, NOT 409: IIS replaces the body of an error response with its own HTML page
+                    // (httpErrors existingResponse="Replace"), so the client received "The page was not
+                    // displayed because there was a conflict" instead of this payload and the version
+                    // dialog could never open. The outcome is carried by ok=false in the body.
+                    return ResponseEntity.ok(out);
                 }
             }
 
@@ -2563,7 +2567,7 @@ public class ApiController {
                 out.put("ok", false);
                 out.put("exists", true);
                 out.put("error", "Workflow '" + dto.feedId + "' already exists. Confirm overwrite.");
-                return ResponseEntity.status(HttpStatus.CONFLICT).body(out);
+                return ResponseEntity.ok(out);   // 200 for the same reason: IIS replaces 4xx bodies
             }
 
             Files.write(target, xml.getBytes(StandardCharsets.UTF_8));

@@ -1412,6 +1412,15 @@
                 (n.columns || []).forEach(function (c) {
                     if (c.src || c.as) inner.push('            <column src="' + xesc(c.src || '') + '" as="' + xesc(c.as || '') + '"/>');
                 });
+                (n.reportQueries || []).forEach(function (rq) {
+                    if (!rq || (!rq.sql && !rq.title)) return;
+                    var q = '            <reportQuery';
+                    if (rq.title) q += ' title="' + xesc(rq.title) + '"';
+                    if (rq.keyColumn) q += ' keyColumn="' + xesc(rq.keyColumn) + '"';
+                    if (rq.collect) q += ' collect="' + xesc(rq.collect) + '"';
+                    if (rq.maxRows) q += ' maxRows="' + xesc(String(rq.maxRows)) + '"';
+                    inner.push(q + '>' + xesc(rq.sql || '') + '</reportQuery>');
+                });
                 if (inner.length) {
                     L.push(s + '>');
                     inner.forEach(function (x) { L.push(x); });
@@ -1615,7 +1624,7 @@
                 }
                 if (window.__mountWfFiles) window.__mountWfFiles();
                 window.scrollTo(0, 0);
-            } else if (res.st === 409 && res.j.versionSuggested) {
+            } else if (res.j && res.j.versionSuggested) {
                 // adds or removes steps on a workflow that has already run: the definition a past run
                 // was audited against would stop matching what the history says was executed
                 var parts = [];
@@ -1633,7 +1642,7 @@
                     else { saveAsVersion(nextId, wasSched); }
                 }, { okText:'Save', checks:[ { id:'ow',
                     label:'Overwrite "' + origId + '" in place instead \u2014 its past runs will no longer match its definition' } ] });
-            } else if (res.st === 409 && res.j.exists) {
+            } else if (res.j && res.j.exists) {
                 opConfirm('Workflow "' + wf.feedId + '" already exists. Overwrite its definition?', function(){ save(true, structuralOverwrite === true); }, { danger:true, okText:'Overwrite' });
             } else {
                 banner(false, esc(res.j.error || 'Save failed'));
