@@ -506,6 +506,184 @@
         function field(s) { s = (s == null ? '' : String(s)); if (s.indexOf(';') >= 0 || s.indexOf('"') >= 0 || s.charCodeAt(0) === CR || s.indexOf(LF) >= 0) return '"' + s.replace(/"/g, '""') + '"'; return s; }
     }
 
+    /* ===================== XML tree view (shared) =====================
+       Renders a parsed XML document as collapsible rows. Element headers and text
+       content get different backgrounds; every colour comes from a theme variable so
+       light and dark both work without a second stylesheet.
+       Newlines are built with String.fromCharCode: literal escapes in JS source are
+       rewritten by the corporate proxy. */
+    function xmlTreeEsc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    /** Escaped HTML with every case-insensitive occurrence of q wrapped in <mark>. */
+    function xmlTreeMark(s, q) {
+        s = String(s == null ? '' : s);
+        if (!q) return xmlTreeEsc(s);
+        var lo = s.toLowerCase(), ql = q.toLowerCase(), out = '', from = 0, p;
+        while ((p = lo.indexOf(ql, from)) >= 0) {
+            out += xmlTreeEsc(s.substring(from, p)) + '<mark>' + xmlTreeEsc(s.substr(p, ql.length)) + '</mark>';
+            from = p + ql.length;
+        }
+        return out + xmlTreeEsc(s.substring(from));
+    }
+
+    /**
+     * Builds the tree into host. Returns { expandAll, collapseAll, search, count }.
+     * search(q) re-renders the labels with highlights, hides subtrees with no match,
+     * opens the ancestors of every match, and returns how many nodes matched.
+     */
+    function buildXmlTree(host, doc) {
+        host.innerHTML = '';
+        var nodes = [];                       // flat list of {el, head, kids, tagSpan, attrSpans, textSpan, hay, parent}
+        var root = doc && doc.documentElement;
+        if (!root) { host.innerHTML = '<div class="xt-empty">empty document</div>'; return null; }
+
+        function walk(node, parent, depth, into) {
+            var kidsEls = [], textBuf = '';
+            for (var i = 0; i < node.childNodes.length; i++) {
+                var c = node.childNodes[i];
+                if (c.nodeType === 1) kidsEls.push(c);
+                else if (c.nodeType === 3 || c.nodeType === 4) textBuf += c.nodeValue;
+                else if (c.nodeType === 8) kidsEls.push(c);
+            }
+            var wrap = document.createElement('div');
+            wrap.className = 'xt-node';
+            var head = document.createElement('div');
+            head.className = 'xt-head';
+            head.style.paddingLeft = (6 + depth * 16) + 'px';
+            wrap.appendChild(head);
+
+            var isComment = (node.nodeType === 8);
+            var tog = document.createElement('span');
+            tog.className = 'xt-tog';
+            head.appendChild(tog);
+
+            var tagSpan = document.createElement('span');
+            tagSpan.className = isComment ? 'xt-comment' : 'xt-tag';
+            head.appendChild(tagSpan);
+
+            var rec = { wrap: wrap, head: head, tog: tog, depth: depth, parent: parent,
+                        tagRaw: isComment ? '<!-- comment -->' : node.nodeName,
+                        attrs: [], textRaw: '', tagSpan: tagSpan, attrSpans: [], textSpan: null,
+                        kidsBox: null, hasKids: false };
+
+            if (!isComment) {
+                for (var a = 0; a < node.attributes.length; a++) {
+                    var at = node.attributes[a];
+                    var sp = document.createElement('span');
+                    sp.className = 'xt-attr';
+                    head.appendChild(sp);
+                    rec.attrs.push({ name: at.name, value: at.value });
+                    rec.attrSpans.push(sp);
+                }
+            }
+
+            var trimmed = isComment ? String(node.nodeValue || '').replace(/^\s+|\s+$/g, '')
+                                    : textBuf.replace(/^\s+|\s+$/g, '');
+            if (trimmed) {
+                var tx = document.createElement('div');
+                tx.className = 'xt-text';
+                tx.style.paddingLeft = (6 + (depth + 1) * 16) + 'px';
+                wrap.appendChild(tx);
+                rec.textRaw = trimmed;
+                rec.textSpan = tx;
+            }
+
+            if (kidsEls.length) {
+                var box = document.createElement('div');
+                box.className = 'xt-kids';
+                wrap.appendChild(box);
+                rec.kidsBox = box;
+                rec.hasKids = true;
+                var badge = document.createElement('span');
+                badge.className = 'xt-count';
+                badge.textContent = String(kidsEls.length);
+                head.appendChild(badge);
+            }
+
+            rec.hay = (rec.tagRaw + ' ' + rec.attrs.map(function (x) { return x.name + '=' + x.value; }).join(' ')
+                       + ' ' + rec.textRaw).toLowerCase();
+            rec.idx = nodes.length;          // own position, so ancestor marking stays linear
+            nodes.push(rec);
+            into.appendChild(wrap);
+
+            if (rec.hasKids) {
+                for (var k = 0; k < kidsEls.length; k++) walk(kidsEls[k], rec, depth + 1, rec.kidsBox);
+                head.style.cursor = 'pointer';
+                head.addEventListener('click', function (r) {
+                    return function (e) {
+                        if (e && e.target && e.target.tagName === 'MARK') { /* still toggles */ }
+                        setOpen(r, r.wrap.classList.contains('xt-closed'));
+                    };
+                }(rec));
+            }
+            return rec;
+        }
+
+        function setOpen(rec, open) {
+            if (!rec.hasKids) return;
+            if (open) rec.wrap.classList.remove('xt-closed');
+            else rec.wrap.classList.add('xt-closed');
+            rec.tog.textContent = open ? String.fromCharCode(0x25BE) : String.fromCharCode(0x25B8);
+        }
+
+        walk(root, null, 0, host);
+        for (var i = 0; i < nodes.length; i++) { if (nodes[i].hasKids) setOpen(nodes[i], true); }
+
+        function paint(q) {
+            for (var i = 0; i < nodes.length; i++) {
+                var r = nodes[i];
+                r.tagSpan.innerHTML = xmlTreeMark(r.tagRaw, q);
+                for (var a = 0; a < r.attrs.length; a++) {
+                    r.attrSpans[a].innerHTML = '<b>' + xmlTreeMark(r.attrs[a].name, q) + '</b>='
+                        + '<em>' + xmlTreeMark(r.attrs[a].value, q) + '</em>';
+                }
+                if (r.textSpan) r.textSpan.innerHTML = xmlTreeMark(r.textRaw, q);
+            }
+        }
+
+        paint('');        // labels are written by paint(): without this first call the tree renders blank
+
+        function search(q) {
+            q = (q || '').trim();
+            paint(q);
+            if (!q) {
+                for (var i = 0; i < nodes.length; i++) {
+                    nodes[i].wrap.style.display = '';
+                    nodes[i].head.classList.remove('xt-hit');
+                }
+                return 0;
+            }
+            var ql = q.toLowerCase(), hits = 0, keep = [];
+            for (var j = 0; j < nodes.length; j++) {
+                var r = nodes[j], m = r.hay.indexOf(ql) >= 0;
+                keep[j] = m;
+                if (m) hits++;
+                if (m) r.head.classList.add('xt-hit'); else r.head.classList.remove('xt-hit');
+            }
+            // a node stays visible when it matches or has a visible descendant: walk backwards so
+            // children are resolved before their parent
+            for (var k = nodes.length - 1; k >= 0; k--) {
+                if (!keep[k]) continue;
+                var p = nodes[k].parent;
+                while (p && !keep[p.idx]) { keep[p.idx] = true; p = p.parent; }
+            }
+            for (var z = 0; z < nodes.length; z++) {
+                nodes[z].wrap.style.display = keep[z] ? '' : 'none';
+                if (keep[z] && nodes[z].hasKids) setOpen(nodes[z], true);
+            }
+            return hits;
+        }
+
+        return {
+            count: nodes.length,
+            expandAll: function () { for (var i = 0; i < nodes.length; i++) setOpen(nodes[i], true); },
+            collapseAll: function () { for (var i = 0; i < nodes.length; i++) if (nodes[i].depth > 0) setOpen(nodes[i], false); },
+            search: search
+        };
+    }
+
     // ---- pretty-printing for JSON / XML (inline or unformatted files) ----
     function formatJsonStr(s) {
         var obj = JSON.parse(s);
@@ -577,12 +755,63 @@
         var info = el('span', 'dim small', tools); info.style.marginLeft = '10px';
         var body = el('div', 'vwr-body mono', host);
         var isStructured = /\.(json|xml)$/i.test(name || '');
+        var isXml = /\.xml$/i.test(name || '');
         if (isStructured) {
             var sLines = [], sHl = { n: 0 }, sVl = null;
             gotoBox(tools, body, 19, function () { return sLines.length; }, 'go to line\u2026',
                     function (n) { sHl.n = n; if (sVl) sVl.redraw(); });
+            // XML also gets a structured view: the code view answers "what does the file say",
+            // the tree answers "where is this element and what is under it", which is the actual
+            // question when reading a workflow definition.
+            var treeBox = null, treeApi = null, xmlText = null, treeTools = null;
+            if (isXml) {
+                treeTools = el('div', 'vwr-tools', host);
+                treeTools.style.display = 'none';
+                var tSearch = el('input', 'inline-input', treeTools);
+                tSearch.placeholder = 'search tags, attributes, text\u2026';
+                tSearch.style.minWidth = '260px';
+                var tInfo = el('span', 'dim small', treeTools); tInfo.style.marginLeft = '10px';
+                var tExp = el('button', 'btn sm', treeTools); text(tExp, 'Expand all');
+                var tCol = el('button', 'btn sm', treeTools); text(tCol, 'Collapse all');
+                treeBox = el('div', 'xt-wrap', host);
+                treeBox.style.display = 'none';
+                treeBox.style.maxHeight = '70vh';
+                tExp.addEventListener('click', function () { if (treeApi) treeApi.expandAll(); });
+                tCol.addEventListener('click', function () { if (treeApi) treeApi.collapseAll(); });
+                tSearch.addEventListener('input', function () {
+                    if (!treeApi) return;
+                    var q = tSearch.value;
+                    var n = treeApi.search(q);
+                    tInfo.textContent = q.trim() ? (n + ' match' + (n === 1 ? '' : 'es')) : (treeApi.count + ' elements');
+                });
+                var tabs = el('div', 'vwr-tabs', host);
+                host.insertBefore(tabs, tools);
+                var tabCode = el('button', 'vtab active', tabs); text(tabCode, 'Code');
+                var tabTree = el('button', 'vtab', tabs); text(tabTree, 'Tree');
+                tabCode.addEventListener('click', function () {
+                    tabCode.classList.add('active'); tabTree.classList.remove('active');
+                    tools.style.display = ''; body.style.display = '';
+                    treeTools.style.display = 'none'; treeBox.style.display = 'none';
+                });
+                tabTree.addEventListener('click', function () {
+                    tabTree.classList.add('active'); tabCode.classList.remove('active');
+                    tools.style.display = 'none'; body.style.display = 'none';
+                    treeTools.style.display = ''; treeBox.style.display = '';
+                    if (!treeApi && xmlText != null) {
+                        var doc = null;
+                        try { doc = new DOMParser().parseFromString(xmlText, 'application/xml'); } catch (e) { doc = null; }
+                        if (!doc || !doc.documentElement || doc.getElementsByTagName('parsererror').length) {
+                            treeBox.innerHTML = '<div class="xt-empty">This file is not well-formed XML, so it cannot be shown as a tree. The Code tab shows it as it is.</div>';
+                            return;
+                        }
+                        treeApi = buildXmlTree(treeBox, doc);
+                        if (treeApi) tInfo.textContent = treeApi.count + ' elements';
+                    }
+                });
+            }
             info.textContent = 'loading…';
             fetch(src).then(function (r) { return r.text(); }).then(function (content) {
+                xmlText = content;
                 var rr = prettyFormat(content, name), txt;
                 if (rr.ok) { txt = rr.text; meta.textContent = rr.kind + ' · formatted'; }
                 else { txt = content; meta.textContent = '(' + rr.error + ' \u2014 raw)'; }

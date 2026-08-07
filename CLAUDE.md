@@ -1298,3 +1298,19 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   than clearing it. Clearing was written first and rejected: it would empty the OUTPUT DATA column of
   any workflow whose last step is not a SQL one, and it matches how every other step output behaves
   (last writer wins, value persists). The precise per-step form stays `${<stepId>.dataSource}`.
+
+## XML tree view + standalone xml_viewer.html
+* `viewer.js` gains a **Tree** tab for `.xml` next to the existing Code view: collapsible rows,
+  Expand/Collapse all, and one search box matching tag names, attribute names, attribute VALUES and
+  text content at once, with `<mark>` highlighting, non-matching branches hidden and the ancestors of
+  every match auto-opened. Element headers and text rows have different backgrounds; every colour is
+  an existing app.css variable so BOTH themes work — verified by checking each var resolves in the
+  `:root[data-theme="light"]` block too, none invented. The tree is built lazily on first click of the
+  tab, so opening an XML file costs nothing extra. A non-well-formed file says so and stays readable
+  under Code. * **`xml_viewer.html` in the repo root**, mirroring `csv-viewer.html`: browse or
+  drag-drop, same tree, same search, own theme toggle, zero external references (asserted). * The
+  renderer is written ONCE and injected into both, so they cannot drift. * **jsdom was installed in
+  the sandbox to run the real renderer against a real DOM** — 30 assertions on a realistic workflow
+  XML. That caught a genuine bug: labels are written by `paint()`, which was only called from
+  `search()`, so the tree rendered BLANK until the user typed. Fixed with an initial `paint('')`.
+  Without a real DOM this would have shipped.

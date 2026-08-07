@@ -1,41 +1,51 @@
-Fix: ${dataSource} was empty inside the step that owns it
+XML tree view, and a standalone xml_viewer.html
 
-Reported from the field on tf0003819.RECON: the variable showed its value
-correctly in OUTPUT DATA but resolved to an empty string inside the sqlreport
-query of the same step.
+Item 6 of the list. The XML viewer had only a formatted code view; reading a
+workflow definition that way answers "what does the file say" but not "where
+is this element and what is under it", which is the question actually being
+asked.
 
-The cause is ordering, not naming. A step OUTPUT only reaches run.vars after
-the step has finished, so the step that publishes the datasource cannot see it
-while it runs - the same class of problem as assignments inside one setvar
-step not being able to refer to each other. OUTPUT DATA is read at the end of
-the run, which is why that half looked right.
+An .xml file now opens with two tabs. Code is the formatted source as before.
+Tree renders the same document as collapsible rows: click an element to open
+or close it, Expand all and Collapse all, and a single search box that matches
+tag names, attribute names, attribute VALUES and text content at once. Matches
+are highlighted with mark, branches with no match are hidden, and the
+ancestors of every match are opened so a hit is never buried inside a closed
+node. Element headers and text content have different backgrounds and
+attribute names and values are coloured apart. The tree is built lazily on the
+first click of the tab, so opening an XML file costs nothing extra, and a file
+that is not well-formed says so and stays readable under Code.
 
-The datasource is now seeded in WorkflowEngine.executeStep alongside stepId,
-stepName and stepDir, that is BEFORE the step's parameters and queries are
-resolved. The two mechanisms are complementary and both are kept: the seeding
-serves the step itself through the unqualified ${dataSource}, while the step
-output serves later steps through ${<stepId>.dataSource} and puts the value in
-the audit trail and in the audit report's per-step table.
+Every colour is an existing app.css variable rather than a literal, which is
+what makes the light theme work as well as the dark one; each variable was
+checked to resolve in the light block too, and none was invented.
 
-A step WITHOUT a datasource leaves the value alone rather than clearing it.
-Clearing was written first and rejected: it would empty the OUTPUT DATA column
-of any workflow whose last step is not a SQL one, and leaving it matches how
-every other step output already behaves - last writer wins and the value
-persists. So the unqualified ${dataSource} is the last SQL step that ran, and
-${<stepId>.dataSource} remains the precise per-step form.
+The same viewer also exists as a standalone page, xml_viewer.html in the
+repository root, alongside csv-viewer.html. Browse or drag-drop a file, same
+tree, same search, its own theme toggle, and zero external references -
+asserted, not assumed - so it works on a machine with no access to OpenProteo
+and the file never leaves it. The renderer is written once and injected into
+both files so the two cannot drift apart.
 
-Verified with the REAL VarResolver compiled against a transcription of the
-seeding block and of the engine's outVar merge, in the actual order the engine
-performs them. Eleven assertions pass: the reported expression resolves during
-the step instead of being empty, both spellings work, the other per-step
-context is untouched, the namespaced form works for later steps after the
-merge, a following step with no datasource does not clear the value so OUTPUT
-DATA still shows one, two SQL steps against different systems each see their
-own during execution and keep their own qualified value afterwards, a blank
-datasource does not overwrite, and an unknown step id still resolves to the
-empty string rather than to a neighbour's value. Brace and paren balance is
-0/0 on WorkflowEngine.
+Verified. jsdom was installed in the sandbox so the real renderer could be run
+against a real DOM, and 30 assertions pass against a realistic workflow XML:
+escaping and highlighting including a query that is itself an XML
+metacharacter, the node count, the root tag, attributes rendered as name and
+value pairs, text in its own row and trimmed, entities decoded by the parser
+and then re-escaped safely, comments shown rather than dropped, child counts,
+indentation growing with depth, collapse all leaving the root open, expand all
+reopening, search matching an attribute value, a tag name and text content,
+case-insensitivity, a term matching several nodes, a term matching none hiding
+everything, clearing the search restoring everything and removing the
+highlights, and a malformed document being detectable.
 
-NOT verified: mvn clean package and a real run. On tf0003819 the RECON query
-should now stamp uki0cpp.eu.hedani.net into RECORD_SOURCE instead of a leading
-" - ".
+That run caught a real bug before delivery: the row labels are written by
+paint(), which was only ever called from search(), so the tree rendered
+completely BLANK until the user typed something. It is fixed with an initial
+paint(''), and the assertions that failed on it now pass. Without a real DOM
+this would have shipped. node --check passes on viewer.js and on the
+standalone page, both with zero literal newline/CR escape sequences.
+
+NOT verified: mvn clean package, and how the two themes actually look on
+screen. Open xml_viewer.html on a workflow XML and switch the theme once
+before relying on the in-app tab.

@@ -855,3 +855,30 @@ th.sortable:hover { color: var(--accent); }
 .btn.ops:hover { filter: brightness(1.08); color: #14181f; }
 .topbar .btn.ops { margin-right: 6px; }
 :root[data-theme="light"] .btn.ops { color: #1a1d23; }
+
+/* ---- XML tree view (viewer + standalone xml_viewer.html) ---- */
+.xt-wrap { border: 1px solid var(--line); border-radius: 6px; overflow: auto; background: var(--bg); }
+.xt-node { border-left: 1px solid transparent; }
+.xt-node.xt-closed > .xt-kids, .xt-node.xt-closed > .xt-text { display: none; }
+.xt-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; padding: 3px 8px 3px 6px;
+           background: var(--bg-raise); border-bottom: 1px solid var(--line-soft);
+           font-family: var(--mono); font-size: 12px; line-height: 18px; }
+.xt-head:hover { background: var(--bg-panel); }
+.xt-tog { display: inline-block; width: 10px; color: var(--ink-faint); flex: 0 0 auto; }
+.xt-tag { color: var(--accent); font-weight: 600; }
+.xt-comment { color: var(--ink-faint); font-style: italic; }
+.xt-attr { color: var(--ink-dim); white-space: nowrap; }
+.xt-attr b { color: var(--ink-dim); font-weight: 400; }
+.xt-attr em { color: var(--run); font-style: normal; }
+.xt-count { margin-left: auto; color: var(--ink-faint); background: var(--line-soft);
+            border-radius: 8px; padding: 0 6px; font-size: 10.5px; }
+.xt-text { background: var(--bg); color: var(--ink); border-bottom: 1px solid var(--line-soft);
+           padding: 4px 8px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap;
+           word-break: break-word; }
+.xt-head.xt-hit { background: var(--wait-bg); }
+.xt-wrap mark { background: var(--accent); color: #1b2530; border-radius: 2px; padding: 0 1px; }
+.xt-empty { padding: 14px; color: var(--ink-dim); }
+:root[data-theme="light"] .xt-head { background: #f4f7fb; }
+:root[data-theme="light"] .xt-head:hover { background: #eaf0f8; }
+:root[data-theme="light"] .xt-text { background: #ffffff; }
+:root[data-theme="light"] .xt-head.xt-hit { background: #fdf1cf; }

@@ -373,6 +373,12 @@ The **Variables** page edits the properties that the selected feeds have in comm
 - Arrow Up/Down and Enter move between cells, and pasting a block copied from Excel fills the cells to the right and below.
 - Filters: feeds, column names, and **only columns that differ** — which shows just the variables whose value is not identical across the visible feeds.
 
+### Reading XML: the tree view
+
+An `.xml` file opened in the viewer now has two tabs. **Code** is the formatted source as before. **Tree** shows the same document as collapsible rows: click any element to open or close it, use **Expand all** / **Collapse all**, and type in the search box to find anything by **tag name, attribute name, attribute value or text content** at once. Matching text is highlighted, non-matching branches are hidden, and the ancestors of every match are opened so a hit is never buried in a closed node. Element headers and text content have different backgrounds, attribute names and values are coloured apart, and every colour comes from a theme variable so the light and dark themes are both legible. A file that is not well-formed XML says so and stays readable under **Code**.
+
+The same viewer exists as a **standalone page, `xml_viewer.html` in the repository root**, alongside `csv-viewer.html`. Open it in a browser, choose a file or drag one onto the page, and it behaves exactly as the in-app tree: tabs, search, expand/collapse and the theme switch. Everything happens in the page — no upload, no network, no external library — so it can be used on a machine that has no access to OpenProteo, and the file never leaves it.
+
 ### `audit_report.md`: the evidence report of a run
 
 Any **successful** run can be turned into a single document at `{feedDir}/_logs/runs/{runId}/{feedId}_{runDate}_audit_report.md`, next to that run's step logs. The file name carries the feed and the run date on purpose: the moment a report is pulled out of its folder — which is what happens as soon as one is attached to an email — a name like `audit_report.md` is indistinguishable from every other feed's. It is written on request, never automatically, and writing it again simply overwrites it.
