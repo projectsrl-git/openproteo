@@ -1268,3 +1268,20 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   `md` (default) | `docx` | `both`, publishing `${reportDocxFile}`. Both formats render the SAME
   Markdown, so they cannot disagree. * NOT in this batch (item 3.3): embedding the sqlreport content
   inside the audit report at the matching step.
+
+## Step output: the datasource a step ran against
+* `sql`, `sqlreport` and `ifscopy` now publish their datasource as a step output, so it resolves as
+  `${<stepId>.dataSource}` through the existing engine namespacing — no new mechanism, no new
+  variable machinery. * Published as the FIRST statement of the executor, BEFORE the datasource is
+  looked up, so the value survives a step that then fails: "which database did this hit" matters most
+  when something went wrong, and it is what lets the audit report be evidence rather than a summary.
+  outVars are merged by the engine after every attempt regardless of exit code, so this works for a
+  failed step too. * **Two names for one value**, `dataSource` and `datasource`: the XML attribute is
+  all-lowercase while every other step output is camelCase, so whichever an author types would
+  otherwise resolve to "" in silence — the exact failure mode that cost a session on RERCON vs RECON.
+  Both are in sqlreport's STEP_OUTPUT_VARS so their value is echoed in the log rather than being
+  treated as collected (possibly PII) data. Say the word and the alias goes. * Verified end to end by
+  compiling the REAL VarResolver against a transcription of publishDataSource and of the engine's
+  namespacing loop: the qualified form, the alias, the unqualified form, per-step stability across two
+  SQL steps, last-writer-wins unqualified, nothing published when there is no datasource, an unknown
+  step id resolving to "" and not to a neighbour, and trimming.

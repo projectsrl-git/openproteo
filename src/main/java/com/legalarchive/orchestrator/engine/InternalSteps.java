@@ -1002,9 +1002,30 @@ public class InternalSteps {
         return p;
     }
 
+    /**
+     * Publishes the datasource a step ran against, so it is recoverable afterwards as
+     * {@code ${<stepId>.dataSource}} (and, unqualified, as {@code ${dataSource}} like every other step
+     * output). Called as the FIRST thing an executor does, before the datasource is even resolved, so
+     * the value is there even when the step then fails - "which database did this run hit" is a
+     * question that matters most precisely when something went wrong, and it is what the audit report
+     * needs to be evidence rather than a summary.
+     *
+     * Two names are published for one value. The XML attribute is spelled {@code datasource} all
+     * lowercase while every other step output is camelCase, so whichever of the two an author types
+     * would otherwise resolve to an empty string in silence - the failure mode this project has been
+     * bitten by before. The alias costs one line; the wrong guess costs a debugging session.
+     */
+    private static void publishDataSource(StepDef step, StepExecutor.Result res) {
+        String ds = (step == null) ? null : blankToNull(step.datasource);
+        if (ds == null || res == null) return;
+        res.outVars.put("dataSource", ds);
+        res.outVars.put("datasource", ds);
+    }
+
     // ----------------------------------------------------------------- sql
     private void runSql(StepDef step, Map<String, String> params, Map<String, String> vars,
                         StepExecutor.Result res, java.util.function.Consumer<String> line, RunControl control) throws Exception {
+        publishDataSource(step, res);
         DataSourceDef d = dataSources.get(step.datasource);
         if (d == null) { line.accept("datasource not found: " + step.datasource); res.exitCode = 2; return; }
         // {{columns}} expansion: build the SELECT column list from a (per-feed) dataschema JSON.
@@ -1083,7 +1104,8 @@ public class InternalSteps {
     }
 
     private static final java.util.Set<String> STEP_OUTPUT_VARS = new java.util.HashSet<String>(
-            java.util.Arrays.asList("reportFile", "reportDocxFile", "queriesExecuted", "rowsTotal"));
+            java.util.Arrays.asList("reportFile", "reportDocxFile", "queriesExecuted", "rowsTotal",
+                    "dataSource", "datasource"));
 
     // ------------------------------------------------------------- sqlreport
     /**
@@ -1109,6 +1131,7 @@ public class InternalSteps {
     private void runSqlReport(StepDef step, Map<String, String> params, Map<String, String> vars,
                               StepExecutor.Result res, java.util.function.Consumer<String> line,
                               RunControl control) throws Exception {
+        publishDataSource(step, res);
         DataSourceDef d = dataSources.get(step.datasource);
         if (d == null) { line.accept("sqlreport: datasource not found: " + step.datasource); res.exitCode = 2; return; }
         List<com.legalarchive.orchestrator.model.def.ReportQuery> queries = step.reportQueries;
@@ -1381,6 +1404,7 @@ public class InternalSteps {
     // ------------------------------------------------------------- ifscopy
     private void runIfsCopy(StepDef step, Map<String, String> vars,
                             StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        publishDataSource(step, res);
         DataSourceDef d = dataSources.get(step.datasource);
         if (d == null) { line.accept("datasource not found: " + step.datasource); res.exitCode = 2; return; }
         String ifsPath = VarResolver.resolve(step.ifsPath, vars);

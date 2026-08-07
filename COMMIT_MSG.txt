@@ -1,71 +1,40 @@
-Future-date check, audit report naming and .docx, sqlreport .docx
+Publish the datasource a step ran against as a step output
 
-Batch covering priorities 1, 3.1, 3.2 and 5. Item 3.3 (embedding the sqlreport
-content inside the audit report at the matching step) is not in here.
+Every executor that takes a datasource - sql, sqlreport and ifscopy - now
+publishes it, so it is recoverable afterwards as ${<stepId>.dataSource}
+through the engine's existing namespacing, and unqualified as ${dataSource}
+like any other step output. No new mechanism and no new variable machinery:
+the value simply goes into res.outVars and the engine does the rest.
 
-1) validate gains businessDateNotFuture, which fails the step when a row's
-business date is later than today. It mirrors the existing
-businessDateNotBefore exactly: same business-date column and date format, same
-SKIP when the format is missing, and the bound itself passes so only a
-strictly later date fails. An optional businessDateMax param moves the bound
-for a feed that legitimately carries forward-dated records; empty means today.
-It is preselected in the designer for NEW validate steps and can be unticked
-like any other check.
+It is published as the FIRST statement of the executor, before the datasource
+is even looked up in the registry. That is deliberate: "which database did
+this actually hit" is a question that matters most precisely when something
+went wrong, and the engine merges outVars after every attempt regardless of
+exit code, so the value is there for a step that then fails - including one
+that failed because the datasource id was wrong, where seeing the id that was
+tried is the whole answer. It is also what lets the audit report state which
+database a run hit rather than only which step ran.
 
-It was deliberately NOT added to the engine's implicit default list - the one
-used when a step carries no checks attribute. Doing so would make feeds that
-have been running for months start failing on the deploy that installs this,
-which the contract forbids: adding a check to a live workflow has to be a
-decision, not something a deploy makes on your behalf. It is one line to
-change if that is ever wanted.
+Two names are published for one value, dataSource and datasource. The XML
+attribute is spelled all lowercase while every other step output in this
+codebase is camelCase, so whichever of the two an author types would otherwise
+resolve to an empty string in silence - the exact failure mode that cost a
+debugging session recently on a step id typo. The alias is one line; the wrong
+guess is a session. Both names are also in sqlreport's STEP_OUTPUT_VARS so
+their value is echoed normally in the step log instead of being treated as
+collected, possibly personal, query data.
 
-3.1) The audit report is now written as
-{feedId}_{runDate}_audit_report.{md|docx}. The old fixed audit_report.md was
-identical in every feed's directory, so a file pulled out of its folder -
-which is what happens the moment one is attached to an email - could not be
-told from any other. runDate comes from the run itself, falling back to the
-date in its start timestamp and finally to the run id, so the name is never
-just the feed.
+Verified end to end rather than by inspection: the REAL VarResolver was
+compiled together with a transcription of publishDataSource and of the
+engine's namespacing loop, and 10 assertions all pass. The requested
+${SQL_EXTRACTION.dataSource} resolves, so does the lowercase alias, so does
+the unqualified ${dataSource}, and so does the form embedded in a larger
+string. With two SQL steps in one run each keeps its own qualified value while
+the unqualified name is the last writer, as for any step output. A step with
+no datasource publishes nothing at all, an unknown step id resolves to the
+empty string and never to a neighbour's value, and surrounding whitespace is
+trimmed. Brace and paren balance is 0/0 on InternalSteps.
 
-3.2 and 5) A new engine/DocxWriter renders the Markdown our generators already
-produce as a .docx, and both the audit report and sqlreport use it. The audit
-report endpoints take format=md|docx, and Run history and the Operations bulk
-bar each offer a pair of buttons. sqlreport gains a reportFormat parameter of
-md (the default), docx or both, publishing ${reportDocxFile}. In every case
-the Word file is a rendering of the SAME Markdown, so the two formats can
-never say different things about a run or a query.
-
-DocxWriter is hand-rolled OOXML over java.util.zip rather than POI/XWPF, even
-though poi-ooxml is already a dependency. Two reasons. poi-ooxml-lite carries
-only part of the wordprocessingml schemas and a missing one surfaces as a
-NoClassDefFoundError at runtime, in production, not at build time - and the
-pom explicitly forbids pulling poi-ooxml-full. More decisively: plain JDK
-means the class compiles and RUNS on its own, so the .docx it produces was
-actually unzipped and validated before this was delivered. A POI-based version
-could not have been verified at all from here. It renders our own Markdown
-subset - ATX headings, pipe tables including the \| escape, fenced code
-blocks, horizontal rules, inline bold and backticks - and writes anything it
-does not recognise as literal text rather than dropping it, because an
-evidence document must never silently lose a line.
-
-Verified. DocxWriter was compiled with -source 8 and run against 25
-assertions, all passing: path derivation including a dot in a directory name,
-headings clamped at level 3, a hash without a space not being a heading,
-tables with a padded short row and an escaped pipe kept as a value, a
-paragraph emitted after every table because Word requires one, code blocks
-whose fence is not printed and whose Markdown is not interpreted, horizontal
-rules, bold and inline code as separate runs, an unclosed ** kept literally,
-XML metacharacters escaped, and empty input still producing a paragraph. The
-generated package was then unzipped and checked from outside Java: all five
-required parts present, ZIP integrity clean, every part well-formed XML, and
-the content preserved through escaping. A realistic sample is attached to the
-delivery for a visual check in Word. Brace and paren balance is 0/0 on the
-three Java files, the import checker is green apart from known false positives
-inside XML string literals, and node --check passes on the inline JS of
-designer.html, overview.html and runs.html with zero literal newline/CR escape
-sequences.
-
-NOT verified: mvn clean package, a real run of the new check against a real
-CSV, and how the .docx actually renders when opened in Word - that last one is
-exactly why the sample is attached. Open it before using the buttons on
-anything that matters.
+NOT verified: mvn clean package, and a real run. The quickest check on deploy
+is to put ${SQL_EXTRACTION.dataSource} in a setvar or in OUTPUT DATA and
+confirm it shows the datasource id.
