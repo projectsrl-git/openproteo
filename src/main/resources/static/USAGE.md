@@ -377,6 +377,12 @@ The **Variables** page edits the properties that the selected feeds have in comm
 - Arrow Up/Down and Enter move between cells, and pasting a block copied from Excel fills the cells to the right and below.
 - Filters: feeds, column names, and **only columns that differ** — which shows just the variables whose value is not identical across the visible feeds.
 
+### Reading Markdown: the preview
+
+A `.md` file opened in the viewer shows two tabs and starts on **Preview**: headings, tables, fenced code, lists and inline formatting rendered as they are meant to be read, with **Source** one click away for the raw text. This is what the audit report and the `sqlreport` report are for — a reconciliation table read as raw pipes is the one thing it was never written to be.
+
+The renderer **escapes everything first and only then adds markup**, which is not a theoretical precaution here: these reports carry values taken straight out of a database, and a `<` or a stray tag in a column must never become part of the page it is being read in. Links are kept only when they point at `http`, `https` or a relative target.
+
 ### Reading XML: the table view
 
 An `.xml` file opened in the viewer has two tabs. **Code** is the formatted source. **Table** shows the same document as tables rather than as indented text, which is the difference between reading a file and reading its data:
@@ -400,6 +406,8 @@ The same report can be produced as a **Word document** instead: the buttons come
 Two ways to ask for it. From **Run history**, each successful run carries **⎘ audit report .md** and **⎘ .docx** beside its **open ▷** link. From **Operations**, select feeds and use **⎘ Audit .md** or **⎘ Audit .docx** in the action bar: that writes the report for the **last run** of each selected feed, skipping the feeds whose last run did not succeed and reporting how many were skipped. Only SUCCESS runs are accepted — a failed run's evidence is its log and its audit trail, and calling a document for it a "report" invites it being read as a delivery record.
 
 The document opens with the run summary (feed, workflow, run id, trigger, who started it, start, end and computed duration, and the parent id when the feed is a version), then an **Output data** section reproducing exactly the list the Operations grid shows in its "output data" column for that run — same variables, same labels, same order, because both are built from the same resolution of the workflow's declared output data. A variable declared but never produced by that run appears with an empty value rather than being dropped, so the reader can see it was expected.
+
+When a step produced its **own** report — an `sqlreport` step writing a Markdown file — that report is **embedded under that step**, so the queries, their results and the evidence they produced sit next to the step that ran them instead of in a separate file that has to be found and matched to the run by hand. Its headings are pushed down three levels so it nests under the step rather than competing with the audit report's own structure; nothing else is rewritten, and the tables, the SQL and the numbers are the file as it was written. A report that is no longer on disk, is larger than 2 MB, or was produced only as `.docx` is named rather than embedded.
 
 Then one **paragraph per step**, in execution order, each with its status, exit code, attempts, **start and end timestamp and the duration between them**, its validate checks when it has any, the variables that step published, and its **standard output** — the same lines the run page shows when you click **open** on a step, so for a `sql` step the executed query is in the report. Manual and automatic gates appear in the same sequence with their condition, outcome and who decided: a report that silently dropped the approval step would not be evidence. A very long log is shortened to its first 100 and last 400 lines with the omission marked, keeping the head because what an auditor opens the report for — the query, the datasource, the parameters — is printed at the start of a step log.
 

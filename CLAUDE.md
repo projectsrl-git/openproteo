@@ -1364,3 +1364,21 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   nothing. * Verified with jsdom against the real page: presets present, every one carrying a
   `jdbc:` template, a dotted driver class and a JAR name; the dropdown filled; a chosen preset filling
   both fields and the hint; and the "already typed URL survives" invariant.
+
+## Audit report embeds sqlreport output (3.3); Markdown preview in the viewer (4)
+* **3.3**: a step that produced its own Markdown report publishes `${<stepId>.reportFile}`, so
+  `writeAuditReport` reads it back and `RunAuditReport.render` embeds it UNDER that step. New
+  `demoteHeadings(md, 3)` pushes the embedded document's ATX headings down so it nests instead of
+  competing with the audit report's own `#`/`##`/`###`; lines inside fenced blocks are left alone (a
+  `#` there is a SQL comment) and levels cap at 6. Skipped with a named reason when the file is gone,
+  over 2 MB, or `.docx` only. The old 5-arg `render` still compiles — the new map is an overload.
+  * **4**: `.md` files get a **Preview** tab (default) beside **Source** in the viewer. New
+  `renderMarkdown` handles headings, paragraphs, fenced code with language, pipe tables including the
+  `\|` escape, bullet/numbered lists, blockquotes, rules and inline bold/italic/code/links.
+  **It escapes first and adds markup second** — not theoretical: these reports carry raw database
+  values, and `javascript:` links are dropped while the label is kept. * Both verified by execution,
+  not inspection: `demoteHeadings` and the embedding with javac (20 assertions, including that the
+  report lands under RERCON and not EXTRACT and that a `#` inside a fence survives); the Markdown
+  renderer with jsdom (35 assertions, including that a `<script>` cannot survive and that the output
+  parses to the expected DOM). * A literal `/\r/` regex slipped into the renderer and was caught by
+  the escape scan — replaced with `String.fromCharCode(13)`. The proxy rule applies to regexes too.

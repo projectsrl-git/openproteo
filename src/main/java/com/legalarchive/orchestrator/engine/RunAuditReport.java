@@ -49,6 +49,17 @@ public final class RunAuditReport {
      */
     public static String render(WorkflowRun run, List<String[]> declared,
                                 Map<String, StepLog> logs, String generatedBy, String parentId) {
+        return render(run, declared, logs, null, generatedBy, parentId);
+    }
+
+    /**
+     * @param reports stepId -> the Markdown a step produced as its own report (sqlreport). Embedded
+     *                under that step, so the evidence a query returned sits next to the step that ran
+     *                it instead of in a file somewhere else that has to be found and matched by hand.
+     */
+    public static String render(WorkflowRun run, List<String[]> declared,
+                                Map<String, StepLog> logs, Map<String, String> reports,
+                                String generatedBy, String parentId) {
         StringBuilder md = new StringBuilder();
         String feedId = nz(run.feedId);
 
@@ -100,7 +111,7 @@ public final class RunAuditReport {
         for (Object o : timeline) {
             if (o instanceof StepExec) {
                 n++;
-                renderStep(md, (StepExec) o, n, run, logs, anyNamespaced);
+                renderStep(md, (StepExec) o, n, run, logs, reports, anyNamespaced);
             } else {
                 renderGate(md, (GateExec) o);
             }
@@ -116,7 +127,7 @@ public final class RunAuditReport {
     }
 
     private static void renderStep(StringBuilder md, StepExec se, int n, WorkflowRun run,
-                                   Map<String, StepLog> logs, boolean anyNamespaced) {
+                                   Map<String, StepLog> logs, Map<String, String> reports, boolean anyNamespaced) {
         String name = nz(se.name);
         md.append("### ").append(n).append(". ").append(nz(se.stepId));
         if (!name.isEmpty() && !name.equals(se.stepId)) md.append(" - ").append(name);
@@ -160,6 +171,15 @@ public final class RunAuditReport {
             }
         }
 
+        String own = (reports == null || se.stepId == null) ? null : reports.get(se.stepId);
+        if (own != null && !own.trim().isEmpty()) {
+            md.append("**Report produced by this step**").append(LF).append(LF);
+            // Headings are pushed down three levels so the embedded document nests UNDER this step
+            // instead of competing with the audit report's own "#", "##" and "###". Nothing else is
+            // rewritten: the tables, the SQL and the numbers are the file as it was written.
+            md.append(demoteHeadings(own.trim(), 3)).append(LF).append(LF);
+        }
+
         StepLog log = logs == null ? null : logs.get(se.stepId);
         md.append("**Standard output**");
         if (nz(se.logFile).length() > 0) md.append("  (`").append(nz(se.logFile)).append("`)");
@@ -184,6 +204,36 @@ public final class RunAuditReport {
         if (nz(g.decidedBy).length() > 0) row(md, "Decided by", g.decidedBy);
         row(md, "Timestamp", nz(g.ts));
         md.append(LF);
+    }
+
+    /**
+     * Pushes every ATX heading down by {@code by} levels, so an embedded document nests under the
+     * section that hosts it. Lines inside fenced code blocks are left completely alone - a '#' there
+     * is a comment or a column name, not a heading - and a heading that would go past level 6 is
+     * capped, because Markdown has no h7 and a bare run of hashes would render as literal text.
+     */
+    public static String demoteHeadings(String md, int by) {
+        if (md == null) return "";
+        String[] lines = md.replace(String.valueOf((char) 13), "").split(String.valueOf((char) 10), -1);
+        StringBuilder out = new StringBuilder(md.length() + 64);
+        boolean inFence = false;
+        for (int i = 0; i < lines.length; i++) {
+            String ln = lines[i];
+            if (ln.trim().startsWith("```")) inFence = !inFence;
+            if (!inFence) {
+                int h = 0;
+                while (h < ln.length() && ln.charAt(h) == '#') h++;
+                if (h > 0 && h < ln.length() && ln.charAt(h) == ' ') {
+                    int lvl = Math.min(6, h + by);
+                    StringBuilder hashes = new StringBuilder();
+                    for (int k = 0; k < lvl; k++) hashes.append('#');
+                    ln = hashes + ln.substring(h);
+                }
+            }
+            out.append(ln);
+            if (i < lines.length - 1) out.append(LF);
+        }
+        return out.toString();
     }
 
     // ------------------------------------------------------------------ helpers

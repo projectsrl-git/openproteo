@@ -1,55 +1,66 @@
-Datasources: generic JDBC with presets, and no bundled driver
+Audit report embeds the sqlreport output; Markdown preview in the viewer
 
-Item 2 of the list. The product read as an AS/400 tool in the places an
-operator actually looks, while the code underneath has always been plain JDBC.
+Items 3.3 and 4 of the list.
 
-Backward compatibility came first because it constrains everything else: the
-stored type values, as400 and custom, are unchanged. Nothing migrates, every
-connection configured before this keeps working exactly as it did, and only
-what the operator reads has changed.
+3.3. A step that produces its own Markdown report - an sqlreport step -
+already publishes its path as ${<stepId>.reportFile}. The audit report now
+reads that file back and embeds it under that step, so the queries, their
+results and the evidence they produced sit next to the step that ran them
+instead of in a separate file that has to be found and matched to the run by
+hand.
 
-Wording. The Datasources page now describes reusable JDBC connections rather
-than an AS400 connection; the type dropdown reads "JDBC - any database" and
-"IBM i - native (also carries the IFS file-copy credentials)"; the designer's
-executor list says "sql (JDBC query -> CSV)" instead of "sql (DB2/AS400
-query)"; and the id and name placeholders are no longer AS400-flavoured.
-ifscopy still names IBM i, because that is a fact about the executor rather
-than branding - it genuinely reuses that connection's credentials for the file
-transfer, and hiding that would make it harder to configure, not easier.
+The embedded document's headings are pushed down three levels by a new
+demoteHeadings helper, so it nests under the step rather than competing with
+the audit report's own three heading levels. Nothing else is rewritten: the
+tables, the SQL and the numbers are the file as it was written. Lines inside
+fenced code blocks are deliberately left alone, because a hash there is a SQL
+comment and not a heading, and levels cap at six since Markdown has no h7 and
+a bare run of hashes would render as literal text. A report that is no longer
+on disk, is larger than 2 MB, or was produced only as .docx is named in place
+rather than embedded, so its absence is visible instead of silent. The
+previous five-argument render still compiles: the map is an overload, not a
+signature change.
 
-Presets. A Preset dropdown fills the JDBC URL template and the driver class
-for Oracle, Microsoft SQL Server, PostgreSQL, MySQL, MariaDB, IBM DB2 for LUW
-and z/OS, IBM i, H2 and SQLite. The URL is a template to edit, and one already
-typed is never overwritten by choosing a preset - only the driver class is
-corrected, since that is the field nobody remembers and everybody gets wrong.
+4. A .md file opened in the viewer now shows two tabs and starts on Preview,
+with Source one click away for the raw text. The renderer handles headings,
+paragraphs, fenced code blocks with their language, pipe tables including the
+escaped-pipe form our generators emit, bullet and numbered lists, blockquotes,
+horizontal rules, and inline bold, italic, code and links. That is what the
+audit report and the sqlreport report exist for - a reconciliation table read
+as raw pipes is the one thing it was never written to be.
 
-No database driver is bundled, and this is a decision rather than an omission.
-The custom type already did Class.forName followed by
-DriverManager.getConnection, so a driver JAR placed in the servlet container's
-shared lib directory is all that has ever been needed - which means presets
-for five more vendors cost zero new Maven dependencies. Bundling one driver
-per vendor would instead drag several transitive trees through the internal
-Nexus for a feature most feeds never use, against the same constraint the pom
-already records for POI. SqlSupport.loadDriver now rewrites
-ClassNotFoundException into an instruction that names the class it looked for
-and the directory to put the JAR in, because that is the most likely failure
-the first time a new database is configured and a bare class name tells an
-operator nothing about what to do next.
+The renderer escapes everything first and only then adds markup. That is not a
+theoretical precaution here: these reports carry values taken straight out of
+a database, so a stray angle bracket or tag in a column must never become part
+of the page it is being read in. Links are kept only when they point at http,
+https or a relative target; a javascript: link loses the link and keeps the
+label.
 
-Verified with jsdom against the real page, 17 assertions passing: every preset
-asked for is present and each carries a jdbc: URL template, a properly dotted
-driver class and the name of the JAR to install; the dropdown is filled with
-one option per preset plus the placeholder; choosing a preset fills the URL,
-the driver class and the hint naming the lib directory; a URL already typed
-survives while the driver class is still corrected; and returning to the
-placeholder clears the hint without touching anything. Brace and paren balance
-is 0/0 on SqlSupport, node --check passes on both edited templates with zero
-literal newline/CR escape sequences.
+Verified by execution rather than inspection. demoteHeadings and the embedding
+were compiled with -source 8 and exercised by 20 assertions: heading demotion
+at every level with the cap at six, a hash without a space not being a
+heading, a hash inside a fenced block left untouched, line count preserved,
+the embedded report landing under RERCON and not under EXTRACT, its result
+table and its SQL surviving verbatim, a blank report being skipped rather than
+printed empty, and the old five-argument call still working. The Markdown
+renderer was exercised with jsdom by 35 assertions covering escaping first - a
+script tag cannot survive and a javascript: link is dropped while its label is
+kept - fenced code never being interpreted, tables including the escaped pipe
+and a pipe line that is not a table, lists not swallowing each other, and the
+output parsing to the expected DOM with no script nodes anywhere.
 
-NOT verified: mvn clean package, and an actual connection to any of the new
-databases - which needs a driver JAR and a reachable server, so it can only be
-done on deploy. The IBM i connections are the ones to check first, since they
-are the ones already in production.
+One defect was caught by the escape scan before delivery: a literal /\r/ regex
+had slipped into the renderer. The corporate proxy rewrites those, so it was
+replaced with String.fromCharCode(13). The rule applies to regular expressions
+too, not only to string literals.
 
-Still open from the list: 3.3 (embedding the sqlreport content in the audit
-report) and 4 (prettify viewer for .md).
+Brace and paren balance is 0/0 on both Java files, node --check passes on
+viewer.js, and every CSS variable used by the new preview stylesheet resolves
+in both themes.
+
+NOT verified: mvn clean package, and how the preview and the embedded report
+look on screen. Generate one audit report for a feed that has an sqlreport
+step and open it in the viewer - that exercises both halves of this batch at
+once.
+
+This closes the list: 1, 2, 3.1, 3.2, 3.3, 4, 5 and 6 are all delivered.

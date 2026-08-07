@@ -1242,7 +1242,38 @@ public class ApiController {
                 logs.put(se.stepId, reportStepLog(layout, runId, se.stepId));
             }
         }
-        String md = com.legalarchive.orchestrator.engine.RunAuditReport.render(run, declaredOutputVars(def), logs, userName,
+        // A step that produced its own Markdown report (sqlreport) publishes its path as
+        // ${<stepId>.reportFile}. Read it back here so the evidence lands under the step that ran the
+        // queries, instead of in a file that has to be found and matched to the run by hand.
+        java.util.Map<String, String> stepReports = new LinkedHashMap<String, String>();
+        if (run.steps != null && run.vars != null) {
+            for (com.legalarchive.orchestrator.model.run.StepExec se : run.steps) {
+                if (se == null || se.stepId == null) continue;
+                String rf = run.vars.get(se.stepId + ".reportFile");
+                if (rf == null || rf.trim().isEmpty()) continue;
+                String rp = rf.trim();
+                // only the Markdown form: the .docx is the same content as a binary and would be
+                // unreadable pasted into a text document
+                if (!rp.toLowerCase(java.util.Locale.ROOT).endsWith(".md")) continue;
+                try {
+                    Path rpp = java.nio.file.Paths.get(rp);
+                    if (!Files.exists(rpp)) {
+                        stepReports.put(se.stepId, "_The report this step produced is no longer on disk (`" + rp + "`)._");
+                        continue;
+                    }
+                    long size = Files.size(rpp);
+                    if (size > 2L * 1024 * 1024) {
+                        stepReports.put(se.stepId, "_The report this step produced is " + (size / 1024) + " KB, too large to embed. It is at `" + rp + "`._");
+                        continue;
+                    }
+                    stepReports.put(se.stepId, new String(Files.readAllBytes(rpp), StandardCharsets.UTF_8));
+                } catch (Exception e) {
+                    stepReports.put(se.stepId, "_The report this step produced could not be read (`" + rp + "`): " + e.getMessage() + "._");
+                }
+            }
+        }
+        String md = com.legalarchive.orchestrator.engine.RunAuditReport.render(run, declaredOutputVars(def), logs,
+                stepReports, userName,
                 com.legalarchive.orchestrator.engine.VarResolver.parentId(feedId));
         boolean docx = "docx".equalsIgnoreCase(format);
         String fileName = auditReportBase(feedId, run) + (docx ? ".docx" : ".md");

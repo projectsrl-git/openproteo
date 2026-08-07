@@ -755,6 +755,139 @@
         };
     }
 
+    /* ===================== Markdown preview (shared) =====================
+       A small renderer for the Markdown this project produces and reads: headings, paragraphs,
+       fenced and indented code, pipe tables, bullet and numbered lists, blockquotes, horizontal
+       rules, and inline **bold**, *italic*, `code` and links.
+       Everything is ESCAPED FIRST and only then given markup, so a report that embeds query results
+       cannot inject HTML into the page it is being read in. That is not a theoretical concern here:
+       an audit report carries values straight out of a database.
+       Newlines are built with String.fromCharCode: literal escapes are rewritten by the proxy. */
+    function mdEsc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    /** Inline spans. Input is raw text; the escaping happens here, before any tag is added. */
+    function mdInline(s) {
+        var out = mdEsc(s);
+        out = out.replace(/`([^`]+)`/g, function (m, c) { return '<code>' + c + '</code>'; });
+        out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        out = out.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
+        // links: only http(s) and relative targets, never javascript:
+        out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (m, label, href) {
+            if (/^(https?:|\/|\.|#)/i.test(href)) return '<a href="' + href + '" rel="noreferrer">' + label + '</a>';
+            return label;
+        });
+        return out;
+    }
+    function mdSplitRow(row) {
+        var t = row.trim();
+        if (t.charAt(0) === '|') t = t.substring(1);
+        if (t.charAt(t.length - 1) === '|' && t.substring(t.length - 2) !== '\\|') t = t.substring(0, t.length - 1);
+        var cells = [], cur = '';
+        for (var i = 0; i < t.length; i++) {
+            var c = t.charAt(i);
+            if (c === '\\' && t.charAt(i + 1) === '|') { cur += '|'; i++; continue; }
+            if (c === '|') { cells.push(cur.trim()); cur = ''; continue; }
+            cur += c;
+        }
+        cells.push(cur.trim());
+        return cells;
+    }
+    function mdIsTableSep(line) {
+        var t = line.trim();
+        if (t.charAt(0) !== '|') return false;
+        var cs = mdSplitRow(t);
+        for (var i = 0; i < cs.length; i++) {
+            var x = cs[i].trim();
+            if (x === '') continue;
+            if (!/^:?-{1,}:?$/.test(x)) return false;
+        }
+        return cs.length > 0;
+    }
+
+    function renderMarkdown(src) {
+        var NLc = String.fromCharCode(10);
+        var CRc = String.fromCharCode(13);   // never a literal escape: the proxy rewrites those
+        var lines = String(src == null ? '' : src).split(CRc).join('').split(NLc);
+        var out = [], i = 0;
+        function flushPara(buf) {
+            if (!buf.length) return;
+            out.push('<p>' + mdInline(buf.join(' ')) + '</p>');
+            buf.length = 0;
+        }
+        var para = [];
+        while (i < lines.length) {
+            var ln = lines[i], t = ln.trim();
+
+            if (t.substring(0, 3) === '```') {              // fenced code: never interpreted
+                flushPara(para);
+                var lang = t.substring(3).trim(), code = [];
+                i++;
+                while (i < lines.length && lines[i].trim().substring(0, 3) !== '```') { code.push(lines[i]); i++; }
+                if (i < lines.length) i++;
+                out.push('<pre class="md-code"' + (lang ? ' data-lang="' + mdEsc(lang) + '"' : '') + '><code>'
+                         + mdEsc(code.join(NLc)) + '</code></pre>');
+                continue;
+            }
+            if (t === '') { flushPara(para); i++; continue; }
+            if (/^(-{3,}|\*{3,}|_{3,})$/.test(t)) { flushPara(para); out.push('<hr>'); i++; continue; }
+
+            var h = 0;
+            while (h < t.length && h < 6 && t.charAt(h) === '#') h++;
+            if (h > 0 && t.charAt(h) === ' ') {
+                flushPara(para);
+                out.push('<h' + h + ' class="md-h">' + mdInline(t.substring(h + 1).trim()) + '</h' + h + '>');
+                i++;
+                continue;
+            }
+            if (t.charAt(0) === '|' && i + 1 < lines.length && mdIsTableSep(lines[i + 1])) {
+                flushPara(para);
+                var head = mdSplitRow(t);
+                i += 2;
+                var body = [];
+                while (i < lines.length && lines[i].trim().charAt(0) === '|') { body.push(mdSplitRow(lines[i])); i++; }
+                var h2 = '<table class="md-tbl"><thead><tr>';
+                for (var c1 = 0; c1 < head.length; c1++) h2 += '<th>' + mdInline(head[c1]) + '</th>';
+                h2 += '</tr></thead><tbody>';
+                for (var r = 0; r < body.length; r++) {
+                    h2 += '<tr>';
+                    for (var c2 = 0; c2 < head.length; c2++) h2 += '<td>' + mdInline(body[r][c2] || '') + '</td>';
+                    h2 += '</tr>';
+                }
+                out.push(h2 + '</tbody></table>');
+                continue;
+            }
+            if (t.charAt(0) === '>') {
+                flushPara(para);
+                var q = [];
+                while (i < lines.length && lines[i].trim().charAt(0) === '>') { q.push(lines[i].trim().replace(/^>\s?/, '')); i++; }
+                out.push('<blockquote>' + mdInline(q.join(' ')) + '</blockquote>');
+                continue;
+            }
+            var bullet = /^[-*+]\s+(.*)$/.exec(t), numbered = /^\d+[.)]\s+(.*)$/.exec(t);
+            if (bullet || numbered) {
+                flushPara(para);
+                var ordered = !!numbered, items = [];
+                while (i < lines.length) {
+                    var tt = lines[i].trim();
+                    var b2 = /^[-*+]\s+(.*)$/.exec(tt), n2 = /^\d+[.)]\s+(.*)$/.exec(tt);
+                    if (!b2 && !n2) break;
+                    if ((!!n2) !== ordered) break;
+                    items.push(mdInline((b2 ? b2[1] : n2[1])));
+                    i++;
+                }
+                out.push('<' + (ordered ? 'ol' : 'ul') + ' class="md-list"><li>' + items.join('</li><li>') + '</li></'
+                         + (ordered ? 'ol' : 'ul') + '>');
+                continue;
+            }
+            para.push(t);
+            i++;
+        }
+        flushPara(para);
+        return out.join(String.fromCharCode(10));
+    }
+
     // ---- pretty-printing for JSON / XML (inline or unformatted files) ----
     function formatJsonStr(s) {
         var obj = JSON.parse(s);
@@ -894,6 +1027,39 @@
                 info.textContent = '';
             }).catch(function (e) { showErr(host, String(e)); });
         } else {
+        // .md gets a rendered Preview tab beside the source: a report is written to be READ, and
+        // reading a pipe table as raw text is the thing it was never meant to be.
+        if (/\.md$/i.test(name || '')) {
+            var mdTools = el('div', 'vwr-tools', host);
+            mdTools.style.display = 'none';
+            var mdPane = el('div', 'md-preview', host);
+            mdPane.style.display = 'none';
+            mdPane.style.maxHeight = '70vh';
+            mdPane.style.overflow = 'auto';
+            var mdLoaded = false;
+            var mdTabs = el('div', 'vwr-tabs', host);
+            host.insertBefore(mdTabs, tools);
+            var mTabSrc = el('button', 'vtab', mdTabs); text(mTabSrc, 'Source');
+            var mTabPrev = el('button', 'vtab active', mdTabs); text(mTabPrev, 'Preview');
+            function mdShow(preview) {
+                mTabPrev.classList.toggle('active', preview);
+                mTabSrc.classList.toggle('active', !preview);
+                tools.style.display = preview ? 'none' : '';
+                body.style.display = preview ? 'none' : '';
+                mdTools.style.display = preview ? '' : 'none';
+                mdPane.style.display = preview ? '' : 'none';
+                if (preview && !mdLoaded) {
+                    mdLoaded = true;
+                    mdPane.innerHTML = '<div class="dim small">rendering\u2026</div>';
+                    fetch(src).then(function (r) { return r.text(); })
+                        .then(function (c) { mdPane.innerHTML = renderMarkdown(c); })
+                        .catch(function (e) { mdPane.innerHTML = '<div class="dim small">could not load: ' + mdEsc(String(e)) + '</div>'; });
+                }
+            }
+            mTabSrc.addEventListener('click', function () { mdShow(false); });
+            mTabPrev.addEventListener('click', function () { mdShow(true); });
+            mdShow(true);          // a Markdown file opens rendered; the source is one click away
+        }
         fetch(api + 'text/meta?path=' + encodeURIComponent(path)).then(json).then(function (j) {
             if (!j.ok) { showErr(host, j.error); return; }
             totalLines = j.totalLines; gutterW = String(totalLines).length + 1;
