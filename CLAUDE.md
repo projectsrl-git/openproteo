@@ -1245,3 +1245,26 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   (`Math.addExact`/`subtractExact`) rather than a wrapped number. * Assignments within ONE step still
   cannot refer to each other — a step's params are all resolved before it runs — so a value computed
   from another assignment needs a second setvar step. Documented in USAGE.md and the designer label.
+
+## Batch: future-date check, audit report naming + .docx, sqlreport .docx
+* **validate `businessDateNotFuture`**: fails when a business date is later than today; optional
+  `businessDateMax` param overrides the bound (empty = today), the bound itself passes, only strictly
+  later fails. Mirrors `businessDateNotBefore` exactly (same bizIdx, same SKIP semantics when
+  dateFormat is missing). **Preselected in the designer for NEW validate steps only.** Deliberately
+  NOT added to the engine's implicit default list (the one used when a step has no `checks` attribute)
+  — that would make existing feeds start failing on deploy, which the contract forbids. One line to
+  change if that is ever wanted. * **New `engine/DocxWriter`: hand-rolled OOXML over `java.util.zip`,
+  NOT POI/XWPF**, even though poi-ooxml is already a dependency. Reasons: `poi-ooxml-lite` carries
+  only part of the wordprocessingml schemas and a missing one is a NoClassDefFoundError in
+  PRODUCTION, not at build time; and — decisively — pure JDK means the class compiles and RUNS
+  standalone here, so the .docx it produces was actually unzipped and validated before delivery. A
+  POI version could not have been verified at all. It renders OUR Markdown (ATX headings, pipe tables
+  with `\|` escapes, fenced code, rules, inline `**bold**` and backticks); anything unrecognised is
+  written as literal text rather than dropped — an evidence document must not silently lose a line.
+  * **Audit report is now `{feedId}_{runDate}_audit_report.{md|docx}`** — the old fixed name was
+  identical in every feed and indistinguishable once attached to an email. runDate from the run,
+  falling back to the date in startTs, then the runId. Both endpoints take `format=md|docx`; Run
+  history and the Operations bulk bar each have a pair of buttons. * **sqlreport `reportFormat`** =
+  `md` (default) | `docx` | `both`, publishing `${reportDocxFile}`. Both formats render the SAME
+  Markdown, so they cannot disagree. * NOT in this batch (item 3.3): embedding the sqlreport content
+  inside the audit report at the matching step.

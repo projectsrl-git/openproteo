@@ -417,7 +417,7 @@
     /** structural changes (ids, gate type) need a full re-render of the cards */
     function updNodeR(i, f, v) {
         if (f === 'exec' && v === 'validate' && (!wf.nodes[i].validateChecks || !wf.nodes[i].validateChecks.length)) {
-            wf.nodes[i].validateChecks = ['rowCount','colCount','jsonSchema','noQuotes','colNames','notNull','businessDate','displayDates'];
+            wf.nodes[i].validateChecks = ['rowCount','colCount','jsonSchema','noQuotes','colNames','notNull','businessDate','businessDateNotFuture','displayDates'];
         }
         updNode(i, f, v); renderNodes();
     }
@@ -999,13 +999,14 @@
                         '<div class="field"><label>Expected rows</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'expectedRows')) + '" placeholder="${rowCount}" oninput="setNodeParam(' + i + ',\'expectedRows\',this.value)"></div>' +
                         '<div class="field"><label>Business date column</label><input value="' + attresc(nodeParam(n,'businessDateColumn')) + '" placeholder="${recordBusinessDate}" oninput="setNodeParam(' + i + ',\'businessDateColumn\',this.value)"></div>' +
                         '<div class="field"><label>Date format</label><input value="' + attresc(nodeParam(n,'dateFormat')) + '" placeholder="YYYY/MM/DD | YYYYMMDD" oninput="setNodeParam(' + i + ',\'dateFormat\',this.value)"></div>' +
-                        '<div class="field"><label>Business date min (var/date)</label><input value="' + attresc(nodeParam(n,'businessDateMin')) + '" placeholder="${businessDateMin} | empty = today" oninput="setNodeParam(' + i + ',\'businessDateMin\',this.value)"></div></div>';
+                        '<div class="field"><label>Business date min (var/date)</label><input value="' + attresc(nodeParam(n,'businessDateMin')) + '" placeholder="${businessDateMin} | empty = today" oninput="setNodeParam(' + i + ',\'businessDateMin\',this.value)"></div>' +
+                        '<div class="field"><label>Business date max (var/date)</label><input value="' + attresc(nodeParam(n,'businessDateMax')) + '" placeholder="empty = today" title="Upper bound for the &quot;not in the future&quot; check. Empty means today; set it only if the feed legitimately carries forward-dated records." oninput="setNodeParam(' + i + ',\'businessDateMax\',this.value)"></div></div>';
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>dataschema (uploaded JSON path or ${alias})</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'dataschema')) + '" placeholder="${dataschema_json}" oninput="setNodeParam(' + i + ',\'dataschema\',this.value)"></div>' +
                         '<div class="field wide"><label>displayschema (optional, ${alias})</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'displayschema')) + '" placeholder="${displayschema_json}" oninput="setNodeParam(' + i + ',\'displayschema\',this.value)"></div></div>';
                     h += '<div class="subsection"><div class="sub-label">Checks (sub-steps shown in the run with live progress)</div><div class="checklist">';
-                    var CHECK_IDS = ['rowCount', 'colCount', 'jsonSchema', 'noQuotes', 'colNames', 'notNull', 'businessDate', 'displayDates'];
-                    var CHECK_LABELS = { rowCount: 'Row count = expected', colCount: 'Column count consistent', jsonSchema: 'Schema JSON well-formed', noQuotes: 'No double quotes in fields', colNames: 'Column names match dataschema', notNull: 'Non-nullable fields valued', businessDate: 'Business date valued & formatted', displayDates: 'Display-schema dates formatted' };
+                    var CHECK_IDS = ['rowCount', 'colCount', 'jsonSchema', 'noQuotes', 'colNames', 'notNull', 'businessDate', 'businessDateNotFuture', 'displayDates'];
+                    var CHECK_LABELS = { rowCount: 'Row count = expected', colCount: 'Column count consistent', jsonSchema: 'Schema JSON well-formed', noQuotes: 'No double quotes in fields', colNames: 'Column names match dataschema', notNull: 'Non-nullable fields valued', businessDate: 'Business date valued & formatted', businessDateNotFuture: 'Business date not in the future', displayDates: 'Display-schema dates formatted' };
                     CHECK_IDS.forEach(function (cid) {
                         var on = (n.validateChecks || []).indexOf(cid) >= 0;
                         h += '<label class="agg-chip"><input type="checkbox"' + (on ? ' checked' : '') + ' onchange="toggleCheck(' + i + ',\'' + cid + '\')"><span>' + CHECK_LABELS[cid] + '</span></label>';
@@ -1173,7 +1174,11 @@
                         '<div class="field"><label>Collect max rows</label><input type="number" min="0" value="' + attresc(nodeParam(n, 'collectMaxRows')) + '" placeholder="5000" title="Safety cap on collected variables (0 = no cap). Above it nothing is published for that query: a partially collected list would be misleading." oninput="setNodeParam(' + i + ',\'collectMaxRows\',this.value)"></div>' +
                         '<div class="field"><label>Fail on empty</label><label class="dim small"><input type="checkbox"' + (nodeParam(n, 'failOnEmpty') === 'true' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'failOnEmpty\',this.checked?\'true\':\'\')"> a query with zero rows fails the step</label></div></div>';
                     h += '<div class="form-row"><div class="field wide"><label>Report file (Markdown)</label>' +
-                        '<input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'reportFile')) + '" placeholder="${stepDir}/${feedId}_' + attresc(n.id) + '.md" oninput="setNodeParam(' + i + ',\'reportFile\',this.value)"></div></div>';
+                        '<input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'reportFile')) + '" placeholder="${stepDir}/${feedId}_' + attresc(n.id) + '.md" oninput="setNodeParam(' + i + ',\'reportFile\',this.value)"></div>' +
+                        '<div class="field"><label>Format</label><select onchange="setNodeParam(' + i + ',\'reportFormat\',this.value)" title="The .docx is a rendering of the same Markdown, so the two files can never disagree.">' +
+                        '<option value="md"' + (nodeParam(n,'reportFormat') !== 'docx' && nodeParam(n,'reportFormat') !== 'both' ? ' selected' : '') + '>.md</option>' +
+                        '<option value="docx"' + (nodeParam(n,'reportFormat') === 'docx' ? ' selected' : '') + '>.docx</option>' +
+                        '<option value="both"' + (nodeParam(n,'reportFormat') === 'both' ? ' selected' : '') + '>both</option></select></div></div>';
                     h += '<div class="subsection"><div class="sub-label">Read-only queries — one section per query in the report</div>';
                     (n.reportQueries || []).forEach(function (rq, qi) {
                         h += '<div class="form-row">' +

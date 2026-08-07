@@ -1083,7 +1083,7 @@ public class InternalSteps {
     }
 
     private static final java.util.Set<String> STEP_OUTPUT_VARS = new java.util.HashSet<String>(
-            java.util.Arrays.asList("reportFile", "queriesExecuted", "rowsTotal"));
+            java.util.Arrays.asList("reportFile", "reportDocxFile", "queriesExecuted", "rowsTotal"));
 
     // ------------------------------------------------------------- sqlreport
     /**
@@ -1330,11 +1330,25 @@ public class InternalSteps {
             if (conn != null) try { conn.close(); } catch (Exception ignored) { }
         }
 
+        // reportFormat: md (default) | docx | both. The .docx is a rendering of the SAME Markdown, so
+        // the two files can never disagree about what the queries returned.
+        String fmt = params.get("reportFormat");
+        fmt = (fmt == null || fmt.trim().isEmpty()) ? "md" : fmt.trim().toLowerCase(java.util.Locale.ROOT);
+        boolean wantMd = !"docx".equals(fmt);
+        boolean wantDocx = "docx".equals(fmt) || "both".equals(fmt);
+
         java.io.File out = new java.io.File(reportFile);
         if (out.getParentFile() != null) out.getParentFile().mkdirs();
-        Files.write(out.toPath(), md.toString().getBytes(StandardCharsets.UTF_8));
+        if (wantMd) Files.write(out.toPath(), md.toString().getBytes(StandardCharsets.UTF_8));
+        java.io.File outDocx = null;
+        if (wantDocx) {
+            outDocx = new java.io.File(DocxWriter.docxPathFor(out.getAbsolutePath()));
+            Files.write(outDocx.toPath(), DocxWriter.fromMarkdown(md.toString()));
+        }
 
-        res.outVars.put("reportFile", out.getAbsolutePath());
+        if (wantMd) res.outVars.put("reportFile", out.getAbsolutePath());
+        if (outDocx != null) res.outVars.put("reportDocxFile", outDocx.getAbsolutePath());
+        if (!wantMd) res.outVars.put("reportFile", outDocx.getAbsolutePath());   // always points at what was written
         res.outVars.put("queriesExecuted", String.valueOf(executed));
         res.outVars.put("rowsTotal", String.valueOf(rowsTotal));
         // Only the step's own outputs are echoed with their value. A COLLECTED variable holds query
@@ -1345,7 +1359,8 @@ public class InternalSteps {
             if (STEP_OUTPUT_VARS.contains(e.getKey())) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
             else line.accept("##VAR " + e.getKey() + " (collected, value not logged)");
         }
-        line.accept("sqlreport: report written to " + out.getAbsolutePath());
+        if (wantMd) line.accept("sqlreport: report written to " + out.getAbsolutePath());
+        if (outDocx != null) line.accept("sqlreport: report written to " + outDocx.getAbsolutePath());
 
         if (!collectErrors.isEmpty()) {
             for (String ce : collectErrors) line.accept("sqlreport: COLLECT FAILED - " + ce);
@@ -2827,6 +2842,7 @@ public class InternalSteps {
         if ("notNull".equals(id)) return "Non-nullable fields are valued";
         if ("businessDate".equals(id)) return "Business date valued and well-formatted";
         if ("businessDateNotBefore".equals(id)) return "Business date not before the minimum date";
+        if ("businessDateNotFuture".equals(id)) return "Business date not in the future";
         if ("displayDates".equals(id)) return "Display-schema date columns well-formatted";
         return id;
     }
@@ -2879,6 +2895,7 @@ public class InternalSteps {
         boolean sel_notNull = byId.containsKey("notNull");
         boolean sel_biz = byId.containsKey("businessDate");
         boolean sel_bizMin = byId.containsKey("businessDateNotBefore");
+        boolean sel_bizFut = byId.containsKey("businessDateNotFuture");
         boolean sel_disp = byId.containsKey("displayDates");
 
         // --- parse schemas (also serves the jsonSchema well-formed check) ---
@@ -2978,7 +2995,7 @@ public class InternalSteps {
                 Integer ci = idx.get(schemaNames.get(i)); if (ci != null) nnIdx.add(ci);
             }
             // business date col index + regex
-            Integer bizIdx = ((sel_biz || sel_bizMin) && bizCol != null) ? idx.get(bizCol) : null;
+            Integer bizIdx = ((sel_biz || sel_bizMin || sel_bizFut) && bizCol != null) ? idx.get(bizCol) : null;
             java.util.regex.Pattern datePat = dateFormat != null ? java.util.regex.Pattern.compile(fmtToRegex(dateFormat)) : null;
             // minimum business date: only when businessDateMin is provided (otherwise the check is skipped)
             java.time.format.DateTimeFormatter bizFmt = null;
@@ -3001,6 +3018,31 @@ public class InternalSteps {
                     }
                 }
             }
+            // upper bound: a business date must not be in the future. Unlike the minimum this needs no
+            // configuration - the bound defaults to TODAY - so the check is usable on any feed that
+            // declares a business date column and a date format. businessDateMax overrides it when a
+            // feed legitimately carries forward-dated records.
+            java.time.format.DateTimeFormatter bizFutFmt = null;
+            java.time.LocalDate bizMaxDate = null;
+            String bizMaxSpec = null, bizFutErr = null;
+            if (sel_bizFut && bizIdx != null) {
+                if (dateFormat == null) {
+                    bizFutErr = "dateFormat not provided";
+                } else {
+                    try { bizFutFmt = java.time.format.DateTimeFormatter.ofPattern(dateFormat); }
+                    catch (Exception e) { bizFutErr = "invalid dateFormat '" + dateFormat + "'"; }
+                    if (bizFutFmt != null) {
+                        String maxRaw = blankToNull(params.get("businessDateMax"));
+                        if (maxRaw == null) {
+                            bizMaxDate = java.time.LocalDate.now();
+                            bizMaxSpec = "today (" + bizMaxDate.format(bizFutFmt) + ")";
+                        } else {
+                            try { bizMaxDate = java.time.LocalDate.parse(maxRaw.trim(), bizFutFmt); bizMaxSpec = maxRaw.trim(); }
+                            catch (Exception e) { bizFutErr = "invalid businessDateMax '" + maxRaw.trim() + "' for format " + dateFormat; }
+                        }
+                    }
+                }
+            }
             // display-schema date columns
             java.util.List<Integer> dateIdx = new ArrayList<Integer>();
             java.util.List<String> dateColNames = new ArrayList<String>();
@@ -3013,11 +3055,12 @@ public class InternalSteps {
             }
 
             // single streaming pass
-            long rows = 0, colViol = 0, quoteViol = 0, bizViol = 0, bizMinViol = 0;
+            long rows = 0, colViol = 0, quoteViol = 0, bizViol = 0, bizMinViol = 0, bizFutViol = 0;
             java.util.List<String> colViolLines = new ArrayList<String>();
             java.util.List<String> quoteViolLines = new ArrayList<String>();
             java.util.List<String> bizViolLines = new ArrayList<String>();
             java.util.List<String> bizMinViolLines = new ArrayList<String>();
+            java.util.List<String> bizFutViolLines = new ArrayList<String>();
             long[] nnViol = new long[nnIdx.size()];
             long[] dateViol = new long[dateIdx.size()];
             String line2;
@@ -3058,15 +3101,27 @@ public class InternalSteps {
                         bizViol++;
                         rep.add("businessDate", lineNo, bizCol, v.isEmpty() ? "empty" : ("malformed: " + snippet60(v)));
                         if (bizViolLines.size() < 5) bizViolLines.add("line " + lineNo + " ='" + v + "'");
-                    } else if (bizMinDate != null) {
-                        try {
-                            java.time.LocalDate d = java.time.LocalDate.parse(v, bizFmt);
-                            if (!d.isAfter(bizMinDate)) {   // violation when value <= min; only strictly greater passes
-                                bizMinViol++;
-                                rep.add("businessDateNotBefore", lineNo, bizCol, "on or before " + bizMinSpec + ": " + snippet60(v));
-                                if (bizMinViolLines.size() < 5) bizMinViolLines.add("line " + lineNo + " ='" + v + "'");
-                            }
-                        } catch (Exception ignore) { /* unparseable despite regex: handled by businessDate check */ }
+                    } else {
+                        if (bizMinDate != null) {
+                            try {
+                                java.time.LocalDate d = java.time.LocalDate.parse(v, bizFmt);
+                                if (!d.isAfter(bizMinDate)) {   // violation when value <= min; only strictly greater passes
+                                    bizMinViol++;
+                                    rep.add("businessDateNotBefore", lineNo, bizCol, "on or before " + bizMinSpec + ": " + snippet60(v));
+                                    if (bizMinViolLines.size() < 5) bizMinViolLines.add("line " + lineNo + " ='" + v + "'");
+                                }
+                            } catch (Exception ignore) { /* unparseable despite regex: handled by businessDate check */ }
+                        }
+                        if (bizMaxDate != null) {
+                            try {
+                                java.time.LocalDate d = java.time.LocalDate.parse(v, bizFutFmt);
+                                if (d.isAfter(bizMaxDate)) {    // the bound itself is allowed: only strictly later fails
+                                    bizFutViol++;
+                                    rep.add("businessDateNotFuture", lineNo, bizCol, "after " + bizMaxSpec + ": " + snippet60(v));
+                                    if (bizFutViolLines.size() < 5) bizFutViolLines.add("line " + lineNo + " ='" + v + "'");
+                                }
+                            } catch (Exception ignore) { /* unparseable despite regex: handled by businessDate check */ }
+                        }
                     }
                 }
                 if (!dateIdx.isEmpty() && datePat != null) for (int k = 0; k < dateIdx.size(); k++) {
@@ -3123,6 +3178,13 @@ public class InternalSteps {
                 else if (bizMinErr != null) set.accept("businessDateNotBefore", new String[]{"FAIL", bizMinErr});
                 else if (bizMinViol == 0) set.accept("businessDateNotBefore", new String[]{"PASS", "all rows after " + bizMinSpec});
                 else set.accept("businessDateNotBefore", new String[]{"FAIL", bizMinViol + " row(s) on or before " + bizMinSpec + " (" + join(bizMinViolLines, 5) + ")" + repNote});
+            }
+            if (sel_bizFut) {
+                if (bizCol == null) set.accept("businessDateNotFuture", new String[]{"SKIP", "businessDateColumn not provided"});
+                else if (bizIdx == null) set.accept("businessDateNotFuture", new String[]{"FAIL", "column '" + bizCol + "' not found"});
+                else if (bizFutErr != null) set.accept("businessDateNotFuture", new String[]{"SKIP", bizFutErr});
+                else if (bizFutViol == 0) set.accept("businessDateNotFuture", new String[]{"PASS", "no row after " + bizMaxSpec});
+                else set.accept("businessDateNotFuture", new String[]{"FAIL", bizFutViol + " row(s) after " + bizMaxSpec + " (" + join(bizFutViolLines, 5) + ")" + repNote});
             }
             if (sel_disp) {
                 if (displayschema == null) set.accept("displayDates", new String[]{"SKIP", "displayschema not provided"});

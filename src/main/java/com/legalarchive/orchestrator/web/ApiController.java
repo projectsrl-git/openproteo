@@ -1198,7 +1198,33 @@ public class ApiController {
      * and its audit trail, and calling a document for it a "report" invites it being read as a
      * delivery record.
      */
+    /**
+     * Base name of a run's audit report: {@code <feedId>_<runDate>_audit_report}. The old fixed
+     * "audit_report" was the same in every feed's directory, so a file pulled out of its folder - which
+     * is what happens the moment one is attached to an email - could not be told from any other.
+     * runDate comes from the run itself; a run that predates it falls back to the date in its start
+     * timestamp, and finally to the run id, so the name is never just the feed.
+     */
+    private static String auditReportBase(String feedId, WorkflowRun run) {
+        String d = (run != null && run.vars != null) ? run.vars.get("runDate") : null;
+        if (d == null || d.trim().isEmpty()) {
+            String ts = run == null ? null : run.startTs;      // yyyy-MM-dd HH:mm:ss.SSS
+            if (ts != null && ts.length() >= 10) d = ts.substring(0, 10).replace("-", "");
+        }
+        if (d == null || d.trim().isEmpty()) d = (run == null || run.runId == null) ? "run" : run.runId;
+        return feedId + "_" + d.trim() + "_audit_report";
+    }
+
     private String writeAuditReport(String feedId, String runId, String userName) {
+        return writeAuditReport(feedId, runId, userName, "md", null);
+    }
+
+    /**
+     * @param format "md" or "docx"; the .docx is a rendering of the very same Markdown, so the two
+     *               formats can never say different things about a run.
+     * @param outName if non-null, receives the file name that was written.
+     */
+    private String writeAuditReport(String feedId, String runId, String userName, String format, String[] outName) {
         WorkflowDef def = registry.get(feedId);
         FeedLayout layout = registry.layout(feedId);
         if (def == null || layout == null) return "unknown workflow";
@@ -1218,15 +1244,19 @@ public class ApiController {
         }
         String md = com.legalarchive.orchestrator.engine.RunAuditReport.render(run, declaredOutputVars(def), logs, userName,
                 com.legalarchive.orchestrator.engine.VarResolver.parentId(feedId));
+        boolean docx = "docx".equalsIgnoreCase(format);
+        String fileName = auditReportBase(feedId, run) + (docx ? ".docx" : ".md");
         try {
             Path dir = layout.logsDir.resolve("runs").resolve(runId);
             Files.createDirectories(dir);
-            Files.write(dir.resolve("audit_report.md"), md.getBytes(StandardCharsets.UTF_8));
+            if (docx) Files.write(dir.resolve(fileName), com.legalarchive.orchestrator.engine.DocxWriter.fromMarkdown(md));
+            else Files.write(dir.resolve(fileName), md.getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
             return "could not write the report: " + e.getMessage();
         }
+        if (outName != null && outName.length > 0) outName[0] = fileName;
         Map<String, String> det = new LinkedHashMap<String, String>();
-        det.put("file", "runs/" + runId + "/audit_report.md");
+        det.put("file", "runs/" + runId + "/" + fileName);
         audit.log(layout.auditFile(), feedId, runId, null, "AUDIT_REPORT_CREATED", userName, det);
         return null;
     }
@@ -1234,18 +1264,22 @@ public class ApiController {
     /** 3.1 - report for one specific run, from the run-history page. */
     @PostMapping("/api/runs/{feedId}/{runId}/audit-report")
     public ResponseEntity<Map<String, Object>> auditReport(@PathVariable String feedId, @PathVariable String runId,
+                                                           @RequestParam(defaultValue = "md") String format,
                                                            HttpServletRequest req) {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
-        String err = writeAuditReport(feedId, runId, user(req));
+        String[] name = new String[1];
+        String err = writeAuditReport(feedId, runId, user(req), format, name);
         if (err != null) return badRequest(out, err);
         out.put("ok", true);
-        out.put("file", "_logs/runs/" + runId + "/audit_report.md");
+        out.put("file", "_logs/runs/" + runId + "/" + name[0]);
         return ResponseEntity.ok(out);
     }
 
     /** 3.2 - report for the LAST run of one feed, driven by the Operations multi-select bar. */
     @PostMapping("/api/workflows/{feedId}/audit-report/last")
-    public ResponseEntity<Map<String, Object>> auditReportLast(@PathVariable String feedId, HttpServletRequest req) {
+    public ResponseEntity<Map<String, Object>> auditReportLast(@PathVariable String feedId,
+                                                               @RequestParam(defaultValue = "md") String format,
+                                                               HttpServletRequest req) {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
         FeedLayout layout = registry.layout(feedId);
         if (layout == null) return badRequest(out, "Unknown workflow");
@@ -1257,11 +1291,12 @@ public class ApiController {
             }
         } catch (Exception e) { return badRequest(out, "Could not read the run history"); }
         if (last == null) return badRequest(out, "This feed has no run yet");
-        String err = writeAuditReport(feedId, last.runId, user(req));
+        String[] name = new String[1];
+        String err = writeAuditReport(feedId, last.runId, user(req), format, name);
         if (err != null) return badRequest(out, "Last run " + last.runId + ": " + err);
         out.put("ok", true);
         out.put("runId", last.runId);
-        out.put("file", "_logs/runs/" + last.runId + "/audit_report.md");
+        out.put("file", "_logs/runs/" + last.runId + "/" + name[0]);
         return ResponseEntity.ok(out);
     }
 

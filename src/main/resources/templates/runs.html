@@ -48,8 +48,8 @@
     /* Writes the per-run audit report. Offered only on a SUCCESS run: a failed run's evidence is its
        log and its audit trail, and calling a document for it a "report" invites it being read as a
        delivery record. */
-    function auditReport(rid){
-        fetch(CTX+'api/runs/'+encodeURIComponent(FEED_ID)+'/'+encodeURIComponent(rid)+'/audit-report',{method:'POST'})
+    function auditReport(rid, fmt){
+        fetch(CTX+'api/runs/'+encodeURIComponent(FEED_ID)+'/'+encodeURIComponent(rid)+'/audit-report?format='+encodeURIComponent(fmt||'md'),{method:'POST'})
             .then(function(r){ return r.json().catch(function(){ return {ok:false,error:'HTTP '+r.status}; }); })
             .then(function(j){
                 if(j&&j.ok) opAlert('Audit report written to '+j.file);
@@ -97,7 +97,8 @@
                 h+='<details class="run-node" data-rid="'+esch(rid)+'"'+(open[rid]?' open':'')+'><summary><span class="chip '+esch(stClass)+'">'+esch(r.status||'?')+'</span> <span class="mono">'+esch(rid)+'</span>'+
                    (r.start?(' <span class="dim small">'+esch(r.start)+'</span>'):'')+
                    ' <a class="btn sm" href="'+CTX+'run/'+encodeURIComponent(FEED_ID)+'/'+encodeURIComponent(rid)+'">open ▷</a>'+
-                   ((r.status==='SUCCESS' && rid.indexOf('_test_')<0) ? ' <button class="btn sm" onclick="event.preventDefault();event.stopPropagation();auditReport(\''+esch(rid)+'\')" title="Write _logs/runs/'+esch(rid)+'/audit_report.md: output data, and one paragraph per step with its timestamps, variables and standard output">⎘ create audit report</button>' : '')+
+                   ((r.status==='SUCCESS' && rid.indexOf('_test_')<0) ? ' <button class="btn sm" onclick="event.preventDefault();event.stopPropagation();auditReport(\''+esch(rid)+'\',\'md\')" title="Write the audit report as Markdown under _logs/runs/'+esch(rid)+'/">⎘ audit report .md</button>'
+                     + ' <button class="btn sm" onclick="event.preventDefault();event.stopPropagation();auditReport(\''+esch(rid)+'\',\'docx\')" title="Write the same audit report as a Word document">⎘ .docx</button>' : '')+
                    ' <button class="btn sm danger" data-del-run="'+esch(rid)+'">🗑 Delete</button></summary><div class="run-body">';
                 r.events.forEach(function(e){
                     if(e.event==='STEP_OUTPUT_VAR') return;
