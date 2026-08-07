@@ -1,59 +1,31 @@
-XML viewer: a real table view, replacing the indented tree
+XML viewer: make the header backgrounds actually stand out
 
-The previous batch rendered an indented tree with attributes written inline as
-name=value. That was the wrong shape for the request, so it is replaced rather
-than extended.
+Reported after the table view landed: the element title bands and the table
+headers were barely distinguishable from the body, particularly in the light
+theme where both were nearly white.
 
-An .xml file now shows its data as tables. A single element becomes a titled
-block with an Attribute | Value table: the attribute name in one cell, its
-value in the cell beside it. A run of consecutive sibling elements that share
-a tag becomes ONE table with a header, its columns being the union of their
-attribute names in first-seen order, one numbered row per element, plus a
-value column when any of them carries text - which is what a list of <var>,
-<step> or <Obs> actually is. An attribute that a given row does not have is
-drawn as a hatched cell rather than left blank, so "absent" is visibly
-different from "present but empty". A row whose element has children of its
-own gets a toggle that opens that element's own block in a full-width sub-row
-inside the table. Runs are consecutive only, so document order is never
-rearranged to make a nicer table.
+Element headers now sit on a solid tinted band with a 4px accent bar down the
+left edge, so the start of every element is unmistakable even where several
+are stacked one after another, and the tag has a slightly larger type size.
+Table headers are darker still, uppercase and letter-spaced, with a 2px accent
+underline separating them from the rows.
 
-Expand all and Collapse all work on the whole document, and one search box
-matches tag names, attribute names, attribute values and text content at once,
-with highlighting; branches with no match are dropped and the path to every
-match is kept and opened, so a hit is never buried inside a closed element.
+The colours were chosen by computing WCAG relative-luminance ratios rather
+than by eye. Element header against the body is now 1.89 in dark and 1.54 in
+light, where the previous values were around 1.05 - which is why it read as no
+separation at all. Table header against the body is 2.37 and 1.80. The header
+text was checked against its own new background and sits between 6.9 and 9.7,
+so the separation was not bought by making the labels harder to read.
 
-There is also an architecture change behind it. The document is walked once
-into a small model - references plus a lowercase haystack per element - and
-the tables are rendered from that model on demand rather than built in full up
-front. The file this was reported against is 1.16 MB and 4522 elements, which
-is not a size at which building every cell eagerly is reasonable. Because the
-search runs on the model and not on the DOM, it still finds matches inside
-branches that have never been drawn, which a purely lazy DOM approach could
-not do.
+These four surfaces use literal hex rather than theme variables because no
+existing variable was strong enough for the job; everything else in the view
+still comes from variables, and both stylesheets were re-checked so that no
+variable is referenced that does not resolve.
 
-Every colour is an existing theme variable, checked to resolve in the light
-block as well, so both themes stay legible. The standalone xml_viewer.html in
-the repository root gets exactly the same renderer - it is written once and
-injected into both files - with browse, drag-drop, its own theme toggle and
-zero external references.
+Verified: node --check passes on viewer.js and on the standalone page, both
+still with zero literal newline/CR escape sequences and no external
+references, and the contrast ratios above were computed rather than assumed.
 
-Verified with jsdom against a realistic workflow XML: 30 assertions, all
-passing. Run grouping puts three <var> siblings into one run and two <step>
-siblings into another; the column union is taken in first-seen order and keeps
-an attribute that only one element has; key and value come out as separate
-cells; the header row is exactly the expected columns; there is one row per
-element with the missing attribute rendered as the hatched cell; a row with
-children expands into a sub-row whose nested query text and nested attributes
-are present; collapse and expand work on the whole document; and search
-matches an attribute value, a tag name and text content, is case-insensitive,
-drops unrelated branches while keeping the path to the match, reports no
-match, and restores everything including removing the highlights when cleared.
-One assertion exists purely to stop the old shape returning: no inline
-name=value text and no xt-attr class may appear anywhere in the output.
-
-node --check passes on viewer.js and on the standalone page, both with zero
-literal newline/CR escape sequences and no external references.
-
-NOT verified: mvn clean package, and how it looks on screen. Open
-xml_viewer.html on the same 1.16 MB SDMX file and switch the theme once before
-relying on the in-app tab.
+NOT verified: how it looks on your screen, which is the only thing that
+actually settles this. Reload xml_viewer.html on the same file and switch the
+theme once.

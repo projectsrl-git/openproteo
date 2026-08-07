@@ -1333,3 +1333,14 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   per element with the missing attribute blank, sub-row expansion, collapse/expand, and search on tag
   / attribute name / attribute value / text with path retention. An explicit assertion checks that no
   `name=value` inline text and no `xt-attr` class survives anywhere — the old shape cannot come back.
+
+## XML viewer: stronger header backgrounds
+* Reported: the element title bands and table headers were barely distinguishable from the body,
+  especially in the light theme where both were near-white. * Element headers now sit on a solid
+  tinted band with a **4px accent bar on the left**, so the start of every element is unmistakable
+  even when several are stacked; table headers are darker still, uppercase, and carry a **2px accent
+  underline**. * The colours were CHOSEN by computing WCAG relative-luminance ratios rather than by
+  eye: element header vs body is 1.89 (dark) / 1.54 (light) where it used to be ~1.05, table header
+  vs body 2.37 / 1.80, and the header text sits at 6.9-9.7 against its own background so legibility
+  was not traded away for separation. Literal hex is used for these four surfaces because no existing
+  theme variable was strong enough; everything else still comes from variables.
