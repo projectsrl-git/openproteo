@@ -1,31 +1,55 @@
-XML viewer: make the header backgrounds actually stand out
+Datasources: generic JDBC with presets, and no bundled driver
 
-Reported after the table view landed: the element title bands and the table
-headers were barely distinguishable from the body, particularly in the light
-theme where both were nearly white.
+Item 2 of the list. The product read as an AS/400 tool in the places an
+operator actually looks, while the code underneath has always been plain JDBC.
 
-Element headers now sit on a solid tinted band with a 4px accent bar down the
-left edge, so the start of every element is unmistakable even where several
-are stacked one after another, and the tag has a slightly larger type size.
-Table headers are darker still, uppercase and letter-spaced, with a 2px accent
-underline separating them from the rows.
+Backward compatibility came first because it constrains everything else: the
+stored type values, as400 and custom, are unchanged. Nothing migrates, every
+connection configured before this keeps working exactly as it did, and only
+what the operator reads has changed.
 
-The colours were chosen by computing WCAG relative-luminance ratios rather
-than by eye. Element header against the body is now 1.89 in dark and 1.54 in
-light, where the previous values were around 1.05 - which is why it read as no
-separation at all. Table header against the body is 2.37 and 1.80. The header
-text was checked against its own new background and sits between 6.9 and 9.7,
-so the separation was not bought by making the labels harder to read.
+Wording. The Datasources page now describes reusable JDBC connections rather
+than an AS400 connection; the type dropdown reads "JDBC - any database" and
+"IBM i - native (also carries the IFS file-copy credentials)"; the designer's
+executor list says "sql (JDBC query -> CSV)" instead of "sql (DB2/AS400
+query)"; and the id and name placeholders are no longer AS400-flavoured.
+ifscopy still names IBM i, because that is a fact about the executor rather
+than branding - it genuinely reuses that connection's credentials for the file
+transfer, and hiding that would make it harder to configure, not easier.
 
-These four surfaces use literal hex rather than theme variables because no
-existing variable was strong enough for the job; everything else in the view
-still comes from variables, and both stylesheets were re-checked so that no
-variable is referenced that does not resolve.
+Presets. A Preset dropdown fills the JDBC URL template and the driver class
+for Oracle, Microsoft SQL Server, PostgreSQL, MySQL, MariaDB, IBM DB2 for LUW
+and z/OS, IBM i, H2 and SQLite. The URL is a template to edit, and one already
+typed is never overwritten by choosing a preset - only the driver class is
+corrected, since that is the field nobody remembers and everybody gets wrong.
 
-Verified: node --check passes on viewer.js and on the standalone page, both
-still with zero literal newline/CR escape sequences and no external
-references, and the contrast ratios above were computed rather than assumed.
+No database driver is bundled, and this is a decision rather than an omission.
+The custom type already did Class.forName followed by
+DriverManager.getConnection, so a driver JAR placed in the servlet container's
+shared lib directory is all that has ever been needed - which means presets
+for five more vendors cost zero new Maven dependencies. Bundling one driver
+per vendor would instead drag several transitive trees through the internal
+Nexus for a feature most feeds never use, against the same constraint the pom
+already records for POI. SqlSupport.loadDriver now rewrites
+ClassNotFoundException into an instruction that names the class it looked for
+and the directory to put the JAR in, because that is the most likely failure
+the first time a new database is configured and a bare class name tells an
+operator nothing about what to do next.
 
-NOT verified: how it looks on your screen, which is the only thing that
-actually settles this. Reload xml_viewer.html on the same file and switch the
-theme once.
+Verified with jsdom against the real page, 17 assertions passing: every preset
+asked for is present and each carries a jdbc: URL template, a properly dotted
+driver class and the name of the JAR to install; the dropdown is filled with
+one option per preset plus the placeholder; choosing a preset fills the URL,
+the driver class and the hint naming the lib directory; a URL already typed
+survives while the driver class is still corrected; and returning to the
+placeholder clears the hint without touching anything. Brace and paren balance
+is 0/0 on SqlSupport, node --check passes on both edited templates with zero
+literal newline/CR escape sequences.
+
+NOT verified: mvn clean package, and an actual connection to any of the new
+databases - which needs a driver JAR and a reachable server, so it can only be
+done on deploy. The IBM i connections are the ones to check first, since they
+are the ones already in production.
+
+Still open from the list: 3.3 (embedding the sqlreport content in the audit
+report) and 4 (prettify viewer for .md).

@@ -19,8 +19,9 @@
 
 <div class="wrap" style="max-width:1100px">
     <h1>Data sources</h1>
-    <p class="page-sub">Reusable connections referenced by id from SQL and IFS steps. The same AS400 connection
-        is used both for DB2 for i queries and for native IFS file copy. Passwords are stored in the datasources
+    <p class="page-sub">Reusable JDBC connections referenced by id from SQL and file-copy steps. Any database with a
+        JDBC driver on the server classpath can be used; the presets below fill in the URL shape and the driver class
+        for the common ones. Passwords are stored in the datasources
         JSON file — protect it with filesystem permissions.</p>
 
     <div class="banner ok" id="okBanner" style="display:none"></div>
@@ -37,12 +38,12 @@
             <h2 id="formTitle">New connection</h2>
             <div class="panel">
                 <div class="form-row">
-                    <div class="field"><label>Id *</label><input id="d_id" placeholder="AS400-PROD"></div>
-                    <div class="field"><label>Name</label><input id="d_name" placeholder="AS400 production"></div>
+                    <div class="field"><label>Id *</label><input id="d_id" placeholder="DWH-PROD"></div>
+                    <div class="field"><label>Name</label><input id="d_name" placeholder="Data warehouse (production)"></div>
                     <div class="field"><label>Type</label>
                         <select id="d_type" onchange="typeChanged()">
-                            <option value="as400">as400 (DB2 for i + IFS)</option>
-                            <option value="custom">custom (JDBC)</option>
+                            <option value="custom">JDBC &mdash; any database</option>
+                            <option value="as400">IBM i &mdash; native (also carries the IFS file-copy credentials)</option>
                         </select>
                     </div>
                 </div>
@@ -59,13 +60,19 @@
                 </div>
                 <div id="customFields" style="display:none">
                     <div class="form-row">
-                        <div class="field wide"><label>JDBC URL *</label><input id="d_jdbcUrl" placeholder="jdbc:db2://host:50000/DB"></div>
+                        <div class="field"><label>Preset</label>
+                            <select id="d_preset" onchange="presetChanged()">
+                                <option value="">(choose a database&hellip;)</option>
+                            </select>
+                        </div>
+                        <div class="field wide"><label>JDBC URL *</label><input id="d_jdbcUrl" placeholder="jdbc:&lt;vendor&gt;://host:port/database"></div>
                     </div>
                     <div class="form-row">
-                        <div class="field"><label>Driver class</label><input id="d_driverClass" placeholder="com.ibm.db2.jcc.DB2Driver"></div>
+                        <div class="field"><label>Driver class</label><input id="d_driverClass" placeholder="filled in by the preset"></div>
                         <div class="field"><label>User</label><input id="d_user2"></div>
                         <div class="field"><label>Password</label><input id="d_password2" type="password"></div>
                     </div>
+                    <div class="dim small" id="d_presetHint" style="margin:-4px 0 8px"></div>
                 </div>
                 <div class="form-row">
                     <div class="field wide"><label>Test query (optional)</label>
@@ -136,6 +143,54 @@
         document.getElementById('testResult').textContent='';
     }
 
+    /* JDBC presets. Only the URL SHAPE and the driver class: OpenProteo ships no database driver and
+       must not - bundling five of them would drag five transitive trees through the internal Nexus for
+       a feature most feeds never use. The driver JAR goes in the server's shared lib directory
+       (CATALINA_HOME/lib) and is picked up by Class.forName at connection time, which is also how the
+       existing IBM i connections have always worked. The test button says plainly when it is absent. */
+    var DS_PRESETS = [
+        { id:'oracle',   label:'Oracle',                driver:'oracle.jdbc.OracleDriver',
+          url:'jdbc:oracle:thin:@//host:1521/SERVICE',  jar:'ojdbc11.jar' },
+        { id:'mssql',    label:'Microsoft SQL Server',  driver:'com.microsoft.sqlserver.jdbc.SQLServerDriver',
+          url:'jdbc:sqlserver://host:1433;databaseName=DB;encrypt=true', jar:'mssql-jdbc-*.jre8.jar' },
+        { id:'postgres', label:'PostgreSQL',            driver:'org.postgresql.Driver',
+          url:'jdbc:postgresql://host:5432/database',   jar:'postgresql-*.jar' },
+        { id:'mysql',    label:'MySQL',                 driver:'com.mysql.cj.jdbc.Driver',
+          url:'jdbc:mysql://host:3306/database',        jar:'mysql-connector-j-*.jar' },
+        { id:'mariadb',  label:'MariaDB',               driver:'org.mariadb.jdbc.Driver',
+          url:'jdbc:mariadb://host:3306/database',      jar:'mariadb-java-client-*.jar' },
+        { id:'db2',      label:'IBM DB2 (LUW / z/OS)',  driver:'com.ibm.db2.jcc.DB2Driver',
+          url:'jdbc:db2://host:50000/DATABASE',         jar:'jcc-*.jar' },
+        { id:'ibmi',     label:'IBM i (DB2 for i, via JDBC only)', driver:'com.ibm.as400.access.AS400JDBCDriver',
+          url:'jdbc:as400://host',                      jar:'jt400.jar (already on the server)' },
+        { id:'h2',       label:'H2',                    driver:'org.h2.Driver',
+          url:'jdbc:h2:file:D:/data/mydb',              jar:'(already bundled)' },
+        { id:'sqlite',   label:'SQLite',                driver:'org.sqlite.JDBC',
+          url:'jdbc:sqlite:D:/data/mydb.db',            jar:'sqlite-jdbc-*.jar' }
+    ];
+    function fillPresets(){
+        var sel=document.getElementById('d_preset');
+        for(var i=0;i<DS_PRESETS.length;i++){
+            var o=document.createElement('option');
+            o.value=DS_PRESETS[i].id; o.textContent=DS_PRESETS[i].label;
+            sel.appendChild(o);
+        }
+    }
+    function presetChanged(){
+        var v=document.getElementById('d_preset').value;
+        var hint=document.getElementById('d_presetHint');
+        if(!v){ if(hint) hint.textContent=''; return; }
+        for(var i=0;i<DS_PRESETS.length;i++){
+            if(DS_PRESETS[i].id!==v) continue;
+            var p=DS_PRESETS[i];
+            var u=document.getElementById('d_jdbcUrl'), d=document.getElementById('d_driverClass');
+            // the URL is a TEMPLATE to edit, so an already-filled one is never silently overwritten
+            if(!u.value.trim()) u.value=p.url;
+            d.value=p.driver;
+            if(hint) hint.textContent='Driver JAR: '+p.jar+' \u2014 place it in CATALINA_HOME/lib and restart Tomcat if the test says the class is missing.';
+        }
+    }
+
     function collect(){
         var t=document.getElementById('d_type').value;
         var d={ id:document.getElementById('d_id').value.trim(), name:document.getElementById('d_name').value.trim(),
@@ -179,7 +234,7 @@
         }, { danger:true, okText:'Delete' });
     }
 
-    typeChanged(); load();
+    fillPresets(); typeChanged(); load();
 </script>
 <script th:src="@{/js/modal.js(v=${buildId})}"></script>
 <script th:src="@{/js/theme.js(v=${buildId})}"></script>

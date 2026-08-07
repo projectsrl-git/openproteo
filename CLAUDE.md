@@ -1344,3 +1344,23 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   vs body 2.37 / 1.80, and the header text sits at 6.9-9.7 against its own background so legibility
   was not traded away for separation. Literal hex is used for these four surfaces because no existing
   theme variable was strong enough; everything else still comes from variables.
+
+## Datasources: generic JDBC, presets, no bundled driver (item 2)
+* **2.3 first, because it constrains everything else**: the stored `type` values `as400` and `custom`
+  are UNCHANGED. Nothing migrates, every existing connection keeps working; only what the operator
+  reads changed. * **2.1** wording: the page now talks about reusable JDBC connections; the type
+  dropdown reads "JDBC — any database" and "IBM i — native (also carries the IFS file-copy
+  credentials)"; the designer's executor list says "sql (JDBC query → CSV)" instead of "DB2/AS400
+  query"; id/name placeholders are no longer AS400-flavoured. `ifscopy` still names IBM i because that
+  is a fact about it, not branding — it genuinely needs that connection's credentials. * **2.2** a
+  **Preset** dropdown fills the URL template and the driver class for Oracle, SQL Server, PostgreSQL,
+  MySQL, MariaDB, DB2 LUW/zOS, IBM i, H2 and SQLite. A URL already typed is NEVER overwritten by
+  choosing a preset — only the driver class is corrected. * **No driver is bundled and none will be**:
+  `custom` already did `Class.forName` + `DriverManager`, so a JAR in `CATALINA_HOME/lib` is all that
+  is needed — zero new Maven dependencies, which is the only acceptable answer given the Nexus
+  constraint and the pom's existing warning about POI's transitive tree. `SqlSupport.loadDriver`
+  rewrites ClassNotFoundException into an instruction naming the class and the directory, because
+  "driver not found" is the most likely first-time failure and a bare class name tells an operator
+  nothing. * Verified with jsdom against the real page: presets present, every one carrying a
+  `jdbc:` template, a dotted driver class and a JAR name; the dropdown filled; a chosen preset filling
+  both fields and the hint; and the "already typed URL survives" invariant.

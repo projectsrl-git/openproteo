@@ -122,7 +122,11 @@ whose id is `validate`, third in the run order".
 
 A STEP runs one executor. Built-in (internal) executors:
 
-- **sql** — run a query against any JDBC datasource and stream the result set to CSV. It works with both datasource types: `as400` (DB2 for i, which also carries the IFS credentials) and `custom`, where you supply the JDBC URL and driver class. The executor itself is plain JDBC and is not tied to AS/400.
+**Datasources are plain JDBC, and no driver is bundled.** A connection is either **JDBC — any database** (a URL plus a driver class) or **IBM i — native** (host, user and password, which the `ifscopy` executor also uses for the file transfer). The Datasources page offers **presets** that fill in the URL shape and the driver class for Oracle, Microsoft SQL Server, PostgreSQL, MySQL, MariaDB, IBM DB2, IBM i, H2 and SQLite; the URL is a template to edit, and an address you have already typed is never overwritten by choosing a preset.
+
+OpenProteo deliberately **ships no database driver**. Bundling one per vendor would drag several transitive dependency trees through the internal Nexus for a feature most feeds never use. Put the driver JAR in the servlet container's shared library directory — `CATALINA_HOME/lib` — and restart it; it is then found at connection time, exactly as the IBM i driver already is. If it is missing, **Test connection** says which class it looked for and where to put the JAR, instead of reporting a bare "class not found". Existing connections are unaffected: the stored `type` values are unchanged, so every connection configured before this keeps working untouched.
+
+- **sql** — run a query against any JDBC datasource and stream the result set to CSV. The executor is plain JDBC and is tied to no vendor: it works with the **JDBC** datasource type, where you supply the URL and driver class (the Datasources page has presets for Oracle, SQL Server, PostgreSQL, MySQL, MariaDB, DB2, IBM i, H2 and SQLite), and with the **IBM i native** type, which is the same JDBC connection plus the credentials the IFS file copy needs.
   Write `{{columns}}` in the query and set the step's "Column list from dataschema" field to
   the dataschema JSON path (param `columnsSchema`, e.g. `${feedDir}/dataschema.json`); at run
   time `{{columns}}` is replaced by that schema's column names (optionally double-quoted).
@@ -175,7 +179,7 @@ A STEP runs one executor. Built-in (internal) executors:
 - **safecopy** — copy files matching one or more wildcards (comma-separated, e.g. `*.md5, *.tar`) from one directory to another, writing each
   file as `<name>.on_fly_` and renaming it to the final name only after the copy completes
   (atomic move when possible). Prevents a downstream watcher from picking up a partial file.
-- **ifscopy** — copy from an AS400 IFS path to local.
+- **ifscopy** — copy from an IBM i IFS path to local. This is the one executor that needs the **IBM i native** datasource type, because it reuses that connection's credentials for the file transfer.
 - **csvreplace** — string substitution inside CSV columns.
 - **validate** — run a checklist of validations over a CSV.
 - **anonymize** — ARX-based CSV anonymization (statistical; in progress).

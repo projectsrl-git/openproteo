@@ -830,7 +830,7 @@
                     '<option value="powershell"' + (ex === 'powershell' ? ' selected' : '') + '>powershell (.ps1)</option>' +
                     '<option value="cmd"' + (ex === 'cmd' ? ' selected' : '') + '>cmd (.bat/.cmd)</option>' +
                     '<option value="jar"' + (ex === 'jar' ? ' selected' : '') + '>jar (java -jar)</option>' +
-                    '<option value="sql"' + (ex === 'sql' ? ' selected' : '') + '>sql (DB2/AS400 query)</option>' +
+                    '<option value="sql"' + (ex === 'sql' ? ' selected' : '') + '>sql (JDBC query \u2192 CSV)</option>' +
                     '<option value="ifscopy"' + (ex === 'ifscopy' ? ' selected' : '') + '>ifscopy (AS400 IFS → local)</option>' +
                     '<option value="filecopy"' + (ex === 'filecopy' ? ' selected' : '') + '>filecopy (copy/move/list)</option>' +
                     '<option value="safecopy"' + (ex === 'safecopy' ? ' selected' : '') + '>safecopy (wildcard copy via .on_fly_ temp)</option>' +
@@ -965,7 +965,7 @@
                     h += '<div class="dim small" style="margin-top:6px">All cells become text; dates → the date format; numbers → plain decimals. Codes (NDG/CF/IBAN) must be stored as TEXT in the xlsx — if stored as numbers, Excel already lost leading zeros/precision and it cannot be recovered here.</div>';
                 } else if (ex === 'ifscopy') {
                     h += '<div class="form-row">' + dsSelect(i, n.datasource) +
-                        '<div class="field wide"><label>IFS source path (AS400) *</label><input value="' + attresc(n.ifsPath) + '" placeholder="/QIBM/feeds/EOR/${runDate}" oninput="updNode(' + i + ',\'ifsPath\',this.value)"></div></div>' +
+                        '<div class="field wide"><label>IFS source path (IBM i) *</label><input value="' + attresc(n.ifsPath) + '" placeholder="/QIBM/feeds/EOR/${runDate}" oninput="updNode(' + i + ',\'ifsPath\',this.value)"></div></div>' +
                         '<div class="form-row">' +
                         '<div class="field wide"><label>Local destination dir *</label><input value="' + attresc(n.dest) + '" placeholder="${stepDir}" oninput="updNode(' + i + ',\'dest\',this.value)"></div>' +
                         '<div class="field"><label>Pattern</label><input value="' + attresc(n.pattern) + '" placeholder="*.csv" oninput="updNode(' + i + ',\'pattern\',this.value)"></div>' +

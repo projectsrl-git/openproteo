@@ -29,16 +29,35 @@ public class SqlSupport {
         public Long updateCount;   // for non-select statements
     }
 
+    /**
+     * OpenProteo ships no database driver on purpose: bundling one per vendor would drag five
+     * transitive trees through the internal Nexus for a feature most feeds never use. A driver JAR
+     * dropped into the server's shared lib directory is picked up here at connection time.
+     *
+     * ClassNotFoundException is rewritten into an instruction rather than left as a bare class name:
+     * "driver not found" tells an operator nothing about what to do next, and this is the single most
+     * likely failure the first time a new database is configured.
+     */
+    private static void loadDriver(String driverClass) throws Exception {
+        try {
+            Class.forName(driverClass);
+        } catch (ClassNotFoundException e) {
+            throw new ClassNotFoundException("JDBC driver '" + driverClass + "' is not on the server classpath."
+                    + " Place the driver JAR in the servlet container's shared lib directory"
+                    + " (CATALINA_HOME/lib) and restart it. OpenProteo does not bundle database drivers.");
+        }
+    }
+
     public Connection open(DataSourceDef d) throws Exception {
         if (d == null) throw new IllegalArgumentException("Unknown datasource");
         if ("custom".equalsIgnoreCase(d.type)) {
             if (d.driverClass != null && !d.driverClass.trim().isEmpty()) {
-                Class.forName(d.driverClass.trim());
+                loadDriver(d.driverClass.trim());
             }
             return DriverManager.getConnection(d.jdbcUrl, d.user, d.password);
         }
-        // AS400 / DB2 for i via JTOpen
-        Class.forName("com.ibm.as400.access.AS400JDBCDriver");
+        // IBM i native: the JDBC driver that also carries the IFS credentials
+        loadDriver("com.ibm.as400.access.AS400JDBCDriver");
         StringBuilder url = new StringBuilder("jdbc:as400://").append(d.host);
         Properties p = new Properties();
         if (d.user != null) p.put("user", d.user);
