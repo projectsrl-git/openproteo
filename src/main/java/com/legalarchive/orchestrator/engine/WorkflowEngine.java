@@ -885,6 +885,18 @@ public class WorkflowEngine {
         run.vars.put("stepDir", layout.stepDirs.get(step.id).toString());
         run.vars.put("stepId", step.id);                                  // current step id
         run.vars.put("stepName", step.name == null ? step.id : step.name); // current step name
+        // The datasource is seeded HERE, with the other per-step context, and not only published as a
+        // step output: an output only reaches run.vars AFTER the step has finished, so a step that
+        // wanted to name its own datasource - a reconciliation query stamping which system it counted,
+        // typically - resolved ${dataSource} to an empty string. Seeded here it is available to the
+        // step's own params and queries. A step WITHOUT a datasource leaves the value alone rather
+        // than clearing it: that is exactly how every other step output behaves (last writer wins and
+        // the value persists), and clearing it would empty the OUTPUT DATA column of any workflow
+        // whose last step is not a SQL one. The per-step precise form remains ${<stepId>.dataSource}.
+        if (step.datasource != null && !step.datasource.trim().isEmpty()) {
+            run.vars.put("dataSource", step.datasource.trim());
+            run.vars.put("datasource", step.datasource.trim());
+        }
         store.save(layout, run);
 
         if (step.skip) {

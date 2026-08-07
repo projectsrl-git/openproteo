@@ -1,40 +1,41 @@
-Publish the datasource a step ran against as a step output
+Fix: ${dataSource} was empty inside the step that owns it
 
-Every executor that takes a datasource - sql, sqlreport and ifscopy - now
-publishes it, so it is recoverable afterwards as ${<stepId>.dataSource}
-through the engine's existing namespacing, and unqualified as ${dataSource}
-like any other step output. No new mechanism and no new variable machinery:
-the value simply goes into res.outVars and the engine does the rest.
+Reported from the field on tf0003819.RECON: the variable showed its value
+correctly in OUTPUT DATA but resolved to an empty string inside the sqlreport
+query of the same step.
 
-It is published as the FIRST statement of the executor, before the datasource
-is even looked up in the registry. That is deliberate: "which database did
-this actually hit" is a question that matters most precisely when something
-went wrong, and the engine merges outVars after every attempt regardless of
-exit code, so the value is there for a step that then fails - including one
-that failed because the datasource id was wrong, where seeing the id that was
-tried is the whole answer. It is also what lets the audit report state which
-database a run hit rather than only which step ran.
+The cause is ordering, not naming. A step OUTPUT only reaches run.vars after
+the step has finished, so the step that publishes the datasource cannot see it
+while it runs - the same class of problem as assignments inside one setvar
+step not being able to refer to each other. OUTPUT DATA is read at the end of
+the run, which is why that half looked right.
 
-Two names are published for one value, dataSource and datasource. The XML
-attribute is spelled all lowercase while every other step output in this
-codebase is camelCase, so whichever of the two an author types would otherwise
-resolve to an empty string in silence - the exact failure mode that cost a
-debugging session recently on a step id typo. The alias is one line; the wrong
-guess is a session. Both names are also in sqlreport's STEP_OUTPUT_VARS so
-their value is echoed normally in the step log instead of being treated as
-collected, possibly personal, query data.
+The datasource is now seeded in WorkflowEngine.executeStep alongside stepId,
+stepName and stepDir, that is BEFORE the step's parameters and queries are
+resolved. The two mechanisms are complementary and both are kept: the seeding
+serves the step itself through the unqualified ${dataSource}, while the step
+output serves later steps through ${<stepId>.dataSource} and puts the value in
+the audit trail and in the audit report's per-step table.
 
-Verified end to end rather than by inspection: the REAL VarResolver was
-compiled together with a transcription of publishDataSource and of the
-engine's namespacing loop, and 10 assertions all pass. The requested
-${SQL_EXTRACTION.dataSource} resolves, so does the lowercase alias, so does
-the unqualified ${dataSource}, and so does the form embedded in a larger
-string. With two SQL steps in one run each keeps its own qualified value while
-the unqualified name is the last writer, as for any step output. A step with
-no datasource publishes nothing at all, an unknown step id resolves to the
-empty string and never to a neighbour's value, and surrounding whitespace is
-trimmed. Brace and paren balance is 0/0 on InternalSteps.
+A step WITHOUT a datasource leaves the value alone rather than clearing it.
+Clearing was written first and rejected: it would empty the OUTPUT DATA column
+of any workflow whose last step is not a SQL one, and leaving it matches how
+every other step output already behaves - last writer wins and the value
+persists. So the unqualified ${dataSource} is the last SQL step that ran, and
+${<stepId>.dataSource} remains the precise per-step form.
 
-NOT verified: mvn clean package, and a real run. The quickest check on deploy
-is to put ${SQL_EXTRACTION.dataSource} in a setvar or in OUTPUT DATA and
-confirm it shows the datasource id.
+Verified with the REAL VarResolver compiled against a transcription of the
+seeding block and of the engine's outVar merge, in the actual order the engine
+performs them. Eleven assertions pass: the reported expression resolves during
+the step instead of being empty, both spellings work, the other per-step
+context is untouched, the namespaced form works for later steps after the
+merge, a following step with no datasource does not clear the value so OUTPUT
+DATA still shows one, two SQL steps against different systems each see their
+own during execution and keep their own qualified value afterwards, a blank
+datasource does not overwrite, and an unknown step id still resolves to the
+empty string rather than to a neighbour's value. Brace and paren balance is
+0/0 on WorkflowEngine.
+
+NOT verified: mvn clean package and a real run. On tf0003819 the RECON query
+should now stamp uki0cpp.eu.hedani.net into RECORD_SOURCE instead of a leading
+" - ".

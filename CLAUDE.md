@@ -1285,3 +1285,16 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   namespacing loop: the qualified form, the alias, the unqualified form, per-step stability across two
   SQL steps, last-writer-wins unqualified, nothing published when there is no datasource, an unknown
   step id resolving to "" and not to a neighbour, and trimming.
+
+## FIX: ${dataSource} was empty inside the step that owns it
+* Reported from the field on tf0003819.RECON: `${dataSource}` showed correctly in OUTPUT DATA but was
+  EMPTY inside the sqlreport query of the same step. Cause: a step OUTPUT only reaches `run.vars`
+  after the step finishes, so the step that publishes it cannot see it. Same class as "assignments in
+  one setvar step cannot refer to each other". * Fix in `WorkflowEngine.executeStep`: the datasource
+  is now SEEDED alongside `stepId`/`stepName`/`stepDir`, i.e. BEFORE params and queries are resolved.
+  The two mechanisms are complementary and both kept — seeding serves the step itself (unqualified
+  `${dataSource}`), the output serves later steps (`${<stepId>.dataSource}`) plus the audit trail and
+  the audit report's per-step table. * A step WITHOUT a datasource **leaves the value alone** rather
+  than clearing it. Clearing was written first and rejected: it would empty the OUTPUT DATA column of
+  any workflow whose last step is not a SQL one, and it matches how every other step output behaves
+  (last writer wins, value persists). The precise per-step form stays `${<stepId>.dataSource}`.
