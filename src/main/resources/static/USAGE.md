@@ -373,11 +373,19 @@ The **Variables** page edits the properties that the selected feeds have in comm
 - Arrow Up/Down and Enter move between cells, and pasting a block copied from Excel fills the cells to the right and below.
 - Filters: feeds, column names, and **only columns that differ** — which shows just the variables whose value is not identical across the visible feeds.
 
-### Reading XML: the tree view
+### Reading XML: the table view
 
-An `.xml` file opened in the viewer now has two tabs. **Code** is the formatted source as before. **Tree** shows the same document as collapsible rows: click any element to open or close it, use **Expand all** / **Collapse all**, and type in the search box to find anything by **tag name, attribute name, attribute value or text content** at once. Matching text is highlighted, non-matching branches are hidden, and the ancestors of every match are opened so a hit is never buried in a closed node. Element headers and text content have different backgrounds, attribute names and values are coloured apart, and every colour comes from a theme variable so the light and dark themes are both legible. A file that is not well-formed XML says so and stays readable under **Code**.
+An `.xml` file opened in the viewer has two tabs. **Code** is the formatted source. **Table** shows the same document as tables rather than as indented text, which is the difference between reading a file and reading its data:
 
-The same viewer exists as a **standalone page, `xml_viewer.html` in the repository root**, alongside `csv-viewer.html`. Open it in a browser, choose a file or drag one onto the page, and it behaves exactly as the in-app tree: tabs, search, expand/collapse and the theme switch. Everything happens in the page — no upload, no network, no external library — so it can be used on a machine that has no access to OpenProteo, and the file never leaves it.
+- a single element becomes a titled block with an **Attribute | Value** table — the name in one cell, its value in the cell beside it;
+- a run of sibling elements that share a tag becomes **one table with a header**: the columns are the union of their attribute names, one row per element, numbered. That is what a list of `<var>`, `<step>` or `<Obs>` actually is. An attribute that a given row does not have is left visibly blank rather than silently empty;
+- a row whose element has children of its own gets a toggle that opens that element's own block underneath it, inside the table.
+
+**Expand all** / **Collapse all** work on the whole document, and one search box matches **tag names, attribute names, attribute values and text content** at once. Matches are highlighted, branches with no match are dropped, and the path to every match is kept and opened so a hit is never buried. Element headers, table headers and value cells have distinct backgrounds and every colour comes from a theme variable, so the light and dark themes are both legible. A file that is not well-formed XML says so and stays readable under **Code**.
+
+The document is walked once into a small model and the tables are rendered from it on demand, so a large file does not build tens of thousands of cells before the first paint, and the search still finds matches inside branches that have never been drawn.
+
+The same viewer exists as a **standalone page, `xml_viewer.html` in the repository root**, alongside `csv-viewer.html`. Open it in a browser, choose a file or drag one onto the page, and it behaves identically. Everything happens in the page — no upload, no network, no external library — so it can be used on a machine with no access to OpenProteo, and the file never leaves it.
 
 ### `audit_report.md`: the evidence report of a run
 

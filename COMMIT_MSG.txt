@@ -1,51 +1,59 @@
-XML tree view, and a standalone xml_viewer.html
+XML viewer: a real table view, replacing the indented tree
 
-Item 6 of the list. The XML viewer had only a formatted code view; reading a
-workflow definition that way answers "what does the file say" but not "where
-is this element and what is under it", which is the question actually being
-asked.
+The previous batch rendered an indented tree with attributes written inline as
+name=value. That was the wrong shape for the request, so it is replaced rather
+than extended.
 
-An .xml file now opens with two tabs. Code is the formatted source as before.
-Tree renders the same document as collapsible rows: click an element to open
-or close it, Expand all and Collapse all, and a single search box that matches
-tag names, attribute names, attribute VALUES and text content at once. Matches
-are highlighted with mark, branches with no match are hidden, and the
-ancestors of every match are opened so a hit is never buried inside a closed
-node. Element headers and text content have different backgrounds and
-attribute names and values are coloured apart. The tree is built lazily on the
-first click of the tab, so opening an XML file costs nothing extra, and a file
-that is not well-formed says so and stays readable under Code.
+An .xml file now shows its data as tables. A single element becomes a titled
+block with an Attribute | Value table: the attribute name in one cell, its
+value in the cell beside it. A run of consecutive sibling elements that share
+a tag becomes ONE table with a header, its columns being the union of their
+attribute names in first-seen order, one numbered row per element, plus a
+value column when any of them carries text - which is what a list of <var>,
+<step> or <Obs> actually is. An attribute that a given row does not have is
+drawn as a hatched cell rather than left blank, so "absent" is visibly
+different from "present but empty". A row whose element has children of its
+own gets a toggle that opens that element's own block in a full-width sub-row
+inside the table. Runs are consecutive only, so document order is never
+rearranged to make a nicer table.
 
-Every colour is an existing app.css variable rather than a literal, which is
-what makes the light theme work as well as the dark one; each variable was
-checked to resolve in the light block too, and none was invented.
+Expand all and Collapse all work on the whole document, and one search box
+matches tag names, attribute names, attribute values and text content at once,
+with highlighting; branches with no match are dropped and the path to every
+match is kept and opened, so a hit is never buried inside a closed element.
 
-The same viewer also exists as a standalone page, xml_viewer.html in the
-repository root, alongside csv-viewer.html. Browse or drag-drop a file, same
-tree, same search, its own theme toggle, and zero external references -
-asserted, not assumed - so it works on a machine with no access to OpenProteo
-and the file never leaves it. The renderer is written once and injected into
-both files so the two cannot drift apart.
+There is also an architecture change behind it. The document is walked once
+into a small model - references plus a lowercase haystack per element - and
+the tables are rendered from that model on demand rather than built in full up
+front. The file this was reported against is 1.16 MB and 4522 elements, which
+is not a size at which building every cell eagerly is reasonable. Because the
+search runs on the model and not on the DOM, it still finds matches inside
+branches that have never been drawn, which a purely lazy DOM approach could
+not do.
 
-Verified. jsdom was installed in the sandbox so the real renderer could be run
-against a real DOM, and 30 assertions pass against a realistic workflow XML:
-escaping and highlighting including a query that is itself an XML
-metacharacter, the node count, the root tag, attributes rendered as name and
-value pairs, text in its own row and trimmed, entities decoded by the parser
-and then re-escaped safely, comments shown rather than dropped, child counts,
-indentation growing with depth, collapse all leaving the root open, expand all
-reopening, search matching an attribute value, a tag name and text content,
-case-insensitivity, a term matching several nodes, a term matching none hiding
-everything, clearing the search restoring everything and removing the
-highlights, and a malformed document being detectable.
+Every colour is an existing theme variable, checked to resolve in the light
+block as well, so both themes stay legible. The standalone xml_viewer.html in
+the repository root gets exactly the same renderer - it is written once and
+injected into both files - with browse, drag-drop, its own theme toggle and
+zero external references.
 
-That run caught a real bug before delivery: the row labels are written by
-paint(), which was only ever called from search(), so the tree rendered
-completely BLANK until the user typed something. It is fixed with an initial
-paint(''), and the assertions that failed on it now pass. Without a real DOM
-this would have shipped. node --check passes on viewer.js and on the
-standalone page, both with zero literal newline/CR escape sequences.
+Verified with jsdom against a realistic workflow XML: 30 assertions, all
+passing. Run grouping puts three <var> siblings into one run and two <step>
+siblings into another; the column union is taken in first-seen order and keeps
+an attribute that only one element has; key and value come out as separate
+cells; the header row is exactly the expected columns; there is one row per
+element with the missing attribute rendered as the hatched cell; a row with
+children expands into a sub-row whose nested query text and nested attributes
+are present; collapse and expand work on the whole document; and search
+matches an attribute value, a tag name and text content, is case-insensitive,
+drops unrelated branches while keeping the path to the match, reports no
+match, and restores everything including removing the highlights when cleared.
+One assertion exists purely to stop the old shape returning: no inline
+name=value text and no xt-attr class may appear anywhere in the output.
 
-NOT verified: mvn clean package, and how the two themes actually look on
-screen. Open xml_viewer.html on a workflow XML and switch the theme once
-before relying on the in-app tab.
+node --check passes on viewer.js and on the standalone page, both with zero
+literal newline/CR escape sequences and no external references.
+
+NOT verified: mvn clean package, and how it looks on screen. Open
+xml_viewer.html on the same 1.16 MB SDMX file and switch the theme once before
+relying on the in-app tab.

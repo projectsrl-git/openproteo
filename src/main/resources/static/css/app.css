@@ -856,29 +856,42 @@ th.sortable:hover { color: var(--accent); }
 .topbar .btn.ops { margin-right: 6px; }
 :root[data-theme="light"] .btn.ops { color: #1a1d23; }
 
-/* ---- XML tree view (viewer + standalone xml_viewer.html) ---- */
-.xt-wrap { border: 1px solid var(--line); border-radius: 6px; overflow: auto; background: var(--bg); }
-.xt-node { border-left: 1px solid transparent; }
-.xt-node.xt-closed > .xt-kids, .xt-node.xt-closed > .xt-text { display: none; }
-.xt-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; padding: 3px 8px 3px 6px;
-           background: var(--bg-raise); border-bottom: 1px solid var(--line-soft);
-           font-family: var(--mono); font-size: 12px; line-height: 18px; }
+/* ---- XML table view (viewer + standalone xml_viewer.html) ---- */
+.xt-wrap { border: 1px solid var(--line); border-radius: 6px; overflow: auto; background: var(--bg); padding: 6px; }
+.xt-block { margin: 0 0 8px 0; }
+.xt-kids { margin: 6px 0 0 18px; border-left: 2px solid var(--line-soft); padding-left: 10px; }
+.xt-head { display: flex; align-items: center; gap: 6px; padding: 4px 8px;
+           background: var(--bg-raise); border: 1px solid var(--line); border-radius: 5px 5px 0 0;
+           font-family: var(--mono); font-size: 12px; }
 .xt-head:hover { background: var(--bg-panel); }
 .xt-tog { display: inline-block; width: 10px; color: var(--ink-faint); flex: 0 0 auto; }
+.xt-tog-btn { cursor: pointer; }
 .xt-tag { color: var(--accent); font-weight: 600; }
 .xt-comment { color: var(--ink-faint); font-style: italic; }
-.xt-attr { color: var(--ink-dim); white-space: nowrap; }
-.xt-attr b { color: var(--ink-dim); font-weight: 400; }
-.xt-attr em { color: var(--run); font-style: normal; }
 .xt-count { margin-left: auto; color: var(--ink-faint); background: var(--line-soft);
-            border-radius: 8px; padding: 0 6px; font-size: 10.5px; }
-.xt-text { background: var(--bg); color: var(--ink); border-bottom: 1px solid var(--line-soft);
-           padding: 4px 8px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap;
-           word-break: break-word; }
-.xt-head.xt-hit { background: var(--wait-bg); }
+            border-radius: 8px; padding: 0 7px; font-size: 10.5px; }
+.xt-tbl { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: 12px;
+          border: 1px solid var(--line); border-top: 0; background: var(--bg); }
+.xt-tbl th { text-align: left; padding: 4px 8px; background: var(--line-soft); color: var(--label);
+             font-weight: 600; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+             white-space: nowrap; position: sticky; top: 0; }
+.xt-tbl td { padding: 3px 8px; border-right: 1px solid var(--line-soft);
+             border-bottom: 1px solid var(--line-soft); vertical-align: top; word-break: break-word; }
+.xt-tbl tbody tr:nth-child(even) > td { background: var(--bg-raise); }
+.xt-tbl tbody tr:hover > td { background: var(--bg-panel); }
+.xt-kv td.xt-k { color: var(--ink-dim); white-space: nowrap; width: 1%; background: var(--bg-raise); }
+.xt-tbl td.xt-v { color: var(--run); }
+.xt-tbl td.xt-null { background: repeating-linear-gradient(45deg, transparent, transparent 4px, var(--line-soft) 4px, var(--line-soft) 5px); }
+.xt-tbl td.xt-num, .xt-tbl th.xt-num { color: var(--ink-faint); width: 1%; text-align: right; white-space: nowrap; }
+.xt-tbl tr.xt-sub > td { background: var(--bg); padding: 8px 8px 8px 18px; }
+.xt-text { padding: 5px 8px; border: 1px solid var(--line); border-top: 0; background: var(--bg);
+           color: var(--ink); font-family: var(--mono); font-size: 12px;
+           white-space: pre-wrap; word-break: break-word; }
 .xt-wrap mark { background: var(--accent); color: #1b2530; border-radius: 2px; padding: 0 1px; }
 .xt-empty { padding: 14px; color: var(--ink-dim); }
 :root[data-theme="light"] .xt-head { background: #f4f7fb; }
 :root[data-theme="light"] .xt-head:hover { background: #eaf0f8; }
-:root[data-theme="light"] .xt-text { background: #ffffff; }
-:root[data-theme="light"] .xt-head.xt-hit { background: #fdf1cf; }
+:root[data-theme="light"] .xt-tbl th { background: #e8eef6; }
+:root[data-theme="light"] .xt-tbl tbody tr:nth-child(even) > td { background: #f7f9fc; }
+:root[data-theme="light"] .xt-tbl tbody tr:hover > td { background: #eef3fa; }
+:root[data-theme="light"] .xt-kv td.xt-k { background: #f4f7fb; }

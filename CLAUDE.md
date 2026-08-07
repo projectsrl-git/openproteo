@@ -1314,3 +1314,22 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   XML. That caught a genuine bug: labels are written by `paint()`, which was only called from
   `search()`, so the tree rendered BLANK until the user typed. Fixed with an initial `paint('')`.
   Without a real DOM this would have shipped.
+
+## XML viewer: TABLE view replaces the indented tree
+* The first attempt rendered an indented tree with attributes inline as `name=value`. That was the
+  wrong shape: the ask was a TABLE. Replaced, not extended. * Now: a single element is a titled block
+  with an **Attribute | Value** table (name in one cell, value in the cell beside it); a run of
+  CONSECUTIVE siblings sharing a tag becomes **one table with a header** whose columns are the union
+  of their attribute names, one numbered row per element, with a `value` column when any of them has
+  text; an attribute a row lacks is rendered with a hatched `xt-null` cell so "absent" is visibly
+  different from "empty string". A row whose element has children gets a toggle opening that
+  element's block in a full-width sub-row. Runs are CONSECUTIVE only, so document order is never
+  rearranged. * **Architecture change**: the document is walked once into a light model (references +
+  a lowercase haystack) and the DOM is rendered FROM the model on demand. His real file is 1.16 MB /
+  4522 elements; building every cell up front does not scale. Search runs on the model, so it finds
+  matches inside branches that have never been drawn — which a lazy DOM-only approach could not.
+  * Verified with jsdom against a realistic workflow XML: 30 assertions covering run grouping, the
+  attribute-name union in first-seen order, key/value as separate cells, header row contents, one row
+  per element with the missing attribute blank, sub-row expansion, collapse/expand, and search on tag
+  / attribute name / attribute value / text with path retention. An explicit assertion checks that no
+  `name=value` inline text and no `xt-attr` class survives anywhere — the old shape cannot come back.

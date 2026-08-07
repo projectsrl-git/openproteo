@@ -506,17 +506,22 @@
         function field(s) { s = (s == null ? '' : String(s)); if (s.indexOf(';') >= 0 || s.indexOf('"') >= 0 || s.charCodeAt(0) === CR || s.indexOf(LF) >= 0) return '"' + s.replace(/"/g, '""') + '"'; return s; }
     }
 
-    /* ===================== XML tree view (shared) =====================
-       Renders a parsed XML document as collapsible rows. Element headers and text
-       content get different backgrounds; every colour comes from a theme variable so
-       light and dark both work without a second stylesheet.
-       Newlines are built with String.fromCharCode: literal escapes in JS source are
-       rewritten by the corporate proxy. */
+    /* ===================== XML table view (shared) =====================
+       Renders XML as TABLES, not as an indented tree:
+         - a single element becomes a titled block with an Attribute | Value table;
+         - a run of sibling elements with the SAME tag becomes ONE table whose header is the
+           union of their attribute names, one row per element - which is what a list of <Obs>
+           or <var> actually is;
+         - an element that has children of its own gets a toggle that opens its block below.
+       A lightweight model is built up front (cheap: references plus a lowercase haystack) and the
+       DOM is rendered from it lazily, so a megabyte-sized document does not build tens of thousands
+       of cells before the first paint. Search runs on the model, so it finds matches inside branches
+       that have never been rendered.
+       Newlines are built with String.fromCharCode: literal escapes are rewritten by the proxy. */
     function xmlTreeEsc(s) {
         return String(s == null ? '' : s)
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
-    /** Escaped HTML with every case-insensitive occurrence of q wrapped in <mark>. */
     function xmlTreeMark(s, q) {
         s = String(s == null ? '' : s);
         if (!q) return xmlTreeEsc(s);
@@ -528,158 +533,224 @@
         return out + xmlTreeEsc(s.substring(from));
     }
 
+    /** Model: one record per element (and per comment), with its own searchable haystack. */
+    function xmlBuildModel(doc) {
+        var all = [];
+        function walk(node, parent, depth) {
+            var isComment = (node.nodeType === 8);
+            var m = { tag: isComment ? '#comment' : node.nodeName, comment: isComment,
+                      attrs: [], text: '', children: [], parent: parent, depth: depth, idx: all.length };
+            all.push(m);
+            if (isComment) {
+                m.text = String(node.nodeValue || '').replace(/^\s+|\s+$/g, '');
+            } else {
+                for (var a = 0; a < node.attributes.length; a++) {
+                    m.attrs.push({ n: node.attributes[a].name, v: node.attributes[a].value });
+                }
+                var buf = '', kids = [];
+                for (var i = 0; i < node.childNodes.length; i++) {
+                    var c = node.childNodes[i];
+                    if (c.nodeType === 1 || c.nodeType === 8) kids.push(c);
+                    else if (c.nodeType === 3 || c.nodeType === 4) buf += c.nodeValue;
+                }
+                m.text = buf.replace(/^\s+|\s+$/g, '');
+                for (var k = 0; k < kids.length; k++) m.children.push(walk(kids[k], m, depth + 1));
+            }
+            var hay = m.tag;
+            for (var x = 0; x < m.attrs.length; x++) hay += ' ' + m.attrs[x].n + ' ' + m.attrs[x].v;
+            m.hay = (hay + ' ' + m.text).toLowerCase();
+            return m;
+        }
+        return { root: walk(doc.documentElement, null, 0), all: all };
+    }
+
+    /** Consecutive siblings sharing a tag form one run; order is never rearranged. */
+    function xmlRuns(children) {
+        var runs = [], cur = null;
+        for (var i = 0; i < children.length; i++) {
+            var c = children[i];
+            if (cur && cur.tag === c.tag && !c.comment) cur.items.push(c);
+            else { cur = { tag: c.tag, items: [c] }; runs.push(cur); }
+        }
+        return runs;
+    }
+    /** Header of a run's table: every attribute name in first-seen order, plus a value column if used. */
+    function xmlRunColumns(items) {
+        var cols = [], seen = {}, hasText = false;
+        for (var i = 0; i < items.length; i++) {
+            for (var a = 0; a < items[i].attrs.length; a++) {
+                var n = items[i].attrs[a].n;
+                if (!seen[n]) { seen[n] = 1; cols.push(n); }
+            }
+            if (items[i].text) hasText = true;
+        }
+        return { cols: cols, hasText: hasText };
+    }
+    function xmlAttrValue(m, name) {
+        for (var i = 0; i < m.attrs.length; i++) if (m.attrs[i].n === name) return m.attrs[i].v;
+        return null;
+    }
+
     /**
-     * Builds the tree into host. Returns { expandAll, collapseAll, search, count }.
-     * search(q) re-renders the labels with highlights, hides subtrees with no match,
-     * opens the ancestors of every match, and returns how many nodes matched.
+     * Renders into host. Returns { count, expandAll, collapseAll, search }.
+     * search(q) re-renders showing only matching elements and the ancestors that lead to them.
      */
     function buildXmlTree(host, doc) {
         host.innerHTML = '';
-        var nodes = [];                       // flat list of {el, head, kids, tagSpan, attrSpans, textSpan, hay, parent}
-        var root = doc && doc.documentElement;
-        if (!root) { host.innerHTML = '<div class="xt-empty">empty document</div>'; return null; }
+        if (!doc || !doc.documentElement) { host.innerHTML = '<div class="xt-empty">empty document</div>'; return null; }
+        var model = xmlBuildModel(doc);
+        var query = '', keep = null;            // keep = null means "no filter"
+        var openSet = {};                       // idx -> true when the element's children are shown
+        openSet[model.root.idx] = true;
 
-        function walk(node, parent, depth, into) {
-            var kidsEls = [], textBuf = '';
-            for (var i = 0; i < node.childNodes.length; i++) {
-                var c = node.childNodes[i];
-                if (c.nodeType === 1) kidsEls.push(c);
-                else if (c.nodeType === 3 || c.nodeType === 4) textBuf += c.nodeValue;
-                else if (c.nodeType === 8) kidsEls.push(c);
-            }
-            var wrap = document.createElement('div');
-            wrap.className = 'xt-node';
-            var head = document.createElement('div');
-            head.className = 'xt-head';
-            head.style.paddingLeft = (6 + depth * 16) + 'px';
-            wrap.appendChild(head);
+        function visible(m) { return !keep || keep[m.idx]; }
 
-            var isComment = (node.nodeType === 8);
-            var tog = document.createElement('span');
-            tog.className = 'xt-tog';
-            head.appendChild(tog);
+        function el2(tag, cls, parent) {
+            var e = document.createElement(tag);
+            if (cls) e.className = cls;
+            if (parent) parent.appendChild(e);
+            return e;
+        }
 
-            var tagSpan = document.createElement('span');
-            tagSpan.className = isComment ? 'xt-comment' : 'xt-tag';
-            head.appendChild(tagSpan);
-
-            var rec = { wrap: wrap, head: head, tog: tog, depth: depth, parent: parent,
-                        tagRaw: isComment ? '<!-- comment -->' : node.nodeName,
-                        attrs: [], textRaw: '', tagSpan: tagSpan, attrSpans: [], textSpan: null,
-                        kidsBox: null, hasKids: false };
-
-            if (!isComment) {
-                for (var a = 0; a < node.attributes.length; a++) {
-                    var at = node.attributes[a];
-                    var sp = document.createElement('span');
-                    sp.className = 'xt-attr';
-                    head.appendChild(sp);
-                    rec.attrs.push({ name: at.name, value: at.value });
-                    rec.attrSpans.push(sp);
-                }
-            }
-
-            var trimmed = isComment ? String(node.nodeValue || '').replace(/^\s+|\s+$/g, '')
-                                    : textBuf.replace(/^\s+|\s+$/g, '');
-            if (trimmed) {
-                var tx = document.createElement('div');
-                tx.className = 'xt-text';
-                tx.style.paddingLeft = (6 + (depth + 1) * 16) + 'px';
-                wrap.appendChild(tx);
-                rec.textRaw = trimmed;
-                rec.textSpan = tx;
-            }
-
-            if (kidsEls.length) {
-                var box = document.createElement('div');
-                box.className = 'xt-kids';
-                wrap.appendChild(box);
-                rec.kidsBox = box;
-                rec.hasKids = true;
-                var badge = document.createElement('span');
-                badge.className = 'xt-count';
-                badge.textContent = String(kidsEls.length);
-                head.appendChild(badge);
-            }
-
-            rec.hay = (rec.tagRaw + ' ' + rec.attrs.map(function (x) { return x.name + '=' + x.value; }).join(' ')
-                       + ' ' + rec.textRaw).toLowerCase();
-            rec.idx = nodes.length;          // own position, so ancestor marking stays linear
-            nodes.push(rec);
-            into.appendChild(wrap);
-
-            if (rec.hasKids) {
-                for (var k = 0; k < kidsEls.length; k++) walk(kidsEls[k], rec, depth + 1, rec.kidsBox);
+        /** A single element: title band, its own Attribute | Value table, its text, then its children. */
+        function renderBlock(m, into, depth) {
+            var block = el2('div', 'xt-block', into);
+            var head = el2('div', 'xt-head', block);
+            var hasKids = m.children.length > 0;
+            var tog = el2('span', 'xt-tog', head);
+            tog.textContent = hasKids ? (openSet[m.idx] ? String.fromCharCode(0x25BE) : String.fromCharCode(0x25B8)) : '';
+            var tg = el2('span', m.comment ? 'xt-comment' : 'xt-tag', head);
+            tg.innerHTML = xmlTreeMark(m.tag, query);
+            if (hasKids) {
+                var badge = el2('span', 'xt-count', head);
+                badge.textContent = m.children.length + (m.children.length === 1 ? ' child' : ' children');
                 head.style.cursor = 'pointer';
-                head.addEventListener('click', function (r) {
-                    return function (e) {
-                        if (e && e.target && e.target.tagName === 'MARK') { /* still toggles */ }
-                        setOpen(r, r.wrap.classList.contains('xt-closed'));
-                    };
-                }(rec));
+                head.addEventListener('click', function () {
+                    openSet[m.idx] = !openSet[m.idx];
+                    draw();
+                });
             }
-            return rec;
-        }
-
-        function setOpen(rec, open) {
-            if (!rec.hasKids) return;
-            if (open) rec.wrap.classList.remove('xt-closed');
-            else rec.wrap.classList.add('xt-closed');
-            rec.tog.textContent = open ? String.fromCharCode(0x25BE) : String.fromCharCode(0x25B8);
-        }
-
-        walk(root, null, 0, host);
-        for (var i = 0; i < nodes.length; i++) { if (nodes[i].hasKids) setOpen(nodes[i], true); }
-
-        function paint(q) {
-            for (var i = 0; i < nodes.length; i++) {
-                var r = nodes[i];
-                r.tagSpan.innerHTML = xmlTreeMark(r.tagRaw, q);
-                for (var a = 0; a < r.attrs.length; a++) {
-                    r.attrSpans[a].innerHTML = '<b>' + xmlTreeMark(r.attrs[a].name, q) + '</b>='
-                        + '<em>' + xmlTreeMark(r.attrs[a].value, q) + '</em>';
+            if (m.attrs.length) {
+                var t = el2('table', 'xt-tbl xt-kv', block);
+                var tb = el2('tbody', null, t);
+                for (var i = 0; i < m.attrs.length; i++) {
+                    var tr = el2('tr', null, tb);
+                    var td1 = el2('td', 'xt-k', tr); td1.innerHTML = xmlTreeMark(m.attrs[i].n, query);
+                    var td2 = el2('td', 'xt-v', tr); td2.innerHTML = xmlTreeMark(m.attrs[i].v, query);
                 }
-                if (r.textSpan) r.textSpan.innerHTML = xmlTreeMark(r.textRaw, q);
+            }
+            if (m.text) {
+                var tt = el2('div', 'xt-text', block);
+                tt.innerHTML = xmlTreeMark(m.text, query);
+            }
+            if (hasKids && openSet[m.idx]) {
+                var kidsBox = el2('div', 'xt-kids', block);
+                renderChildren(m, kidsBox, depth + 1);
+            }
+            return block;
+        }
+
+        /** Children grouped into runs: >1 of the same tag becomes one table with a header. */
+        function renderChildren(m, into, depth) {
+            var kids = [];
+            for (var i = 0; i < m.children.length; i++) if (visible(m.children[i])) kids.push(m.children[i]);
+            var runs = xmlRuns(kids);
+            for (var r = 0; r < runs.length; r++) {
+                var run = runs[r];
+                if (run.items.length === 1) { renderBlock(run.items[0], into, depth); continue; }
+                renderRunTable(run, into, depth);
             }
         }
 
-        paint('');        // labels are written by paint(): without this first call the tree renders blank
+        function renderRunTable(run, into, depth) {
+            var spec = xmlRunColumns(run.items);
+            var wrap = el2('div', 'xt-block', into);
+            var head = el2('div', 'xt-head', wrap);
+            el2('span', 'xt-tog', head);
+            var tg = el2('span', 'xt-tag', head);
+            tg.innerHTML = xmlTreeMark(run.tag, query);
+            var badge = el2('span', 'xt-count', head);
+            badge.textContent = run.items.length + ' items';
+
+            var table = el2('table', 'xt-tbl xt-list', wrap);
+            var thead = el2('thead', null, table);
+            var hr = el2('tr', null, thead);
+            var anyKids = false;
+            for (var q = 0; q < run.items.length; q++) if (run.items[q].children.length) anyKids = true;
+            if (anyKids) el2('th', 'xt-num', hr).textContent = '';
+            el2('th', 'xt-num', hr).textContent = '#';
+            for (var c = 0; c < spec.cols.length; c++) {
+                var th = el2('th', null, hr);
+                th.innerHTML = xmlTreeMark(spec.cols[c], query);
+            }
+            if (spec.hasText) el2('th', null, hr).textContent = 'value';
+
+            var tbody = el2('tbody', null, table);
+            for (var i = 0; i < run.items.length; i++) {
+                (function (it, rowNo) {
+                    var tr = el2('tr', null, tbody);
+                    if (anyKids) {
+                        var tdT = el2('td', 'xt-num', tr);
+                        if (it.children.length) {
+                            var b = el2('span', 'xt-tog xt-tog-btn', tdT);
+                            b.textContent = openSet[it.idx] ? String.fromCharCode(0x25BE) : String.fromCharCode(0x25B8);
+                            tdT.style.cursor = 'pointer';
+                            tdT.addEventListener('click', function () { openSet[it.idx] = !openSet[it.idx]; draw(); });
+                        }
+                    }
+                    el2('td', 'xt-num', tr).textContent = String(rowNo);
+                    for (var c2 = 0; c2 < spec.cols.length; c2++) {
+                        var v = xmlAttrValue(it, spec.cols[c2]);
+                        var td = el2('td', v == null ? 'xt-v xt-null' : 'xt-v', tr);
+                        if (v == null) td.textContent = '';
+                        else td.innerHTML = xmlTreeMark(v, query);
+                    }
+                    if (spec.hasText) {
+                        var tdx = el2('td', 'xt-v', tr);
+                        tdx.innerHTML = xmlTreeMark(it.text, query);
+                    }
+                    if (it.children.length && openSet[it.idx]) {
+                        var sub = el2('tr', 'xt-sub', tbody);
+                        var cell = el2('td', null, sub);
+                        cell.colSpan = (anyKids ? 1 : 0) + 1 + spec.cols.length + (spec.hasText ? 1 : 0);
+                        renderChildren(it, cell, depth + 1);
+                    }
+                })(run.items[i], i + 1);
+            }
+        }
+
+        function draw() {
+            host.innerHTML = '';
+            if (keep && !keep[model.root.idx]) { host.innerHTML = '<div class="xt-empty">no match</div>'; return; }
+            renderBlock(model.root, host, 0);
+        }
 
         function search(q) {
-            q = (q || '').trim();
-            paint(q);
-            if (!q) {
-                for (var i = 0; i < nodes.length; i++) {
-                    nodes[i].wrap.style.display = '';
-                    nodes[i].head.classList.remove('xt-hit');
-                }
-                return 0;
-            }
-            var ql = q.toLowerCase(), hits = 0, keep = [];
-            for (var j = 0; j < nodes.length; j++) {
-                var r = nodes[j], m = r.hay.indexOf(ql) >= 0;
-                keep[j] = m;
+            query = (q || '').trim();
+            if (!query) { keep = null; draw(); return 0; }
+            var ql = query.toLowerCase(), hits = 0;
+            keep = [];
+            for (var i = 0; i < model.all.length; i++) {
+                var m = model.all[i].hay.indexOf(ql) >= 0;
+                keep[i] = m;
                 if (m) hits++;
-                if (m) r.head.classList.add('xt-hit'); else r.head.classList.remove('xt-hit');
             }
-            // a node stays visible when it matches or has a visible descendant: walk backwards so
-            // children are resolved before their parent
-            for (var k = nodes.length - 1; k >= 0; k--) {
+            // keep the path to every match, and open it, so a hit is never inside a closed element
+            for (var k = model.all.length - 1; k >= 0; k--) {
                 if (!keep[k]) continue;
-                var p = nodes[k].parent;
-                while (p && !keep[p.idx]) { keep[p.idx] = true; p = p.parent; }
+                var p = model.all[k].parent;
+                while (p) { keep[p.idx] = true; openSet[p.idx] = true; p = p.parent; }
+                openSet[model.all[k].idx] = true;
             }
-            for (var z = 0; z < nodes.length; z++) {
-                nodes[z].wrap.style.display = keep[z] ? '' : 'none';
-                if (keep[z] && nodes[z].hasKids) setOpen(nodes[z], true);
-            }
+            draw();
             return hits;
         }
 
+        draw();
         return {
-            count: nodes.length,
-            expandAll: function () { for (var i = 0; i < nodes.length; i++) setOpen(nodes[i], true); },
-            collapseAll: function () { for (var i = 0; i < nodes.length; i++) if (nodes[i].depth > 0) setOpen(nodes[i], false); },
+            count: model.all.length,
+            expandAll: function () { for (var i = 0; i < model.all.length; i++) openSet[model.all[i].idx] = true; draw(); },
+            collapseAll: function () { openSet = {}; openSet[model.root.idx] = true; draw(); },
             search: search
         };
     }
@@ -768,7 +839,7 @@
                 treeTools = el('div', 'vwr-tools', host);
                 treeTools.style.display = 'none';
                 var tSearch = el('input', 'inline-input', treeTools);
-                tSearch.placeholder = 'search tags, attributes, text\u2026';
+                tSearch.placeholder = 'search tags, attributes, values\u2026';
                 tSearch.style.minWidth = '260px';
                 var tInfo = el('span', 'dim small', treeTools); tInfo.style.marginLeft = '10px';
                 var tExp = el('button', 'btn sm', treeTools); text(tExp, 'Expand all');
@@ -787,7 +858,7 @@
                 var tabs = el('div', 'vwr-tabs', host);
                 host.insertBefore(tabs, tools);
                 var tabCode = el('button', 'vtab active', tabs); text(tabCode, 'Code');
-                var tabTree = el('button', 'vtab', tabs); text(tabTree, 'Tree');
+                var tabTree = el('button', 'vtab', tabs); text(tabTree, 'Table');
                 tabCode.addEventListener('click', function () {
                     tabCode.classList.add('active'); tabTree.classList.remove('active');
                     tools.style.display = ''; body.style.display = '';
@@ -801,7 +872,7 @@
                         var doc = null;
                         try { doc = new DOMParser().parseFromString(xmlText, 'application/xml'); } catch (e) { doc = null; }
                         if (!doc || !doc.documentElement || doc.getElementsByTagName('parsererror').length) {
-                            treeBox.innerHTML = '<div class="xt-empty">This file is not well-formed XML, so it cannot be shown as a tree. The Code tab shows it as it is.</div>';
+                            treeBox.innerHTML = '<div class="xt-empty">This file is not well-formed XML, so it cannot be shown as a table. The Code tab shows it as it is.</div>';
                             return;
                         }
                         treeApi = buildXmlTree(treeBox, doc);
