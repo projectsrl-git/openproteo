@@ -1,66 +1,38 @@
-Audit report embeds the sqlreport output; Markdown preview in the viewer
+Audit report buttons create and download in one click
 
-Items 3.3 and 4 of the list.
+The per-run buttons in Run history wrote the report and then showed its path
+in an alert, leaving the operator to go and find the file. They now hand it
+over directly.
 
-3.3. A step that produces its own Markdown report - an sqlreport step -
-already publishes its path as ${<stepId>.reportFile}. The audit report now
-reads that file back and embeds it under that step, so the queries, their
-results and the evidence they produced sit next to the step that ran them
-instead of in a separate file that has to be found and matched to the run by
-hand.
+POST /api/runs/{feedId}/{runId}/audit-report takes a download=1 parameter and
+returns the report bytes with a Content-Disposition attachment header and an
+X-Report-File header carrying the name; the page turns the response into a
+blob and clicks a hidden anchor. The report is still written under
+_logs/runs/{runId}/ as before, because that is where it belongs as evidence,
+and the same bytes come back in the same response. One request rather than
+two: a separate GET would have to re-derive the file name and could race with
+a re-run producing a different one.
 
-The embedded document's headings are pushed down three levels by a new
-demoteHeadings helper, so it nests under the step rather than competing with
-the audit report's own three heading levels. Nothing else is rewritten: the
-tables, the SQL and the numbers are the file as it was written. Lines inside
-fenced code blocks are deliberately left alone, because a hash there is a SQL
-comment and not a heading, and levels cap at six since Markdown has no h7 and
-a bare run of hashes would render as literal text. A report that is no longer
-on disk, is larger than 2 MB, or was produced only as .docx is named in place
-rather than embedded, so its absence is visible instead of silent. The
-previous five-argument render still compiles: the map is an overload, not a
-signature change.
+download=1 is opt-in, so the JSON contract is untouched for the Operations
+bulk endpoint, which still needs {ok:true} to count how many feeds succeeded.
 
-4. A .md file opened in the viewer now shows two tabs and starts on Preview,
-with Source one click away for the raw text. The renderer handles headings,
-paragraphs, fenced code blocks with their language, pipe tables including the
-escaped-pipe form our generators emit, bullet and numbered lists, blockquotes,
-horizontal rules, and inline bold, italic, code and links. That is what the
-audit report and the sqlreport report exist for - a reconciliation table read
-as raw pipes is the one thing it was never written to be.
+Errors remain JSON with a 200 status - a 4xx body would be replaced by the IIS
+error page, as this deployment has already demonstrated twice - so the client
+branches on the content type rather than on the status, and reports the reason
+instead of saving an error page to disk under a .docx name.
+URL.revokeObjectURL runs on a timer rather than immediately, because revoking
+straight away can cancel the download in some browsers.
 
-The renderer escapes everything first and only then adds markup. That is not a
-theoretical precaution here: these reports carry values taken straight out of
-a database, so a stray angle bracket or tag in a column must never become part
-of the page it is being read in. Links are kept only when they point at http,
-https or a relative target; a javascript: link loses the link and keeps the
-label.
+Verified with jsdom by driving the real handler against stubbed responses, 14
+assertions passing. The happy path issues exactly one POST carrying both
+download=1 and the requested format, triggers a download named from the server
+header, revokes the object URL afterwards and shows no alert. A JSON error is
+reported with its reason and saves nothing. A non-2xx proxy response is
+reported and saves nothing. A missing X-Report-File header falls back to a
+sane name rather than downloading something unnamed. Brace and paren balance
+is 0/0 on ApiController, node --check passes on runs.html with zero literal
+newline/CR escape sequences.
 
-Verified by execution rather than inspection. demoteHeadings and the embedding
-were compiled with -source 8 and exercised by 20 assertions: heading demotion
-at every level with the cap at six, a hash without a space not being a
-heading, a hash inside a fenced block left untouched, line count preserved,
-the embedded report landing under RERCON and not under EXTRACT, its result
-table and its SQL surviving verbatim, a blank report being skipped rather than
-printed empty, and the old five-argument call still working. The Markdown
-renderer was exercised with jsdom by 35 assertions covering escaping first - a
-script tag cannot survive and a javascript: link is dropped while its label is
-kept - fenced code never being interpreted, tables including the escaped pipe
-and a pipe line that is not a table, lists not swallowing each other, and the
-output parsing to the expected DOM with no script nodes anywhere.
-
-One defect was caught by the escape scan before delivery: a literal /\r/ regex
-had slipped into the renderer. The corporate proxy rewrites those, so it was
-replaced with String.fromCharCode(13). The rule applies to regular expressions
-too, not only to string literals.
-
-Brace and paren balance is 0/0 on both Java files, node --check passes on
-viewer.js, and every CSS variable used by the new preview stylesheet resolves
-in both themes.
-
-NOT verified: mvn clean package, and how the preview and the embedded report
-look on screen. Generate one audit report for a feed that has an sqlreport
-step and open it in the viewer - that exercises both halves of this batch at
-once.
-
-This closes the list: 1, 2, 3.1, 3.2, 3.3, 4, 5 and 6 are all delivered.
+NOT verified: mvn clean package, and the download itself in the browser -
+which is the only thing that settles it. Click the .docx button on a
+successful run and check that Word opens what arrives.

@@ -1382,3 +1382,20 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   renderer with jsdom (35 assertions, including that a `<script>` cannot survive and that the output
   parses to the expected DOM). * A literal `/\r/` regex slipped into the renderer and was caught by
   the escape scan — replaced with `String.fromCharCode(13)`. The proxy rule applies to regexes too.
+
+## Audit report buttons download the file directly
+* The per-run buttons previously wrote the file and showed its path in an alert, leaving the operator
+  to go and find it. `POST /api/runs/{feedId}/{runId}/audit-report` now takes `download=1` and returns
+  the bytes with `Content-Disposition` and an `X-Report-File` header; the client turns them into a
+  blob and clicks a hidden anchor. * **One request, not two**: the report is still written under
+  `_logs/runs/{runId}/` (it is evidence and belongs there) AND returned in the same response. A second
+  GET would have to re-derive the file name and could race with a re-run. * `download=1` is opt-in, so
+  the JSON contract is unchanged for the Operations bulk endpoint, which still needs `{ok:true}` to
+  count successes. * Errors stay **JSON with 200** — a 4xx body would be replaced by the IIS error
+  page — so the client branches on the content type, not on the status. * `URL.revokeObjectURL` runs
+  on a timer rather than immediately: revoking straight away can cancel the download in some browsers.
+  * Verified with jsdom by driving the real handler with stubbed responses: the happy path issues one
+  POST carrying `download=1` and the format, triggers a download named from the server header, revokes
+  the object URL and shows no alert; a JSON error is reported and saves nothing; a non-2xx proxy
+  response is reported and saves nothing (rather than writing an HTML error page to disk as a .docx);
+  and a missing header falls back to a sane name.

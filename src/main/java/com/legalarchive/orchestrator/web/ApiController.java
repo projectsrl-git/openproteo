@@ -8,6 +8,7 @@ import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -1294,16 +1295,36 @@ public class ApiController {
 
     /** 3.1 - report for one specific run, from the run-history page. */
     @PostMapping("/api/runs/{feedId}/{runId}/audit-report")
-    public ResponseEntity<Map<String, Object>> auditReport(@PathVariable String feedId, @PathVariable String runId,
-                                                           @RequestParam(defaultValue = "md") String format,
-                                                           HttpServletRequest req) {
+    public ResponseEntity<?> auditReport(@PathVariable String feedId, @PathVariable String runId,
+                                         @RequestParam(defaultValue = "md") String format,
+                                         @RequestParam(defaultValue = "false") boolean download,
+                                         HttpServletRequest req) {
         Map<String, Object> out = new LinkedHashMap<String, Object>();
         String[] name = new String[1];
         String err = writeAuditReport(feedId, runId, user(req), format, name);
         if (err != null) return badRequest(out, err);
-        out.put("ok", true);
-        out.put("file", "_logs/runs/" + runId + "/" + name[0]);
-        return ResponseEntity.ok(out);
+        if (!download) {
+            out.put("ok", true);
+            out.put("file", "_logs/runs/" + runId + "/" + name[0]);
+            return ResponseEntity.ok(out);
+        }
+        // download=1: the report is still written next to the run's logs - it is evidence and belongs
+        // there - and the same bytes come back in the response, so one click both files it and hands
+        // it over. A second GET would have to re-derive the name and could race with a re-run.
+        FeedLayout layout = registry.layout(feedId);
+        try {
+            Path f = layout.logsDir.resolve("runs").resolve(runId).resolve(name[0]);
+            byte[] body = Files.readAllBytes(f);
+            HttpHeaders h = new HttpHeaders();
+            h.setContentType("docx".equalsIgnoreCase(format)
+                    ? MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                    : MediaType.parseMediaType("text/markdown; charset=UTF-8"));
+            h.set("Content-Disposition", "attachment; filename=\"" + name[0] + "\"");
+            h.set("X-Report-File", name[0]);
+            return new ResponseEntity<byte[]>(body, h, HttpStatus.OK);
+        } catch (Exception e) {
+            return badRequest(out, "the report was written but could not be read back: " + e.getMessage());
+        }
     }
 
     /** 3.2 - report for the LAST run of one feed, driven by the Operations multi-select bar. */

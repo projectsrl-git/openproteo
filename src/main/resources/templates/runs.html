@@ -48,14 +48,32 @@
     /* Writes the per-run audit report. Offered only on a SUCCESS run: a failed run's evidence is its
        log and its audit trail, and calling a document for it a "report" invites it being read as a
        delivery record. */
+    /* One click writes the report next to the run's logs AND hands it over. download=1 makes the
+       same request return the bytes, so there is no second round trip that would have to re-derive
+       the file name. An error still comes back as JSON, so the content type decides which it is -
+       and note this is a 200 either way: a 4xx body would be replaced by the IIS error page. */
     function auditReport(rid, fmt){
-        fetch(CTX+'api/runs/'+encodeURIComponent(FEED_ID)+'/'+encodeURIComponent(rid)+'/audit-report?format='+encodeURIComponent(fmt||'md'),{method:'POST'})
-            .then(function(r){ return r.json().catch(function(){ return {ok:false,error:'HTTP '+r.status}; }); })
-            .then(function(j){
-                if(j&&j.ok) opAlert('Audit report written to '+j.file);
-                else opAlert('Report not created. '+((j&&j.error)||'Unknown error'));
-            })
-            .catch(function(e){ opAlert('Report not created: '+e); });
+        var url=CTX+'api/runs/'+encodeURIComponent(FEED_ID)+'/'+encodeURIComponent(rid)
+               +'/audit-report?download=1&format='+encodeURIComponent(fmt||'md');
+        fetch(url,{method:'POST'}).then(function(r){
+            var ct=r.headers.get('content-type')||'';
+            if(ct.indexOf('application/json')>=0){
+                return r.json().then(function(j){ opAlert('Report not created. '+((j&&j.error)||'Unknown error')); });
+            }
+            if(!r.ok){ opAlert('Report not created (HTTP '+r.status+').'); return; }
+            var name=r.headers.get('X-Report-File')||('audit_report.'+(fmt==='docx'?'docx':'md'));
+            return r.blob().then(function(b){ saveBlob(b, name); });
+        }).catch(function(e){ opAlert('Report not created: '+e); });
+    }
+    function saveBlob(blob, name){
+        var u=URL.createObjectURL(blob);
+        var a=document.createElement('a');
+        a.href=u; a.download=name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        // revoked on a timer: revoking immediately can cancel the download in some browsers
+        setTimeout(function(){ URL.revokeObjectURL(u); }, 20000);
     }
 
     function buildTree(){
@@ -97,8 +115,8 @@
                 h+='<details class="run-node" data-rid="'+esch(rid)+'"'+(open[rid]?' open':'')+'><summary><span class="chip '+esch(stClass)+'">'+esch(r.status||'?')+'</span> <span class="mono">'+esch(rid)+'</span>'+
                    (r.start?(' <span class="dim small">'+esch(r.start)+'</span>'):'')+
                    ' <a class="btn sm" href="'+CTX+'run/'+encodeURIComponent(FEED_ID)+'/'+encodeURIComponent(rid)+'">open ▷</a>'+
-                   ((r.status==='SUCCESS' && rid.indexOf('_test_')<0) ? ' <button class="btn sm" onclick="event.preventDefault();event.stopPropagation();auditReport(\''+esch(rid)+'\',\'md\')" title="Write the audit report as Markdown under _logs/runs/'+esch(rid)+'/">⎘ audit report .md</button>'
-                     + ' <button class="btn sm" onclick="event.preventDefault();event.stopPropagation();auditReport(\''+esch(rid)+'\',\'docx\')" title="Write the same audit report as a Word document">⎘ .docx</button>' : '')+
+                   ((r.status==='SUCCESS' && rid.indexOf('_test_')<0) ? ' <button class="btn sm" onclick="event.preventDefault();event.stopPropagation();auditReport(\''+esch(rid)+'\',\'md\')" title="Create the audit report (Markdown) and download it; a copy stays under _logs/runs/'+esch(rid)+'/">⎘ audit report .md</button>'
+                     + ' <button class="btn sm" onclick="event.preventDefault();event.stopPropagation();auditReport(\''+esch(rid)+'\',\'docx\')" title="Create the same audit report as a Word document and download it">⎘ .docx</button>' : '')+
                    ' <button class="btn sm danger" data-del-run="'+esch(rid)+'">🗑 Delete</button></summary><div class="run-body">';
                 r.events.forEach(function(e){
                     if(e.event==='STEP_OUTPUT_VAR') return;
