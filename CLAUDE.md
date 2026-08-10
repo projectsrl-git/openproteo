@@ -1442,3 +1442,14 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   JDK here it printed `2026/08/222` instead of throwing. The deployment is Java 8. The mechanism is
   asserted explicitly with `appendValue(DAY_OF_YEAR, 2)`, which reproduces the exact message. Worth
   remembering: a sandbox on a newer JDK hides Java 8 formatting behaviour.
+
+## FIX: stale text said the bulk add/remove "is not available yet"
+* Reported: the Remove button could not be found. The code was on main and correct; the SECTION's
+  intro text was still the one written for the read-only batch and ended with "Adding a missing step
+  to the other feeds is a separate action, not available yet." Two later batches added the actions
+  and neither updated that sentence, so the page was telling the operator the feature did not exist.
+  * Lesson: when a batch turns a read-only view into an actionable one, the prose that explains WHY it
+  is read-only is part of the change, not decoration. Grep the section text, not just the handlers.
+  * Also corrected: the empty state now says the buttons appear only for a step some feeds have and
+  others do not (so "nothing here" is explained rather than looking broken), and the executor-conflict
+  note now says the step can be neither added NOR removed, instead of mentioning only adding.

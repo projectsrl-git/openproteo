@@ -407,9 +407,9 @@
         ph.textContent='Steps missing from some feeds ('+partialIds.length+')';
         var pbd=el('div','vbody',psec);
         if(!partialIds.length){
-            el('div','dim small',pbd).textContent='Every step id in this selection is present in all '+feeds.length+' feeds.';
+            el('div','dim small',pbd).textContent='Every step id in this selection is present in all '+feeds.length+' feeds, so there is nothing to add or remove. The \uff0b Add / \u2715 Remove buttons appear here only for a step that some of the selected feeds have and others do not.';
         } else {
-            el('div','dim small',pbd).textContent='These step ids exist in only part of the selection. They are shown read-only: editing them here would apply to a subset without saying so. Adding a missing step to the other feeds is a separate action, not available yet.';
+            el('div','dim small',pbd).textContent='These step ids exist in only part of the selection, so their values are not editable here \u2014 an edit would apply to a subset without saying so. What you CAN do per step is make the selection uniform: \uff0b Add to the feeds that lack it, or \u2715 Remove from the feeds that have it. Both buttons are at the bottom of each step below.';
         }
         var LFC=String.fromCharCode(10);
         var commonSet={}; commonSteps.forEach(function(x){ commonSet[x]=1; });
@@ -440,7 +440,7 @@
             miss.title='Missing from:'+LFC+missing.join(LFC);
 
             if(conflict){
-                el('div','dim small',gb).textContent='Read-only: resolve the executor difference in the designer before this step can be added anywhere.';
+                el('div','dim small',gb).textContent='Read-only: this id uses a different executor depending on the feed, so it can be neither added nor removed in bulk \u2014 the same fields do not mean the same thing everywhere. Resolve the difference in the designer first.';
                 commonFieldKeys(arr).forEach(function(fk){
                     var vals=arr.map(function(st){ return st.fields[fk]; });
                     var allEq=vals.every(function(x){ return x===vals[0]; });

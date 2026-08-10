@@ -1,74 +1,35 @@
-Fix: the date mask is not a java.time pattern (validate step died)
+Fix: the page said the bulk add/remove was "not available yet"
 
-Reported from the field: after enabling the new "business date not in the
-future" check, the whole validate step failed with "Field DayOfYear cannot be
-printed as the value 222 exceeds the maximum print width of 2", and the checks
-that had not run yet were left pending.
+Reported from the field: the "Remove from N feeds" button could not be found.
+The code was on main and correct - the button renders for every
+non-conflicting partial step - but the section's introductory text was still
+the one written when that section was read-only, and it ended with "Adding a
+missing step to the other feeds is a separate action, not available yet."
 
-The root cause is wider than the new check. dateFormat in this product is a
-MASK - YYYY/MM/DD, the same shape the sql executor takes - and fmtToRegex has
-always read it as year, month and day of month. But both business-date bound
-checks fed that mask straight to DateTimeFormatter.ofPattern, where DD is the
-day of the YEAR and YYYY is the week-based year. The two dialects disagree on
-exactly the letters that matter.
+Two later batches added first the add action and then the remove action, and
+neither updated that sentence. The page was therefore telling the operator, in
+the very place they would look, that the feature did not exist.
 
-So the pre-existing businessDateNotBefore check has never been able to parse a
-date with this mask either: parsing 2026/08/10 with YYYY/MM/DD throws on every
-JDK, and that failure was being swallowed by the row-level catch, which is why
-nobody noticed. The new check formatted a date before parsing any - to build
-the cosmetic label "today (…)" - and formatting is what threw, outside any
-catch, taking the step with it.
+The intro now says what can actually be done and where the buttons are. Two
+related pieces of text were stale in the same way and are corrected too: the
+empty state now explains that the buttons appear only for a step that some of
+the selected feeds have and others do not, so "nothing here" reads as an
+explanation rather than as something broken; and the executor-conflict note
+now says such a step can be neither added nor removed in bulk, instead of
+mentioning only the addition.
 
-The fix is a new fmtToJavaPattern that translates the mask into a real
-java.time pattern. It matters that the mask is a per-feed VALUE, and usually a
-workflow variable such as ${recordBusinessDateFormat}: it is already resolved
-by the time the executor sees it, since executors receive resolvedParams, but
-nothing guarantees every feed writes the same dialect. The translator
-therefore rewrites only Y to u and D to d - the two letters where the dialects
-genuinely disagree, and which nobody writes meaning to ask for a week-based
-year - and passes through every other valid java.time letter. A feed that
-already writes yyyy-MM-dd therefore keeps working exactly as it did, which it
-must, since that form used to reach ofPattern intact. Letters are consumed in
-runs, so MMM stays a month name instead of being split into MM plus a stray
-literal; quoted sections are preserved; and any other letter is quoted so that
-the T in a mask like YYYY-MM-DDTHH:mm cannot be mistaken for a pattern letter.
+No behaviour changes: this is entirely the text that explains the behaviour.
 
-maskFormatter never throws and returns null instead, and maskFormat falls back
-to ISO: a cosmetic label must never be able to fail a step, which is the
-second half of what went wrong here. A mask that still contains ${ is reported
-as an undefined variable rather than as a bad format, because that is a
-different problem needing a different fix. Both bound checks now use all of
-this, so the older one starts working as well.
+The lesson worth keeping is that when a batch turns a read-only view into an
+actionable one, the prose explaining WHY it was read-only is part of the
+change rather than decoration, and the section text needs grepping as much as
+the handlers do.
 
-Nothing changes for the author: keep writing the mask exactly as before.
+Verified: node --check passes on variables.html with zero literal newline/CR
+escape sequences and no Thymeleaf inlining markers.
 
-One thing to record about the verification. This sandbox could NOT reproduce
-the crash: ofPattern("DD") builds a fixed-width field on Java 8 but an
-adaptive one from JDK 9 onwards, so on the JDK available here the same call
-prints 2026/08/222 quite happily. The deployment is Java 8, where it throws.
-The mechanism is therefore asserted explicitly with appendValue(DAY_OF_YEAR,
-2), which reproduces the reported message word for word, and the parse failure
-- which does reproduce on every JDK - is asserted directly. A sandbox on a
-newer JDK hides Java 8 formatting behaviour, which is worth remembering.
-
-Verified with 58 assertions compiled with -source 8, run across every mask
-dialect a feed might carry. The old reading is shown to fail both when parsing
-and, through an explicit fixed-width day-of-year field, when printing. The
-mask dialect translates correctly for YYYY/MM/DD, YYYYMMDD, DD/MM/YYYY,
-DD-MM-YY and a mask carrying time parts, and all of those parse back to the
-same day. A feed already writing yyyy-MM-dd, dd/MM/yyyy or uuuu-MM-dd is
-passed through untouched and still parses. MMM and MMMM survive as month names
-rather than being split, a single D is still a day of month, a stray letter is
-quoted and an already-quoted section is preserved. Nine masks including a
-nonsense one, an empty one and an unresolved ${recordBusinessDateFormat} each
-produce a label without throwing, which is the property that actually keeps
-the step alive. An unresolved variable is diagnosed as such while a genuinely
-malformed mask is not. And the comparison the check makes is checked directly:
-tomorrow fails, today itself passes because the bound is inclusive, yesterday
-passes, and an impossible month is still rejected.
-
-Brace and paren balance is 0/0 on InternalSteps.
-
-NOT verified: mvn clean package, and the step on the real feed - which is the
-only place the Java 8 behaviour exists. Re-run tf0003868 and the nine checks
-should complete instead of stopping at two.
+NOT verified: mvn clean package. If the button is still not visible after
+this, the remaining explanations are that the selection has no partial step at
+all - every id present in every selected feed - or that the step in question
+has a different executor across feeds, in which case it is deliberately
+read-only and now says so.
