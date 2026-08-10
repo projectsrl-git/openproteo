@@ -2195,6 +2195,21 @@ public class ApiController {
             w.put("targetDescription", dto.targetDescription == null ? "" : dto.targetDescription);
             w.put("tags", (dto.tags == null || dto.tags.isEmpty()) ? "" : String.join(", ", dto.tags));
             w.put("production", dto.production);
+            // Last status, so the Variables page can narrow a selection the same way Operations does.
+            // Read live rather than cached: this catalog is loaded once when the page opens, not polled,
+            // so there is nothing to amortise and a stale status here would be a filter that lies.
+            String lastStatus = "";
+            try {
+                FeedLayout lay = registry.layout(dto.feedId);
+                if (lay != null) {
+                    for (WorkflowRun r : store.list(lay, 5)) {
+                        if (r == null || r.runId == null || r.runId.contains("_test_")) continue;
+                        lastStatus = (r.status == null) ? "" : r.status.name();
+                        break;                                   // list() is newest first
+                    }
+                }
+            } catch (Exception ignored) { /* a feed whose history cannot be read simply has no status */ }
+            w.put("lastStatus", lastStatus);
             StringBuilder odb = new StringBuilder();
             if (dto.outputData != null) for (WorkflowDto.KV kv : dto.outputData) { if (kv.name == null || kv.name.trim().isEmpty()) continue; odb.append(kv.name.trim()).append(" = ").append(kv.value == null ? "" : kv.value).append("\n"); }
             w.put("outputData", odb.toString());

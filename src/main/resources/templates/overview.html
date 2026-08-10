@@ -113,6 +113,9 @@
         var k=drillSort.key, dir=(drillSort.dir==='asc'?1:-1);
         var va=a[k]||'', vb=b[k]||'';
         if(va===vb) return String(a.feedId||'').localeCompare(String(b.feedId||''));   // stable tie-break
+        // feedId is a NAME: it compares with localeCompare, and a blank one is not "unknown". The
+        // never-run-goes-last rule below belongs to the timestamp columns, where blank means never.
+        if(k==='feedId') return String(va).localeCompare(String(vb)) * dir;
         if(!va) return 1;                                                              // never run / never succeeded: always last
         if(!vb) return -1;
         return va<vb ? -dir : dir;                                                     // timestamps sort as text (yyyy-MM-dd HH:mm:ss)
@@ -123,7 +126,9 @@
     }
     function drillSetSort(k){
         if(drillSort.key===k) drillSort.dir = (drillSort.dir==='asc' ? 'desc' : 'asc');
-        else drillSort = { key:k, dir:'desc' };                                        // a new column starts newest first
+        // a new TIMESTAMP column starts newest first; a name starts A-Z, which is what anyone
+        // clicking a Feed header is asking for
+        else drillSort = { key:k, dir:(k==='feedId' ? 'asc' : 'desc') };
         renderDrill();
     }
 
@@ -301,7 +306,7 @@
         function isNumList(v){ if(v==null) return null; v=String(v); if(v.indexOf(';')<0) return null; var parts=v.split(';'), vals=[], sum=0, cnt=0, allNum=true; for(var i=0;i<parts.length;i++){ var t=parts[i].trim(); if(t==='') continue; cnt++; vals.push(t); if(/^-?[0-9]+$/.test(t)) sum+=parseInt(t,10); else allNum=false; } if(cnt<2) return null; return { vals:vals, sum:sum, cnt:cnt, allNum:allNum }; }
         function odItemsHtml(od){ var s=''; for(var i=0;i<od.length;i++){ var o=od[i], lbl=esc(o.label), val=(o.value==null?'':String(o.value)); var lst=isNumList(val); if(lst){ var body=''; for(var j=0;j<lst.vals.length;j++) body += '<div class="mono small">' + esc(lst.vals[j]) + '</div>'; s += '<div class="small" style="margin-top:2px"><span class="dim">' + lbl + '</span>' + (lst.allNum ? ' <span class="mono" style="color:var(--accent)">\u03A3 ' + esc(fmtNum(lst.sum)) + '</span>' : '') + ' <span class="dim">(' + lst.cnt + ' value' + (lst.cnt!==1?'s':'') + ')</span><div style="max-height:130px;overflow:auto;padding-left:10px;border-left:2px solid var(--line);margin-top:2px">' + body + '</div></div>'; } else { s += '<div class="small"><span class="dim">' + lbl + ' =</span> <span class="mono">' + esc(val) + '</span></div>'; } } return s; }
         function odCell(f){ var runs=f.runsOutputData; if(runs && runs.length){ var s=''; for(var i=0;i<runs.length;i++){ var r=runs[i]; s += '<div class="small" style="margin-bottom:5px"><span class="dim mono">' + esc(r.runTs||'') + '</span> <span class="dim">[' + esc(r.status||'') + ']</span>' + odItemsHtml(r.outputData||[]) + '</div>'; } return s; } if(!f.outputData || !f.outputData.length) return '<span class="dim small">\u2014</span>'; return odItemsHtml(f.outputData); }
-        var h = '<table class="grid"><thead><tr><th style="width:1%"><input type="checkbox" id="drillSelAll" onclick="drillToggleAll(this)" title="select all"></th><th>Feed</th><th>Source</th><th>Target</th><th class="sortable" onclick="drillSetSort(\'lastRunTs\')" title="sort by last run">Last run' + drillSortArrow('lastRunTs') + '</th><th class="sortable" onclick="drillSetSort(\'lastSuccessTs\')" title="sort by last success">Last success' + drillSortArrow('lastSuccessTs') + '</th><th>Output data</th><th></th></tr></thead><tbody>';
+        var h = '<table class="grid"><thead><tr><th style="width:1%"><input type="checkbox" id="drillSelAll" onclick="drillToggleAll(this)" title="select all"></th><th class="sortable" onclick="drillSetSort(\'feedId\')" title="sort by feed id">Feed' + drillSortArrow('feedId') + '</th><th>Source</th><th>Target</th><th class="sortable" onclick="drillSetSort(\'lastRunTs\')" title="sort by last run">Last run' + drillSortArrow('lastRunTs') + '</th><th class="sortable" onclick="drillSetSort(\'lastSuccessTs\')" title="sort by last success">Last success' + drillSortArrow('lastSuccessTs') + '</th><th>Output data</th><th></th></tr></thead><tbody>';
         for (var i=0;i<list.length;i++){
             var f = list[i];
             h += '<tr>' +

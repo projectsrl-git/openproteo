@@ -1,35 +1,55 @@
-Fix: the page said the bulk add/remove was "not available yet"
+Sort Operations by feed id; search and status filter in Variables
 
-Reported from the field: the "Remove from N feeds" button could not be found.
-The code was on main and correct - the button renders for every
-non-conflicting partial step - but the section's introductory text was still
-the one written when that section was read-only, and it ended with "Adding a
-missing step to the other feeds is a separate action, not available yet."
+Three requests.
 
-Two later batches added first the add action and then the remove action, and
-neither updated that sentence. The page was therefore telling the operator, in
-the very place they would look, that the feature did not exist.
+Operations. The Feed column header is now sortable. drillCmp gains a feedId
+branch that compares with localeCompare, because a name is not a timestamp:
+the rule immediately below it, which sends a blank value to the bottom, means
+NEVER RUN and belongs only to the timestamp columns. A feed that has never run
+must not be pushed to the end of an alphabetical list. A newly clicked column
+still starts descending, newest first, except feedId which starts ascending -
+that is what clicking a name header is asking for.
 
-The intro now says what can actually be done and where the buttons are. Two
-related pieces of text were stale in the same way and are corrected too: the
-empty state now explains that the buttons appear only for a step that some of
-the selected feeds have and others do not, so "nothing here" reads as an
-explanation rather than as something broken; and the executor-conflict note
-now says such a step can be neither added nor removed in bulk, instead of
-mentioning only the addition.
+Variables, status. A Last status picker now sits alongside Source, Target and
+Feed and narrows them exactly as they narrow each other. It offers the status
+of each feed's most recent real run, the same one Operations shows, with
+"(never run)" as a value of its own so a feed that has never executed can be
+selected as such. lastStatus was added to the var-catalog endpoint and is read
+live rather than from the feeds cache: that catalog is loaded once when the
+page opens and is not polled, so there is nothing to amortise and a stale
+status would be a filter that lies about what it is filtering.
 
-No behaviour changes: this is entirely the text that explains the behaviour.
+Variables, search. A search box above the Feed list narrows what the list
+shows, matching the feed id, its name, its source and target ids and
+descriptions, its tags and its status. It deliberately never changes the
+selection: a feed already picked stays in the list even when it stops matching
+the text. Without that, typing would quietly remove feeds from a selection the
+operator had already made, which on this page means changing which feeds a
+subsequent save touches. Clear selection empties the search box as well.
 
-The lesson worth keeping is that when a batch turns a read-only view into an
-actionable one, the prose explaining WHY it was read-only is part of the
-change rather than decoration, and the section text needs grepping as much as
-the handlers do.
+Verified with jsdom against both real pages. The Variables pickers, 17
+assertions: the status picker offers every distinct status including
+never-run, one status narrows the selection and two behave as a union, a
+never-run feed is selectable, and status narrows the Source and Feed lists
+like the existing filters; the search matches the name, the id, a source
+description, a tag and the status case-insensitively; a selected feed stays
+listed while searching for something else and the selection itself is
+unchanged; and Clear resets the box and restores every feed. The Operations
+comparator, 10 assertions: a first click on Feed sorts A to Z rather than
+newest-first, both directions are correct, a never-run feed is not pushed to
+the bottom of an alphabetical sort, the timestamp columns keep their own
+behaviour in both directions with never-run still last, and the arrow follows
+the active column.
 
-Verified: node --check passes on variables.html with zero literal newline/CR
-escape sequences and no Thymeleaf inlining markers.
+That jsdom run earned its keep: a python edit block asserted its way out
+before writing the file, so two of the three Operations edits had been
+silently discarded and only the header markup survived. The test failed on the
+default sort direction, which is how it was noticed.
 
-NOT verified: mvn clean package. If the button is still not visible after
-this, the remaining explanations are that the selection has no partial step at
-all - every id present in every selected feed - or that the step in question
-has a different executor across feeds, in which case it is deliberately
-read-only and now says so.
+Brace and paren balance is 0/0 on ApiController; node --check passes on both
+templates with zero literal newline/CR escape sequences and no Thymeleaf
+inlining markers.
+
+NOT verified: mvn clean package, and both pages in a browser. The status
+filter is the one to sanity-check first, since it is the only part that
+depends on new server data.

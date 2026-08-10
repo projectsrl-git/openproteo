@@ -1453,3 +1453,20 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   * Also corrected: the empty state now says the buttons appear only for a step some feeds have and
   others do not (so "nothing here" is explained rather than looking broken), and the executor-conflict
   note now says the step can be neither added NOR removed, instead of mentioning only adding.
+
+## Operations: sort by feed id; Variables: search + status picker
+* **Operations**: the Feed column header is now sortable. `drillCmp` gains a `feedId` branch using
+  `localeCompare` — a name is not a timestamp, and the "blank goes last" rule below it means NEVER RUN
+  and belongs only to the timestamp columns; a feed with no runs must not be pushed to the bottom of
+  an alphabetical list. A new column starts `desc` (newest first) except `feedId`, which starts `asc`,
+  because that is what clicking a name header asks for. * **Variables**: a **Last status** picker
+  alongside Source/Target/Feed, narrowing the others exactly as they do, with `(never run)` as a
+  selectable value. `lastStatus` added to `/api/var-catalog`, read LIVE rather than from the feeds
+  cache — that catalog is loaded once when the page opens, not polled, so there is nothing to
+  amortise and a stale status would be a filter that lies. * **Variables**: a search box over the Feed
+  list matching id, name, source/target ids and descriptions, tags and status. It narrows what the
+  list SHOWS and never touches the selection: a feed already selected stays visible even when it stops
+  matching, otherwise typing would silently drop it from the selection. Clear selection resets it too.
+  * A python edit block asserted its way out before the file write, so two of the three overview edits
+  were silently lost; the jsdom test caught it. Assert-then-write means a later failed assert discards
+  the earlier applied edits — worth splitting writes per edit.

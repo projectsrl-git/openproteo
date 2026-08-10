@@ -72,7 +72,7 @@
 
     <!-- ===================== per-feed / common ===================== -->
     <h2 style="margin-top:26px">Workflow variables</h2>
-    <p class="page-sub">Pick workflows with the three filters below (multi-select, they narrow each other). Select a
+    <p class="page-sub">Pick workflows with the filters below (multi-select, they narrow each other). The search box above the Feed list narrows what that list shows — it never changes what is selected, so a feed you have already picked stays visible. Select a
         single workflow to edit all its variables and step parameters; select several to edit only the variables they
         have in common.</p>
     <div class="panel">
@@ -86,7 +86,13 @@
                 <select id="selTarget" multiple onchange="onSel()"></select>
             </div>
             <div class="field">
+                <label>Last status <span class="rolabel">(as in Operations)</span></label>
+                <select id="selStatus" multiple onchange="onSel()"></select>
+            </div>
+            <div class="field">
                 <label>Feed <span class="rolabel">(feedId — name)</span></label>
+                <input type="text" id="feedSearch" placeholder="&#128269; search feed id, name, source, target, tags&hellip;"
+                       oninput="onFeedSearch()" style="margin-bottom:4px">
                 <select id="selFeed" multiple onchange="onSel()"></select>
             </div>
         </div>
@@ -116,7 +122,8 @@
     function readJson(r){ var ct=r.headers.get('content-type')||''; if(ct.indexOf('application/json')<0){ return r.text().then(function(t){ return { ok:false, error:(t&&t.length<300)?t:('HTTP '+r.status) }; }); } return r.json(); }
 
     var CATALOG = { globals:{file:{},props:{},filePath:''}, workflows:[] };
-    var selSrc={}, selTgt={}, selFeed={};
+    var selSrc={}, selTgt={}, selFeed={}, selSt={};
+    var feedQuery='';
 
     // ---------------- load ----------------
     function load(){
@@ -162,10 +169,11 @@
     }
 
     // ---------------- selectors (cascading) ----------------
-    function matches(wf, useSrc, useTgt, useFeed){
+    function matches(wf, useSrc, useTgt, useFeed, useSt){
         if(useSrc && Object.keys(selSrc).length && !selSrc[wf.sourceId]) return false;
         if(useTgt && Object.keys(selTgt).length && !selTgt[wf.targetId]) return false;
         if(useFeed && Object.keys(selFeed).length && !selFeed[wf.feedId]) return false;
+        if(useSt && Object.keys(selSt).length && !selSt[wf.lastStatus||'(never run)']) return false;
         return true;
     }
     function fillSelect(sel, items, chosen){
@@ -179,11 +187,12 @@
     function distinct(kind){
         var map={}; var order=[];
         CATALOG.workflows.forEach(function(wf){
-            var useSrc=(kind!=='source'), useTgt=(kind!=='target'), useFeed=(kind!=='feed');
-            if(!matches(wf,useSrc,useTgt,useFeed)) return;
+            var useSrc=(kind!=='source'), useTgt=(kind!=='target'), useFeed=(kind!=='feed'), useSt=(kind!=='status');
+            if(!matches(wf,useSrc,useTgt,useFeed,useSt)) return;
             var val,label;
             if(kind==='source'){ val=wf.sourceId; label=(val||'(none)')+(wf.sourceDescription?(' — '+wf.sourceDescription):''); }
             else if(kind==='target'){ val=wf.targetId; label=(val||'(none)')+(wf.targetDescription?(' — '+wf.targetDescription):''); }
+            else if(kind==='status'){ val=wf.lastStatus||'(never run)'; label=val; }
             else { val=wf.feedId; label=val+(wf.name?(' — '+wf.name):''); }
             if(!(val in map)){ map[val]=label; order.push(val); }
         });
@@ -192,16 +201,43 @@
     function populateAll(){
         fillSelect(document.getElementById('selSource'), distinct('source'), selSrc);
         fillSelect(document.getElementById('selTarget'), distinct('target'), selTgt);
-        fillSelect(document.getElementById('selFeed'), distinct('feed'), selFeed);
+        fillSelect(document.getElementById('selStatus'), distinct('status'), selSt);
+        // the search box narrows what the Feed list SHOWS, it does not select anything: a feed
+        // already selected stays in the list even when it no longer matches the text, otherwise
+        // typing would silently drop it from the selection
+        var items=distinct('feed').filter(function(it){ return feedMatchesQuery(it.value) || selFeed[it.value]; });
+        fillSelect(document.getElementById('selFeed'), items, selFeed);
+        var fs=document.getElementById('feedSearch');
+        if(fs) fs.title = feedQuery ? (items.length + ' of ' + distinct('feed').length + ' feeds shown') : '';
+    }
+    /** Matches the feed id, its name, its source and target ids and descriptions, and its tags. */
+    function feedMatchesQuery(feedId){
+        if(!feedQuery) return true;
+        for(var i=0;i<CATALOG.workflows.length;i++){
+            var w=CATALOG.workflows[i];
+            if(w.feedId!==feedId) continue;
+            var hay=[w.feedId,w.name,w.sourceId,w.targetId,w.sourceDescription,w.targetDescription,w.tags,w.lastStatus]
+                    .join(' ').toLowerCase();
+            return hay.indexOf(feedQuery)>=0;
+        }
+        return false;
+    }
+    function onFeedSearch(){
+        feedQuery=(document.getElementById('feedSearch').value||'').trim().toLowerCase();
+        populateAll();
     }
     function readSel(id){ var s=document.getElementById(id); var m={}; for(var i=0;i<s.options.length;i++){ if(s.options[i].selected) m[s.options[i].value]=true; } return m; }
     function onSel(){
-        selSrc=readSel('selSource'); selTgt=readSel('selTarget'); selFeed=readSel('selFeed');
+        selSrc=readSel('selSource'); selTgt=readSel('selTarget'); selFeed=readSel('selFeed'); selSt=readSel('selStatus');
         populateAll();
         renderEditor();
     }
-    function clearSel(){ selSrc={}; selTgt={}; selFeed={}; populateAll(); renderEditor(); }
-    function effectiveFeeds(){ return CATALOG.workflows.filter(function(wf){ return matches(wf,true,true,true); }); }
+    function clearSel(){
+        selSrc={}; selTgt={}; selFeed={}; selSt={}; feedQuery='';
+        var fs=document.getElementById('feedSearch'); if(fs) fs.value='';
+        populateAll(); renderEditor();
+    }
+    function effectiveFeeds(){ return CATALOG.workflows.filter(function(wf){ return matches(wf,true,true,true,true); }); }
 
     // ---------------- editor ----------------
     function markDirty(inp){ var line=inp.parentNode; line.className=line.className.replace(/\bdirty\b/,'').trim()+' dirty'; inp.setAttribute('data-dirty','1'); }
