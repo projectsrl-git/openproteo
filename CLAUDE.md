@@ -1470,3 +1470,19 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   * A python edit block asserted its way out before the file write, so two of the three overview edits
   were silently lost; the jsdom test caught it. Assert-then-write means a later failed assert discards
   the earlier applied edits — worth splitting writes per edit.
+
+## businessDateNotFuture is now ON for every feed, opt-out per step
+* Requested: apply the check to all feeds, including ones already created and run. The earlier batch
+  deliberately did the opposite — preselected for NEW steps only — and flagged it as his call; he has
+  now made it. * **The checks list could not deliver this.** `checks="..."` is a POSITIVE list, so a
+  workflow whose XML already carries one can never pick up a new id, and rewriting 144 definitions to
+  add one is not a deploy anybody should do. The check is therefore governed by an OPT-OUT param
+  instead: `sel_bizFut = !"false".equals(params.get("businessDateNotFuture"))`. Absent, empty or any
+  other value means ON; only an explicit `false` turns it off. * The designer renders it as its own
+  always-on chip ahead of the others: unticking writes `businessDateNotFuture=false`, ticking removes
+  the param. It was REMOVED from `CHECK_IDS` and from the seeded list for new steps, so the two
+  spellings cannot disagree; a step that still lists the id in `checks="..."` is simply already
+  consistent with the new rule. * Verified with 13 assertions including the one that matters — a step
+  carrying a typical existing `checks="..."` list would NOT have been reached by the old positive-list
+  rule and IS reached by the new one — plus case and whitespace on the opt-out value, and that no
+  value other than `false` can accidentally disable it.

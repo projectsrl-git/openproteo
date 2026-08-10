@@ -1,55 +1,42 @@
-Sort Operations by feed id; search and status filter in Variables
+Business date not in the future: on for every feed, opt-out per step
 
-Three requests.
+Requested: apply the check to all feeds, including ones created and run long
+before it existed. The batch that introduced it deliberately did the opposite
+- preselected for new steps only - and flagged the choice as one to be made
+rather than assumed; this makes it.
 
-Operations. The Feed column header is now sortable. drillCmp gains a feedId
-branch that compares with localeCompare, because a name is not a timestamp:
-the rule immediately below it, which sends a blank value to the bottom, means
-NEVER RUN and belongs only to the timestamp columns. A feed that has never run
-must not be pushed to the end of an alphabetical list. A newly clicked column
-still starts descending, newest first, except feedId which starts ascending -
-that is what clicking a name header is asking for.
+The checks list could not deliver this. checks="..." is a positive list, so a
+workflow whose XML already carries one can never pick up a new id, and
+rewriting every definition to add one is not a deploy anybody should have to
+run. The check is therefore governed by an opt-out parameter instead: it is on
+unless a step carries businessDateNotFuture=false. Absent, empty, or any other
+value means on; only an explicit false turns it off, so no stray value can
+disable it by accident.
 
-Variables, status. A Last status picker now sits alongside Source, Target and
-Feed and narrows them exactly as they narrow each other. It offers the status
-of each feed's most recent real run, the same one Operations shows, with
-"(never run)" as a value of its own so a feed that has never executed can be
-selected as such. lastStatus was added to the var-catalog endpoint and is read
-live rather than from the feeds cache: that catalog is loaded once when the
-page opens and is not polled, so there is nothing to amortise and a stale
-status would be a filter that lies about what it is filtering.
+The designer renders it as its own chip ahead of the other checks, ticked by
+default: unticking writes businessDateNotFuture=false on that step, ticking
+removes the parameter again. It was removed from CHECK_IDS and from the list
+seeded for a new validate step, so the two spellings cannot disagree with each
+other; a step whose XML still lists the id among its checks is simply already
+consistent with the new rule and needs no edit.
 
-Variables, search. A search box above the Feed list narrows what the list
-shows, matching the feed id, its name, its source and target ids and
-descriptions, its tags and its status. It deliberately never changes the
-selection: a feed already picked stays in the list even when it stops matching
-the text. Without that, typing would quietly remove feeds from a selection the
-operator had already made, which on this page means changing which feeds a
-subsequent save touches. Clear selection empties the search box as well.
+The net effect is that the check applies everywhere from the next run, and
+stays de-selectable one step at a time - which is what was asked for
+originally and is still true.
 
-Verified with jsdom against both real pages. The Variables pickers, 17
-assertions: the status picker offers every distinct status including
-never-run, one status narrows the selection and two behave as a union, a
-never-run feed is selectable, and status narrows the Source and Feed lists
-like the existing filters; the search matches the name, the id, a source
-description, a tag and the status case-insensitively; a selected feed stays
-listed while searching for something else and the selection itself is
-unchanged; and Clear resets the box and restores every feed. The Operations
-comparator, 10 assertions: a first click on Feed sorts A to Z rather than
-newest-first, both directions are correct, a never-run feed is not pushed to
-the bottom of an alphabetical sort, the timestamp columns keep their own
-behaviour in both directions with never-run still last, and the arrow follows
-the active column.
+Verified with 13 assertions compiled with -source 8. Every shape of existing
+feed is reached: a step with no params at all, one carrying only the other
+business-date settings, one predating the check entirely. The opt-out works
+and is forgiving about case and surrounding whitespace, an empty value means
+on because that is what ticking the box writes, and neither true nor an
+unrelated value can turn it off. And the assertion that carries the argument:
+a step holding a typical existing checks list would NOT have been selected by
+the old positive-list rule, while the new rule does reach it.
 
-That jsdom run earned its keep: a python edit block asserted its way out
-before writing the file, so two of the three Operations edits had been
-silently discarded and only the header markup survived. The test failed on the
-default sort direction, which is how it was noticed.
+node --check passes on designer.html with zero literal newline/CR escape
+sequences.
 
-Brace and paren balance is 0/0 on ApiController; node --check passes on both
-templates with zero literal newline/CR escape sequences and no Thymeleaf
-inlining markers.
-
-NOT verified: mvn clean package, and both pages in a browser. The status
-filter is the one to sanity-check first, since it is the only part that
-depends on new server data.
+NOT verified: mvn clean package, and a real run. Worth watching the first
+scheduled night after this: any feed whose source genuinely carries
+forward-dated business dates will now fail where it used to pass, and the fix
+for those is Business date max on that step rather than unticking the check.

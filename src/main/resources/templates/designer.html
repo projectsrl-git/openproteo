@@ -417,7 +417,7 @@
     /** structural changes (ids, gate type) need a full re-render of the cards */
     function updNodeR(i, f, v) {
         if (f === 'exec' && v === 'validate' && (!wf.nodes[i].validateChecks || !wf.nodes[i].validateChecks.length)) {
-            wf.nodes[i].validateChecks = ['rowCount','colCount','jsonSchema','noQuotes','colNames','notNull','businessDate','businessDateNotFuture','displayDates'];
+            wf.nodes[i].validateChecks = ['rowCount','colCount','jsonSchema','noQuotes','colNames','notNull','businessDate','displayDates'];
         }
         updNode(i, f, v); renderNodes();
     }
@@ -1005,8 +1005,13 @@
                         '<div class="field wide"><label>dataschema (uploaded JSON path or ${alias})</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'dataschema')) + '" placeholder="${dataschema_json}" oninput="setNodeParam(' + i + ',\'dataschema\',this.value)"></div>' +
                         '<div class="field wide"><label>displayschema (optional, ${alias})</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'displayschema')) + '" placeholder="${displayschema_json}" oninput="setNodeParam(' + i + ',\'displayschema\',this.value)"></div></div>';
                     h += '<div class="subsection"><div class="sub-label">Checks (sub-steps shown in the run with live progress)</div><div class="checklist">';
-                    var CHECK_IDS = ['rowCount', 'colCount', 'jsonSchema', 'noQuotes', 'colNames', 'notNull', 'businessDate', 'businessDateNotFuture', 'displayDates'];
-                    var CHECK_LABELS = { rowCount: 'Row count = expected', colCount: 'Column count consistent', jsonSchema: 'Schema JSON well-formed', noQuotes: 'No double quotes in fields', colNames: 'Column names match dataschema', notNull: 'Non-nullable fields valued', businessDate: 'Business date valued & formatted', businessDateNotFuture: 'Business date not in the future', displayDates: 'Display-schema dates formatted' };
+                    var CHECK_IDS = ['rowCount', 'colCount', 'jsonSchema', 'noQuotes', 'colNames', 'notNull', 'businessDate', 'displayDates'];
+                    var CHECK_LABELS = { rowCount: 'Row count = expected', colCount: 'Column count consistent', jsonSchema: 'Schema JSON well-formed', noQuotes: 'No double quotes in fields', colNames: 'Column names match dataschema', notNull: 'Non-nullable fields valued', businessDate: 'Business date valued & formatted', displayDates: 'Display-schema dates formatted' };
+                    // Always on unless explicitly turned off: it applies to feeds written before it
+                    // existed, which a positive checks="..." list can never reach. Unticking writes
+                    // businessDateNotFuture=false; ticking removes the param.
+                    var bdnfOff = nodeParam(n, 'businessDateNotFuture') === 'false';
+                    h += '<label class="agg-chip" title="On for every feed, including ones created before this check existed. Untick to turn it off for this step only."><input type="checkbox"' + (bdnfOff ? '' : ' checked') + ' onchange="setNodeParam(' + i + ',\'businessDateNotFuture\',this.checked?\'\':\'false\')"><span>Business date not in the future</span></label>';
                     CHECK_IDS.forEach(function (cid) {
                         var on = (n.validateChecks || []).indexOf(cid) >= 0;
                         h += '<label class="agg-chip"><input type="checkbox"' + (on ? ' checked' : '') + ' onchange="toggleCheck(' + i + ',\'' + cid + '\')"><span>' + CHECK_LABELS[cid] + '</span></label>';

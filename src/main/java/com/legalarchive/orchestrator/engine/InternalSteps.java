@@ -2919,7 +2919,14 @@ public class InternalSteps {
         boolean sel_notNull = byId.containsKey("notNull");
         boolean sel_biz = byId.containsKey("businessDate");
         boolean sel_bizMin = byId.containsKey("businessDateNotBefore");
-        boolean sel_bizFut = byId.containsKey("businessDateNotFuture");
+        // ON FOR EVERY FEED, including ones written and run before this check existed. The other
+        // checks are a positive list, so a feed whose XML already carries checks="..." would never
+        // pick up a new id - and rewriting 144 definitions to add one is not a deploy anybody should
+        // do. This one is therefore on unless the step explicitly turns it OFF with the param
+        // businessDateNotFuture=false, which is what the designer's checkbox writes when unticked.
+        // Ticking the box removes the param rather than adding the id, so the two spellings cannot
+        // disagree; a step that still lists the id in checks="..." is simply already consistent.
+        boolean sel_bizFut = !"false".equalsIgnoreCase(nz(params.get("businessDateNotFuture")).trim());
         boolean sel_disp = byId.containsKey("displayDates");
 
         // --- parse schemas (also serves the jsonSchema well-formed check) ---
