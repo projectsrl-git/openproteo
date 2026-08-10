@@ -1399,3 +1399,20 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   the object URL and shows no alert; a JSON error is reported and saves nothing; a non-2xx proxy
   response is reported and saves nothing (rather than writing an HTML error page to disk as a .docx);
   and a missing header falls back to a sane name.
+
+## Variables: Remove from N feeds, and designer dropdowns everywhere
+* **Remove from N feed(s)** mirrors the add: new `StepRemove` + `applyStepRemovals`, applied in the
+  same all-or-nothing save. Guards, stricter than the addition because this is the direction that
+  breaks things: live run refused (via `activeRunsByFeed`), step must exist, **the last remaining step
+  is refused**, and — the one that matters — **a step still referenced by another node is refused,
+  naming the referrer**. `referencedBy` scans every node's string fields and param values for
+  `${STEP.` and `${dir.STEP}`; a step referencing itself does not block its own removal and a
+  similarly-named step is not a false positive. UI asks TWO required checkboxes (understand it
+  deletes; PROD count) rather than one. * **Dropdown parity**: `PARAM_OPTIONS` in variables.html was
+  EXTRACTED from designer.html by script, not retyped, so the two pages cannot offer different values
+  for the same field. 20 params including the reported `deleteOnSuccessType`. Indexed params are
+  matched by wildcarding **only the index** (`match.0.type` -> `match.*.type`); falling back to the
+  last segment was tried and REJECTED — a name as generic as `type` would turn unrelated params into
+  the wrong dropdown. * A stored value not in the list is kept as an extra option marked "current, not
+  a standard value" instead of being snapped to the first entry, which on this page would change every
+  selected feed silently. * `[[` in the generated table tripped the Thymeleaf scan — written as `[ [`.

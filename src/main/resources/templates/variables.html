@@ -205,7 +205,49 @@
 
     // ---------------- editor ----------------
     function markDirty(inp){ var line=inp.parentNode; line.className=line.className.replace(/\bdirty\b/,'').trim()+' dirty'; inp.setAttribute('data-dirty','1'); }
+    /* Params the DESIGNER edits with a dropdown. Extracted from designer.html rather than retyped,
+       so the two pages cannot offer different values for the same field. A free-text box here would
+       let a mass edit write a value the executor does not accept into every selected feed at once -
+       which is exactly the kind of mistake this page makes easy to commit at scale.
+       Where the designer words the same param differently per executor the VALUES are identical, so a
+       neutral label is used. */
+    var PARAM_OPTIONS = {
+        bom: [ ['false','no (UTF-8 without BOM)'], ['true','yes (UTF-8 with BOM)']],
+        cidMode: [ ['formatPreserving','format-preserving (per-class)'], ['partial','partial — mask middle with -'], ['hash','hash (deterministic, fixed length)']],
+        columnQuote: [ ['','none (PLAIN)'], ['double','double ("COL")']],
+        deleteOnSuccessType: [ ['','(none)'], ['directory','directory'], ['file','file']],
+        dropBlankLines: [ ['no','no (default)'], ['yes','yes']],
+        embeddedNewlines: [ ['keep','keep the break — the record stays split (default)'], ['space','join the record, replace the break with a space'], ['strip','join the record, remove the break']],
+        engine: [ ['','auto'], ['mem','in-memory (fast)'], ['file','on-disk (huge inputs)']],
+        freeTextStrategy: [ ['redact','pattern redaction (mask CF/IBAN/email/date/phone/amount)'], ['lorem','lorem-ipsum (replace whole field)']],
+        hasHeader: [ ['true','yes'], ['false','no']],
+        newlinesInValues: [ ['keep','keep them as the database returns them (default)'], ['space','replace with a space — one record per line'], ['strip','remove them — one record per line']],
+        numericPreserveSeparators: [ ['true','preserve - / .'], ['false','randomize all positions']],
+        quoteIfNeeded: [ ['true','quote only if needed (safe)'], ['false','never quote']],
+        rawValues: [ ['false','no (render dates/numbers)'], ['true','yes (stored value)']],
+        recursive: [ ['false','no'], ['true','yes']],
+        reportFormat: [ ['md','.md'], ['docx','.docx'], ['both','both']],
+        selectBy: [ ['header','header name'], ['letter','column letter']],
+        skipEmptyRows: [ ['true','yes'], ['false','no']],
+        'match.*.type': [ ['text','text'], ['numeric','numeric'] ],
+        'match.*.agg': [ ['value','value'], ['sum','sum (numeric)'], ['count','count'], ['count_distinct','distinct count'] ],
+        unmappedColumnPolicy: [ ['fail','fail (require every column classified)'], ['redact','redact'], ['passthrough','passthrough']]
+    };
+    function paramOptions(name){
+        if(!name) return null;
+        var n=String(name);
+        if(PARAM_OPTIONS[n]) return PARAM_OPTIONS[n];
+        // indexed params: match.0.type and match.7.type are the same field. Only the INDEX is
+        // wildcarded - falling back to the last segment ('type') was tried and rejected, because a
+        // name that generic would turn unrelated params into the wrong dropdown.
+        var wild=n.replace(/\.\d+\./g, '.*.');
+        if(wild!==n && PARAM_OPTIONS[wild]) return PARAM_OPTIONS[wild];
+        return null;
+    }
+
     function valLine(host, name, value, hint, multi){
+        var opts=multi?null:paramOptions(name);
+        if(opts) return valEnum(host, name, value, opts, hint);
         var line=el('div','vline',host);
         var n=el('div','vname',line); n.textContent=name;
         var inp;
@@ -215,6 +257,34 @@
         inp.addEventListener('input',function(){ markDirty(inp); });
         if(hint){ var h=el('span','vhint',line); h.textContent=hint; }
         return inp;
+    }
+    /**
+     * A param the designer edits with a dropdown gets one here too, so a mass edit cannot write a
+     * value the executor will reject into every selected feed at once.
+     * A value already on disk that is NOT in the list is kept as an extra option marked "current",
+     * rather than being silently snapped to the first entry - that would change a feed nobody asked
+     * to change, which on this page means changing all of them.
+     */
+    function valEnum(host, name, value, opts, hint){
+        var line=el('div','vline',host);
+        var n=el('div','vname',line); n.textContent=name;
+        var sel=el('select','vval',line); sel.setAttribute('data-name',name);
+        var v=(value==null?'':String(value)), found=false;
+        for(var i=0;i<opts.length;i++){
+            var op=document.createElement('option');
+            op.value=opts[i][0]; op.textContent=opts[i][1];
+            if(opts[i][0]===v) found=true;
+            sel.appendChild(op);
+        }
+        if(!found){
+            var cur=document.createElement('option');
+            cur.value=v; cur.textContent=(v===''?'(empty)':v)+'  \u2014 current, not a standard value';
+            sel.insertBefore(cur, sel.firstChild);
+        }
+        sel.value=v;
+        sel.addEventListener('change',function(){ markDirty(sel); });
+        if(hint){ var h=el('span','vhint',line); h.textContent=hint; }
+        return sel;
     }
     function valSelect(host, name, options, hint){
         var line=el('div','vline',host);
@@ -420,12 +490,20 @@
                 if(!allEq) inp.setAttribute('data-required','1');
             });
 
-            PARTIAL[id]={ from: present[0], missing: missing };
+            PARTIAL[id]={ from: present[0], missing: missing, present: present };
             var bar=el('div','vline',gb);
             var btn=el('button','btn sm primary',bar);
             btn.type='button';
             btn.textContent='\uff0b Add to '+missing.length+' feed(s)';
             btn.addEventListener('click', function(){ addStepToMissing(id); });
+            // the other way of making the selection uniform: take the step out of the feeds that
+            // have it. Marked danger, because it is the direction that can break a later step.
+            var rbtn=el('button','btn sm danger',bar);
+            rbtn.type='button';
+            rbtn.style.marginLeft='8px';
+            rbtn.textContent='\u2715 Remove from '+present.length+' feed(s)';
+            rbtn.title='Delete this step from the feeds that have it. Refused for a feed where another step still uses ${'+id+'.\u2026}.';
+            rbtn.addEventListener('click', function(){ removeStepFromPresent(id); });
         });
     }
 
@@ -449,6 +527,35 @@
         options.forEach(function(o){ var op=document.createElement('option'); op.value=o.value; op.textContent=o.label; sel.appendChild(op); });
         if(hint){ var h=el('span','vhint',line); h.textContent=hint; }
         return sel;
+    }
+
+    /**
+     * Delete a partial step from the feeds that DO have it - the other way of making a selection
+     * uniform. Deliberately not symmetrical with the addition in tone: this is the direction that
+     * can break a workflow, so it asks for the step id to be typed back, the way Clear History asks
+     * for a checkbox. Nothing is written unless every feed validates, and the server refuses a feed
+     * where another step still references this one.
+     */
+    function removeStepFromPresent(id){
+        var info=PARTIAL[id];
+        if(!info || !info.present || !info.present.length) return;
+        var prodFeeds=CATALOG.workflows.filter(function(w){ return info.present.indexOf(w.feedId)>=0 && w.production; });
+        var checks=[ { id:'sure', required:true,
+            label:'I understand this DELETES the step \u2014 the feeds keep their run history, but the step is gone' } ];
+        if(prodFeeds.length) checks.push({ id:'prod', required:true,
+            label:'I understand '+prodFeeds.length+' PRODUCTION feed(s) are included' });
+        opConfirm('Remove the step "'+esc(id)+'" from '+info.present.length+' feed(s): '+esc(info.present.join(', '))+'?'
+            +' A feed where another step still uses ${'+esc(id)+'.\u2026} is refused and nothing is written at all.',
+            function(){
+                var edits=info.present.map(function(fid){ return { feedId:fid, removeSteps:[{ stepId:id }] }; });
+                fetch(CTX+'api/variables/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({edits:edits})})
+                    .then(readJson).then(function(j){
+                        if(j&&j.ok){ banner(true,'Step "'+esc(id)+'" removed from '+j.saved+' feed(s).'); load(); }
+                        else { banner(false,'Nothing was saved. '+esc((j&&j.error)||'Save failed.')); }
+                        window.scrollTo(0,0);
+                    })
+                    .catch(function(e){ banner(false,'Save failed: '+esc(String(e))); window.scrollTo(0,0); });
+            }, { danger:true, okText:'Remove step', checks:checks });
     }
 
     /**

@@ -1,38 +1,60 @@
-Audit report buttons create and download in one click
+Variables: remove a partial step, and dropdown parity with the designer
 
-The per-run buttons in Run history wrote the report and then showed its path
-in an alert, leaving the operator to go and find the file. They now hand it
-over directly.
+Two additions to the Variables page.
 
-POST /api/runs/{feedId}/{runId}/audit-report takes a download=1 parameter and
-returns the report bytes with a Content-Disposition attachment header and an
-X-Report-File header carrying the name; the page turns the response into a
-blob and clicks a hidden anchor. The report is still written under
-_logs/runs/{runId}/ as before, because that is where it belongs as evidence,
-and the same bytes come back in the same response. One request rather than
-two: a separate GET would have to re-derive the file name and could race with
-a re-run producing a different one.
+Remove from N feeds. A step present in only part of the selection could be
+added to the feeds that lacked it; it can now also be removed from the feeds
+that have it, which is the other way of making a selection uniform. New
+StepRemove and applyStepRemovals, applied inside the same all-or-nothing save,
+so nothing is written unless every feed validates.
 
-download=1 is opt-in, so the JSON contract is untouched for the Operations
-bulk endpoint, which still needs {ok:true} to count how many feeds succeeded.
+The guards are deliberately stricter than for the addition, because this is
+the direction that breaks things. A feed with a run in progress is refused,
+through activeRunsByFeed rather than activeRunId for the usual reason. The
+step must exist: removing something that is not there is a mistaken selection,
+not a no-op worth hiding. The last remaining step is refused, since a workflow
+with no steps parses but can do nothing. And the one that matters: a step
+still referenced by another node is refused and the referrer is named. A step
+publishes ${stepId.var} and ${dir.stepId}, so deleting it leaves those
+resolving to the empty string, silently, at the next run - failing the save is
+the only way that difference is seen before it reaches production rather than
+after. The confirmation asks two required checkboxes rather than one.
 
-Errors remain JSON with a 200 status - a 4xx body would be replaced by the IIS
-error page, as this deployment has already demonstrated twice - so the client
-branches on the content type rather than on the status, and reports the reason
-instead of saving an error page to disk under a .docx name.
-URL.revokeObjectURL runs on a timer rather than immediately, because revoking
-straight away can cancel the download in some browsers.
+Dropdown parity. Anything the designer edits with a dropdown is now a dropdown
+here too - the reported case was on-success delete (type), a free-text box in
+Variables and a select in the designer. That matters more here than anywhere
+else: a free-text box on this page lets one edit write a value the executor
+does not accept into every selected feed at once.
 
-Verified with jsdom by driving the real handler against stubbed responses, 14
-assertions passing. The happy path issues exactly one POST carrying both
-download=1 and the requested format, triggers a download named from the server
-header, revokes the object URL afterwards and shows no alert. A JSON error is
-reported with its reason and saves nothing. A non-2xx proxy response is
-reported and saves nothing. A missing X-Report-File header falls back to a
-sane name rather than downloading something unnamed. Brace and paren balance
-is 0/0 on ApiController, node --check passes on runs.html with zero literal
-newline/CR escape sequences.
+The option table was extracted from designer.html by script rather than
+retyped, so the two pages cannot drift into offering different values for the
+same field. Twenty params are covered. Indexed params are matched by
+wildcarding only the index, so match.0.type and match.12.type resolve to the
+same list; falling back to the last segment was tried and rejected, because a
+name as generic as "type" would turn unrelated params into the wrong dropdown.
+A value already on disk that is not in the list is kept as an extra option
+marked "current, not a standard value" rather than being snapped to the first
+entry - on this page that would change a feed nobody asked to change.
 
-NOT verified: mvn clean package, and the download itself in the browser -
-which is the only thing that settles it. Click the .docx button on a
-successful run and check that Word opens what arrives.
+Verified. The removal logic and its reference scan were transcribed against
+stub DTOs, compiled with -source 8 and run against 16 assertions: removing a
+middle step preserves order, a step used by a later one is refused with
+nothing removed, ${dir.STEP} counts as a reference, a reference from an
+earlier step counts too, a step referencing itself does not block its own
+removal, a similarly-named step is not a false positive, a live run and an
+unknown step and the last remaining step and a blank id are all refused, and
+two removals in one call leave the right survivors. The dropdown rendering was
+exercised with jsdom against the real page by 33 assertions: the reported
+deleteOnSuccessType is a select carrying the designer's exact options with the
+stored value selected, seventeen other params are selects, plain params and
+multi-line fields stay free text, the index wildcard resolves while a bare
+generic name does not, a non-standard stored value is preserved and labelled,
+and editing still marks the field dirty.
+
+The generated option table introduced [[ sequences, which the Thymeleaf scan
+caught; they are written as [ [ instead. Brace and paren balance is 0/0 on
+ApiController, node --check passes on variables.html with zero literal
+newline/CR escape sequences and no inlining markers.
+
+NOT verified: mvn clean package, and both actions against real feeds. Try the
+removal first on two non-production feeds and read the generated XML.

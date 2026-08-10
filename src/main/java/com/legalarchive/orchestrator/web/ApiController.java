@@ -2365,6 +2365,7 @@ public class ApiController {
             public java.util.List<WorkflowDto.KV> vars;     // workflow-level variables to set
             public java.util.List<StepEdit> steps;          // optional per-step param edits
             public java.util.List<StepAdd> addSteps;        // optional: steps to CREATE in this feed
+            public java.util.List<StepRemove> removeSteps;  // optional: steps to DELETE from this feed
             public String tags;                              // optional: comma-separated workflow tags (null = unchanged)
             public String outputData;                        // null=unchanged; workflow-level output data (lines: var = description)
             public Boolean production;                       // null = unchanged; mass-editable PROD flag
@@ -2374,6 +2375,10 @@ public class ApiController {
          * The client never sends a step definition: it names the source feed, so what is inserted is
          * always a real, already-validated step and not client-supplied content.
          */
+        /** Delete a step from this feed. The mirror of StepAdd, and the more dangerous of the two. */
+        public static class StepRemove {
+            public String stepId;
+        }
         public static class StepAdd {
             public String stepId;        // id to create (must not already exist in the target)
             public String fromFeedId;    // feed to copy the definition from
@@ -2453,6 +2458,75 @@ public class ApiController {
     }
 
     /**
+     * Deletes steps from a feed. Returns null on success or the reason to fail the whole save.
+     *
+     * Removal is the more dangerous direction: adding a step leaves everything that worked still
+     * working, while removing one can silently break every later step that consumed its output. The
+     * guards are therefore stricter than for the addition.
+     * <ul>
+     *   <li>a feed with a LIVE run is refused, for the same reason as an addition: the engine walks
+     *       def.nodes by index, so removing a node under a running workflow shifts what it executes;</li>
+     *   <li>the step must exist - removing something that is not there is a mistaken selection, not a
+     *       no-op worth hiding;</li>
+     *   <li><b>a step still REFERENCED by another node is refused, naming the referrer.</b> A step
+     *       publishes ${stepId.var} and ${dir.stepId}; deleting it leaves those resolving to the empty
+     *       string, silently, at the next run. Failing the save is the only way that difference is
+     *       seen before it reaches production rather than after;</li>
+     *   <li>the last remaining step is refused: a workflow with no steps parses but can do nothing.</li>
+     * </ul>
+     */
+    private String applyStepRemovals(WorkflowDto dto, String feedId, java.util.List<VarSaveReq.StepRemove> removals) {
+        java.util.Map<String, WorkflowRun> live = engine.activeRunsByFeed();
+        WorkflowRun lr = live.get(feedId);
+        if (lr != null || engine.activeRunId(feedId) != null) {
+            return "the feed has a run in progress" + (lr != null && lr.status != null ? (" (" + lr.status.name() + ")") : "")
+                    + " - removing a step would change what that run executes next; stop it or wait for it to finish";
+        }
+        for (VarSaveReq.StepRemove rm : removals) {
+            if (rm == null || rm.stepId == null || rm.stepId.trim().isEmpty()) return "a step to remove has no id";
+            String stepId = rm.stepId.trim();
+            int at = -1;
+            for (int i = 0; i < dto.nodes.size(); i++) {
+                WorkflowDto.NodeDto nd = dto.nodes.get(i);
+                if ("STEP".equals(nd.kind) && stepId.equals(nd.id)) { at = i; break; }
+            }
+            if (at < 0) return "step '" + stepId + "' does not exist in this feed";
+            int steps = 0;
+            for (WorkflowDto.NodeDto nd : dto.nodes) if ("STEP".equals(nd.kind)) steps++;
+            if (steps <= 1) return "step '" + stepId + "' is the only step left: a workflow with no steps can do nothing";
+            String ref = referencedBy(dto, stepId, at);
+            if (ref != null) {
+                return "step '" + stepId + "' is still referenced by '" + ref + "' (" + ref + " uses ${" + stepId
+                        + ".…} or ${dir." + stepId + "}); removing it would leave that empty at the next run";
+            }
+            dto.nodes.remove(at);
+        }
+        return null;
+    }
+
+    /** Id of the first node that names {@code stepId} in a value, or null. Own node excluded. */
+    private static String referencedBy(WorkflowDto dto, String stepId, int selfIndex) {
+        String a = "${" + stepId + ".";
+        String b = "${dir." + stepId + "}";
+        for (int i = 0; i < dto.nodes.size(); i++) {
+            if (i == selfIndex) continue;
+            WorkflowDto.NodeDto nd = dto.nodes.get(i);
+            StringBuilder hay = new StringBuilder();
+            hay.append(nz2(nd.source)).append(' ').append(nz2(nd.dest)).append(' ').append(nz2(nd.script)).append(' ')
+               .append(nz2(nd.query)).append(' ').append(nz2(nd.condition)).append(' ').append(nz2(nd.csvFile)).append(' ')
+               .append(nz2(nd.ifsPath)).append(' ').append(nz2(nd.pattern)).append(' ').append(nz2(nd.forEach)).append(' ')
+               .append(nz2(nd.onTrue)).append(' ').append(nz2(nd.onFalse));
+            if (nd.params != null) for (WorkflowDto.KV kv : nd.params) hay.append(' ').append(nz2(kv.value));
+            if (nd.inputs != null) for (WorkflowDto.NodeDto.CsvInputDto ci : nd.inputs) hay.append(' ').append(nz2(ci.csv));
+            if (nd.reportQueries != null) for (WorkflowDto.NodeDto.ReportQueryDto rq : nd.reportQueries) hay.append(' ').append(nz2(rq.sql));
+            String h = hay.toString();
+            if (h.contains(a) || h.contains(b)) return nd.id == null ? "another step" : nd.id;
+        }
+        return null;
+    }
+    private static String nz2(String s) { return s == null ? "" : s; }
+
+    /**
      * Apply variable (and optional step-param) edits to one or more workflows. Every modified XML
      * is regenerated and validated with the runtime parser BEFORE anything is written: if any
      * workflow fails validation, nothing is saved and the per-feed errors are returned.
@@ -2479,6 +2553,12 @@ public class ApiController {
                 String addErr = applyStepAdditions(dto, fe.feedId, fe.addSteps);
                 if (addErr != null) {
                     r.put("ok", false); r.put("error", addErr); results.add(r); allOk = false; continue;
+                }
+            }
+            if (fe.removeSteps != null && !fe.removeSteps.isEmpty()) {
+                String remErr = applyStepRemovals(dto, fe.feedId, fe.removeSteps);
+                if (remErr != null) {
+                    r.put("ok", false); r.put("error", remErr); results.add(r); allOk = false; continue;
                 }
             }
             applyEditsToDto(dto, fe.vars, fe.tags, fe.steps, fe.outputData);
