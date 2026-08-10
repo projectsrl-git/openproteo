@@ -3033,8 +3033,8 @@ public class InternalSteps {
                     if (dateFormat == null) {
                         bizMinErr = "dateFormat not provided";
                     } else {
-                        try { bizFmt = java.time.format.DateTimeFormatter.ofPattern(dateFormat); }
-                        catch (Exception e) { bizMinErr = "invalid dateFormat '" + dateFormat + "'"; }
+                        bizFmt = maskFormatter(dateFormat);
+                        if (bizFmt == null) bizMinErr = maskProblem(dateFormat);
                         if (bizFmt != null) {
                             try { bizMinDate = java.time.LocalDate.parse(minRaw.trim(), bizFmt); bizMinSpec = minRaw.trim(); }
                             catch (Exception e) { bizMinErr = "invalid businessDateMin '" + minRaw.trim() + "' for format " + dateFormat; }
@@ -3053,13 +3053,14 @@ public class InternalSteps {
                 if (dateFormat == null) {
                     bizFutErr = "dateFormat not provided";
                 } else {
-                    try { bizFutFmt = java.time.format.DateTimeFormatter.ofPattern(dateFormat); }
-                    catch (Exception e) { bizFutErr = "invalid dateFormat '" + dateFormat + "'"; }
+                    bizFutFmt = maskFormatter(dateFormat);
+                    if (bizFutFmt == null) bizFutErr = maskProblem(dateFormat);
                     if (bizFutFmt != null) {
                         String maxRaw = blankToNull(params.get("businessDateMax"));
                         if (maxRaw == null) {
                             bizMaxDate = java.time.LocalDate.now();
-                            bizMaxSpec = "today (" + bizMaxDate.format(bizFutFmt) + ")";
+                            // the label is cosmetic: rendering it must never be able to fail the step
+                            bizMaxSpec = "today (" + maskFormat(bizMaxDate, bizFutFmt) + ")";
                         } else {
                             try { bizMaxDate = java.time.LocalDate.parse(maxRaw.trim(), bizFutFmt); bizMaxSpec = maxRaw.trim(); }
                             catch (Exception e) { bizFutErr = "invalid businessDateMax '" + maxRaw.trim() + "' for format " + dateFormat; }
@@ -3379,6 +3380,87 @@ public class InternalSteps {
         return out;
     }
     /** Convert a token date format (YYYY/MM/DD, YYYYMMDD, DD-MM-YYYY, HH:mm:ss…) to an anchored regex. */
+    /** java.time pattern letters that mean the same thing in both dialects: passed through untouched. */
+    private static final String JT_PASSTHROUGH = "GyuMLdQqEecwWFaHhKkmsSAnNVzOXxZpP";
+
+    /**
+     * Translates a date MASK into a java.time pattern, tolerating BOTH dialects, because the mask is
+     * a per-feed value - often a workflow variable such as ${recordBusinessDateFormat} - and nothing
+     * guarantees every feed writes it the same way.
+     *
+     * Only two letters are rewritten, and only because the two dialects genuinely disagree on them:
+     * {@code Y} (this product: the year; java.time: the WEEK-BASED year) and {@code D} (this product:
+     * the day of the month; java.time: the day of the YEAR). Feeding a mask straight to ofPattern is
+     * what produced "Field DayOfYear cannot be printed as the value 222 exceeds the maximum print
+     * width of 2" in the field. Nobody writes a mask meaning to ask for a week-based year, so
+     * rewriting those two is safe.
+     *
+     * Everything else that is already a valid java.time letter passes through unchanged, so a feed
+     * that writes {@code yyyy-MM-dd} keeps working exactly as it did - it must, since that form used
+     * to reach ofPattern intact. Letters are consumed in RUNS, so {@code MMM} stays {@code MMM}
+     * rather than being split into {@code MM} plus a stray literal. Quoted sections are preserved
+     * verbatim, and any other letter is quoted so it cannot be read as a pattern letter.
+     */
+    static String fmtToJavaPattern(String fmt) {
+        if (fmt == null) return null;
+        StringBuilder sb = new StringBuilder();
+        int i = 0, n = fmt.length();
+        while (i < n) {
+            char c = fmt.charAt(i);
+            if (c == '\'') {                                   // an already-quoted literal: copy as is
+                int j = i + 1;
+                sb.append('\'');
+                while (j < n) {
+                    sb.append(fmt.charAt(j));
+                    if (fmt.charAt(j) == '\'') { j++; break; }
+                    j++;
+                }
+                if (j > n) sb.append('\'');
+                i = j;
+                continue;
+            }
+            if (!Character.isLetter(c)) { sb.append(c); i++; continue; }
+            int j = i;
+            while (j < n && fmt.charAt(j) == c) j++;            // one run of the same letter
+            int len = j - i;
+            char out = c;
+            if (c == 'Y') out = 'u';
+            else if (c == 'D') out = 'd';
+            else if (JT_PASSTHROUGH.indexOf(c) < 0) {           // not a pattern letter at all: literal
+                sb.append('\'');
+                for (int k = 0; k < len; k++) sb.append(c);
+                sb.append('\'');
+                i = j;
+                continue;
+            }
+            for (int k = 0; k < len; k++) sb.append(out);
+            i = j;
+        }
+        return sb.toString();
+    }
+
+    /** The mask compiled for java.time, or null when it cannot be. Never throws. */
+    private static java.time.format.DateTimeFormatter maskFormatter(String mask) {
+        try { return java.time.format.DateTimeFormatter.ofPattern(fmtToJavaPattern(mask)); }
+        catch (Exception e) { return null; }
+    }
+
+    /** Why a mask could not be compiled, in terms the author can act on. */
+    static String maskProblem(String mask) {
+        String m = mask == null ? "" : mask;
+        if (m.indexOf("${") >= 0) {
+            return "dateFormat is still '" + m + "': the variable it refers to is not defined for this feed";
+        }
+        return "dateFormat '" + m + "' cannot be read as a date mask";
+    }
+
+    /** Renders a date with the feed's mask; falls back to ISO rather than letting a LABEL fail a step. */
+    static String maskFormat(java.time.LocalDate d, java.time.format.DateTimeFormatter fmt) {
+        if (d == null) return "";
+        if (fmt != null) { try { return d.format(fmt); } catch (Exception ignored) { } }
+        return d.toString();
+    }
+
     private static String fmtToRegex(String fmt) {
         StringBuilder sb = new StringBuilder("^");
         int i = 0;

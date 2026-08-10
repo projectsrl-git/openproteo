@@ -1,60 +1,74 @@
-Variables: remove a partial step, and dropdown parity with the designer
+Fix: the date mask is not a java.time pattern (validate step died)
 
-Two additions to the Variables page.
+Reported from the field: after enabling the new "business date not in the
+future" check, the whole validate step failed with "Field DayOfYear cannot be
+printed as the value 222 exceeds the maximum print width of 2", and the checks
+that had not run yet were left pending.
 
-Remove from N feeds. A step present in only part of the selection could be
-added to the feeds that lacked it; it can now also be removed from the feeds
-that have it, which is the other way of making a selection uniform. New
-StepRemove and applyStepRemovals, applied inside the same all-or-nothing save,
-so nothing is written unless every feed validates.
+The root cause is wider than the new check. dateFormat in this product is a
+MASK - YYYY/MM/DD, the same shape the sql executor takes - and fmtToRegex has
+always read it as year, month and day of month. But both business-date bound
+checks fed that mask straight to DateTimeFormatter.ofPattern, where DD is the
+day of the YEAR and YYYY is the week-based year. The two dialects disagree on
+exactly the letters that matter.
 
-The guards are deliberately stricter than for the addition, because this is
-the direction that breaks things. A feed with a run in progress is refused,
-through activeRunsByFeed rather than activeRunId for the usual reason. The
-step must exist: removing something that is not there is a mistaken selection,
-not a no-op worth hiding. The last remaining step is refused, since a workflow
-with no steps parses but can do nothing. And the one that matters: a step
-still referenced by another node is refused and the referrer is named. A step
-publishes ${stepId.var} and ${dir.stepId}, so deleting it leaves those
-resolving to the empty string, silently, at the next run - failing the save is
-the only way that difference is seen before it reaches production rather than
-after. The confirmation asks two required checkboxes rather than one.
+So the pre-existing businessDateNotBefore check has never been able to parse a
+date with this mask either: parsing 2026/08/10 with YYYY/MM/DD throws on every
+JDK, and that failure was being swallowed by the row-level catch, which is why
+nobody noticed. The new check formatted a date before parsing any - to build
+the cosmetic label "today (…)" - and formatting is what threw, outside any
+catch, taking the step with it.
 
-Dropdown parity. Anything the designer edits with a dropdown is now a dropdown
-here too - the reported case was on-success delete (type), a free-text box in
-Variables and a select in the designer. That matters more here than anywhere
-else: a free-text box on this page lets one edit write a value the executor
-does not accept into every selected feed at once.
+The fix is a new fmtToJavaPattern that translates the mask into a real
+java.time pattern. It matters that the mask is a per-feed VALUE, and usually a
+workflow variable such as ${recordBusinessDateFormat}: it is already resolved
+by the time the executor sees it, since executors receive resolvedParams, but
+nothing guarantees every feed writes the same dialect. The translator
+therefore rewrites only Y to u and D to d - the two letters where the dialects
+genuinely disagree, and which nobody writes meaning to ask for a week-based
+year - and passes through every other valid java.time letter. A feed that
+already writes yyyy-MM-dd therefore keeps working exactly as it did, which it
+must, since that form used to reach ofPattern intact. Letters are consumed in
+runs, so MMM stays a month name instead of being split into MM plus a stray
+literal; quoted sections are preserved; and any other letter is quoted so that
+the T in a mask like YYYY-MM-DDTHH:mm cannot be mistaken for a pattern letter.
 
-The option table was extracted from designer.html by script rather than
-retyped, so the two pages cannot drift into offering different values for the
-same field. Twenty params are covered. Indexed params are matched by
-wildcarding only the index, so match.0.type and match.12.type resolve to the
-same list; falling back to the last segment was tried and rejected, because a
-name as generic as "type" would turn unrelated params into the wrong dropdown.
-A value already on disk that is not in the list is kept as an extra option
-marked "current, not a standard value" rather than being snapped to the first
-entry - on this page that would change a feed nobody asked to change.
+maskFormatter never throws and returns null instead, and maskFormat falls back
+to ISO: a cosmetic label must never be able to fail a step, which is the
+second half of what went wrong here. A mask that still contains ${ is reported
+as an undefined variable rather than as a bad format, because that is a
+different problem needing a different fix. Both bound checks now use all of
+this, so the older one starts working as well.
 
-Verified. The removal logic and its reference scan were transcribed against
-stub DTOs, compiled with -source 8 and run against 16 assertions: removing a
-middle step preserves order, a step used by a later one is refused with
-nothing removed, ${dir.STEP} counts as a reference, a reference from an
-earlier step counts too, a step referencing itself does not block its own
-removal, a similarly-named step is not a false positive, a live run and an
-unknown step and the last remaining step and a blank id are all refused, and
-two removals in one call leave the right survivors. The dropdown rendering was
-exercised with jsdom against the real page by 33 assertions: the reported
-deleteOnSuccessType is a select carrying the designer's exact options with the
-stored value selected, seventeen other params are selects, plain params and
-multi-line fields stay free text, the index wildcard resolves while a bare
-generic name does not, a non-standard stored value is preserved and labelled,
-and editing still marks the field dirty.
+Nothing changes for the author: keep writing the mask exactly as before.
 
-The generated option table introduced [[ sequences, which the Thymeleaf scan
-caught; they are written as [ [ instead. Brace and paren balance is 0/0 on
-ApiController, node --check passes on variables.html with zero literal
-newline/CR escape sequences and no inlining markers.
+One thing to record about the verification. This sandbox could NOT reproduce
+the crash: ofPattern("DD") builds a fixed-width field on Java 8 but an
+adaptive one from JDK 9 onwards, so on the JDK available here the same call
+prints 2026/08/222 quite happily. The deployment is Java 8, where it throws.
+The mechanism is therefore asserted explicitly with appendValue(DAY_OF_YEAR,
+2), which reproduces the reported message word for word, and the parse failure
+- which does reproduce on every JDK - is asserted directly. A sandbox on a
+newer JDK hides Java 8 formatting behaviour, which is worth remembering.
 
-NOT verified: mvn clean package, and both actions against real feeds. Try the
-removal first on two non-production feeds and read the generated XML.
+Verified with 58 assertions compiled with -source 8, run across every mask
+dialect a feed might carry. The old reading is shown to fail both when parsing
+and, through an explicit fixed-width day-of-year field, when printing. The
+mask dialect translates correctly for YYYY/MM/DD, YYYYMMDD, DD/MM/YYYY,
+DD-MM-YY and a mask carrying time parts, and all of those parse back to the
+same day. A feed already writing yyyy-MM-dd, dd/MM/yyyy or uuuu-MM-dd is
+passed through untouched and still parses. MMM and MMMM survive as month names
+rather than being split, a single D is still a day of month, a stray letter is
+quoted and an already-quoted section is preserved. Nine masks including a
+nonsense one, an empty one and an unresolved ${recordBusinessDateFormat} each
+produce a label without throwing, which is the property that actually keeps
+the step alive. An unresolved variable is diagnosed as such while a genuinely
+malformed mask is not. And the comparison the check makes is checked directly:
+tomorrow fails, today itself passes because the bound is inclusive, yesterday
+passes, and an impossible month is still rejected.
+
+Brace and paren balance is 0/0 on InternalSteps.
+
+NOT verified: mvn clean package, and the step on the real feed - which is the
+only place the Java 8 behaviour exists. Re-run tf0003868 and the nine checks
+should complete instead of stopping at two.

@@ -1416,3 +1416,29 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   the wrong dropdown. * A stored value not in the list is kept as an extra option marked "current, not
   a standard value" instead of being snapped to the first entry, which on this page would change every
   selected feed silently. * `[[` in the generated table tripped the Thymeleaf scan — written as `[ [`.
+
+## FIX: the date MASK is not a java.time pattern (validate step died)
+* Reported from the field: after enabling `businessDateNotFuture`, the validate step failed with
+  "Field DayOfYear cannot be printed as the value 222 exceeds the maximum print width of 2".
+  * **Root cause, wider than the new check.** `dateFormat` in this product is a MASK — `YYYY/MM/DD`,
+  read by `fmtToRegex` as year/month/day-of-month, the same shape the `sql` executor takes. But both
+  business-date bound checks fed it straight to `DateTimeFormatter.ofPattern`, where `DD` is
+  day-of-YEAR and `YYYY` is the week-based year. So the pre-existing `businessDateNotBefore` has
+  ALWAYS been unable to parse a date with this mask (proved: parsing `2026/08/10` with `YYYY/MM/DD`
+  throws on every JDK) — it just failed silently inside the row-level catch. The new check formatted
+  first, for a cosmetic label, and that is what surfaced it. * **New `fmtToJavaPattern`** translates
+  the mask (`YYYY`->`uuuu`, `DD`->`dd`, …) and quotes any other letter as a literal so a `T` in
+  `YYYY-MM-DDTHH:mm` cannot be read as a pattern letter. `maskFormatter` never throws; `maskFormat`
+  falls back to ISO — **a cosmetic label must never be able to fail a step**. * **The mask is a
+  per-feed VALUE, usually a variable** (`${recordBusinessDateFormat}`): it is already resolved when the
+  executor sees it (`resolvedParams`), but nothing guarantees every feed writes the same dialect. The
+  translator therefore rewrites ONLY `Y`->`u` and `D`->`d` — the two letters where the dialects
+  genuinely disagree — and passes through every other valid java.time letter, so a feed already
+  writing `yyyy-MM-dd` keeps working exactly as before (it must: that form used to reach `ofPattern`
+  intact). Letters are consumed in RUNS so `MMM` is not split into `MM` + a stray literal, quoted
+  sections are preserved, and anything else is quoted. A mask still containing `${` is reported as an
+  UNDEFINED VARIABLE rather than as a bad mask — a different problem needing a different fix. * **The sandbox could not
+  reproduce the crash**: `ofPattern("DD")` is fixed-width on Java 8 and adaptive from JDK 9, so on the
+  JDK here it printed `2026/08/222` instead of throwing. The deployment is Java 8. The mechanism is
+  asserted explicitly with `appendValue(DAY_OF_YEAR, 2)`, which reproduces the exact message. Worth
+  remembering: a sandbox on a newer JDK hides Java 8 formatting behaviour.
