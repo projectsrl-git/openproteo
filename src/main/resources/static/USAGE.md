@@ -389,6 +389,19 @@ A `.md` file opened in the viewer shows two tabs and starts on **Preview**: head
 
 The renderer **escapes everything first and only then adds markup**, which is not a theoretical precaution here: these reports carry values taken straight out of a database, and a `<` or a stray tag in a column must never become part of the page it is being read in. Links are kept only when they point at `http`, `https` or a relative target.
 
+### Reading JSON: the table view
+
+A `.json` file opened in the viewer shows two tabs and **starts on Table**, with **Code** one click away for the re-printed source. The reason for the default is the same as the reason the view exists: a list of entities is what people come to a JSON file to read, and reading it as text is the thing it was never meant to be.
+
+- an **object** becomes a titled block with a **Key | Value** table;
+- an **array of objects** becomes **one table whose header is the union of the keys** found across its elements, one numbered row per element. A key that a given element does not have is left visibly blank rather than silently empty, so a ragged list reads as ragged;
+- an **array of scalars** becomes a numbered two-column table;
+- a value that is itself an object or an array shows a short summary — `{ 4 keys }`, `[ 12 items ]` — and a toggle that opens it in a full-width sub-row, so a deep document stays navigable instead of becoming a wall.
+
+Strings, numbers, booleans and `null` are coloured apart, and `null` is shown as `null` rather than as an empty cell, which is a different thing. **Expand all** / **Collapse all** work on the whole document, and one search box matches **keys and values** at once, highlighting matches, dropping branches with none and opening the path to every hit. A file that is not valid JSON says so, quotes the parser's own message, and stays readable under **Code**.
+
+The same viewer exists as a **standalone page, `json_viewer.html` in the repository root**, beside `csv-viewer.html` and `xml_viewer.html`: browse or drag-drop, same table, same search, its own theme switch, and no upload, no network and no external library.
+
 ### Reading XML: the table view
 
 An `.xml` file opened in the viewer has two tabs. **Code** is the formatted source. **Table** shows the same document as tables rather than as indented text, which is the difference between reading a file and reading its data:

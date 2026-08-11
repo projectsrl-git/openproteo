@@ -929,3 +929,9 @@ th.sortable:hover { color: var(--accent); }
 .md-preview a { color: var(--run); }
 :root[data-theme="light"] .md-preview table.md-tbl th { background: #bcd3ec; color: #16283c; }
 :root[data-theme="light"] .md-preview code { background: #e7eef7; }
+
+/* ---- JSON value types (shared with the XML table view) ---- */
+.xt-str   { color: var(--ok); }
+.xt-numv  { color: var(--run); }
+.xt-nullv { color: var(--ink-faint); font-style: italic; }
+.xt-sum   { color: var(--ink-dim); font-style: italic; }

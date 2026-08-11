@@ -1,42 +1,59 @@
-Business date not in the future: on for every feed, opt-out per step
+JSON table viewer, in the app and as a standalone page
 
-Requested: apply the check to all feeds, including ones created and run long
-before it existed. The batch that introduced it deliberately did the opposite
-- preselected for new steps only - and flagged the choice as one to be made
-rather than assumed; this makes it.
+The same treatment the XML viewer got, for JSON, because a list of entities is
+what people come to a JSON file to read and reading it as text is the thing it
+was never meant to be.
 
-The checks list could not deliver this. checks="..." is a positive list, so a
-workflow whose XML already carries one can never pick up a new id, and
-rewriting every definition to add one is not a deploy anybody should have to
-run. The check is therefore governed by an opt-out parameter instead: it is on
-unless a step carries businessDateNotFuture=false. Absent, empty, or any other
-value means on; only an explicit false turns it off, so no stray value can
-disable it by accident.
+An object becomes a titled block with a Key | Value table. An array of objects
+becomes ONE table whose header is the union of the keys found across its
+elements, one numbered row per element, with a key that a given element does
+not have left visibly blank rather than silently empty, so a ragged list reads
+as ragged. An array of scalars becomes a numbered two-column table. A value
+that is itself an object or an array shows a short summary - { 4 keys }, [ 12
+items ] - and a toggle that opens it in a full-width sub-row, so a deep
+document stays navigable instead of becoming a wall of text.
 
-The designer renders it as its own chip ahead of the other checks, ticked by
-default: unticking writes businessDateNotFuture=false on that step, ticking
-removes the parameter again. It was removed from CHECK_IDS and from the list
-seeded for a new validate step, so the two spellings cannot disagree with each
-other; a step whose XML still lists the id among its checks is simply already
-consistent with the new rule and needs no edit.
+Strings, numbers, booleans and null are coloured apart, and null renders as
+null rather than as an empty cell, which is a different thing. Expand all and
+Collapse all work on the whole document, and one search box matches keys and
+values at once, highlighting matches, dropping branches with none and opening
+the path to every hit. A file that is not valid JSON says so, quotes the
+parser's own message and stays readable under Code.
 
-The net effect is that the check applies everywhere from the next run, and
-stays de-selectable one step at a time - which is what was asked for
-originally and is still true.
+Unlike the XML viewer, this one opens ON the table rather than on the source.
+That is the point of it; the source stays one click away.
 
-Verified with 13 assertions compiled with -source 8. Every shape of existing
-feed is reached: a step with no params at all, one carrying only the other
-business-date settings, one predating the check entirely. The opt-out works
-and is forgiving about case and surrounding whitespace, an empty value means
-on because that is what ticking the box writes, and neither true nor an
-unrelated value can turn it off. And the assertion that carries the argument:
-a step holding a typical existing checks list would NOT have been selected by
-the old positive-list rule, while the new rule does reach it.
+The architecture is the one the XML view established: a light model built
+once, tables rendered from it on demand so a large document does not build
+every cell before the first paint, and search running on the model rather than
+on the DOM so it still finds matches inside branches that have never been
+drawn. The .xt-* stylesheet is reused rather than duplicated, which is what
+gives light and dark parity for free; only four classes were added, for the
+value types.
 
-node --check passes on designer.html with zero literal newline/CR escape
-sequences.
+json_viewer.html in the repository root is the standalone form, built from the
+xml_viewer.html shell with the renderer, the loader and the Code-tab printer
+swapped. Browse or drag-drop, same table, same search, its own theme switch,
+and no upload, no network and no external library - asserted, not assumed.
 
-NOT verified: mvn clean package, and a real run. Worth watching the first
-scheduled night after this: any feed whose source genuinely carries
-forward-dated business dates will now fail where it used to pass, and the fix
-for those is Business date max on that step rather than unticking the check.
+Verified with jsdom, twice over. Forty assertions on the renderer: the union
+of keys in first-seen order, the header and rows of a list of entities, the
+hatched cell for a key one element lacks, nested values shown as summaries
+rather than flattening the row, an array of scalars, objects as key/value
+tables, null rendered as null, collapse closing every nested list while the
+root keeps its own key table, search on a value and on a key name with several
+matches and case-insensitivity and the path retained, a top-level array which
+is the common export shape, and six degenerate documents - empty array, empty
+object, null, a number, a string, a boolean - each of which must render
+without throwing. Then twenty more driving the standalone page through its
+REAL file input, with a real File object, so the load path, the tab switching,
+the invalid-JSON banner and the search box are exercised the way a user drives
+them rather than by calling internals.
+
+node --check passes on viewer.js and on the standalone page, both with zero
+literal newline/CR escape sequences and no external references, and every CSS
+variable the new rules use resolves in both themes.
+
+NOT verified: mvn clean package, and how it looks on screen. Open
+json_viewer.html on a real export - the bigger and more nested the better -
+and switch the theme once before relying on the in-app tab.

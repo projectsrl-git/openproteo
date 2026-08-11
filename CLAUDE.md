@@ -1486,3 +1486,21 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   carrying a typical existing `checks="..."` list would NOT have been reached by the old positive-list
   rule and IS reached by the new one — plus case and whitespace on the opt-out value, and that no
   value other than `false` can accidentally disable it.
+
+## JSON table viewer, in-app and standalone
+* `.json` now gets the same treatment as `.xml`: an object becomes a **Key | Value** table, an **array
+  of objects becomes ONE table whose header is the union of the keys** across its elements (one
+  numbered row each, a missing key rendered as the hatched `xt-null` cell), an array of scalars a
+  numbered two-column table, and a nested value a summary (`{ 4 keys }`, `[ 12 items ]`) with a toggle
+  opening it in a full-width sub-row. * **Opens ON the table**, unlike XML which opens on Code: a list
+  of entities is what people come to a JSON file to read. Source one click away. * Same architecture
+  as the XML view — a light model built once, tables rendered from it on demand, search running on the
+  model so it finds matches in branches never drawn. The `.xt-*` stylesheet is REUSED rather than
+  duplicated, so light/dark parity comes for free; only four type classes were added. * `null` renders
+  as `null`, not as an empty cell — a different thing. Strings, numbers and booleans coloured apart.
+  * **`json_viewer.html` in the repo root**, built from the `xml_viewer.html` shell with the renderer,
+  the loader and the Code-tab printer swapped; zero external references asserted. * Verified with
+  jsdom twice: 40 assertions on the renderer (including the key union in first-seen order, the ragged
+  row, nested summaries, an array of scalars, search, and six degenerate documents that must not
+  throw) and 20 more driving the standalone page through its REAL file input with a real File, so the
+  load path, the tabs, the invalid-JSON banner and the search box are exercised as a user would.

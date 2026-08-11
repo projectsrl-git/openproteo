@@ -506,6 +506,248 @@
         function field(s) { s = (s == null ? '' : String(s)); if (s.indexOf(';') >= 0 || s.indexOf('"') >= 0 || s.charCodeAt(0) === CR || s.indexOf(LF) >= 0) return '"' + s.replace(/"/g, '""') + '"'; return s; }
     }
 
+    /* ===================== JSON table view (shared) =====================
+       Renders JSON as TABLES, on the same principles as the XML view:
+         - an object becomes a titled block with a Key | Value table;
+         - an ARRAY OF OBJECTS becomes ONE table whose header is the union of the keys found across
+           its elements, one numbered row per element - which is what a list of entities is, and the
+           whole point of this view;
+         - an array of scalars becomes a numbered two-column table;
+         - a value that is itself an object or an array shows a short summary and a toggle that opens
+           it in a full-width sub-row, so depth is reachable without the page becoming a wall.
+       A light model is built once (references plus a lowercase haystack) and the tables are rendered
+       from it on demand, so a large document does not build every cell before the first paint, and
+       search still finds matches inside branches that have never been drawn.
+       Newlines are built with String.fromCharCode: literal escapes are rewritten by the proxy. */
+    function jsonEsc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function jsonMark(s, q) {
+        s = String(s == null ? '' : s);
+        if (!q) return jsonEsc(s);
+        var lo = s.toLowerCase(), ql = q.toLowerCase(), out = '', from = 0, p;
+        while ((p = lo.indexOf(ql, from)) >= 0) {
+            out += jsonEsc(s.substring(from, p)) + '<mark>' + jsonEsc(s.substr(p, ql.length)) + '</mark>';
+            from = p + ql.length;
+        }
+        return out + jsonEsc(s.substring(from));
+    }
+    function jsonKind(v) {
+        if (v === null) return 'null';
+        if (Array.isArray(v)) return 'array';
+        return typeof v;                      // object | string | number | boolean | undefined
+    }
+    function jsonIsLeaf(v) { var k = jsonKind(v); return k !== 'object' && k !== 'array'; }
+    /** Short stand-in shown in a cell for a nested value, so a row stays one line. */
+    function jsonSummary(v) {
+        var k = jsonKind(v);
+        if (k === 'array') return '[ ' + v.length + (v.length === 1 ? ' item' : ' items') + ' ]';
+        if (k === 'object') { var n = Object.keys(v).length; return '{ ' + n + (n === 1 ? ' key' : ' keys') + ' }'; }
+        return String(v);
+    }
+    /** Scalar rendered for a cell, with its type carried in a class so numbers read as numbers. */
+    function jsonScalarCell(v, q) {
+        var k = jsonKind(v);
+        if (k === 'null') return '<span class="xt-nullv">null</span>';
+        if (k === 'boolean' || k === 'number') return '<span class="xt-numv">' + jsonMark(String(v), q) + '</span>';
+        return '<span class="xt-str">' + jsonMark(String(v), q) + '</span>';
+    }
+
+    /** Model: one record per container AND per leaf, so search can reach a value never drawn. */
+    function jsonBuildModel(root) {
+        var all = [];
+        function walk(key, val, parent, depth) {
+            var m = { key: key, val: val, kind: jsonKind(val), parent: parent, depth: depth,
+                      idx: all.length, children: [] };
+            all.push(m);
+            if (m.kind === 'object') {
+                var ks = Object.keys(val);
+                for (var i = 0; i < ks.length; i++) m.children.push(walk(ks[i], val[ks[i]], m, depth + 1));
+            } else if (m.kind === 'array') {
+                for (var j = 0; j < val.length; j++) m.children.push(walk(String(j), val[j], m, depth + 1));
+            }
+            m.hay = (String(key == null ? '' : key) + ' ' + (jsonIsLeaf(val) ? String(val) : '')).toLowerCase();
+            return m;
+        }
+        return { root: walk(null, root, null, 0), all: all };
+    }
+    /** Union of the keys of an array's object elements, in first-seen order. */
+    function jsonRowKeys(items) {
+        var cols = [], seen = {};
+        for (var i = 0; i < items.length; i++) {
+            var v = items[i].val;
+            if (jsonKind(v) !== 'object') continue;
+            var ks = Object.keys(v);
+            for (var k = 0; k < ks.length; k++) if (!seen[ks[k]]) { seen[ks[k]] = 1; cols.push(ks[k]); }
+        }
+        return cols;
+    }
+
+    /** Builds into host. Returns { count, expandAll, collapseAll, search }. */
+    function buildJsonTable(host, data) {
+        host.innerHTML = '';
+        var model = jsonBuildModel(data);
+        var query = '', keep = null, openSet = {};
+        openSet[model.root.idx] = true;
+        function visible(m) { return !keep || keep[m.idx]; }
+        function el2(tag, cls, parent) {
+            var e = document.createElement(tag);
+            if (cls) e.className = cls;
+            if (parent) parent.appendChild(e);
+            return e;
+        }
+        function head(into, label, count, m) {
+            var h = el2('div', 'xt-head', into);
+            var tog = el2('span', 'xt-tog', h);
+            if (m && m.children.length) {
+                tog.textContent = openSet[m.idx] ? String.fromCharCode(0x25BE) : String.fromCharCode(0x25B8);
+                h.style.cursor = 'pointer';
+                h.addEventListener('click', function () { openSet[m.idx] = !openSet[m.idx]; draw(); });
+            }
+            var t = el2('span', 'xt-tag', h);
+            t.innerHTML = jsonMark(label, query);
+            if (count) { var c = el2('span', 'xt-count', h); c.textContent = count; }
+            return h;
+        }
+
+        function renderNode(m, into, label) {
+            if (m.kind === 'object') return renderObject(m, into, label);
+            if (m.kind === 'array') return renderArray(m, into, label);
+            var blk = el2('div', 'xt-block', into);
+            head(blk, label, null, null);
+            var tx = el2('div', 'xt-text', blk);
+            tx.innerHTML = jsonScalarCell(m.val, query);
+            return blk;
+        }
+
+        function renderObject(m, into, label) {
+            var blk = el2('div', 'xt-block', into);
+            var kids = m.children.filter(visible);
+            head(blk, label, kids.length + (kids.length === 1 ? ' key' : ' keys'), m);
+            if (!openSet[m.idx]) return blk;
+            if (!kids.length) { el2('div', 'xt-text', blk).textContent = '(no keys)'; return blk; }
+            var t = el2('table', 'xt-tbl xt-kv', blk);
+            var tb = el2('tbody', null, t);
+            for (var i = 0; i < kids.length; i++) {
+                (function (c) {
+                    var tr = el2('tr', null, tb);
+                    var k = el2('td', 'xt-k', tr);
+                    k.innerHTML = jsonMark(String(c.key), query);
+                    var v = el2('td', 'xt-v', tr);
+                    if (jsonIsLeaf(c.val)) { v.innerHTML = jsonScalarCell(c.val, query); return; }
+                    var b = el2('span', 'xt-tog xt-tog-btn', v);
+                    b.textContent = openSet[c.idx] ? String.fromCharCode(0x25BE) : String.fromCharCode(0x25B8);
+                    var lab = el2('span', 'xt-sum', v);
+                    lab.textContent = ' ' + jsonSummary(c.val);
+                    v.style.cursor = 'pointer';
+                    v.addEventListener('click', function () { openSet[c.idx] = !openSet[c.idx]; draw(); });
+                    if (openSet[c.idx]) {
+                        var sub = el2('tr', 'xt-sub', tb);
+                        var cell = el2('td', null, sub);
+                        cell.colSpan = 2;
+                        renderNode(c, cell, String(c.key));
+                    }
+                })(kids[i]);
+            }
+            return blk;
+        }
+
+        function renderArray(m, into, label) {
+            var blk = el2('div', 'xt-block', into);
+            var items = m.children.filter(visible);
+            head(blk, label, items.length + (items.length === 1 ? ' item' : ' items'), m);
+            if (!openSet[m.idx]) return blk;
+            if (!items.length) { el2('div', 'xt-text', blk).textContent = '(empty)'; return blk; }
+
+            var cols = jsonRowKeys(items);
+            var table = el2('table', 'xt-tbl xt-list', blk);
+            var thead = el2('thead', null, table);
+            var hr = el2('tr', null, thead);
+            var anyNested = false;
+            for (var z = 0; z < items.length; z++) if (!jsonIsLeaf(items[z].val)) anyNested = true;
+            if (anyNested) el2('th', 'xt-num', hr).textContent = '';
+            el2('th', 'xt-num', hr).textContent = '#';
+            if (cols.length) {
+                for (var c0 = 0; c0 < cols.length; c0++) el2('th', null, hr).innerHTML = jsonMark(cols[c0], query);
+            } else {
+                el2('th', null, hr).textContent = 'value';
+            }
+            var tb = el2('tbody', null, table);
+            for (var i = 0; i < items.length; i++) {
+                (function (it, rowNo) {
+                    var tr = el2('tr', null, tb);
+                    if (anyNested) {
+                        var td0 = el2('td', 'xt-num', tr);
+                        if (!jsonIsLeaf(it.val)) {
+                            var b = el2('span', 'xt-tog xt-tog-btn', td0);
+                            b.textContent = openSet[it.idx] ? String.fromCharCode(0x25BE) : String.fromCharCode(0x25B8);
+                            td0.style.cursor = 'pointer';
+                            td0.addEventListener('click', function () { openSet[it.idx] = !openSet[it.idx]; draw(); });
+                        }
+                    }
+                    el2('td', 'xt-num', tr).textContent = String(rowNo);
+                    if (cols.length) {
+                        var obj = (jsonKind(it.val) === 'object') ? it.val : null;
+                        for (var c1 = 0; c1 < cols.length; c1++) {
+                            var has = obj && Object.prototype.hasOwnProperty.call(obj, cols[c1]);
+                            var td = el2('td', has ? 'xt-v' : 'xt-v xt-null', tr);
+                            if (!has) { td.textContent = ''; continue; }
+                            var cv = obj[cols[c1]];
+                            if (jsonIsLeaf(cv)) td.innerHTML = jsonScalarCell(cv, query);
+                            else { td.className = 'xt-v xt-sum'; td.textContent = jsonSummary(cv); }
+                        }
+                    } else {
+                        var tdv = el2('td', 'xt-v', tr);
+                        if (jsonIsLeaf(it.val)) tdv.innerHTML = jsonScalarCell(it.val, query);
+                        else tdv.textContent = jsonSummary(it.val);
+                    }
+                    if (!jsonIsLeaf(it.val) && openSet[it.idx]) {
+                        var sub = el2('tr', 'xt-sub', tb);
+                        var cell = el2('td', null, sub);
+                        cell.colSpan = (anyNested ? 1 : 0) + 1 + (cols.length ? cols.length : 1);
+                        renderNode(it, cell, '[' + rowNo + ']');
+                    }
+                })(items[i], i + 1);
+            }
+            return blk;
+        }
+
+        function draw() {
+            host.innerHTML = '';
+            if (keep && !keep[model.root.idx]) { host.innerHTML = '<div class="xt-empty">no match</div>'; return; }
+            renderNode(model.root, host, model.root.kind === 'array' ? 'root (array)' : 'root');
+        }
+
+        function search(q) {
+            query = (q || '').trim();
+            if (!query) { keep = null; draw(); return 0; }
+            var ql = query.toLowerCase(), hits = 0;
+            keep = [];
+            for (var i = 0; i < model.all.length; i++) {
+                var hit = model.all[i].hay.indexOf(ql) >= 0;
+                keep[i] = hit;
+                if (hit) hits++;
+            }
+            for (var k = model.all.length - 1; k >= 0; k--) {
+                if (!keep[k]) continue;
+                openSet[model.all[k].idx] = true;
+                var p = model.all[k].parent;
+                while (p) { keep[p.idx] = true; openSet[p.idx] = true; p = p.parent; }
+            }
+            draw();
+            return hits;
+        }
+
+        draw();
+        return {
+            count: model.all.length,
+            expandAll: function () { for (var i = 0; i < model.all.length; i++) openSet[model.all[i].idx] = true; draw(); },
+            collapseAll: function () { openSet = {}; openSet[model.root.idx] = true; draw(); },
+            search: search
+        };
+    }
+
     /* ===================== XML table view (shared) =====================
        Renders XML as TABLES, not as an indented tree:
          - a single element becomes a titled block with an Attribute | Value table;
@@ -960,6 +1202,7 @@
         var body = el('div', 'vwr-body mono', host);
         var isStructured = /\.(json|xml)$/i.test(name || '');
         var isXml = /\.xml$/i.test(name || '');
+        var isJson = /\.json$/i.test(name || '');
         if (isStructured) {
             var sLines = [], sHl = { n: 0 }, sVl = null;
             gotoBox(tools, body, 19, function () { return sLines.length; }, 'go to line\u2026',
@@ -1013,9 +1256,60 @@
                     }
                 });
             }
+            // .json gets the same treatment as .xml, and opens ON the table: a list of entities is
+            // what people come to a JSON file to read, and reading it as text is the thing it was
+            // never meant to be. The source stays one click away.
+            var jsonBox = null, jsonApi = null, jsonTools = null, jsonInfo = null, jsonRaw = null, jsonShow = null;
+            if (isJson) {
+                jsonTools = el('div', 'vwr-tools', host);
+                var jSearch = el('input', 'inline-input', jsonTools);
+                jSearch.placeholder = 'search keys and values\u2026';
+                jSearch.style.minWidth = '260px';
+                jsonInfo = el('span', 'dim small', jsonTools); jsonInfo.style.marginLeft = '10px';
+                var jExp = el('button', 'btn sm', jsonTools); text(jExp, 'Expand all');
+                var jCol = el('button', 'btn sm', jsonTools); text(jCol, 'Collapse all');
+                jsonBox = el('div', 'xt-wrap', host);
+                jsonBox.style.maxHeight = '70vh';
+                jExp.addEventListener('click', function () { if (jsonApi) jsonApi.expandAll(); });
+                jCol.addEventListener('click', function () { if (jsonApi) jsonApi.collapseAll(); });
+                jSearch.addEventListener('input', function () {
+                    if (!jsonApi) return;
+                    var q = jSearch.value, n = jsonApi.search(q);
+                    jsonInfo.textContent = q.trim() ? (n + ' match' + (n === 1 ? '' : 'es')) : (jsonApi.count + ' nodes');
+                });
+                var jsonTabs = el('div', 'vwr-tabs', host);
+                host.insertBefore(jsonTabs, tools);
+                var jTabTbl = el('button', 'vtab active', jsonTabs); text(jTabTbl, 'Table');
+                var jTabCode = el('button', 'vtab', jsonTabs); text(jTabCode, 'Code');
+                jsonShow = function (table) {
+                    jTabTbl.classList.toggle('active', table);
+                    jTabCode.classList.toggle('active', !table);
+                    tools.style.display = table ? 'none' : '';
+                    body.style.display = table ? 'none' : '';
+                    jsonTools.style.display = table ? '' : 'none';
+                    jsonBox.style.display = table ? '' : 'none';
+                    if (table && !jsonApi && jsonRaw != null) {
+                        var parsed = null, bad = null;
+                        try { parsed = JSON.parse(jsonRaw); } catch (e) { bad = String(e.message || e); }
+                        if (bad !== null) {
+                            jsonBox.innerHTML = '<div class="xt-empty">This file is not valid JSON, so it cannot be shown as a table ('
+                                + mdEsc(bad) + '). The Code tab shows it as it is.</div>';
+                            return;
+                        }
+                        jsonApi = buildJsonTable(jsonBox, parsed);
+                        if (jsonApi) jsonInfo.textContent = jsonApi.count + ' nodes';
+                    }
+                };
+                jTabTbl.addEventListener('click', function () { jsonShow(true); });
+                jTabCode.addEventListener('click', function () { jsonShow(false); });
+                tools.style.display = 'none';
+                body.style.display = 'none';
+                jsonTools.style.display = '';
+            }
             info.textContent = 'loading…';
             fetch(src).then(function (r) { return r.text(); }).then(function (content) {
                 xmlText = content;
+                if (isJson && jsonShow) { jsonRaw = content; jsonShow(true); }
                 var rr = prettyFormat(content, name), txt;
                 if (rr.ok) { txt = rr.text; meta.textContent = rr.kind + ' · formatted'; }
                 else { txt = content; meta.textContent = '(' + rr.error + ' \u2014 raw)'; }
