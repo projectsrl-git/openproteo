@@ -1540,3 +1540,22 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   inside** (`wsOwnerLabel`). Without it a customer whose own `relationships` list was empty looked as
   if the diagram had invented four relationships; they were real and belonged to other rows. That one
   line of context turns a correct answer that looks wrong into a correct answer that looks right.
+
+## Standalone viewers: relationship cache, and one shared link core
+* **Cache**: declared relationships are kept in localStorage under `op-viewer-links-v1` and restored
+  when the same files are added again. **Only the declaration is stored** — file NAMES, list paths,
+  field names. Never a value, never a row, never a parsed document; in a Legal Archive context that
+  distinction is the point, and it is asserted in the tests. Files are matched by NAME (an id means
+  nothing across sessions), so a renamed file is a forgotten file — deliberate, since looser matching
+  would restore onto a file that may not be the same one. A saved link whose two files are not both
+  open WAITS; one whose list/field is gone is **reported and skipped**, not silently dropped, because
+  a file that changed shape under a saved declaration is exactly what an operator wants to hear.
+  Closing a file drops the live link, keeps the saved one. Storage blocked (private mode) must not
+  break the page — asserted. * **The link core is now format-agnostic**, behind a three-method file
+  contract: `lists`, `iterField(path, field, cb(value, ref))`, `entityOf(path, ref)`. The index stores
+  REFS, not materialised entities, so a CSV row index will cost integers rather than an object per row.
+  One implementation serves both standalone pages instead of two copies drifting. * **A duplicate cache
+  implementation nearly shipped**: `page.js` already had one and a second was injected. JS allows
+  duplicate function declarations (last wins) so nothing failed — `node --check` and all three suites
+  passed. Added a **duplicate top-level function scan** to the build checks; it is now part of the
+  routine for these single-file pages.

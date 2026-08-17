@@ -1,104 +1,68 @@
-Linked entities in the JSON viewer (batch 1), with three field fixes
+Standalone viewers: remember relationships, and share one link core
 
-This supersedes the earlier json-linked-entities patch, which had not been
-pushed: it carries batch 1 of
-.claude/2026-08-11-DESIGN-linked-entity-viewers.md AND the direction check
-below. Apply this one only.
+Two things, both groundwork for the CSV and in-app batches.
 
-Batch 1 gives the standalone JSON page several files at once with a memory
-budget counted in MODEL RECORDS rather than megabytes - measured, not guessed:
-a 2.1 MB document gave 168 329 records and 37 MB of heap, about eighteen times
-the file, so a megabyte limit would have been wrong by an order of magnitude.
-A file that would not fit is refused without ever being materialised and the
-files already open are untouched. It also gives declared relationships between
-entities, links clickable from both ends, and the focus/parent/child diagram
-in the shape of EOR_viewer.html, walked one hop at a time because five
-thousand entities cannot be drawn at once. The relationship question is asked
-per file AFTER parsing rather than at page open as the request put it, since
-before a file is parsed there are no fields for the dropdowns; that was
-flagged in the spec and agreed.
+Declared relationships are now remembered. Declaring a set of them is real
+work, and on a workspace that is re-opened every day it is the same work every
+day, so they are kept in the browser under op-viewer-links-v1 and restored
+when the same files are added again.
 
-Then the direction check, which is what the screenshots were about.
+What is stored is only the declaration: file names, entity-list paths and
+field names. Never a value, never a row, never a parsed document. In a Legal
+Archive context that distinction is the whole point, so it is asserted rather
+than assumed - the test checks that no identifier from the data appears
+anywhere in what was written.
 
-Reported with screenshots: the diagram showed a RELATIONSHIP as the focused
-entity and a CUSTOMER as its child, which reads backwards. The code was doing
-exactly what it had been told - the declaration was child
-$.customers.customerId pointing at parent
-$.customers[].relationships.relatedCustomerId, the two sides the wrong way
-round. The defect is in the interface, which accepted that without a word and
-even reassured the operator that it had resolved.
+Files are matched by name, because an id only means something inside one
+session. A renamed file is therefore a forgotten file, which is deliberate:
+matching on anything looser would restore a declaration onto a file that might
+not be the same one. A saved relationship whose two files are not both open
+simply waits, and comes back when the second one arrives. One whose entity
+list or field no longer exists is reported and skipped rather than silently
+ignored - a file that changed shape under a saved declaration is exactly the
+thing an operator wants to hear about, and silently skipping it looks
+identical to the cache having been forgotten. It stays remembered in case an
+older version of the file comes back. Closing a file drops the live
+relationship but keeps the saved one, since the file will very likely be
+opened again tomorrow. Forget saved relationships clears the lot. Storage
+being blocked, as in a private window, must not break the page, and that is
+asserted too.
 
-A resolution rate on its own cannot detect this, which is the whole problem:
-in the inverted direction 3 315 of 5 000 values resolved, so the number looked
-perfectly healthy and the mistake only surfaced later as a diagram that read
-the wrong way. Two signals do detect it, and both must agree before the page
-says anything. A PARENT field is an identity, so it should be unique, while a
-CHILD field is a reference and usually is not; and the correct direction
-resolves a higher share than the reverse. wsLinkStats now computes, per side,
-how many distinct values a field has, out of how many rows, and whether it is
-unique, together with the resolution rate in each direction.
+The second change is groundwork rather than a feature. The link layer no
+longer knows what a file is: it asks the file, through three methods - the
+entity lists it offers, a way to iterate one field, and a way to turn a
+reference into an entity. The index stores those references rather than
+materialised entities, which is what will let a CSV of a hundred thousand rows
+be indexed as an array of integers instead of a hundred thousand objects. The
+JSON page now supplies that adapter, so when the CSV page arrives there is one
+implementation of relationships, indexes and the diagram rather than two
+copies drifting apart.
 
-When both signals agree the banner says these sides look swapped, explains in
-one sentence why a parent field should be unique and a child field need not
-be, and offers a button that turns the relationship round in place and
-re-reports it. The same thing is available before the mistake is made: a Swap
-sides button exchanges the six dropdowns, and the panel now spells out the
-customers example rather than describing the rule abstractly.
+Verified with 24 new assertions driving the page through simulated reloads
+with a shared storage: two relationships declared in one session, both written
+keyed by file name and containing none of the data; a second session restoring
+the self-link on its own and the cross-file one only when its second file
+arrives, after which the cells are clickable again; a file whose shape changed
+being reported and skipped while the declaration stays on disk; a renamed file
+restoring nothing; closing and reopening a file restoring it again; Forget
+clearing storage; and the page still booting with localStorage throwing on
+access. The three earlier suites were re-run against the refactored core and
+pass unchanged.
 
-Requiring both signals matters. A legitimately many-to-one key - orders
-pointing at customers, where the parent is unique and the child is not - is
-the normal case and must not be warned about, and neither is a case where the
-parent key genuinely repeats. Only the combination of a non-unique parent, a
-unique child and a better reverse rate is suspicious.
+One defect worth recording. A duplicate cache implementation nearly shipped:
+page.js already had one and a second was injected into the same scope.
+JavaScript allows duplicate function declarations and the last one wins, so
+nothing failed - node --check passed and all three suites passed. A duplicate
+top-level function scan is now part of the checks for these single-file pages,
+since assembling a page from parts makes exactly this mistake easy and
+invisible.
 
-Verified with jsdom against a document reproducing the reported shape - 300
-unique customers and about 400 relationship rows whose relatedCustomerId
-repeats, which is precisely why the bare rate could not tell. Twenty-four
-assertions: the backwards declaration is flagged as an error rather than
-accepted, the banner names the non-unique parent field and reports both
-directions, the offered button turns it round, after which the parent side is
-unique and the warning is gone and the listed link reads relationships to
-customers; the diagram then focuses a customer with relationships as its
-neighbours instead of the other way round; declaring it correctly the first
-time raises nothing; the Swap sides button exchanges all four path and field
-selects before adding; and a legitimate many-to-one link passes silently. The
-batch-1 suite was re-run as a regression and passes, with one assertion
-updated to the new wording.
+NOT verified: the cache in a real browser, where localStorage is per-origin
+and a file:// page has its own rules. Declare a relationship, reload the page,
+add the same file and it should come back.
 
-Three further things were reported from the field on top of that and are in
-here too.
-
-The expand and collapse control was a ten-pixel triangle. It is now a plus or
-a minus in a bordered box: it is the only way to open a node, and a small
-target is a bad target.
-
-The diagram put a neighbour on the side its DECLARATION implied rather than
-the side its DIRECTION implies. The declaration calls the field that holds the
-value the CHILD field, which is the database convention, but on a picture the
-record doing the pointing reads as the one above: a relationship row naming a
-customer is that customer's parent. So the left column is now everything that
-points AT the focus and the right column is what the focus points at, and the
-neighbour counter says so in the same terms. Whether an entity is drawn left
-or right no longer depends on which end of the declaration it happens to sit
-on.
-
-And a badge now names the row it lives inside. A customer whose own
-relationships list was empty showed four relationship badges and looked as
-though the diagram had invented them; they were real, and they belonged to
-four other customers. One line of context - "in UKC0003584" - turns a correct
-answer that looks wrong into a correct answer that looks right, which was the
-actual complaint.
-
-Verified additionally against the reported shape exactly, a customer with an
-empty relationships list named by four rows living inside three other
-customers, with 26 assertions: only plus and minus appear as toggles and no
-triangle survives; the four neighbours are labelled PARENT, drawn on the left
-by measured x geometry, and each names the row it lives in with the two rows
-of the same owner both attributed to it; focusing a relationship instead puts
-its customer on the right as a CHILD; and the counter matches the sides drawn.
-The two earlier suites were re-run, one stale assertion updated to the new
-side convention.
-
-NOT verified: how the warning reads on screen. Re-declare the relationship on
-the real file: it should now flag it, and one click should turn it round so
-the diagram focuses the customer.
+The CSV viewer is the next batch on its own. It has to go INTO the existing
+csv-viewer.html, which carries a virtual-scrolling grid, column filters,
+aggregation and displayschema handling, and retrofitting tabs and
+relationships around that without breaking it is a job worth its own patch
+rather than a hurried addition to this one.
