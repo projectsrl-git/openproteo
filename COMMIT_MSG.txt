@@ -1,59 +1,104 @@
-JSON table viewer, in the app and as a standalone page
+Linked entities in the JSON viewer (batch 1), with three field fixes
 
-The same treatment the XML viewer got, for JSON, because a list of entities is
-what people come to a JSON file to read and reading it as text is the thing it
-was never meant to be.
+This supersedes the earlier json-linked-entities patch, which had not been
+pushed: it carries batch 1 of
+.claude/2026-08-11-DESIGN-linked-entity-viewers.md AND the direction check
+below. Apply this one only.
 
-An object becomes a titled block with a Key | Value table. An array of objects
-becomes ONE table whose header is the union of the keys found across its
-elements, one numbered row per element, with a key that a given element does
-not have left visibly blank rather than silently empty, so a ragged list reads
-as ragged. An array of scalars becomes a numbered two-column table. A value
-that is itself an object or an array shows a short summary - { 4 keys }, [ 12
-items ] - and a toggle that opens it in a full-width sub-row, so a deep
-document stays navigable instead of becoming a wall of text.
+Batch 1 gives the standalone JSON page several files at once with a memory
+budget counted in MODEL RECORDS rather than megabytes - measured, not guessed:
+a 2.1 MB document gave 168 329 records and 37 MB of heap, about eighteen times
+the file, so a megabyte limit would have been wrong by an order of magnitude.
+A file that would not fit is refused without ever being materialised and the
+files already open are untouched. It also gives declared relationships between
+entities, links clickable from both ends, and the focus/parent/child diagram
+in the shape of EOR_viewer.html, walked one hop at a time because five
+thousand entities cannot be drawn at once. The relationship question is asked
+per file AFTER parsing rather than at page open as the request put it, since
+before a file is parsed there are no fields for the dropdowns; that was
+flagged in the spec and agreed.
 
-Strings, numbers, booleans and null are coloured apart, and null renders as
-null rather than as an empty cell, which is a different thing. Expand all and
-Collapse all work on the whole document, and one search box matches keys and
-values at once, highlighting matches, dropping branches with none and opening
-the path to every hit. A file that is not valid JSON says so, quotes the
-parser's own message and stays readable under Code.
+Then the direction check, which is what the screenshots were about.
 
-Unlike the XML viewer, this one opens ON the table rather than on the source.
-That is the point of it; the source stays one click away.
+Reported with screenshots: the diagram showed a RELATIONSHIP as the focused
+entity and a CUSTOMER as its child, which reads backwards. The code was doing
+exactly what it had been told - the declaration was child
+$.customers.customerId pointing at parent
+$.customers[].relationships.relatedCustomerId, the two sides the wrong way
+round. The defect is in the interface, which accepted that without a word and
+even reassured the operator that it had resolved.
 
-The architecture is the one the XML view established: a light model built
-once, tables rendered from it on demand so a large document does not build
-every cell before the first paint, and search running on the model rather than
-on the DOM so it still finds matches inside branches that have never been
-drawn. The .xt-* stylesheet is reused rather than duplicated, which is what
-gives light and dark parity for free; only four classes were added, for the
-value types.
+A resolution rate on its own cannot detect this, which is the whole problem:
+in the inverted direction 3 315 of 5 000 values resolved, so the number looked
+perfectly healthy and the mistake only surfaced later as a diagram that read
+the wrong way. Two signals do detect it, and both must agree before the page
+says anything. A PARENT field is an identity, so it should be unique, while a
+CHILD field is a reference and usually is not; and the correct direction
+resolves a higher share than the reverse. wsLinkStats now computes, per side,
+how many distinct values a field has, out of how many rows, and whether it is
+unique, together with the resolution rate in each direction.
 
-json_viewer.html in the repository root is the standalone form, built from the
-xml_viewer.html shell with the renderer, the loader and the Code-tab printer
-swapped. Browse or drag-drop, same table, same search, its own theme switch,
-and no upload, no network and no external library - asserted, not assumed.
+When both signals agree the banner says these sides look swapped, explains in
+one sentence why a parent field should be unique and a child field need not
+be, and offers a button that turns the relationship round in place and
+re-reports it. The same thing is available before the mistake is made: a Swap
+sides button exchanges the six dropdowns, and the panel now spells out the
+customers example rather than describing the rule abstractly.
 
-Verified with jsdom, twice over. Forty assertions on the renderer: the union
-of keys in first-seen order, the header and rows of a list of entities, the
-hatched cell for a key one element lacks, nested values shown as summaries
-rather than flattening the row, an array of scalars, objects as key/value
-tables, null rendered as null, collapse closing every nested list while the
-root keeps its own key table, search on a value and on a key name with several
-matches and case-insensitivity and the path retained, a top-level array which
-is the common export shape, and six degenerate documents - empty array, empty
-object, null, a number, a string, a boolean - each of which must render
-without throwing. Then twenty more driving the standalone page through its
-REAL file input, with a real File object, so the load path, the tab switching,
-the invalid-JSON banner and the search box are exercised the way a user drives
-them rather than by calling internals.
+Requiring both signals matters. A legitimately many-to-one key - orders
+pointing at customers, where the parent is unique and the child is not - is
+the normal case and must not be warned about, and neither is a case where the
+parent key genuinely repeats. Only the combination of a non-unique parent, a
+unique child and a better reverse rate is suspicious.
 
-node --check passes on viewer.js and on the standalone page, both with zero
-literal newline/CR escape sequences and no external references, and every CSS
-variable the new rules use resolves in both themes.
+Verified with jsdom against a document reproducing the reported shape - 300
+unique customers and about 400 relationship rows whose relatedCustomerId
+repeats, which is precisely why the bare rate could not tell. Twenty-four
+assertions: the backwards declaration is flagged as an error rather than
+accepted, the banner names the non-unique parent field and reports both
+directions, the offered button turns it round, after which the parent side is
+unique and the warning is gone and the listed link reads relationships to
+customers; the diagram then focuses a customer with relationships as its
+neighbours instead of the other way round; declaring it correctly the first
+time raises nothing; the Swap sides button exchanges all four path and field
+selects before adding; and a legitimate many-to-one link passes silently. The
+batch-1 suite was re-run as a regression and passes, with one assertion
+updated to the new wording.
 
-NOT verified: mvn clean package, and how it looks on screen. Open
-json_viewer.html on a real export - the bigger and more nested the better -
-and switch the theme once before relying on the in-app tab.
+Three further things were reported from the field on top of that and are in
+here too.
+
+The expand and collapse control was a ten-pixel triangle. It is now a plus or
+a minus in a bordered box: it is the only way to open a node, and a small
+target is a bad target.
+
+The diagram put a neighbour on the side its DECLARATION implied rather than
+the side its DIRECTION implies. The declaration calls the field that holds the
+value the CHILD field, which is the database convention, but on a picture the
+record doing the pointing reads as the one above: a relationship row naming a
+customer is that customer's parent. So the left column is now everything that
+points AT the focus and the right column is what the focus points at, and the
+neighbour counter says so in the same terms. Whether an entity is drawn left
+or right no longer depends on which end of the declaration it happens to sit
+on.
+
+And a badge now names the row it lives inside. A customer whose own
+relationships list was empty showed four relationship badges and looked as
+though the diagram had invented them; they were real, and they belonged to
+four other customers. One line of context - "in UKC0003584" - turns a correct
+answer that looks wrong into a correct answer that looks right, which was the
+actual complaint.
+
+Verified additionally against the reported shape exactly, a customer with an
+empty relationships list named by four rows living inside three other
+customers, with 26 assertions: only plus and minus appear as toggles and no
+triangle survives; the four neighbours are labelled PARENT, drawn on the left
+by measured x geometry, and each names the row it lives in with the two rows
+of the same owner both attributed to it; focusing a relationship instead puts
+its customer on the right as a CHILD; and the counter matches the sides drawn.
+The two earlier suites were re-run, one stale assertion updated to the new
+side convention.
+
+NOT verified: how the warning reads on screen. Re-declare the relationship on
+the real file: it should now flag it, and one click should turn it round so
+the diagram focuses the customer.

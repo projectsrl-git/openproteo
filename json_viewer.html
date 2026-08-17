@@ -71,6 +71,61 @@
 :root[data-theme="light"] .xt-tbl tbody tr:nth-child(even) > td { background: #f7f9fc; }
 :root[data-theme="light"] .xt-tbl tbody tr:hover > td { background: #eef3fa; }
 :root[data-theme="light"] .xt-kv td.xt-k { background: #e7eef7; color: #3d4d61; }
+
+  /* ---- workspace chrome ---- */
+  .tabs2{display:flex;gap:4px;flex-wrap:wrap;margin:10px 0 0}
+  .ftab{display:flex;align-items:center;gap:6px;background:var(--raise);border:1px solid var(--line);
+        border-bottom-color:transparent;border-radius:5px 5px 0 0;padding:5px 10px;font-size:12px;cursor:pointer}
+  .ftab.active{background:#31435f;color:#fff;border-color:var(--line)}
+  :root[data-theme="light"] .ftab.active{background:#bcd3ec;color:#16283c}
+  .ftab .x{color:var(--faint);font-weight:700;padding:0 2px}
+  .ftab .x:hover{color:#f85149}
+  .ftab .sz{color:var(--faint);font-size:10.5px}
+  .cap{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0;font-size:11.5px;color:var(--dim)}
+  .capbar{width:220px;height:7px;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:var(--bg)}
+  .capbar > i{display:block;height:100%;background:var(--accent)}
+  .panel{border:1px solid var(--accent);border-radius:6px;background:var(--raise);padding:12px 14px;margin:10px 0}
+  .panel h3{margin:0 0 8px;font-size:13px;color:var(--accent)}
+  .prow{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin:6px 0}
+  .prow label{display:block;font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px}
+  select,input[type=number]{background:var(--raise);color:var(--ink);border:1px solid var(--line);
+        border-radius:5px;padding:5px 8px;font-size:12px;font-family:inherit}
+  .lnk{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;
+       border:1px solid var(--line);border-radius:5px;padding:4px 8px;margin:4px 0;background:var(--bg)}
+  .lnk .x{color:var(--faint);cursor:pointer;font-weight:700}
+  .lnk .x:hover{color:#f85149}
+  a.xt-link{color:var(--accent);text-decoration:underline;text-decoration-style:dotted;cursor:pointer}
+  a.xt-link:hover{text-decoration-style:solid}
+  /* ---- diagram ---- */
+  .dg-svg{width:100%;height:auto;background:var(--bg);border:1px solid var(--line);border-radius:6px}
+  .dg-focus-box{fill:#31435f;stroke:var(--accent);stroke-width:2}
+  :root[data-theme="light"] .dg-focus-box{fill:#bcd3ec}
+  .dg-badge-box{fill:var(--raise);stroke:var(--val);stroke-width:1.5}
+  .dg-badge:hover .dg-badge-box{stroke:var(--accent);stroke-width:2.5}
+  .dg-missing .dg-badge-box{stroke:#f85149;stroke-dasharray:5 3}
+  .dg-kicker{font-size:10px;font-weight:700;letter-spacing:2px;fill:var(--accent)}
+  .dg-kicker-s{font-size:9px;font-weight:700;letter-spacing:1.5px;fill:var(--val)}
+  .dg-missing .dg-kicker-s{fill:#f85149}
+  .dg-title{font-size:17px;font-weight:700;fill:var(--ink)}
+  :root[data-theme="light"] .dg-title{fill:#16283c}
+  .dg-name{font-size:14px;font-weight:700;fill:var(--ink)}
+  .dg-sub{font-size:11px;fill:var(--ink);opacity:.85}
+  :root[data-theme="light"] .dg-sub{fill:#16283c}
+  .dg-sub-s{font-size:10.5px;fill:var(--dim)}
+  .dg-file{font-size:9.5px;fill:var(--faint)}
+  .dg-arrow{stroke:var(--val);stroke-width:2;opacity:.85}
+  .dg-arrow-head{fill:var(--val)}
+  .dg-arrow-missing{stroke:#f85149;stroke-width:2;stroke-dasharray:5 3;opacity:.85}
+  .dg-arrow-missing-head{fill:#f85149}
+
+  /* +/- toggles: a small target is a bad target, and these are the only way to open a node */
+  .xt-tog{display:inline-block;min-width:18px;height:18px;line-height:16px;text-align:center;
+          border:1px solid var(--line);border-radius:3px;background:var(--bg);color:var(--ink);
+          font-family:var(--mono);font-size:14px;font-weight:700;flex:0 0 auto;user-select:none}
+  .xt-head:hover > .xt-tog, .xt-tog-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .xt-tog-btn{cursor:pointer;margin-right:6px}
+  .xt-tbl td.xt-num{padding:2px 6px}
+  .dg-owner{font-size:9.5px;fill:var(--faint)}
 </style>
 </head>
 <body>
@@ -78,58 +133,89 @@
   <div class="bar" style="justify-content:space-between">
     <div>
       <h1>OpenProteo &mdash; standalone JSON viewer</h1>
-      <p class="sub small">Everything runs in this page: no upload, no network, no external library. The file never leaves your machine.</p>
+      <p class="sub small">Everything runs in this page: no upload, no network, no external library. The files never leave your machine.</p>
     </div>
     <button id="themeBtn">&#9788; light</button>
   </div>
 
   <div class="bar">
-    <label class="browse">Browse&hellip;<input type="file" id="jsonFile" accept=".json,.jsonl,.txt"></label>
+    <label class="browse">Add file&hellip;<input type="file" id="jsonFile" accept=".json,.txt" multiple></label>
     <span id="fileName" class="dim small">no file</span>
   </div>
 
-  <div id="msg" class="banner">Choose a JSON file, or drag one anywhere on this page.</div>
-
-  <div id="tabs" class="tabs" style="display:none">
-    <button class="tab active" id="tabTree">Table</button>
-    <button class="tab" id="tabCode">Code</button>
+  <div class="cap">
+    <span>Memory budget</span>
+    <span class="capbar"><i id="capFill" style="width:0%"></i></span>
+    <span id="capText">0 of 400,000 records</span>
+    <span>&middot; limit</span>
+    <input type="number" id="capInput" value="400000" min="1000" step="50000" style="width:110px"
+           title="Model records across all open files. The model costs about 18x the file size, so this is counted in records and not in megabytes." >
+    <button id="capApply">set</button>
   </div>
 
-  <div id="treePane" style="display:none">
-    <div class="bar">
-      <input type="text" id="q" placeholder="search keys and values&hellip;">
-      <span id="qinfo" class="dim small"></span>
-      <button id="expandAll">Expand all</button>
-      <button id="collapseAll">Collapse all</button>
+  <div id="msg" class="banner">Add a JSON file, or drag one anywhere on this page. You can add several and switch between them with the tabs.</div>
+
+  <div id="askPanel" class="panel" style="display:none">
+    <h3 id="askTitle">Does this file contain references between entities?</h3>
+    <p class="dim small" id="askHint" style="margin:0 0 8px"></p>
+    <div class="prow">
+      <button id="askNo">No &mdash; just show the data</button>
+      <button id="askYes">Yes &mdash; let me declare them</button>
     </div>
-    <div id="tree" class="xt-wrap"></div>
   </div>
 
-  <div id="codePane" style="display:none"><pre class="code" id="code"></pre></div>
+  <div id="linkPanel" class="panel" style="display:none">
+    <h3>Declare a relationship</h3>
+    <p class="dim small" style="margin:0 0 8px">The <b>CHILD</b> field holds the reference; the <b>PARENT</b> field is the identity it points at, so the parent field is normally <b>unique</b>. For the customers example: child <code>$.customers[].relationships</code> &middot; <code>relatedCustomerId</code> &rarr; parent <code>$.customers</code> &middot; <code>customerId</code>. Both ends become clickable in the tables.</p>
+    <div class="prow">
+      <div><label>Child file</label><select id="lcFile"></select></div>
+      <div><label>Child entity list</label><select id="lcPath"></select></div>
+      <div><label>Child field</label><select id="lcField"></select></div>
+      <div style="align-self:center;padding:0 4px;color:var(--accent)">&rarr;</div>
+      <div><label>Parent file</label><select id="lpFile"></select></div>
+      <div><label>Parent entity list</label><select id="lpPath"></select></div>
+      <div><label>Parent field</label><select id="lpField"></select></div>
+      <div><label>&nbsp;</label><button id="swapSides" title="Swap the two sides before adding, if you typed them the wrong way round">&#8646; Swap sides</button></div>
+      <div><label>&nbsp;</label><button id="addLink">Add relationship</button></div>
+      <div><label>&nbsp;</label><button id="closeLinks">Done</button></div>
+    </div>
+    <div id="linkList"></div>
+  </div>
 
-  <div id="drop" class="drop">&hellip;or drag &amp; drop a JSON file here</div>
+  <div id="tabs2" class="tabs2" style="display:none"></div>
+
+  <div id="dataView">
+    <div id="tabs" class="tabs" style="display:none">
+      <button class="tab active" id="tabTree">Table</button>
+      <button class="tab" id="tabCode">Code</button>
+      <button class="tab" id="tabLinks">Relationships&hellip;</button>
+    </div>
+    <div id="treePane" style="display:none">
+      <div class="bar">
+        <input type="text" id="q" placeholder="search keys and values&hellip;">
+        <span id="qinfo" class="dim small"></span>
+        <button id="expandAll">Expand all</button>
+        <button id="collapseAll">Collapse all</button>
+      </div>
+      <div id="tree" class="xt-wrap"></div>
+    </div>
+    <div id="codePane" style="display:none"><pre class="code" id="code"></pre></div>
+  </div>
+
+  <div id="diagView" style="display:none">
+    <div class="bar">
+      <button id="dgClose">&larr; Back to the data</button>
+      <button id="dgBack" style="display:none">&larr; Previous entity</button>
+      <span id="dgInfo" class="dim small"></span>
+    </div>
+    <div id="diagram"></div>
+  </div>
+
+  <div id="drop" class="drop">&hellip;or drag &amp; drop JSON files here</div>
 </div>
 
 <script>
 (function () {
-  var NL = String.fromCharCode(10);
-  function $(id) { return document.getElementById(id); }
-
-  // theme
-  try { var t = localStorage.getItem('opj-theme'); if (t) document.documentElement.setAttribute('data-theme', t); } catch (e) {}
-  function refreshTheme() {
-    var lt = document.documentElement.getAttribute('data-theme') === 'light';
-    $('themeBtn').innerHTML = lt ? (String.fromCharCode(0x263E) + ' dark') : (String.fromCharCode(0x2600) + ' light');
-  }
-  $('themeBtn').onclick = function () {
-    var lt = document.documentElement.getAttribute('data-theme') === 'light';
-    if (lt) document.documentElement.removeAttribute('data-theme');
-    else document.documentElement.setAttribute('data-theme', 'light');
-    try { localStorage.setItem('opj-theme', lt ? 'dark' : 'light'); } catch (e) {}
-    refreshTheme();
-  };
-  refreshTheme();
-
     /* ===================== JSON table view (shared) =====================
        Renders JSON as TABLES, on the same principles as the XML view:
          - an object becomes a titled block with a Key | Value table;
@@ -181,20 +267,57 @@
     /** Model: one record per container AND per leaf, so search can reach a value never drawn. */
     function jsonBuildModel(root) {
         var all = [];
-        function walk(key, val, parent, depth) {
+        // path names a POSITION IN THE SHAPE, not in the data: every element of 'records' has path
+        // 'records[]', so 5000 sibling arrays at 'records[].relationships' are ONE entity list. That
+        // is what makes the declaration dropdown a short list instead of one entry per row.
+        function walk(key, val, parent, depth, path) {
             var m = { key: key, val: val, kind: jsonKind(val), parent: parent, depth: depth,
-                      idx: all.length, children: [] };
+                      idx: all.length, children: [], path: path };
             all.push(m);
             if (m.kind === 'object') {
                 var ks = Object.keys(val);
-                for (var i = 0; i < ks.length; i++) m.children.push(walk(ks[i], val[ks[i]], m, depth + 1));
+                for (var i = 0; i < ks.length; i++) {
+                    m.children.push(walk(ks[i], val[ks[i]], m, depth + 1, path + '.' + ks[i]));
+                }
             } else if (m.kind === 'array') {
-                for (var j = 0; j < val.length; j++) m.children.push(walk(String(j), val[j], m, depth + 1));
+                for (var j = 0; j < val.length; j++) m.children.push(walk(String(j), val[j], m, depth + 1, path + '[]'));
             }
             m.hay = (String(key == null ? '' : key) + ' ' + (jsonIsLeaf(val) ? String(val) : '')).toLowerCase();
             return m;
         }
-        return { root: walk(null, root, null, 0), all: all };
+        // the root is NAMED '$': an empty root path gave a top-level array's elements the path
+        // '[]', which cannot be reduced back to the list's own path, so a link declared on a
+        // top-level array matched nothing.
+        return { root: walk(null, root, null, 0, '$'), all: all };
+    }
+
+    /** Every array-of-objects in a model, merged by path: { path, entities[], keys[] }. */
+    function jsonEntityLists(model) {
+        var byPath = {}, order = [];
+        for (var i = 0; i < model.all.length; i++) {
+            var m = model.all[i];
+            if (m.kind !== 'array') continue;
+            var objs = [];
+            for (var c = 0; c < m.children.length; c++) if (m.children[c].kind === 'object') objs.push(m.children[c]);
+            if (!objs.length) continue;
+            var p = m.path;
+            if (!byPath[p]) { byPath[p] = { path: p, entities: [], keys: [], seen: {} }; order.push(byPath[p]); }
+            var L = byPath[p];
+            for (var o = 0; o < objs.length; o++) {
+                L.entities.push(objs[o]);
+                var ks = Object.keys(objs[o].val);
+                for (var k = 0; k < ks.length; k++) if (!L.seen[ks[k]]) { L.seen[ks[k]] = 1; L.keys.push(ks[k]); }
+            }
+        }
+        return order;
+    }
+
+    /** Number of model records a document would cost, without building the model. */
+    function jsonCountRecords(v) {
+        var n = 1;
+        if (Array.isArray(v)) { for (var i = 0; i < v.length; i++) n += jsonCountRecords(v[i]); }
+        else if (v && typeof v === 'object') { var ks = Object.keys(v); for (var k = 0; k < ks.length; k++) n += jsonCountRecords(v[ks[k]]); }
+        return n;
     }
     /** Union of the keys of an array's object elements, in first-seen order. */
     function jsonRowKeys(items) {
@@ -209,7 +332,9 @@
     }
 
     /** Builds into host. Returns { count, expandAll, collapseAll, search }. */
-    function buildJsonTable(host, data) {
+    function buildJsonTable(host, data, opts) {
+        opts = opts || {};
+        var linkCell = opts.linkCell || null;   // (path, key, value) -> {title, onClick} | null
         host.innerHTML = '';
         var model = jsonBuildModel(data);
         var query = '', keep = null, openSet = {};
@@ -225,7 +350,7 @@
             var h = el2('div', 'xt-head', into);
             var tog = el2('span', 'xt-tog', h);
             if (m && m.children.length) {
-                tog.textContent = openSet[m.idx] ? String.fromCharCode(0x25BE) : String.fromCharCode(0x25B8);
+                tog.textContent = openSet[m.idx] ? '\u2212' : '+';
                 h.style.cursor = 'pointer';
                 h.addEventListener('click', function () { openSet[m.idx] = !openSet[m.idx]; draw(); });
             }
@@ -259,9 +384,20 @@
                     var k = el2('td', 'xt-k', tr);
                     k.innerHTML = jsonMark(String(c.key), query);
                     var v = el2('td', 'xt-v', tr);
-                    if (jsonIsLeaf(c.val)) { v.innerHTML = jsonScalarCell(c.val, query); return; }
+                    if (jsonIsLeaf(c.val)) {
+                        var lk2 = linkCell ? linkCell(m.path, String(c.key), c.val) : null;
+                        if (lk2) {
+                            var a2 = el2('a', 'xt-link', v);
+                            a2.innerHTML = jsonMark(String(c.val), query);
+                            a2.title = lk2.title || '';
+                            a2.addEventListener('click', function (h) {
+                                return function (e) { e.preventDefault(); e.stopPropagation(); h(); };
+                            }(lk2.onClick));
+                        } else { v.innerHTML = jsonScalarCell(c.val, query); }
+                        return;
+                    }
                     var b = el2('span', 'xt-tog xt-tog-btn', v);
-                    b.textContent = openSet[c.idx] ? String.fromCharCode(0x25BE) : String.fromCharCode(0x25B8);
+                    b.textContent = openSet[c.idx] ? '\u2212' : '+';
                     var lab = el2('span', 'xt-sum', v);
                     lab.textContent = ' ' + jsonSummary(c.val);
                     v.style.cursor = 'pointer';
@@ -305,7 +441,7 @@
                         var td0 = el2('td', 'xt-num', tr);
                         if (!jsonIsLeaf(it.val)) {
                             var b = el2('span', 'xt-tog xt-tog-btn', td0);
-                            b.textContent = openSet[it.idx] ? String.fromCharCode(0x25BE) : String.fromCharCode(0x25B8);
+                            b.textContent = openSet[it.idx] ? '\u2212' : '+';
                             td0.style.cursor = 'pointer';
                             td0.addEventListener('click', function () { openSet[it.idx] = !openSet[it.idx]; draw(); });
                         }
@@ -318,8 +454,20 @@
                             var td = el2('td', has ? 'xt-v' : 'xt-v xt-null', tr);
                             if (!has) { td.textContent = ''; continue; }
                             var cv = obj[cols[c1]];
-                            if (jsonIsLeaf(cv)) td.innerHTML = jsonScalarCell(cv, query);
-                            else { td.className = 'xt-v xt-sum'; td.textContent = jsonSummary(cv); }
+                            if (!jsonIsLeaf(cv)) { td.className = 'xt-v xt-sum'; td.textContent = jsonSummary(cv); }
+                            else {
+                                var lk = linkCell ? linkCell(it.path, cols[c1], cv) : null;
+                                if (lk) {
+                                    var an = el2('a', 'xt-link', td);
+                                    an.innerHTML = jsonMark(String(cv), query);
+                                    an.title = lk.title || '';
+                                    an.addEventListener('click', function (h) {
+                                        return function (e) { e.preventDefault(); e.stopPropagation(); h(); };
+                                    }(lk.onClick));
+                                } else {
+                                    td.innerHTML = jsonScalarCell(cv, query);
+                                }
+                            }
                         }
                     } else {
                         var tdv = el2('td', 'xt-v', tr);
@@ -372,64 +520,503 @@
         };
     }
 
-  // ---- Code tab: the document re-printed, so it can be read as text when needed ----
+  /* ===================== workspace: files, links, diagram (shared) =====================
+     Everything above renders ONE document. This layer holds several of them, the links declared
+     between them, and the focus diagram that makes a link navigable. */
+
+  var WS = {
+    files: [],            // { id, name, bytes, records, data, model, lists, api, host, search, openState }
+    links: [],            // { id, childFile, childPath, childField, parentFile, parentPath, parentField }
+    cap: 400000,          // MODEL RECORDS across all open files - see the note on the cap below
+    active: 0,
+    seq: 1
+  };
+
+  /**
+   * An entity's own path carries the element suffix - a customer inside 'records' has path
+   * 'records[]' - while a link is declared against the LIST, 'records'. One trailing '[]' is stripped
+   * so the two meet. Only one: 'a[][]' is an array of arrays, a different list.
+   */
+  function wsListPath(p) {
+    if (p == null) return '';
+    return (p.length > 2 && p.substring(p.length - 2) === '[]') ? p.substring(0, p.length - 2) : p;
+  }
+
+  /** Rows, distinct values and uniqueness of one side of a candidate link. */
+  function wsFieldStats(fileId, path, field) {
+    var f = wsFileById(fileId), rows = 0, seen = {}, distinct = 0;
+    if (!f) return { rows: 0, distinct: 0, unique: false };
+    var ents = wsEntities(f, path);
+    for (var i = 0; i < ents.length; i++) {
+      var v = ents[i].val ? ents[i].val[field] : undefined;
+      if (v === undefined || v === null || String(v).trim() === '') continue;
+      rows++;
+      var k = String(v).trim();
+      if (!seen[k]) { seen[k] = 1; distinct++; }
+    }
+    return { rows: rows, distinct: distinct, unique: rows > 0 && distinct === rows };
+  }
+
+  /**
+   * How well a candidate link resolves, in BOTH directions.
+   *
+   * This exists because the resolution rate on its own cannot catch a link declared backwards: on the
+   * reported data the inverted direction resolved 3315 of 5000 and looked perfectly healthy. Two
+   * things do catch it. A PARENT field is an identity, so it should be unique, while a CHILD field is
+   * a reference and usually is not; and the correct direction resolves a higher share. Both are
+   * reported, and when the reverse looks better the page says so instead of leaving the operator to
+   * discover it from a diagram that reads backwards.
+   */
+  function wsLinkStats(l) {
+    var cs = wsFieldStats(l.childFile, l.childPath, l.childField);
+    var ps = wsFieldStats(l.parentFile, l.parentPath, l.parentField);
+    var fwd = 0, ck = Object.keys(l.childIndex || {});
+    for (var i = 0; i < ck.length; i++) if (l.parentIndex[ck[i]]) fwd++;
+    var rev = 0, pk = Object.keys(l.parentIndex || {});
+    for (var j = 0; j < pk.length; j++) if (l.childIndex[pk[j]]) rev++;
+    var fwdRate = ck.length ? (fwd / ck.length) : 0;
+    var revRate = pk.length ? (rev / pk.length) : 0;
+    // "probably swapped" needs BOTH signals to agree, so a legitimately non-unique parent key on its
+    // own does not cry wolf
+    var swapped = (ps.unique === false && cs.unique === true) && (revRate > fwdRate + 0.05);
+    return { child: cs, parent: ps, fwd: fwd, fwdOf: ck.length, rev: rev, revOf: pk.length,
+             fwdRate: fwdRate, revRate: revRate, swapped: swapped };
+  }
+
+  /** Turn a declared link round, in place. */
+  function wsSwapLink(id) {
+    for (var i = 0; i < WS.links.length; i++) {
+      var l = WS.links[i];
+      if (l.id !== id) continue;
+      var cf = l.childFile, cp = l.childPath, cq = l.childField;
+      l.childFile = l.parentFile; l.childPath = l.parentPath; l.childField = l.parentField;
+      l.parentFile = cf; l.parentPath = cp; l.parentField = cq;
+      wsIndexLink(l);
+      return l;
+    }
+    return null;
+  }
+
+  function wsRecordsUsed() {
+    var n = 0;
+    for (var i = 0; i < WS.files.length; i++) n += WS.files[i].records;
+    return n;
+  }
+  function wsFileById(id) {
+    for (var i = 0; i < WS.files.length; i++) if (WS.files[i].id === id) return WS.files[i];
+    return null;
+  }
+
+  /**
+   * The cap is on MODEL RECORDS, not on file bytes, because the model costs about eighteen times the
+   * file: a 2.1 MB document measured 168 329 records and 37 MB of heap, so a megabyte limit would be
+   * wrong by an order of magnitude. The count is taken from the parsed document BEFORE the model is
+   * built, so a file that would not fit is refused without ever being materialised, and the files
+   * already open are untouched.
+   */
+  function wsWouldFit(records) { return (wsRecordsUsed() + records) <= WS.cap; }
+
+  // ---- link indexes -------------------------------------------------------------------
+  /** Entities of a list, by path, in a file. */
+  function wsEntities(file, path) {
+    for (var i = 0; i < file.lists.length; i++) if (file.lists[i].path === path) return file.lists[i].entities;
+    return [];
+  }
+  /**
+   * value -> [entity] for one side of one link, built once when the link is declared.
+   * Matching is exact after trimming and case-sensitive, the same rule as ${COL@key}: a near miss
+   * has to be a visible miss rather than a quietly wrong row.
+   */
+  function wsBuildIndex(file, path, field) {
+    var idx = {}, ents = wsEntities(file, path);
+    for (var i = 0; i < ents.length; i++) {
+      var v = ents[i].val ? ents[i].val[field] : undefined;
+      if (v === undefined || v === null) continue;
+      var k = String(v).trim();
+      if (!k) continue;
+      (idx[k] = idx[k] || []).push(ents[i]);
+    }
+    return idx;
+  }
+  function wsIndexLink(l) {
+    var pf = wsFileById(l.parentFile), cf = wsFileById(l.childFile);
+    l.parentIndex = pf ? wsBuildIndex(pf, l.parentPath, l.parentField) : {};
+    l.childIndex = cf ? wsBuildIndex(cf, l.childPath, l.childField) : {};
+  }
+  function wsReindexAll() { for (var i = 0; i < WS.links.length; i++) wsIndexLink(WS.links[i]); }
+
+  /** Links whose CHILD side is this list+field, and whose PARENT side is. */
+  function wsLinksAsChild(fileId, path, field) {
+    return WS.links.filter(function (l) { return l.childFile === fileId && l.childPath === path && l.childField === field; });
+  }
+  function wsLinksAsParent(fileId, path, field) {
+    return WS.links.filter(function (l) { return l.parentFile === fileId && l.parentPath === path && l.parentField === field; });
+  }
+
+  /** The link hook handed to the renderer: makes a declared field clickable from either side. */
+  function wsLinkCell(file) {
+    return function (path, key, value) {
+      var lp = wsListPath(path);
+      var asChild = wsLinksAsChild(file.id, lp, key);
+      var asParent = wsLinksAsParent(file.id, lp, key);
+      if (!asChild.length && !asParent.length) return null;
+      var title = asChild.length ? 'Follow to the parent it points at' : 'Show everything that points at this';
+      return { title: title + ' \u2014 opens the relationship diagram',
+               onClick: function () { openDiagramFor(file, lp, key, value); } };
+    };
+  }
+
+  // ---- focus resolution ---------------------------------------------------------------
+  /** First three scalar fields of an entity, for a badge label. */
+  function wsLabelFields(ent) {
+    var out = [], v = ent && ent.val;
+    if (!v || typeof v !== 'object') return out;
+    var ks = Object.keys(v);
+    for (var i = 0; i < ks.length && out.length < 3; i++) {
+      var x = v[ks[i]];
+      if (x === null || typeof x === 'object') continue;
+      out.push({ k: ks[i], v: String(x) });
+    }
+    return out;
+  }
+  /**
+   * The row an entity LIVES INSIDE, as a label. A relationship inside customer UKC0003584 returns
+   * UKC0003584. Without it, a customer whose own relationships list is empty looked as if the diagram
+   * had invented four relationships out of nowhere - they were real, they just belonged to other rows.
+   */
+  function wsOwnerLabel(ent) {
+    var p = ent && ent.parent;
+    while (p) {
+      if (p.kind === 'object') {
+        var t = wsEntityTitle(p);
+        return (t === '(entity)') ? '' : t;
+      }
+      p = p.parent;
+    }
+    return '';
+  }
+
+  function wsEntityTitle(ent) {
+    var f = wsLabelFields(ent);
+    return f.length ? f[0].v : '(entity)';
+  }
+
+  /**
+   * Everything one entity is connected to, in one hop.
+   * outgoing: this entity's reference fields resolved against the target index.
+   * incoming: entities whose reference field names this entity.
+   * A child value that resolves to nothing yields a MISSING badge rather than no badge - in a data
+   * set that is supposed to be clean, a dangling reference is the finding, not noise to hide.
+   */
+  function wsNeighbours(file, ent) {
+    var outgoing = [], incoming = [];
+    for (var i = 0; i < WS.links.length; i++) {
+      var l = WS.links[i];
+      if (l.childFile === file.id && l.childPath === wsListPath(ent.path)) {
+        var cv = ent.val ? ent.val[l.childField] : undefined;
+        if (cv !== undefined && cv !== null && String(cv).trim() !== '') {
+          var key = String(cv).trim();
+          var hits = l.parentIndex[key] || [];
+          if (!hits.length) {
+            outgoing.push({ missing: true, value: key, link: l, file: wsFileById(l.parentFile) });
+          } else {
+            for (var h = 0; h < hits.length; h++) outgoing.push({ ent: hits[h], value: key, link: l, file: wsFileById(l.parentFile) });
+          }
+        }
+      }
+      if (l.parentFile === file.id && l.parentPath === wsListPath(ent.path)) {
+        var pv = ent.val ? ent.val[l.parentField] : undefined;
+        if (pv !== undefined && pv !== null && String(pv).trim() !== '') {
+          var pk = String(pv).trim();
+          var kids = l.childIndex[pk] || [];
+          for (var q = 0; q < kids.length; q++) incoming.push({ ent: kids[q], value: pk, link: l, file: wsFileById(l.childFile) });
+        }
+      }
+    }
+    // incoming: records whose reference field names this entity. outgoing: what this entity's own
+    // reference field names. The diagram puts incoming on the left and outgoing on the right.
+    return { incoming: incoming, outgoing: outgoing, parents: outgoing, children: incoming };
+  }
+
+  /** The entity to focus when a link value is clicked, from either end. */
+  function wsResolveFocus(file, path, key, value) {
+    var v = String(value).trim();
+    var asChild = wsLinksAsChild(file.id, path, key);
+    for (var i = 0; i < asChild.length; i++) {
+      var hits = asChild[i].parentIndex[v] || [];
+      if (hits.length) return { file: wsFileById(asChild[i].parentFile), ent: hits[0] };
+    }
+    var asParent = wsLinksAsParent(file.id, path, key);
+    for (var j = 0; j < asParent.length; j++) {
+      var own = asParent[j].parentIndex[v] || [];
+      if (own.length) return { file: file, ent: own[0] };
+    }
+    // the value points at nothing: focus the entity that carries it, so the diagram can SAY so
+    var ents = wsEntities(file, path);
+    for (var e = 0; e < ents.length; e++) {
+      var x = ents[e].val ? ents[e].val[key] : undefined;
+      if (x !== undefined && String(x).trim() === v) return { file: file, ent: ents[e], dangling: v };
+    }
+    return null;
+  }
+
+  /* ===================== relationship diagram =====================
+     One FOCUS box in the middle, PARENT badges down the left, CHILD badges down the right, bezier
+     links with arrow heads - the shape of EOR_viewer.html's renderUmlDiagram, and the shape that
+     scales: five thousand entities cannot be drawn at once, one entity and its neighbours always can.
+     Every badge re-focuses the diagram on itself, so the graph is walked one hop at a time. */
+
+  var DIAG = { file: null, ent: null, history: [] };
+
+  function svgEsc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function svgTrunc(s, n) {
+    s = String(s == null ? '' : s);
+    return s.length > n ? (s.substring(0, n - 1) + String.fromCharCode(0x2026)) : s;
+  }
+
+  function renderDiagram(host, file, ent) {
+    var nb = wsNeighbours(file, ent);
+    // LEFT = everything that POINTS AT the focus, RIGHT = what the focus POINTS AT. The declaration
+    // calls the field that holds the value the CHILD field, which is the database convention, but on
+    // a diagram the record doing the pointing reads as the one above: a relationship row naming a
+    // customer is that customer's PARENT. Reported from the field, and the direction is what people
+    // read off a picture, so the picture follows the direction.
+    var parents = nb.incoming, children = nb.outgoing;
+
+    var W = 1180, ITEM_H = 118, PAD = 26;
+    var rows = Math.max(parents.length, children.length, 1);
+    var H = Math.max(240, PAD * 2 + rows * ITEM_H);
+    var cw = 300, ch = 118, cx = (W - cw) / 2, cy = (H - ch) / 2;
+    var cxL = cx, cxR = cx + cw, cxMid = cx + cw / 2, cyMid = cy + ch / 2;
+    var sw = 300, sh = 102, xL = 26, xR = W - sw - 26;   // taller: the owning row goes at the bottom
+
+    function colYs(n) {
+      if (n === 0) return [];
+      if (n === 1) return [H / 2 - sh / 2];
+      var avail = (H - PAD * 2) - sh, step = avail / (n - 1), out = [];
+      for (var i = 0; i < n; i++) out.push(PAD + i * step);
+      return out;
+    }
+    var yP = colYs(parents.length), yC = colYs(children.length);
+
+    var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMin meet" class="dg-svg">';
+
+    // FOCUS
+    var flab = wsLabelFields(ent);
+    s += '<rect x="' + cx + '" y="' + cy + '" width="' + cw + '" height="' + ch + '" rx="8" class="dg-focus-box"/>';
+    s += '<text x="' + cxMid + '" y="' + (cy + 20) + '" class="dg-kicker" text-anchor="middle">FOCUS</text>';
+    s += '<text x="' + cxMid + '" y="' + (cy + 46) + '" class="dg-title" text-anchor="middle">'
+       + svgEsc(svgTrunc(wsEntityTitle(ent), 30)) + '</text>';
+    for (var f = 0; f < flab.length; f++) {
+      s += '<text x="' + cxMid + '" y="' + (cy + 66 + f * 16) + '" class="dg-sub" text-anchor="middle">'
+         + svgEsc(svgTrunc(flab[f].k + ': ' + flab[f].v, 38)) + '</text>';
+    }
+
+    function badge(info, x, y, side) {
+      var isMissing = !!info.missing;
+      var cls = isMissing ? 'dg-badge dg-missing' : 'dg-badge';
+      var lab = isMissing ? [] : wsLabelFields(info.ent);
+      var head = isMissing ? (side === 'p' ? 'PARENT NOT FOUND' : 'CHILD NOT FOUND') : (side === 'p' ? 'PARENT' : 'CHILD');
+      var name = isMissing ? info.value : wsEntityTitle(info.ent);
+      var g = '<g class="' + cls + '"' + (isMissing ? '' : ' data-hop="' + info.hop + '"') + '>';
+      g += '<title>' + svgEsc((info.file ? info.file.name + '  ' : '') + (isMissing
+            ? ('no entity has ' + info.link.parentField + ' = ' + info.value)
+            : (info.link.childPath + '.' + info.link.childField + ' \u2192 ' + info.link.parentPath + '.' + info.link.parentField))) + '</title>';
+      g += '<rect x="' + x + '" y="' + y + '" width="' + sw + '" height="' + sh + '" rx="6" class="dg-badge-box"/>';
+      g += '<text x="' + (x + 12) + '" y="' + (y + 16) + '" class="dg-kicker-s">' + head + '</text>';
+      g += '<text x="' + (x + 12) + '" y="' + (y + 36) + '" class="dg-name">' + svgEsc(svgTrunc(name, 28)) + '</text>';
+      for (var i = 0; i < lab.length; i++) {
+        g += '<text x="' + (x + 12) + '" y="' + (y + 54 + i * 15) + '" class="dg-sub-s">'
+           + svgEsc(svgTrunc(lab[i].k + ': ' + lab[i].v, 34)) + '</text>';
+      }
+      if (info.file) {
+        g += '<text x="' + (x + sw - 12) + '" y="' + (y + 16) + '" class="dg-file" text-anchor="end">'
+           + svgEsc(svgTrunc(info.file.name, 22)) + '</text>';
+      }
+      // WHERE it lives. A relationship row that names this customer sits inside a DIFFERENT customer,
+      // and without saying so the diagram looked wrong on a customer whose own relationships list was
+      // empty - the four badges were right, they just belonged to other rows.
+      var owner = isMissing ? '' : wsOwnerLabel(info.ent);
+      if (owner) {
+        g += '<text x="' + (x + 12) + '" y="' + (y + sh - 8) + '" class="dg-owner">in '
+           + svgEsc(svgTrunc(owner, 30)) + '</text>';
+      }
+      return g + '</g>';
+    }
+    function arrow(x1, y1, x2, y2, missing) {
+      var dx = (x2 - x1) * 0.55, ah = 5;
+      var cls = missing ? 'dg-arrow dg-arrow-missing' : 'dg-arrow';
+      return '<path d="M ' + x1 + ' ' + y1 + ' C ' + (x1 + dx) + ' ' + y1 + ', ' + (x2 - dx) + ' ' + y2
+           + ', ' + x2 + ' ' + y2 + '" fill="none" class="' + cls + '"/>'
+           + '<polygon points="' + x2 + ',' + y2 + ' ' + (x2 - ah * 1.6) + ',' + (y2 - ah) + ' '
+           + (x2 - ah * 1.6) + ',' + (y2 + ah) + '" class="' + cls + '-head"/>';
+    }
+
+    var hops = [];
+    for (var p = 0; p < parents.length; p++) {
+      var yp = yP[p];
+      if (!parents[p].missing) { parents[p].hop = hops.length; hops.push(parents[p]); }
+      s += arrow(xL + sw, yp + sh / 2, cxL, cyMid, parents[p].missing);   // parent -> focus
+      s += badge(parents[p], xL, yp, 'p');
+    }
+    for (var c = 0; c < children.length; c++) {
+      var yc = yC[c];
+      children[c].hop = hops.length; hops.push(children[c]);
+      s += arrow(cxR, cyMid, xR, yc + sh / 2, false);                      // focus -> child
+      s += badge(children[c], xR, yc, 'c');
+    }
+    if (!parents.length && !children.length) {
+      s += '<text x="' + cxMid + '" y="' + (H - 12) + '" class="dg-sub" text-anchor="middle">'
+         + 'no declared relationship reaches this entity</text>';
+    }
+    s += '</svg>';
+    host.innerHTML = s;
+
+    // badges re-focus the diagram; a missing one has nothing to go to and is not clickable
+    var gs = host.querySelectorAll('g.dg-badge[data-hop]');
+    for (var i = 0; i < gs.length; i++) {
+      (function (g) {
+        g.style.cursor = 'pointer';
+        g.addEventListener('click', function () {
+          var info = hops[parseInt(g.getAttribute('data-hop'), 10)];
+          if (info && info.ent) focusEntity(info.file || file, info.ent, true);
+        });
+      })(gs[i]);
+    }
+  }
+
+  /** Show the diagram for an entity, remembering where we came from. */
+  function focusEntity(file, ent, push) {
+    if (push && DIAG.ent) DIAG.history.push({ file: DIAG.file, ent: DIAG.ent });
+    DIAG.file = file; DIAG.ent = ent;
+    showDiagramView(true);
+    renderDiagram($('diagram'), file, ent);
+    var nb = wsNeighbours(file, ent);
+    $('dgInfo').textContent = file.name + '  \u2014  ' + nb.incoming.length + ' parent(s) pointing at it, '
+      + nb.outgoing.length + ' child(ren) it points at';
+    $('dgBack').style.display = DIAG.history.length ? '' : 'none';
+  }
+  function diagramBack() {
+    var prev = DIAG.history.pop();
+    if (!prev) return;
+    DIAG.file = prev.file; DIAG.ent = prev.ent;
+    renderDiagram($('diagram'), prev.file, prev.ent);
+    $('dgBack').style.display = DIAG.history.length ? '' : 'none';
+  }
+  /** Called from a link in the table. */
+  function openDiagramFor(file, path, key, value) {
+    var r = wsResolveFocus(file, path, key, value);
+    if (!r) { banner(false, 'Nothing to show for ' + svgEsc(String(value)) + '.'); return; }
+    DIAG.history = [];
+    focusEntity(r.file, r.ent, false);
+    if (r.dangling) {
+      $('dgInfo').textContent += '  \u2014  ' + r.dangling + ' points at no entity';
+    }
+  }
+
+  // ---- page plumbing -----------------------------------------------------------------
+  function $(id) { return document.getElementById(id); }
+  function banner(ok, msg) {
+    var m = $('msg');
+    m.className = 'banner' + (ok ? '' : ' error');
+    m.innerHTML = msg;
+    m.style.display = '';
+  }
+  function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+
+  // theme
+  try { var t0 = localStorage.getItem('opj-theme'); if (t0) document.documentElement.setAttribute('data-theme', t0); } catch (e) {}
+  function refreshTheme() {
+    var lt = document.documentElement.getAttribute('data-theme') === 'light';
+    $('themeBtn').innerHTML = lt ? (String.fromCharCode(0x263E) + ' dark') : (String.fromCharCode(0x2600) + ' light');
+  }
+  $('themeBtn').onclick = function () {
+    var lt = document.documentElement.getAttribute('data-theme') === 'light';
+    if (lt) document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', 'light');
+    try { localStorage.setItem('opj-theme', lt ? 'dark' : 'light'); } catch (e) {}
+    refreshTheme();
+  };
+  refreshTheme();
+
   function formatJson(s) {
     try { return JSON.stringify(JSON.parse(s), null, 2); } catch (e) { return null; }
   }
 
-  var api = null;
-  function show(kind) {
-    var tree = (kind === 'tree');
-    $('tabTree').classList.toggle('active', tree);
-    $('tabCode').classList.toggle('active', !tree);
-    $('treePane').style.display = tree ? '' : 'none';
-    $('codePane').style.display = tree ? 'none' : '';
+  // ---- the budget --------------------------------------------------------------------
+  function paintCap() {
+    var used = wsRecordsUsed();
+    var pct = Math.min(100, Math.round(used * 100 / WS.cap));
+    $('capFill').style.width = pct + '%';
+    $('capText').textContent = fmt(used) + ' of ' + fmt(WS.cap) + ' records'
+      + (WS.files.length ? ('  \u00b7  ' + WS.files.length + ' file' + (WS.files.length === 1 ? '' : 's')) : '');
   }
-  $('tabTree').onclick = function () { show('tree'); };
-  $('tabCode').onclick = function () { show('code'); };
-  $('expandAll').onclick = function () { if (api) api.expandAll(); };
-  $('collapseAll').onclick = function () { if (api) api.collapseAll(); };
-  $('q').addEventListener('input', function () {
-    if (!api) return;
-    var v = $('q').value, n = api.search(v);
-    $('qinfo').textContent = v.trim() ? (n + ' match' + (n === 1 ? '' : 'es')) : (api.count + ' nodes');
-  });
+  $('capApply').onclick = function () {
+    var v = parseInt($('capInput').value, 10);
+    if (!v || v < 1000) { banner(false, 'The limit has to be at least 1000 records.'); return; }
+    // lowering it below what is already open does NOT evict anything: closing a file is the
+    // operator's decision, not a side effect of typing in a box
+    WS.cap = v;
+    paintCap();
+    if (wsRecordsUsed() > WS.cap) banner(false, 'The limit is now below what is already open (' + fmt(wsRecordsUsed())
+      + ' records). Nothing was closed \u2014 the next file will simply be refused until you close one.');
+  };
 
-  function load(fileText, fileNameStr) {
-    $('fileName').textContent = fileNameStr;
+  // ---- loading -----------------------------------------------------------------------
+  var PENDING = null;   // the file just added, waiting for the relationship question
+
+  function loadText(text, name, bytes) {
     var data = null, bad = null;
-    try { data = JSON.parse(fileText); } catch (e) { bad = String(e.message || e); }
-    $('code').textContent = (bad === null) ? (formatJson(fileText) || fileText) : fileText;
-    $('tabs').style.display = 'flex';
-    $('drop').style.display = 'none';
+    try { data = JSON.parse(text); } catch (e) { bad = String(e.message || e); }
     if (bad !== null) {
-      var m = $('msg');
-      m.className = 'banner error';
-      m.textContent = 'This file is not valid JSON, so there is no table to show (' + bad + '). It is displayed as it is under Code.';
-      m.style.display = '';
-      api = null;
-      $('tree').innerHTML = '';
-      show('code');
-      return;
+      banner(false, 'Not valid JSON, so <b>' + svgEsc(name) + '</b> was not added (' + svgEsc(bad) + ').');
+      return null;
     }
-    $('msg').style.display = 'none';
-    api = buildJsonTable($('tree'), data);
-    $('q').value = '';
-    $('qinfo').textContent = api ? (api.count + ' nodes') : '';
-    show('tree');
+    var records = jsonCountRecords(data);
+    if (!wsWouldFit(records)) {
+      // refuse THIS file and keep the others, as asked - and say by how much, so the operator can
+      // decide between raising the limit and closing something
+      var over = wsRecordsUsed() + records - WS.cap;
+      banner(false, '<b>' + svgEsc(name) + '</b> was not added: it needs ' + fmt(records)
+        + ' records and only ' + fmt(WS.cap - wsRecordsUsed()) + ' are left, so it overflows the budget by '
+        + fmt(over) + '. The files already open are untouched. Close one, or raise the limit.');
+      paintCap();
+      return null;
+    }
+    var f = { id: WS.seq++, name: name, bytes: bytes || text.length, records: records, data: data,
+              model: null, lists: null, api: null, raw: text, query: '' };
+    f.model = jsonBuildModel(data);
+    f.lists = jsonEntityLists(f.model);
+    WS.files.push(f);
+    WS.active = WS.files.length - 1;
+    paintCap();
+    renderTabs();
+    showFile(f);
+    return f;
   }
 
-  function readFile(f) {
-    if (!f) return;
-    var r = new FileReader();
-    r.onload = function () { load(String(r.result), f.name + '  (' + f.size + ' bytes)'); };
-    r.onerror = function () {
-      var m = $('msg'); m.className = 'banner error'; m.style.display = '';
-      m.textContent = 'Could not read the file.';
-    };
-    r.readAsText(f, 'UTF-8');
+  function readFiles(list) {
+    if (!list || !list.length) return;
+    var i = 0;
+    (function next() {
+      if (i >= list.length) return;
+      var file = list[i++];
+      var r = new FileReader();
+      r.onload = function () {
+        var f = loadText(String(r.result), file.name, file.size);
+        if (f) { askRelationships(f); }
+        // files are read one at a time so the budget is checked against what is ALREADY accepted:
+        // reading them in parallel would let two files each fit on their own and overflow together
+        next();
+      };
+      r.onerror = function () { banner(false, 'Could not read ' + svgEsc(file.name) + '.'); next(); };
+      r.readAsText(file, 'UTF-8');
+    })();
   }
-  $('jsonFile').addEventListener('change', function (e) { readFile(e.target.files[0]); });
+  $('jsonFile').addEventListener('change', function (e) { readFiles(e.target.files); e.target.value = ''; });
 
   var drop = $('drop');
   ['dragenter', 'dragover'].forEach(function (ev) {
@@ -438,8 +1025,252 @@
   document.addEventListener('dragleave', function (e) { if (!e.relatedTarget) drop.classList.remove('drag'); });
   document.addEventListener('drop', function (e) {
     e.preventDefault(); drop.classList.remove('drag');
-    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) readFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer && e.dataTransfer.files) readFiles(e.dataTransfer.files);
   });
+
+  // ---- the question, asked per file AFTER it is parsed --------------------------------
+  /**
+   * Asked on load and not on page open, because before a file is parsed there are no fields to put
+   * in the dropdowns. From the second file on the question also covers references to what is
+   * already open, which is what makes a cross-file link the same object as a self-link.
+   */
+  function askRelationships(f) {
+    PENDING = f;
+    var others = WS.files.length - 1;
+    $('askTitle').textContent = 'Does "' + f.name + '" contain references between entities?';
+    $('askHint').textContent = others
+      ? ('Its own entities, or references to the ' + others + ' file' + (others === 1 ? '' : 's') + ' already open.')
+      : 'For example a field holding the id of another entity in the same file.';
+    $('askPanel').style.display = '';
+    $('linkPanel').style.display = 'none';
+  }
+  $('askNo').onclick = function () { $('askPanel').style.display = 'none'; PENDING = null; };
+  $('askYes').onclick = function () { $('askPanel').style.display = 'none'; openLinkPanel(PENDING); };
+  $('tabLinks').onclick = function () { openLinkPanel(WS.files[WS.active]); };
+
+  // ---- the declaration panel ---------------------------------------------------------
+  function fillOptions(sel, items, value, label) {
+    sel.innerHTML = '';
+    for (var i = 0; i < items.length; i++) {
+      var o = document.createElement('option');
+      o.value = value(items[i]); o.textContent = label(items[i]);
+      sel.appendChild(o);
+    }
+  }
+  function fillFileSelects(preferChild) {
+    var idOf = function (x) { return String(x.id); }, nameOf = function (x) { return x.name; };
+    fillOptions($('lcFile'), WS.files, idOf, nameOf);
+    fillOptions($('lpFile'), WS.files, idOf, nameOf);
+    if (preferChild) $('lcFile').value = String(preferChild.id);
+    fillPathSelect('lc');
+    fillPathSelect('lp');
+  }
+  function fillPathSelect(side) {
+    var f = wsFileById(parseInt($(side + 'File').value, 10));
+    var lists = f ? f.lists : [];
+    fillOptions($(side + 'Path'), lists,
+      function (l) { return l.path; },
+      function (l) { return l.path + '  (' + fmt(l.entities.length) + ' rows)'; });
+    fillFieldSelect(side);
+  }
+  function fillFieldSelect(side) {
+    var f = wsFileById(parseInt($(side + 'File').value, 10));
+    var path = $(side + 'Path').value, keys = [];
+    if (f) for (var i = 0; i < f.lists.length; i++) if (f.lists[i].path === path) keys = f.lists[i].keys;
+    fillOptions($(side + 'Field'), keys, function (k) { return k; }, function (k) { return k; });
+  }
+  $('lcFile').onchange = function () { fillPathSelect('lc'); };
+  $('lpFile').onchange = function () { fillPathSelect('lp'); };
+  $('lcPath').onchange = function () { fillFieldSelect('lc'); };
+  $('lpPath').onchange = function () { fillFieldSelect('lp'); };
+
+  function openLinkPanel(f) {
+    if (!WS.files.length) { banner(false, 'Add a file first.'); return; }
+    fillFileSelects(f);
+    $('linkPanel').style.display = '';
+    renderLinkList();
+  }
+  $('closeLinks').onclick = function () { $('linkPanel').style.display = 'none'; PENDING = null; };
+
+  /** Swap the six dropdowns, so a declaration typed backwards is fixed before it is added. */
+  $('swapSides').onclick = function () {
+    var cf = $('lcFile').value, cp = $('lcPath').value, cq = $('lcField').value;
+    var pf = $('lpFile').value, pp = $('lpPath').value, pq = $('lpField').value;
+    $('lcFile').value = pf; fillPathSelect('lc'); $('lcPath').value = pp; fillFieldSelect('lc'); $('lcField').value = pq;
+    $('lpFile').value = cf; fillPathSelect('lp'); $('lpPath').value = cp; fillFieldSelect('lp'); $('lpField').value = cq;
+  };
+
+  $('addLink').onclick = function () {
+    var l = { id: WS.seq++,
+      childFile: parseInt($('lcFile').value, 10), childPath: $('lcPath').value, childField: $('lcField').value,
+      parentFile: parseInt($('lpFile').value, 10), parentPath: $('lpPath').value, parentField: $('lpField').value };
+    if (!l.childField || !l.parentField) { banner(false, 'Both a child field and a parent field are needed.'); return; }
+    if (l.childFile === l.parentFile && l.childPath === l.parentPath && l.childField === l.parentField) {
+      banner(false, 'A field cannot point at itself.');
+      return;
+    }
+    WS.links.push(l);
+    wsIndexLink(l);
+    reportLink(l);
+    renderLinkList();
+    if (WS.files[WS.active]) showFile(WS.files[WS.active]);
+  };
+
+  /**
+   * What a declared link actually did, in enough detail to catch it being backwards.
+   * A bare resolution rate is not enough: on the reported data the inverted direction resolved
+   * 3315 of 5000 and looked healthy, so the operator had no way to know before the diagram came out
+   * reading the wrong way round. Uniqueness plus the reverse rate do catch it, and when they agree
+   * the page offers to turn the link round rather than just complaining.
+   */
+  function reportLink(l) {
+    var st = wsLinkStats(l);
+    var pct = function (r) { return Math.round(r * 100) + '%'; };
+    var msg = 'Relationship added. <b>Child</b> ' + svgEsc(l.childPath + '.' + l.childField) + ': '
+      + fmt(st.child.distinct) + ' distinct of ' + fmt(st.child.rows) + ' row(s)'
+      + (st.child.unique ? ' (unique)' : '')
+      + '. <b>Parent</b> ' + svgEsc(l.parentPath + '.' + l.parentField) + ': '
+      + fmt(st.parent.distinct) + ' distinct of ' + fmt(st.parent.rows) + ' row(s)'
+      + (st.parent.unique ? ' (unique)' : ' <b>&mdash; not unique</b>')
+      + '. Resolved <b>' + pct(st.fwdRate) + '</b> this way, ' + pct(st.revRate) + ' the other way.';
+    if (st.swapped) {
+      banner(false, msg + '<br><br><b>These sides look swapped.</b> The parent field is not unique while'
+        + ' the child field is, and the opposite direction resolves better. A PARENT field is an identity'
+        + ' (one row per value); a CHILD field is a reference to one.'
+        + ' <button id="swapNow' + l.id + '">Turn this relationship round</button>');
+      var b = $('swapNow' + l.id);
+      if (b) b.onclick = function () {
+        var sw = wsSwapLink(l.id);
+        if (!sw) return;
+        reportLink(sw);
+        renderLinkList();
+        if (WS.files[WS.active]) showFile(WS.files[WS.active]);
+      };
+      return;
+    }
+    banner(st.fwdRate > 0, msg + (st.fwd === 0 ? ' Zero matches usually means the wrong pair of fields.' : ''));
+  }
+
+  function renderLinkList() {
+    var host = $('linkList');
+    host.innerHTML = '';
+    if (!WS.links.length) {
+      var d = document.createElement('div');
+      d.className = 'dim small';
+      d.textContent = 'No relationship declared yet.';
+      host.appendChild(d);
+      return;
+    }
+    for (var i = 0; i < WS.links.length; i++) {
+      (function (l) {
+        var cf = wsFileById(l.childFile), pf = wsFileById(l.parentFile);
+        var row = document.createElement('div');
+        row.className = 'lnk';
+        var x = document.createElement('span');
+        x.className = 'x'; x.textContent = String.fromCharCode(0x2715);
+        x.title = 'remove this relationship';
+        x.onclick = function () {
+          WS.links = WS.links.filter(function (o) { return o.id !== l.id; });
+          renderLinkList();
+          if (WS.files[WS.active]) showFile(WS.files[WS.active]);
+        };
+        row.appendChild(x);
+        var s = document.createElement('span');
+        s.textContent = (cf ? cf.name : '?') + ' \u00b7 ' + l.childPath + '.' + l.childField
+          + '   \u2192   ' + (pf ? pf.name : '?') + ' \u00b7 ' + l.parentPath + '.' + l.parentField;
+        row.appendChild(s);
+        host.appendChild(row);
+      })(WS.links[i]);
+    }
+  }
+
+  // ---- tabs and views ----------------------------------------------------------------
+  function renderTabs() {
+    var host = $('tabs2');
+    host.innerHTML = '';
+    host.style.display = WS.files.length ? 'flex' : 'none';
+    for (var i = 0; i < WS.files.length; i++) {
+      (function (f, n) {
+        var t = document.createElement('div');
+        t.className = 'ftab' + (n === WS.active ? ' active' : '');
+        var lab = document.createElement('span');
+        lab.textContent = f.name;
+        lab.onclick = function () { WS.active = n; renderTabs(); showFile(f); };
+        t.appendChild(lab);
+        var sz = document.createElement('span');
+        sz.className = 'sz'; sz.textContent = fmt(f.records) + ' rec';
+        t.appendChild(sz);
+        var x = document.createElement('span');
+        x.className = 'x'; x.textContent = String.fromCharCode(0x2715);
+        x.title = 'close this file and release its memory';
+        x.onclick = function (e) {
+          e.stopPropagation();
+          closeFile(f);
+        };
+        t.appendChild(x);
+        host.appendChild(t);
+      })(WS.files[i], i);
+    }
+  }
+  function closeFile(f) {
+    // links that mention it go too: leaving one behind would make a click resolve against a file
+    // that is no longer open
+    var lost = WS.links.filter(function (l) { return l.childFile === f.id || l.parentFile === f.id; }).length;
+    WS.links = WS.links.filter(function (l) { return l.childFile !== f.id && l.parentFile !== f.id; });
+    WS.files = WS.files.filter(function (o) { return o.id !== f.id; });
+    f.model = null; f.data = null; f.lists = null; f.raw = null;   // let it be collected
+    if (WS.active >= WS.files.length) WS.active = WS.files.length - 1;
+    paintCap();
+    renderTabs();
+    renderLinkList();
+    if (WS.files.length) showFile(WS.files[WS.active]);
+    else { $('tabs').style.display = 'none'; $('treePane').style.display = 'none'; $('codePane').style.display = 'none'; $('drop').style.display = ''; }
+    banner(true, 'Closed ' + svgEsc(f.name) + (lost ? (' and the ' + lost + ' relationship(s) that referred to it') : '') + '.');
+  }
+
+  var api = null;
+  function showFile(f) {
+    showDiagramView(false);
+    $('fileName').textContent = f.name + '  (' + fmt(f.bytes) + ' bytes, ' + fmt(f.records) + ' records)';
+    $('tabs').style.display = 'flex';
+    $('drop').style.display = 'none';
+    $('code').textContent = formatJson(f.raw) || f.raw;
+    api = buildJsonTable($('tree'), f.data, { linkCell: wsLinkCell(f) });
+    f.api = api;
+    $('q').value = f.query || '';
+    if (f.query) api.search(f.query);
+    $('qinfo').textContent = api ? (fmt(api.count) + ' nodes') : '';
+    showPane('tree');
+  }
+  function showPane(which) {
+    var tree = (which === 'tree');
+    $('tabTree').classList.toggle('active', tree);
+    $('tabCode').classList.toggle('active', !tree);
+    $('treePane').style.display = tree ? '' : 'none';
+    $('codePane').style.display = tree ? 'none' : '';
+  }
+  $('tabTree').onclick = function () { showPane('tree'); };
+  $('tabCode').onclick = function () { showPane('code'); };
+  $('expandAll').onclick = function () { if (api) api.expandAll(); };
+  $('collapseAll').onclick = function () { if (api) api.collapseAll(); };
+  $('q').addEventListener('input', function () {
+    if (!api) return;
+    var v = $('q').value;
+    if (WS.files[WS.active]) WS.files[WS.active].query = v;
+    var n = api.search(v);
+    $('qinfo').textContent = v.trim() ? (fmt(n) + ' match' + (n === 1 ? '' : 'es')) : (fmt(api.count) + ' nodes');
+  });
+
+  /** The diagram REPLACES the data area rather than opening a page: the way back stays in sight. */
+  function showDiagramView(on) {
+    $('dataView').style.display = on ? 'none' : '';
+    $('diagView').style.display = on ? '' : 'none';
+  }
+  $('dgClose').onclick = function () { showDiagramView(false); };
+  $('dgBack').onclick = function () { diagramBack(); };
+
+  paintCap();
+
 })();
 </script>
 </body>

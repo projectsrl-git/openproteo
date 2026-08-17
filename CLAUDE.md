@@ -1504,3 +1504,39 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   row, nested summaries, an array of scalars, search, and six degenerate documents that must not
   throw) and 20 more driving the standalone page through its REAL file input with a real File, so the
   load path, the tabs, the invalid-JSON banner and the search box are exercised as a user would.
+
+## Linked entities in the standalone JSON viewer (batch 1 of 3)
+* Spec `.claude/2026-08-11-DESIGN-linked-entity-viewers.md`. Batch 1 = standalone JSON; CSV and the
+  in-app viewer follow. * **The cap is on MODEL RECORDS, not file bytes** — MEASURED, not guessed: a
+  2.1 MB document shaped like his gave 168 329 records and 37 MB of heap, so ~18x, and a megabyte
+  limit would be wrong by an order of magnitude. Counted from the parsed doc BEFORE building the
+  model, so a file that will not fit is refused without being materialised and the open files are
+  untouched. Files are read ONE AT A TIME: in parallel, two files could each fit alone and overflow
+  together. * **The question is asked per file after parsing**, not at page open as the request said —
+  before a file is parsed there are no fields for the dropdowns. Flagged and agreed. * Entity lists are
+  arrays-of-objects MERGED BY PATH, so `$.records[].relationships` is one dropdown entry, not 5000.
+  A cross-file link is the same object as a self-link with a different target file, which is why 2.3
+  fell out of 2.2 for free. * The diagram is the EOR_viewer FOCUS/PARENT/CHILD fan, one hop, badges
+  re-focus — the only shape that scales past a few dozen entities. * **Three defects the jsdom run
+  caught before delivery**: the page did not start at all (`var WS` assignment is not hoisted, and
+  `paintCap()` ran before the workspace block); a declared link matched no row (entity path
+  `$.records[]` vs list path `$.records` — added `wsListPath`); and a link on a top-level array never
+  matched (empty root path gave elements the path `[]`, unreducible — the root is now named `$`).
+  Two of the three were invisible to `node --check`.
+
+## FIX (same batch): swapped-sides detection, +/- toggles, diagram direction and owner context
+* **Direction check.** A relationship declared backwards was accepted silently — the inverted
+  direction resolved 3 315 of 5 000 and read as healthy, so a resolution rate alone cannot catch it.
+  `wsLinkStats` now reports distinct/rows/uniqueness per side plus the forward AND reverse rate, and
+  warns only when BOTH signals agree (parent not unique + child unique + reverse resolves better),
+  offering **Turn this relationship round**; **⇆ Swap sides** does it before adding. A legitimate
+  many-to-one key does not warn. * **Toggles are now `+` / `−` in a bordered box**, not a 10px
+  triangle: they are the only way to open a node, and a small target is a bad target. * **The diagram
+  side now follows the DIRECTION of the reference**: left = what points AT the focus, right = what the
+  focus points at. The declaration calls the field holding the value the CHILD field (database
+  convention), but on a picture the record doing the pointing reads as the one above — a relationship
+  row naming a customer is that customer's parent. Reported from the field; the picture follows the
+  direction and the neighbour counter was aligned with it too. * **Badges name the row they live
+  inside** (`wsOwnerLabel`). Without it a customer whose own `relationships` list was empty looked as
+  if the diagram had invented four relationships; they were real and belonged to other rows. That one
+  line of context turns a correct answer that looks wrong into a correct answer that looks right.
