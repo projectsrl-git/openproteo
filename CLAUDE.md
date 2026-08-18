@@ -1712,3 +1712,20 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   of legacy, cannot change any file it produced). The legacy hardcoded-namespace inconsistency between
   PULL and INDX templates is PRESERVED, not tidied: ELAR accepts it, and this is not the place to find
   out whether it accepts anything else. * 61 assertions, `--release 8`; batches 1-3 re-run.
+  out whether it accepts anything else. * 61 assertions, `--release 8`; batches 1-3 re-run.
+
+## elarxml — Batch 5 delivered (validate, off by default)
+* **The third check from the spec is a TAUTOLOGY on a flat row and was NOT implemented.** The legacy
+  reference check compared `doc_id` against the value of the tag it maps to; on a flat row those are
+  the same value by construction, so it can never fail. A green check that cannot go red is worse than
+  no check — it reports confidence it does not have. Replaced by "document id present and non-empty",
+  which does fail on real data. Recorded in §10 of the spec. * Reporting: a duplicate **document id
+  names the id** (a document identifier, same class as the missing-file name the pre-scan reports); a
+  duplicate on **any other tag names the tag and the lines but never the value**, since an arbitrary
+  tag can carry anything. * Findings are data, not errors — nothing throws, including on a null row.
+  A clean file SAYS SO, and an unconfigured `not_duplicated_tags_list` says that too rather than
+  looking as though it passed. * Memory: id set + one value set per configured tag, bounded by document
+  count and not by content. Stated in the spec as the point that needs revisiting at tens of millions.
+  * 30 assertions, `--release 8`; batches 1-4 re-run. **Two failures on the first run were both mine**:
+  the helper put the id tag into the unique list, so two checks legitimately fired where the assertion
+  expected one — isolated, with the two-checks case kept as its own deliberate assertion.

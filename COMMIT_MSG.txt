@@ -1,71 +1,59 @@
-elarxml batch 4: filename scheme, batching policy, PULL manifest
+elarxml batch 5: the validate checks, and the one that could not exist
 
-The naming and the batching, which together decide how many files come out and
-what they are called.
+The checks the legacy Validator was supposed to perform and never did, off by
+default.
 
-BatchNaming reproduces the legacy scheme exactly, and two things about it are
-worth stating because neither is visible from a filename. The C152100 segment
-is a synthetic clock rather than a timestamp or a sequence: it starts at
-output.start_time, or at the run's wall-clock time when that is not set, and
-advances by exactly sixty seconds per batch. Two runs of the same feed on the
-same day with the same explicit start_time therefore collide; with it unset -
-which is how the live configuration ships - they produce different names, so
-nothing is overwritten but duplicate deliverables accumulate with nothing to
-say so. That is the real risk, and countSameDayPairs reports how many pairs
-for the current day are already in the output directory rather than refusing
-the run, because refusing would break the case where a re-run is most needed,
-immediately after a partial failure.
+Why it never ran is worth repeating in the code, and is: CsvValidator.validate
+began by requiring four columns, the vertical intermediate it was handed has
+three, so it returned immediately and silently before any check executed.
+Every delivered INDX went out unvalidated.
 
-The D26229 segment is built arithmetically, from getDayOfYear and a format
-string. That is deliberate: in java.time DD is the day of the year, which is
-exactly the trap that took the validate executor down in production, and
-building the segment with arithmetic means the pattern is never written at
-all. ofPattern now appears nowhere in the package and the rule scan asserts
-it, while the test keeps a control assertion recording that ofPattern("DD") on
-17 August does indeed yield 229 - so the reason for the arithmetic stays
-visible to whoever reads it next.
+Two of the three checks are reproduced. The third is not, and that is the
+substantive decision in this batch. The reference check compared the document
+id against the value of the tag that doc_id_reference maps to. On a vertical
+intermediate those were different things; on a flat row they are the same
+value by construction, because the document id is the value of the column that
+maps to that tag. The check can therefore never fail. A green check that
+cannot go red is worse than no check at all, since it reports confidence it
+does not have, so it is replaced by the invariant that survives the
+translation and can still fail on real data: the document id must be present
+and non-empty. Section 10 of the spec now records this rather than leaving the
+original wording to be implemented literally by whoever picks it up next.
 
-BatchPolicy implements the one-rule decision from the spec. Its describe
-method names the rule in force and, under BYTES, names the ignored
-max_index_docs with its value, because that limit sits in the family's
-properties file where anyone can read it and would otherwise silently stop
-mattering. A rule constructed without its own limit is refused at once rather
-than batching in some unintended way. An oversize document closes the open
-batch before being written alone, since it is not alone if the open batch is
-left around it; under FAIL the message explains that the document can never be
-written and gives both ways out. estimateDrifted flags an estimator that has
-come loose, because a budget built on a wrong estimate would roll over in the
-wrong place and nothing downstream would ever say so.
+Two reporting decisions are worth stating. A duplicate document id names the
+id, because it is a document identifier and is what an operator needs in order
+to find the row - the same class of value the pre-scan already reports for a
+missing content file. A duplicate value on any other tag names the tag and the
+line numbers but never the value, because an arbitrary tag can carry anything
+at all and the tag plus the line number is enough to act on. Findings are data
+rather than errors, so nothing here throws, including on a null row.
 
-PullTemplate writes the manifest with [INDEX_NAME] substituted in every
-attribute of every element. That is a superset of the legacy behaviour, which
-substituted only inside Index elements in a hardcoded namespace, and it cannot
-change any file the legacy tool produced since a template carrying the
-placeholder anywhere else was already broken. The legacy inconsistency where
-the PULL generator ignores idms.namespace and hardcodes a different one from
-the INDX template is preserved rather than tidied: the receiving system has
-been accepting it, and a rewrite is not the place to find out whether it would
-accept anything else.
+Memory is two sets of small keys: the document ids, and one value set per tag
+named in not_duplicated_tags_list. That is bounded by the document count and
+by nothing about content size. At a few thousand documents it is nothing; at
+tens of millions it is not, and the spec says so explicitly, because the point
+at which this needs revisiting should be written down rather than discovered
+as an OutOfMemoryError.
 
-Verified with 61 assertions compiled with --release 8 and run. The reported
-filename is reproduced exactly and its PULL shares the counter by
-construction; the clock advances sixty seconds per batch and an hour after
-sixty of them; the Julian segment is correct at day 1, day 229, day 366 of a
-leap year and year 2000; the day rolls only after files_per_julian_date pairs
-and the clock wraps past midnight rather than overflowing; start_time
-validation names the property for a value that is too short, an impossible
-hour and letters; same-day pairs are counted without blocking a re-run; both
-batching rules behave including the boundary where a document lands exactly on
-the limit; the oversize document closes the open batch first and FAIL explains
-itself; a rule with no limit is refused at construction; and the PULL is
-substituted everywhere with no placeholder surviving and its fixed content
-untouched. The batch 1, 2 and 3 suites were re-run and pass.
+Verified with 30 assertions compiled with --release 8 and run: a clean file
+saying so rather than staying silent, which is the whole point of running a
+check; the duplicate id flagged on the second occurrence with the id named; an
+empty, absent or whitespace-only id caught and not also counted as a
+duplicate; duplicate tag values naming the tag but not the value; absent and
+blank values not counting as duplicates of each other; values compared
+trimmed, as the map lookups are; the listing capped at twenty with the count
+left uncapped and the message saying how many more; the message reporting that
+no not_duplicated_tags_list is configured rather than looking as though the
+check passed; a repeated tag in the list collapsed; and a null row handled
+without an exception. The batch 1 to 4 suites were re-run and pass.
 
-One assertion of mine was wrong rather than the code: an expression for "one
-second before midnight" that did not evaluate to it. Corrected, and split into
-two clearer cases.
+Two assertions failed on the first run and both were mine rather than the
+code's: the test helper put the document-id tag into the unique-tag list as
+well, so two checks legitimately fired where the assertion expected one. They
+are isolated now, and the two-checks case is kept as its own deliberate
+assertion so the behaviour is pinned rather than merely avoided.
 
-NOT verified: mvn clean package, and the naming against a real output
-directory. The filename is the cheapest thing to check on deploy - run the
-step once and the first INDX should be indistinguishable in name from one the
-legacy tool would have produced at the same start_time.
+NOT verified: mvn clean package, and the checks against real data. Worth
+running once with validate=true on a feed already delivered before turning it
+on anywhere: these checks have never executed, so whatever they find has been
+in production for as long as the feed has.

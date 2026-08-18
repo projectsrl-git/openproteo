@@ -417,8 +417,14 @@ this exception is theoretical.
 ## 10. Validation, when enabled
 
 Three checks against the flat row: duplicate `doc_id`; duplicate value for each tag in
-`not_duplicated_tags_list`; `doc_id` equal to the value of the reference tag resolved through
-`tagNameMapping`. The first two need whole-file visibility but only over small keys — a `Set` of ids
+`not_duplicated_tags_list`; and **the document id present and non-empty**.
+
+That third check is not the one this spec originally listed. The reference check — `doc_id` equal to
+the value of the reference tag resolved through `tagNameMapping` — becomes a **tautology** on a flat
+row: the document id *is* the value of the column that maps to that tag, so the two sides are the
+same value by construction and the check can never fail. **A green check that cannot go red is worse
+than no check**, because it reports confidence it does not have. It is replaced by the invariant that
+survives the translation and can still fail on real data. The first two need whole-file visibility but only over small keys — a `Set` of ids
 and a `Set` of `tag=value` — bounded by document count and not by content. **State the bound in
 `USAGE.md`**: at a few thousand documents it is nothing; at tens of millions it is not, and that is
 the point at which this needs revisiting.
@@ -611,8 +617,33 @@ blocking a re-run; both batching rules including the boundary where a document l
 limit; the oversize document closing the open batch first and `FAIL` explaining itself; a rule with no
 limit refused at construction; and the PULL substituted everywhere with no placeholder surviving.
 
-Not yet present, deliberately: validation (batch 5), registration (batch 6), `USAGE.md` and the
-equivalence script (batch 7).
+### Batch 5 — DELIVERED
+
+**`ElarValidator`**, off by default. Three checks per row: duplicate document id, duplicate value for
+each tag in `not_duplicated_tags_list`, and the document id present and non-empty — the replacement
+for the reference check, for the reason in §10.
+
+Two reporting decisions worth stating. A **duplicate document id names the id**, because it is a
+document identifier and is what an operator needs to find the row — the same class of value the
+pre-scan already reports for a missing content file. A **duplicate value on any other tag names the
+tag and the line numbers but never the value**, because an arbitrary tag can carry anything, and tag
+plus line number is enough to act on. Findings are data, not errors: nothing here throws, including on
+a null row.
+
+**Verified** by 30 assertions compiled with `--release 8`: a clean file *saying so* rather than
+staying silent; the duplicate id flagged on the **second** occurrence with the id named; an empty,
+absent or whitespace-only id caught and *not* also counted as a duplicate; duplicate tag values naming
+the tag but not the value; absent and blank not counting as duplicates of each other; values compared
+trimmed; the listing capped at twenty with the count uncapped; the message saying *no
+`not_duplicated_tags_list` configured* rather than looking as though it passed; a repeated tag in the
+list collapsed; and a null row handled.
+
+Two assertions failed on the first run and **both were mine, not the code's**: the test helper put the
+id tag into the unique list as well, so two checks legitimately fired where the assertion expected one.
+Isolated, with the two-checks case kept as its own deliberate assertion.
+
+Not yet present, deliberately: registration (batch 6), `USAGE.md` and the equivalence script
+(batch 7).
 
 **Verified** by 46 assertions compiled with `--release 8`: the declaration following the charset
 parameter rather than the template; template constants surviving while a row value overrides, `BU`
