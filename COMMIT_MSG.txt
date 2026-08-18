@@ -1,74 +1,71 @@
-elarxml batch 3: streaming Base64 and SHA-256, skip accounting
+elarxml batch 4: filename scheme, batching policy, PULL manifest
 
-The content embedding, and the last of the three accumulations that caused the
-OutOfMemoryError.
+The naming and the batching, which together decide how many files come out and
+what they are called.
 
-ContentEmbedder performs the two passes the template forces: the hash element
-precedes the content element, so the digest has to be known before the payload
-is written. That is the same number of reads the legacy tool already
-performed, since it read the file once for readFileBytes and again for
-FileHashSHA256. What changes is that neither pass holds the file. The digest
-streams through MessageDigest in blocks, and the Base64 streams straight to
-the writer in chunks that are a whole number of three-byte groups, so every
-full chunk yields complete quads with no padding and no state carried between
-chunks - padding appears exactly once, on the final partial group, which is
-where Base64 puts it.
+BatchNaming reproduces the legacy scheme exactly, and two things about it are
+worth stating because neither is visible from a filename. The C152100 segment
+is a synthetic clock rather than a timestamp or a sequence: it starts at
+output.start_time, or at the run's wall-clock time when that is not set, and
+advances by exactly sixty seconds per batch. Two runs of the same feed on the
+same day with the same explicit start_time therefore collide; with it unset -
+which is how the live configuration ships - they produce different names, so
+nothing is overwritten but duplicate deliverables accumulate with nothing to
+say so. That is the real risk, and countSameDayPairs reports how many pairs
+for the current day are already in the output directory rather than refusing
+the run, because refusing would break the case where a re-run is most needed,
+immediately after a partial failure.
 
-The digest is over the raw file bytes. That is the only convention ever
-executed: IndxBuilder.computeSHA256 over the Base64 text exists but is never
-called, and every INDX ELAR has accepted carries the raw-bytes digest. The
-test asserts not only that our digest matches a one-shot digest of the same
-bytes but that it differs from the digest of the Base64 text, so the two
-conventions cannot be confused later.
+The D26229 segment is built arithmetically, from getDayOfYear and a format
+string. That is deliberate: in java.time DD is the day of the year, which is
+exactly the trap that took the validate executor down in production, and
+building the segment with arithmetic means the pattern is never written at
+all. ofPattern now appears nowhere in the package and the rule scan asserts
+it, while the test keeps a control assertion recording that ofPattern("DD") on
+17 August does indeed yield 229 - so the reason for the arithmetic stays
+visible to whoever reads it next.
 
-fill() loops on the count returned by read. That is the defect the prototype
-encoder in the legacy estate had: it allocated a buffer the size of the whole
-file, called read once, and discarded the returned count, so any short read
-left the tail as zeros and Base64-encoded them with no error. Looping is the
-fix, and it also guarantees every full buffer is a whole number of three-byte
-groups.
+BatchPolicy implements the one-rule decision from the spec. Its describe
+method names the rule in force and, under BYTES, names the ignored
+max_index_docs with its value, because that limit sits in the family's
+properties file where anyone can read it and would otherwise silently stop
+mattering. A rule constructed without its own limit is refused at once rather
+than batching in some unintended way. An oversize document closes the open
+batch before being written alone, since it is not alone if the open batch is
+left around it; under FAIL the message explains that the document can never be
+written and gives both ways out. estimateDrifted flags an estimator that has
+come loose, because a budget built on a wrong estimate would roll over in the
+wrong place and nothing downstream would ever say so.
 
-The guard for a content file changing between the two passes fails the batch
-rather than the document, as decided in section 4.1 of the spec. Size and
-modification time are captured before the digest, and the encoded byte count
-is compared against them during the encode pass so the failure is immediate
-rather than at the end. By that point the hash and most of the payload are
-already in the output stream and cannot be retracted, so the only outcome
-consistent with temp-then-rename is to discard the whole batch, and the
-message says so. Both directions are tested: a file that grew and a file that
-shrank.
+PullTemplate writes the manifest with [INDEX_NAME] substituted in every
+attribute of every element. That is a superset of the legacy behaviour, which
+substituted only inside Index elements in a hardcoded namespace, and it cannot
+change any file the legacy tool produced since a template carrying the
+placeholder anywhere else was already broken. The legacy inconsistency where
+the PULL generator ignores idms.namespace and hardcodes a different one from
+the INDX template is preserved rather than tidied: the receiving system has
+been accepting it, and a rewrite is not the place to find out whether it would
+accept anything else.
 
-encodedLength gives the Base64 length a file of a given size will produce,
-which is what batch 4's byte budget will compare against the remaining space.
-It is verified exact against the real encoder at nine sizes rather than
-assumed approximate, because a budget built on an estimate that drifts would
-roll over in the wrong place.
+Verified with 61 assertions compiled with --release 8 and run. The reported
+filename is reproduced exactly and its PULL shares the counter by
+construction; the clock advances sixty seconds per batch and an hour after
+sixty of them; the Julian segment is correct at day 1, day 229, day 366 of a
+leap year and year 2000; the day rolls only after files_per_julian_date pairs
+and the clock wraps past midnight rather than overflowing; start_time
+validation names the property for a value that is too short, an impossible
+hour and letters; same-day pairs are counted without blocking a re-run; both
+batching rules behave including the boundary where a document lands exactly on
+the limit; the oversize document closes the open batch first and FAIL explains
+itself; a rule with no limit is refused at construction; and the PULL is
+substituted everywhere with no placeholder surviving and its fixed content
+untouched. The batch 1, 2 and 3 suites were re-run and pass.
 
-ElarCounters counts skipped documents by category and reports them. The legacy
-tool printed "Skipping doc: file not found" to stdout with no counter and no
-aggregate, so a batch that had silently dropped half its documents looked
-exactly like a successful one and the only way to find out was to count blocks
-in the delivered XML by hand. The summary states the skip counts even when
-they are zero, because a line that only appears when something went wrong
-trains people not to look for it.
+One assertion of mine was wrong rather than the code: an expression for "one
+second before midnight" that did not evaluate to it. Corrected, and split into
+two clearer cases.
 
-Verified with 28 assertions compiled with --release 8 and run: the digest
-against a one-shot digest and against the Base64-text convention, the known
-SHA-256 of an empty file, the streamed payload identical to a one-shot encode,
-all twelve size classes across the chunk boundary and both padding cases, the
-wrapper still holding on a 70 KB file at a 100-character limit with nothing
-over the limit and every payload line a whole number of quads and the payload
-byte-identical once the breaks are stripped, both change-between-passes
-directions, the size estimate at nine sizes, and the counters including that
-the summary is counters only and can leak no record. The batch 1 and batch 2
-suites were re-run and pass.
-
-ByteArrayOutputStream now appears zero times in the package. The buffer that
-held each whole file before encoding is gone by construction rather than by
-discipline, and the scan for it joins the ones for StringWriter and
-Transformer.
-
-NOT verified: mvn clean package, and any of this against a real content file
-on G:. The digest is the piece to check first, since it can be compared
-against a delivered INDX: take any document from one, and the HashValue should
-match the SHA-256 of the source file's raw bytes.
+NOT verified: mvn clean package, and the naming against a real output
+directory. The filename is the cheapest thing to check on deploy - run the
+step once and the first INDX should be indistinguishable in name from one the
+legacy tool would have produced at the same start_time.

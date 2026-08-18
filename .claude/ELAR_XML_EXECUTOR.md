@@ -580,8 +580,39 @@ that the summary is counters only and can leak no record.
 Rule scans clean, and `ByteArrayOutputStream` now appears **zero** times in the package — the buffer
 that held each whole file before encoding is gone, not merely avoided.
 
-Not yet present, deliberately: batching and filenames (batch 4), validation (batch 5),
-registration (batch 6).
+### Batch 4 — DELIVERED
+
+- **`BatchNaming`** — the synthetic clock and the Julian segment. The clock starts at
+  `output.start_time` or the run's wall-clock time and advances **exactly sixty seconds per batch**;
+  the day segment is `String.format("%02d%03d", year % 100, getDayOfYear())`, built arithmetically so
+  a `DateTimeFormatter` pattern is never written at all — `ofPattern` now appears **nowhere** in the
+  package, and the scan asserts it. The clock **wraps past midnight** rather than overflowing, and
+  restarts when the Julian day rolls after `files_per_julian_date` pairs. `countSameDayPairs` reports
+  how many pairs for today already sit in the output directory.
+- **`BatchPolicy`** — one selected rule. `describe()` names the rule in force **and the ignored limit
+  with its value**, because that limit sits in the family's properties file where anyone can read it.
+  A rule constructed without its own limit is refused immediately. `WRITE_ALONE` closes the open batch
+  first (§4.2); `FAIL` explains why the document can never be written and gives both ways out.
+  `estimateDrifted` flags an estimator that has come loose — a budget built on a wrong estimate would
+  roll over in the wrong place with nothing downstream to say so.
+- **`PullTemplate`** — the manifest, with `[INDEX_NAME]` substituted in **every attribute of every
+  element**, a superset of the legacy behaviour that cannot change any file it produced. The legacy
+  hardcoded namespace inconsistency between the PULL and INDX templates is **preserved rather than
+  tidied**: the receiving system has been accepting it, and this rewrite is not the place to discover
+  whether it would accept anything else.
+
+**Verified** by 61 assertions compiled with `--release 8`: the reported filename reproduced exactly
+and its PULL sharing the counter by construction; the clock advancing sixty seconds and an hour after
+sixty batches; the Julian segment at day 1, day 229, day 366 of a leap year and year 2000 — **with a
+control assertion recording that `ofPattern("DD")` on 17 August yields 229**, the trap this avoids;
+the day rolling only after the limit; the clock wrapping past midnight; `start_time` validation naming
+the property for a short value, an impossible hour and letters; same-day pairs counted without
+blocking a re-run; both batching rules including the boundary where a document lands exactly on the
+limit; the oversize document closing the open batch first and `FAIL` explaining itself; a rule with no
+limit refused at construction; and the PULL substituted everywhere with no placeholder surviving.
+
+Not yet present, deliberately: validation (batch 5), registration (batch 6), `USAGE.md` and the
+equivalence script (batch 7).
 
 **Verified** by 46 assertions compiled with `--release 8`: the declaration following the charset
 parameter rather than the template; template constants surviving while a row value overrides, `BU`

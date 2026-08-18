@@ -1692,3 +1692,23 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   * **`ByteArrayOutputStream` is now zero occurrences in the package**: the buffer that held each whole
   file before encoding is gone by construction. Added to the rule scan alongside `StringWriter` and
   `Transformer`/`DOMSource`.
+  file before encoding is gone by construction. Added to the rule scan alongside `StringWriter` and
+  `Transformer`/`DOMSource`.
+
+## elarxml — Batch 4 delivered (naming, batching policy, PULL manifest)
+* `BatchNaming`: the `C152100` segment is a **synthetic clock** — starts at `output.start_time` or
+  wall-clock, advances exactly 60s per batch — not a timestamp and not a sequence. Two runs on the
+  same day with the same explicit `start_time` therefore COLLIDE; with it unset they produce new names
+  and duplicates accumulate silently, which is the real risk and why `countSameDayPairs` reports
+  rather than prevents. Refusing a same-day re-run would break the case where a re-run is most needed.
+  * Julian segment built with `getDayOfYear()` + `String.format`, so **`ofPattern` appears NOWHERE in
+  the package** and the rule scan now asserts that. A control assertion records that `ofPattern("DD")`
+  on 17 Aug gives 229 — the trap that killed the validate executor, kept visible in the test.
+  * `BatchPolicy`: one rule, and `describe()` names the IGNORED limit WITH ITS VALUE since it sits in
+  the properties file where anyone can read it. Constructed without its own limit → refused at once.
+  `WRITE_ALONE` closes the open batch first (§4.2), `FAIL` explains why it can never be written and
+  gives both ways out. `estimateDrifted` catches an estimator coming loose — a budget on a wrong
+  estimate rolls in the wrong place silently. * `PullTemplate` substitutes in EVERY attribute (superset
+  of legacy, cannot change any file it produced). The legacy hardcoded-namespace inconsistency between
+  PULL and INDX templates is PRESERVED, not tidied: ELAR accepts it, and this is not the place to find
+  out whether it accepts anything else. * 61 assertions, `--release 8`; batches 1-3 re-run.
