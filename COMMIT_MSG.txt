@@ -1,76 +1,75 @@
-elarxml batch 1: flat CSV reader, config resolver, blocking pre-scan
+elarxml batch 2: streaming writer, template model, atomic output
 
-First code of the executor. New package com.legalarchive.orchestrator.elar,
-deliberately free of Spring and of the orchestrator's own types so that it
-compiles and runs on its own - which is why this batch comes first and why it
-could be verified here rather than only on deploy. No executor, no
-registration, no XML yet.
+The writer, and with it the decision that shapes the rest of the executor.
 
-ElarConfig loads the properties and resolves every key through one path that
-prepends the family prefix. A familyType matching nothing is caught at load
-and answered with the families the file does contain, replacing the production
-NPE that came from copying a .bat between feeds and leaving one argument
-unchanged - the old failure said nothing about which key or which file. A
-missing required key, and a value that should be a number and is not, name the
-key, the file and the value. The three keys the legacy tool read without a
-prefix still work bare, with a prefixed form taking precedence.
+WrappingXmlOut owns where a line may break, and it is driven by the emitter
+rather than by a stream underneath it. A Writer that counts characters and
+inserts a break every N cannot know whether it is inside markup or inside a
+text node, which is the legacy defect restated rather than fixed: IndxBuilder
+serialized the document to a String and chopped it at blind offsets. That
+survived for a reason worth recording in the code, and it is: at twenty-five
+thousand characters a line and payloads of megabytes, essentially every break
+landed inside the Base64 of the content tag, where whitespace is ignored by
+any decoder. A metadata value straddling a boundary would have been silently
+corrupted and nothing downstream would have flagged it.
 
-docIdTag performs the translation the legacy Validator never did.
-doc_id_reference holds a CSV column name while the duplicate checks are keyed
-by ELAR tag name, so the reference lookup returned null for every document and
-the check threw on the first row of any file - it could never have passed. The
-asymmetry is real in the properties file, since not_duplicated_tags_list is
-already expressed in tag names, so it is handled explicitly rather than
-normalised away, and a doc-id column with no mapping is refused naming the key
-that is missing. contentTag and dsakTag are configurable per family, because
-every family has its own template with its own tags, and default to this
-family's names so an existing properties file needs no edit.
+So the rule is positional. Between elements and between attributes a break is
+always legal; inside a Base64 payload it is legal at any multiple of four;
+inside any other text node it is never legal, and a value that cannot fit a
+line of its own fails naming the tag rather than being split or letting the
+line over-run. The XML declaration is generated from the output charset and
+never copied from the template, which is what actually closes the defect where
+delivered files declare ISO-8859-1 while being written with the platform
+default. A value that cannot be represented in the output charset fails naming
+the tag and the code point, checked per value with canEncode so that the
+message can name the tag, with REPORT on the writer itself as the backstop.
 
-FlatCsvReader reads with one explicit charset and REPORT by default, against
-the legacy pipeline which read the same data through three different decoders
-- hardcoded UTF-8 in one half, platform default in the other two. It splits
-with a limit of -1 so trailing empty fields survive, where the legacy split
-dropped them and a row ending in empty columns then looked like a field-count
-mismatch. Quoting is optional and disabled by default, keeping the parse
-identical to legacy. A BOM is stripped from the header rather than becoming
-part of the first column name. A decoder failure is rewritten to name the
-file, the line, the approximate byte offset and both ways out; the offset is
-stated as approximate because the reader buffers ahead, which is better than
-printing a precise-looking number that can be wrong by up to 64 KB.
+IndxTemplate discovers the model instead of assuming it, since every family
+has its own template with its own tags and only one has been read. The
+container is found by namespace and local name, both from the properties; it
+must hold exactly one element child, which becomes the per-document block
+whatever it is called; everything before and after is emitted verbatim. Any
+other shape fails at parse naming what was looked for and what was found,
+before any output exists. Because the block is walked as parsed, a family's
+constants survive on their own and a row value overrides them where one
+exists. unknownMappedTags reports a mapping that names a tag the template does
+not contain, which would otherwise be a silent no-op.
 
-ElarPreScan is the blocking scan: every input file checked before a single
-byte of output exists, for field-count mismatches and for referenced content
-files that do not exist. It reports every offending line across every file in
-one message, capped at fifty listed per category with the full count kept, and
-it never prints a row's content - only file names, line numbers and the
-missing document's name, which is a document identifier rather than a customer
-one and without which the operator cannot act. A malformed row is not then
-also counted as a missing file, because its content path cannot be trusted
-either. It reuses FlatCsvReader rather than reimplementing the parse, which is
-what makes "a file that passes the scan cannot fail the read" true by
-construction instead of by intention. resolveContentFile re-roots on the file
-name only, as the legacy updateFilePath did, which also means a value carrying
-a directory traversal cannot escape documentPath.
+AtomicOutput writes to a .part file in the same directory, so the rename stays
+on one volume and is atomic, and renames only after a clean close. An existing
+final name is refused unless overwriteExisting is set. close aborts unless
+commit succeeded, so every failure path leaves no deliverable - the legacy OOM
+left a 0 KB INDX beside three complete files, indistinguishable to anything
+downstream from a success.
 
-Verified with 62 assertions compiled with -source 8 and run: the production
-NPE and the message that replaces it; both unprefixed-key paths and their
-precedence; the doc-id translation and its failure; an accented byte decoding
-correctly under windows-1252; an invalid byte failing with an actionable
-message and the REPLACE escape letting it through; trailing empty fields,
-shown beside what the legacy split would have returned for the same line; the
-BOM; the same line parsed with quoting on and off; and the pre-scan over
-several files including the capped listing, the empty-content-value case, the
-malformed-row-not-double-counted rule and the traversal. The codebase rule
-scans run clean on the new package: no family literal, no charset-less
-getBytes, no FileWriter or FileReader, no platform-default OutputStreamWriter,
-no ofPattern containing DD.
+Verified with 46 assertions compiled with --release 8. The load-bearing ones
+concern the wrapping: no line exceeds the maximum, every full payload line is
+a whole number of quads, no line ends inside a tag, and the payload is
+byte-identical to what was written once the breaks are stripped. Then the
+declaration following the charset parameter rather than the template;
+constants surviving while a row value overrides, BU included since it is both;
+escaping in text and in attributes; the over-long value refused by name; the
+euro sign refused in ISO-8859-1 and accepted under the documented windows-1252
+escape hatch; three malformed templates refused with actionable messages; a
+family with entirely different tag names working unchanged; and the atomic
+file including that an aborted batch leaves neither a deliverable nor a temp.
+End to end the produced file is re-read with its declared charset and the
+accented byte on disk is 0xE9, so the declaration is proven against the bytes
+rather than asserted.
 
-One note on those scans. The naive version flagged CLICT and FileReader, both
-inside javadoc explaining the legacy defects. The scan now strips comments
-before matching, which is worth carrying over to the other build checks - a
-rule that fires on its own documentation trains people to ignore it.
+The rule scans now also assert the absence of StringWriter,
+ByteArrayOutputStream and Transformer or DOMSource. Those are the three
+vehicles of the legacy OutOfMemoryError, and they are gone by construction
+rather than by discipline.
 
-NOT verified: mvn clean package, and any of this against the real G: data. The
-pre-scan is the piece to try first on a real input directory, since it writes
-nothing and its whole purpose is to answer whether the blocking question of
-section 3.1 is settled in practice.
+Two notes on the environment. The sandbox had no JDK this session, only a JRE,
+so one was installed and everything was compiled with --release 8 - stronger
+than the earlier batches' -source 8 -target 8, because it also checks the API
+surface rather than only the language level. And the container reset mid-turn,
+taking the working clone with it; recovery was to re-clone and re-apply from
+the zip already delivered, which is an argument for delivering often.
+
+NOT verified: mvn clean package, and anything against a real template on G:.
+The template model is the piece to try first, since it fails at parse and
+needs no data - point it at one other family's INDX template and it will
+either load or say precisely why not.

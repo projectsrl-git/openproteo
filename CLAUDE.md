@@ -1650,3 +1650,23 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   * 62 assertions, `-source 8`. Rule scans clean with comments excluded — the naive version flagged
   `CLICT` and `FileReader` inside javadoc explaining the legacy defects, so the scan strips comments
   first; worth keeping in mind for the other build checks.
+
+## elarxml — Batch 2 delivered (writer, template model, atomic output)
+* `WrappingXmlOut` is **emitter-driven**, which is the point: a Writer counting characters underneath
+  cannot tell markup from text, and that IS the legacy defect. Breaks legal between
+  elements/attributes, inside Base64 at multiples of 4, inside other text NEVER — an over-long value
+  fails naming the tag. Declaration GENERATED from the charset; `canEncode` checked per value so the
+  failure names the tag and the code point instead of surfacing as a byte offset at flush.
+  * `IndxTemplate` discovers the model (container by ns + localName from the properties, exactly one
+  element child) and refuses any other shape at parse time. `unknownMappedTags()` catches a mapping
+  naming a tag the template lacks — otherwise a silent no-op. * `AtomicOutput`: `.part` in the SAME
+  directory so the rename stays on one volume; `close()` aborts unless `commit()` succeeded. * 46
+  assertions, `--release 8`. The load-bearing ones: no line over the max, every payload line a whole
+  number of quads, no line ending inside a tag, payload byte-identical once breaks are stripped, and
+  end to end the accented byte on disk is **0xE9** — the declaration proven against the bytes, not
+  asserted. * Rule scans now also assert the ABSENCE of `StringWriter`, `ByteArrayOutputStream` and
+  `Transformer`/`DOMSource`. * **The sandbox had no JDK this session** (JRE only): installed
+  `openjdk-21-jdk-headless` and compiled with `--release 8`, which is stronger than the earlier
+  batches' `-source 8 -target 8` because it also checks the API surface. * **The container reset
+  mid-turn** and took the working clone with it; recovery was to re-clone and re-apply from the
+  delivered zip. Keep sources outside the clone while working, or deliver more often.

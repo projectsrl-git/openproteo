@@ -530,7 +530,41 @@ so it compiles and runs on its own:
   construction rather than by intention. `resolveContentFile` re-roots on the file name only, as
   legacy did, which also means a traversal cannot escape `documentPath`.
 
-Not yet present, and deliberately: no executor, no registration, no XML. Batch 2 is the writer.
+### Batch 2 — DELIVERED
+
+- **`WrappingXmlOut`** — the writer, and the owner of where a line may break. Emitter-driven, so it
+  knows at every moment whether a break is legal: between elements and between attributes always,
+  inside a Base64 payload at any multiple of 4, inside any other text node never. A value that cannot
+  fit a line of its own fails naming the tag rather than being split or letting the line over-run.
+  The XML declaration is **generated from the output charset**, and a value that cannot be represented
+  fails naming the tag and the code point — `canEncode` is checked per value so the message can name
+  the tag, with `REPORT` on the writer as the backstop.
+- **`IndxTemplate`** — the model, discovered rather than assumed: container by namespace and local
+  name from the properties, exactly one element child as the per-document block, everything else
+  emitted verbatim. Any other shape fails at parse naming what was looked for and what was found.
+  `unknownMappedTags()` reports a mapping naming a tag the template does not contain, which would
+  otherwise be a silent no-op.
+- **`AtomicOutput`** — `.part` then rename, in the same directory so the rename stays on one volume.
+  An existing final name is refused unless `overwriteExisting`; `close()` aborts unless `commit()`
+  succeeded, so every failure path leaves no deliverable.
+
+Not yet present, deliberately: Base64 and SHA-256 (batch 3), batching and filenames (batch 4),
+validation (batch 5), registration (batch 6).
+
+**Verified** by 46 assertions compiled with `--release 8`: the declaration following the charset
+parameter rather than the template; template constants surviving while a row value overrides, `BU`
+included; two documents inside the container; escaping in text and in attributes; **no line over the
+maximum, every payload line a whole number of quads, no line ending inside a tag, and the payload
+byte-identical once the breaks are stripped**; the over-long value refused by name; the euro sign
+refused in ISO-8859-1 and accepted under the documented `windows-1252` escape hatch; three malformed
+templates refused with actionable messages; a family with entirely different tag names working
+unchanged; and the atomic file, including that an aborted batch leaves neither a deliverable nor a
+temp. End to end the file is re-read with its declared charset and the accented byte on disk is
+**0xE9** — the declaration is proven against the bytes rather than asserted.
+
+Rule scans clean on the new code with comments excluded, and now also asserting the **absence** of
+`StringWriter`, `ByteArrayOutputStream` and `Transformer`/`DOMSource`: the three vehicles of the
+legacy OutOfMemoryError are gone by construction rather than by discipline.
 
 **Verified** by 62 assertions compiled with `-source 8`, covering the production NPE and its
 replacement message, both unprefixed-key paths and their precedence, the doc-id translation and its
