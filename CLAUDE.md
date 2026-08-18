@@ -1559,3 +1559,94 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   duplicate function declarations (last wins) so nothing failed — `node --check` and all three suites
   passed. Added a **duplicate top-level function scan** to the build checks; it is now part of the
   routine for these single-file pages.
+
+## elarxml executor — Batch 0 (spec only)
+* Spec committed at `.claude/ELAR_XML_EXECUTOR.md`, self-contained. No implementation this batch.
+  * **Q1 (separator inside a value) is BLOCKING and cannot be answered from the sandbox** — it needs
+  counts from `G:`. Three PowerShell commands are in §3.1, including one that reads the LEFTOVER
+  legacy `out_*.csv` intermediates as the historical record of how many documents `CsvParser`
+  discarded silently. That check is read-only and answers whether past deliveries are incomplete —
+  an archiving finding, not a software one. * **Three design contradictions found while specifying**,
+  each with a recommendation: (a) a content file changing between the digest and encode passes cannot
+  fail the DOCUMENT, because HashValue and most of Content are already in the stream — it must fail
+  the BATCH, which is the only outcome consistent with temp-then-rename; (b) `WRITE_ALONE` requires
+  closing the current batch first, or the document is not alone; (c) **line wrapping cannot be a dumb
+  Writer under XMLStreamWriter** — it cannot tell markup from text, which IS the legacy defect. Worth
+  recording why legacy got away with blind chopping: at 25 000 chars and megabyte payloads essentially
+  every break lands inside Base64 where whitespace is ignored, but a metadata value straddling a
+  boundary would have been silently corrupted. Recommendation is a small emitter-driven
+  `WrappingXmlOut` and no XMLStreamWriter; the alternative is stated with its trade. * Registration is
+  FIVE places if exposed in the designer, not four — `buildXml` included, per the `reportQuery` lesson.
+  * **Batching is ONE selected rule, not two racing triggers**: `batchBy=DOCUMENTS` (default, legacy
+  behaviour) or `BYTES`; the unused limit is not read, and the equivalence run simply uses the
+  default. Requested on the grounds that the `sql` executor's CSV split conditions are alternatives
+  — **they are not**: `CsvWriter:73-76` ORs `maxRows` and `maxBytes`, both may be set, and
+  `InternalSteps:2056` logs "N rows/part or M MB/part". The decision stands on its own (one trigger
+  removes the "which fired?" question, and ELAR imposes no maximum INDX size) but it is a DIVERGENCE
+  from `sql`, not a match, and §12b of the spec records that so the two read consistently later.
+  * Under `BYTES`, `max_index_docs` stays in every family's properties file and silently stops
+  mattering — the step must LOG the ignored key and its value at start. A setting that can be read but
+  has no effect is worse than one that is absent. * **A malformed row FAILS the run** (`onMalformedRow=FAIL`,
+  decided), which forces the check to run FIRST: every input file is scanned for field-count
+  mismatches BEFORE any output is written. Failing mid-file would leave batches already renamed to
+  final deliverable names beside an input with no `.done` — a partial set with no marker, which a
+  re-run would then duplicate. Pre-scanning makes the refusal atomic at the STEP level, reports every
+  offending line across every file in one message, and costs only a second read of the CSVs (nothing
+  beside the Base64 about to be written). The scan MUST use the same charset and the same parse,
+  `quoteChar` included — a pre-scan that disagreed with the reader after it would be worse than none.
+  * Recorded as a **deliberate exception to conservative defaults**: today such a row is dropped in
+  silence and the feed ships short; after this it stops. A feed carrying one today WILL fail on its
+  first run — which is what §3.1's count exists to find out beforehand. Escape hatch per feed is
+  `onMalformedRow=SKIP`, which restores today's behaviour except the loss is counted, not invisible.
+* **Batch 0 answers received**: no value contains the separator (asserted, and the pre-scan makes the
+  design safe if it is ever wrong — a stray separator now STOPS the run instead of losing the row);
+  the writer is hand-rolled; a file changing between passes fails the BATCH; `WRITE_ALONE` closes the
+  current batch first. * **Templates differ per family** (confirmed: each family has its own INDX with
+  its own tags), so the prologue/block/epilogue model is DISCOVERED, never assumed — find the
+  descriptors container by namespace + local name from the properties, require exactly ONE element
+  child as the per-document block, and fail at step start naming the template and what was found
+  otherwise. No family tag name in the code; per-family constants come through automatically because
+  the block is emitted from the parsed template. * **The pre-scan also checks every referenced content
+  file exists**, blocking (decided). Second deliberate exception to conservative defaults: today a
+  missing file is a counted skip and the feed ships short. Cost is one `exists()` per document, worth
+  it because the run is about to read all of them anyway and 300 missing of 5000 is better known at
+  the start than twenty minutes in with INDX already delivered. * **`maxLineLength` fallback set to
+  20000, not the prompt's 25000**: `CLICT@DT` sets 25000 explicitly so it is unaffected either way,
+  but a family on the fallback would change its line breaks on deploy — and no existing feed may
+  change output. One `Select-String` over the `config_*.properties` says whether any family is on the
+  fallback at all; if none is, either value is safe.
+* **Batch 0 CLOSED.** Final answers: `maxLineLength` default is **25000** (his call, overriding my
+  20000 recommendation) and **no source data contains 0x80-0x9F**, so `ISO-8859-1` + `REPORT` is free
+  today. * **THREE deliberate exceptions to conservative defaults are on record**, each changing a
+  feed that works today: (1) a malformed row stops the run instead of being dropped silently; (2) a
+  missing content file stops the run instead of the feed shipping short; (3) a family without
+  `max.line.length` moves from 20000 to 25000, shifting its line breaks. 1 and 2 are the point of the
+  rewrite; 3 is a convenience and one `Select-String` says whether it touches anything. * The 0x80-0x9F
+  answer is a measurement of TODAY's data, not a property of the feed: a euro sign or curly quote
+  arriving next year fails that document loudly. Intended — the alternative is a silent `?` inside a
+  legally archived document — but it will read as a regression to whoever meets it, so `USAGE.md` must
+  carry the message and the `outputCharset=windows-1252` escape hatch. * The charset mismatch being
+  closed was latent, not harmless: delivered INDX declare ISO-8859-1 while written with the platform
+  default (windows-1252). It never mattered only BECAUSE the answer here is "none".
+
+
+## elarxml — Batch 1 delivered (flat CSV reader, config resolver, pre-scan)
+* New package `com.legalarchive.orchestrator.elar`: `ElarConfig`, `FlatCsvReader`, `ElarPreScan`. No
+  Spring, no orchestrator types — compiles and RUNS standalone, which is the whole reason this batch
+  comes first. No executor and no registration yet; that is batch 6. * `ElarConfig` replaces the
+  production NPE (a .bat copied between feeds with one argument unchanged) with a message naming the
+  bad `familyType`, the properties file AND the families it does contain. `docIdTag()` does the
+  column→tag translation the legacy `Validator` never did — `doc_id_reference` is a COLUMN while
+  `not_duplicated_tags_list` is already ELAR TAG names, an asymmetry that is real in the properties
+  file and handled rather than normalised away. `contentTag`/`dsakTag` configurable per family
+  (templates differ), defaulting to this family's names. * `FlatCsvReader`: one explicit charset with
+  `REPORT`, `split(sep, -1)` so trailing empties no longer look like a field-count mismatch, optional
+  quoting, BOM stripped, and the decoder failure rewritten with file + line + APPROXIMATE byte offset
+  — stated as approximate because the reader buffers, rather than printing a precise-looking number
+  that is wrong by up to 64 KB. * `ElarPreScan` reuses `FlatCsvReader`, which makes "a file that passes
+  the scan cannot fail the read" true by construction. Listing capped at 50 per category, counts
+  uncapped. A malformed row is NOT then also counted as a missing file — its content path cannot be
+  trusted. `resolveContentFile` takes the file name only, so a traversal cannot escape `documentPath`.
+  * 62 assertions, `-source 8`. Rule scans clean with comments excluded — the naive version flagged
+  `CLICT` and `FileReader` inside javadoc explaining the legacy defects, so the scan strips comments
+  first; worth keeping in mind for the other build checks.

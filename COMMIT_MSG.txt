@@ -1,68 +1,76 @@
-Standalone viewers: remember relationships, and share one link core
+elarxml batch 1: flat CSV reader, config resolver, blocking pre-scan
 
-Two things, both groundwork for the CSV and in-app batches.
+First code of the executor. New package com.legalarchive.orchestrator.elar,
+deliberately free of Spring and of the orchestrator's own types so that it
+compiles and runs on its own - which is why this batch comes first and why it
+could be verified here rather than only on deploy. No executor, no
+registration, no XML yet.
 
-Declared relationships are now remembered. Declaring a set of them is real
-work, and on a workspace that is re-opened every day it is the same work every
-day, so they are kept in the browser under op-viewer-links-v1 and restored
-when the same files are added again.
+ElarConfig loads the properties and resolves every key through one path that
+prepends the family prefix. A familyType matching nothing is caught at load
+and answered with the families the file does contain, replacing the production
+NPE that came from copying a .bat between feeds and leaving one argument
+unchanged - the old failure said nothing about which key or which file. A
+missing required key, and a value that should be a number and is not, name the
+key, the file and the value. The three keys the legacy tool read without a
+prefix still work bare, with a prefixed form taking precedence.
 
-What is stored is only the declaration: file names, entity-list paths and
-field names. Never a value, never a row, never a parsed document. In a Legal
-Archive context that distinction is the whole point, so it is asserted rather
-than assumed - the test checks that no identifier from the data appears
-anywhere in what was written.
+docIdTag performs the translation the legacy Validator never did.
+doc_id_reference holds a CSV column name while the duplicate checks are keyed
+by ELAR tag name, so the reference lookup returned null for every document and
+the check threw on the first row of any file - it could never have passed. The
+asymmetry is real in the properties file, since not_duplicated_tags_list is
+already expressed in tag names, so it is handled explicitly rather than
+normalised away, and a doc-id column with no mapping is refused naming the key
+that is missing. contentTag and dsakTag are configurable per family, because
+every family has its own template with its own tags, and default to this
+family's names so an existing properties file needs no edit.
 
-Files are matched by name, because an id only means something inside one
-session. A renamed file is therefore a forgotten file, which is deliberate:
-matching on anything looser would restore a declaration onto a file that might
-not be the same one. A saved relationship whose two files are not both open
-simply waits, and comes back when the second one arrives. One whose entity
-list or field no longer exists is reported and skipped rather than silently
-ignored - a file that changed shape under a saved declaration is exactly the
-thing an operator wants to hear about, and silently skipping it looks
-identical to the cache having been forgotten. It stays remembered in case an
-older version of the file comes back. Closing a file drops the live
-relationship but keeps the saved one, since the file will very likely be
-opened again tomorrow. Forget saved relationships clears the lot. Storage
-being blocked, as in a private window, must not break the page, and that is
-asserted too.
+FlatCsvReader reads with one explicit charset and REPORT by default, against
+the legacy pipeline which read the same data through three different decoders
+- hardcoded UTF-8 in one half, platform default in the other two. It splits
+with a limit of -1 so trailing empty fields survive, where the legacy split
+dropped them and a row ending in empty columns then looked like a field-count
+mismatch. Quoting is optional and disabled by default, keeping the parse
+identical to legacy. A BOM is stripped from the header rather than becoming
+part of the first column name. A decoder failure is rewritten to name the
+file, the line, the approximate byte offset and both ways out; the offset is
+stated as approximate because the reader buffers ahead, which is better than
+printing a precise-looking number that can be wrong by up to 64 KB.
 
-The second change is groundwork rather than a feature. The link layer no
-longer knows what a file is: it asks the file, through three methods - the
-entity lists it offers, a way to iterate one field, and a way to turn a
-reference into an entity. The index stores those references rather than
-materialised entities, which is what will let a CSV of a hundred thousand rows
-be indexed as an array of integers instead of a hundred thousand objects. The
-JSON page now supplies that adapter, so when the CSV page arrives there is one
-implementation of relationships, indexes and the diagram rather than two
-copies drifting apart.
+ElarPreScan is the blocking scan: every input file checked before a single
+byte of output exists, for field-count mismatches and for referenced content
+files that do not exist. It reports every offending line across every file in
+one message, capped at fifty listed per category with the full count kept, and
+it never prints a row's content - only file names, line numbers and the
+missing document's name, which is a document identifier rather than a customer
+one and without which the operator cannot act. A malformed row is not then
+also counted as a missing file, because its content path cannot be trusted
+either. It reuses FlatCsvReader rather than reimplementing the parse, which is
+what makes "a file that passes the scan cannot fail the read" true by
+construction instead of by intention. resolveContentFile re-roots on the file
+name only, as the legacy updateFilePath did, which also means a value carrying
+a directory traversal cannot escape documentPath.
 
-Verified with 24 new assertions driving the page through simulated reloads
-with a shared storage: two relationships declared in one session, both written
-keyed by file name and containing none of the data; a second session restoring
-the self-link on its own and the cross-file one only when its second file
-arrives, after which the cells are clickable again; a file whose shape changed
-being reported and skipped while the declaration stays on disk; a renamed file
-restoring nothing; closing and reopening a file restoring it again; Forget
-clearing storage; and the page still booting with localStorage throwing on
-access. The three earlier suites were re-run against the refactored core and
-pass unchanged.
+Verified with 62 assertions compiled with -source 8 and run: the production
+NPE and the message that replaces it; both unprefixed-key paths and their
+precedence; the doc-id translation and its failure; an accented byte decoding
+correctly under windows-1252; an invalid byte failing with an actionable
+message and the REPLACE escape letting it through; trailing empty fields,
+shown beside what the legacy split would have returned for the same line; the
+BOM; the same line parsed with quoting on and off; and the pre-scan over
+several files including the capped listing, the empty-content-value case, the
+malformed-row-not-double-counted rule and the traversal. The codebase rule
+scans run clean on the new package: no family literal, no charset-less
+getBytes, no FileWriter or FileReader, no platform-default OutputStreamWriter,
+no ofPattern containing DD.
 
-One defect worth recording. A duplicate cache implementation nearly shipped:
-page.js already had one and a second was injected into the same scope.
-JavaScript allows duplicate function declarations and the last one wins, so
-nothing failed - node --check passed and all three suites passed. A duplicate
-top-level function scan is now part of the checks for these single-file pages,
-since assembling a page from parts makes exactly this mistake easy and
-invisible.
+One note on those scans. The naive version flagged CLICT and FileReader, both
+inside javadoc explaining the legacy defects. The scan now strips comments
+before matching, which is worth carrying over to the other build checks - a
+rule that fires on its own documentation trains people to ignore it.
 
-NOT verified: the cache in a real browser, where localStorage is per-origin
-and a file:// page has its own rules. Declare a relationship, reload the page,
-add the same file and it should come back.
-
-The CSV viewer is the next batch on its own. It has to go INTO the existing
-csv-viewer.html, which carries a virtual-scrolling grid, column filters,
-aggregation and displayschema handling, and retrofitting tabs and
-relationships around that without breaking it is a job worth its own patch
-rather than a hurried addition to this one.
+NOT verified: mvn clean package, and any of this against the real G: data. The
+pre-scan is the piece to try first on a real input directory, since it writes
+nothing and its whole purpose is to answer whether the blocking question of
+section 3.1 is settled in practice.
