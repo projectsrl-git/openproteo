@@ -1670,3 +1670,25 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   batches' `-source 8 -target 8` because it also checks the API surface. * **The container reset
   mid-turn** and took the working clone with it; recovery was to re-clone and re-apply from the
   delivered zip. Keep sources outside the clone while working, or deliver more often.
+  `Transformer`/`DOMSource`. * **The sandbox had no JDK this session** (JRE only): installed
+  `openjdk-21-jdk-headless` and compiled with `--release 8`, which is stronger than the earlier
+  batches' `-source 8 -target 8` because it also checks the API surface. * **The container reset
+  mid-turn** and took the working clone with it; recovery was to re-clone and re-apply from the
+  delivered zip. Keep sources outside the clone while working, or deliver more often.
+
+## elarxml — Batch 3 delivered (streaming Base64 + SHA-256, skip accounting)
+* `ContentEmbedder`: digest pass then encode pass, neither holding the file. Chunks are a whole
+  number of 3-BYTE groups so every full chunk is complete quads with no padding and no carried state;
+  padding lands once, on the final partial group. Digest over RAW bytes — asserted to DIFFER from the
+  digest of the Base64 text, which is the dead-code convention. `fill()` loops on the returned count:
+  the prototype's single unchecked `read` left the tail as zeros and encoded them silently.
+  * **The change-between-passes guard fails the BATCH** (§4.1), detected DURING the encode pass by
+  byte count rather than after it, because by then the hash and most of the payload are already in the
+  stream and cannot be retracted. Both directions tested — a file that grew and one that shrank.
+  * `encodedLength` = `ceil(bytes/3)*4`, verified EXACT against the real encoder at nine sizes, not
+  approximate; batch 4's byte budget depends on that. * `ElarCounters` states skip counts EVEN WHEN
+  ZERO — a line that only appears on failure trains people not to look for it. * 28 assertions,
+  `--release 8`, including all twelve size classes across the chunk boundary and both padding cases.
+  * **`ByteArrayOutputStream` is now zero occurrences in the package**: the buffer that held each whole
+  file before encoding is gone by construction. Added to the rule scan alongside `StringWriter` and
+  `Transformer`/`DOMSource`.

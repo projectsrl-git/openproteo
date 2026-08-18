@@ -1,75 +1,74 @@
-elarxml batch 2: streaming writer, template model, atomic output
+elarxml batch 3: streaming Base64 and SHA-256, skip accounting
 
-The writer, and with it the decision that shapes the rest of the executor.
+The content embedding, and the last of the three accumulations that caused the
+OutOfMemoryError.
 
-WrappingXmlOut owns where a line may break, and it is driven by the emitter
-rather than by a stream underneath it. A Writer that counts characters and
-inserts a break every N cannot know whether it is inside markup or inside a
-text node, which is the legacy defect restated rather than fixed: IndxBuilder
-serialized the document to a String and chopped it at blind offsets. That
-survived for a reason worth recording in the code, and it is: at twenty-five
-thousand characters a line and payloads of megabytes, essentially every break
-landed inside the Base64 of the content tag, where whitespace is ignored by
-any decoder. A metadata value straddling a boundary would have been silently
-corrupted and nothing downstream would have flagged it.
+ContentEmbedder performs the two passes the template forces: the hash element
+precedes the content element, so the digest has to be known before the payload
+is written. That is the same number of reads the legacy tool already
+performed, since it read the file once for readFileBytes and again for
+FileHashSHA256. What changes is that neither pass holds the file. The digest
+streams through MessageDigest in blocks, and the Base64 streams straight to
+the writer in chunks that are a whole number of three-byte groups, so every
+full chunk yields complete quads with no padding and no state carried between
+chunks - padding appears exactly once, on the final partial group, which is
+where Base64 puts it.
 
-So the rule is positional. Between elements and between attributes a break is
-always legal; inside a Base64 payload it is legal at any multiple of four;
-inside any other text node it is never legal, and a value that cannot fit a
-line of its own fails naming the tag rather than being split or letting the
-line over-run. The XML declaration is generated from the output charset and
-never copied from the template, which is what actually closes the defect where
-delivered files declare ISO-8859-1 while being written with the platform
-default. A value that cannot be represented in the output charset fails naming
-the tag and the code point, checked per value with canEncode so that the
-message can name the tag, with REPORT on the writer itself as the backstop.
+The digest is over the raw file bytes. That is the only convention ever
+executed: IndxBuilder.computeSHA256 over the Base64 text exists but is never
+called, and every INDX ELAR has accepted carries the raw-bytes digest. The
+test asserts not only that our digest matches a one-shot digest of the same
+bytes but that it differs from the digest of the Base64 text, so the two
+conventions cannot be confused later.
 
-IndxTemplate discovers the model instead of assuming it, since every family
-has its own template with its own tags and only one has been read. The
-container is found by namespace and local name, both from the properties; it
-must hold exactly one element child, which becomes the per-document block
-whatever it is called; everything before and after is emitted verbatim. Any
-other shape fails at parse naming what was looked for and what was found,
-before any output exists. Because the block is walked as parsed, a family's
-constants survive on their own and a row value overrides them where one
-exists. unknownMappedTags reports a mapping that names a tag the template does
-not contain, which would otherwise be a silent no-op.
+fill() loops on the count returned by read. That is the defect the prototype
+encoder in the legacy estate had: it allocated a buffer the size of the whole
+file, called read once, and discarded the returned count, so any short read
+left the tail as zeros and Base64-encoded them with no error. Looping is the
+fix, and it also guarantees every full buffer is a whole number of three-byte
+groups.
 
-AtomicOutput writes to a .part file in the same directory, so the rename stays
-on one volume and is atomic, and renames only after a clean close. An existing
-final name is refused unless overwriteExisting is set. close aborts unless
-commit succeeded, so every failure path leaves no deliverable - the legacy OOM
-left a 0 KB INDX beside three complete files, indistinguishable to anything
-downstream from a success.
+The guard for a content file changing between the two passes fails the batch
+rather than the document, as decided in section 4.1 of the spec. Size and
+modification time are captured before the digest, and the encoded byte count
+is compared against them during the encode pass so the failure is immediate
+rather than at the end. By that point the hash and most of the payload are
+already in the output stream and cannot be retracted, so the only outcome
+consistent with temp-then-rename is to discard the whole batch, and the
+message says so. Both directions are tested: a file that grew and a file that
+shrank.
 
-Verified with 46 assertions compiled with --release 8. The load-bearing ones
-concern the wrapping: no line exceeds the maximum, every full payload line is
-a whole number of quads, no line ends inside a tag, and the payload is
-byte-identical to what was written once the breaks are stripped. Then the
-declaration following the charset parameter rather than the template;
-constants surviving while a row value overrides, BU included since it is both;
-escaping in text and in attributes; the over-long value refused by name; the
-euro sign refused in ISO-8859-1 and accepted under the documented windows-1252
-escape hatch; three malformed templates refused with actionable messages; a
-family with entirely different tag names working unchanged; and the atomic
-file including that an aborted batch leaves neither a deliverable nor a temp.
-End to end the produced file is re-read with its declared charset and the
-accented byte on disk is 0xE9, so the declaration is proven against the bytes
-rather than asserted.
+encodedLength gives the Base64 length a file of a given size will produce,
+which is what batch 4's byte budget will compare against the remaining space.
+It is verified exact against the real encoder at nine sizes rather than
+assumed approximate, because a budget built on an estimate that drifts would
+roll over in the wrong place.
 
-The rule scans now also assert the absence of StringWriter,
-ByteArrayOutputStream and Transformer or DOMSource. Those are the three
-vehicles of the legacy OutOfMemoryError, and they are gone by construction
-rather than by discipline.
+ElarCounters counts skipped documents by category and reports them. The legacy
+tool printed "Skipping doc: file not found" to stdout with no counter and no
+aggregate, so a batch that had silently dropped half its documents looked
+exactly like a successful one and the only way to find out was to count blocks
+in the delivered XML by hand. The summary states the skip counts even when
+they are zero, because a line that only appears when something went wrong
+trains people not to look for it.
 
-Two notes on the environment. The sandbox had no JDK this session, only a JRE,
-so one was installed and everything was compiled with --release 8 - stronger
-than the earlier batches' -source 8 -target 8, because it also checks the API
-surface rather than only the language level. And the container reset mid-turn,
-taking the working clone with it; recovery was to re-clone and re-apply from
-the zip already delivered, which is an argument for delivering often.
+Verified with 28 assertions compiled with --release 8 and run: the digest
+against a one-shot digest and against the Base64-text convention, the known
+SHA-256 of an empty file, the streamed payload identical to a one-shot encode,
+all twelve size classes across the chunk boundary and both padding cases, the
+wrapper still holding on a 70 KB file at a 100-character limit with nothing
+over the limit and every payload line a whole number of quads and the payload
+byte-identical once the breaks are stripped, both change-between-passes
+directions, the size estimate at nine sizes, and the counters including that
+the summary is counters only and can leak no record. The batch 1 and batch 2
+suites were re-run and pass.
 
-NOT verified: mvn clean package, and anything against a real template on G:.
-The template model is the piece to try first, since it fails at parse and
-needs no data - point it at one other family's INDX template and it will
-either load or say precisely why not.
+ByteArrayOutputStream now appears zero times in the package. The buffer that
+held each whole file before encoding is gone by construction rather than by
+discipline, and the scan for it joins the ones for StringWriter and
+Transformer.
+
+NOT verified: mvn clean package, and any of this against a real content file
+on G:. The digest is the piece to check first, since it can be compared
+against a delivered INDX: take any document from one, and the HashValue should
+match the SHA-256 of the source file's raw bytes.

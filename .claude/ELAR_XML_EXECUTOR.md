@@ -548,8 +548,40 @@ so it compiles and runs on its own:
   An existing final name is refused unless `overwriteExisting`; `close()` aborts unless `commit()`
   succeeded, so every failure path leaves no deliverable.
 
-Not yet present, deliberately: Base64 and SHA-256 (batch 3), batching and filenames (batch 4),
-validation (batch 5), registration (batch 6).
+### Batch 3 — DELIVERED
+
+- **`ContentEmbedder`** — the two passes. `sha256Hex` streams the file through `MessageDigest` in
+  blocks; `encodeBase64` streams Base64 straight to the writer in chunks that are a whole number of
+  3-byte groups, so every full chunk yields complete quads with no padding and no state carried
+  between chunks — padding appears once, on the final partial group, which is where Base64 puts it.
+  Neither pass holds the file. The digest is over the **raw bytes**, the only convention ever
+  executed. `fill()` loops on the returned count, which is the defect the prototype encoder had:
+  a single unchecked `read` left the tail as zeros and Base64-encoded them silently.
+- **The change-between-passes guard**, per §4.1: size and modification time are captured before the
+  digest, the encoded byte count is compared against them **during** the pass so the failure is
+  immediate, and a `ContentChangedException` tells the caller to discard the whole batch — by then
+  the hash and most of the payload are already in the stream and cannot be retracted.
+- **`encodedLength`** — `ceil(bytes/3)*4`, the estimate batch 4's byte budget will use.
+- **`ElarCounters`** — skips counted by category and reported. The legacy tool printed
+  `Skipping doc: file not found` to stdout with no counter, so a batch that had silently dropped half
+  its documents looked exactly like a successful one. The summary states the skip counts **even when
+  zero**: a line that only appears when something went wrong trains people not to look for it.
+
+**Verified** by 28 assertions compiled with `--release 8`: the digest matching a one-shot digest of
+the same bytes and **differing from the digest of the Base64 text**, the dead-code convention; the
+known SHA-256 of an empty file; the streamed payload identical to a one-shot encode; **all twelve size
+classes across the chunk boundary and both padding cases**; the wrapper still holding on a 70 KB file
+with a 100-character limit — nothing over the limit, every payload line whole quads, payload
+byte-identical once breaks are stripped; a file that grew and one that shrank between the passes both
+caught, with the message naming the file and saying nothing is left deliverable; the size estimate
+**exact** against the real encoder at nine sizes rather than approximate; and the counters, including
+that the summary is counters only and can leak no record.
+
+Rule scans clean, and `ByteArrayOutputStream` now appears **zero** times in the package — the buffer
+that held each whole file before encoding is gone, not merely avoided.
+
+Not yet present, deliberately: batching and filenames (batch 4), validation (batch 5),
+registration (batch 6).
 
 **Verified** by 46 assertions compiled with `--release 8`: the declaration following the charset
 parameter rather than the template; template constants surviving while a row value overrides, `BU`
