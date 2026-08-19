@@ -1,48 +1,45 @@
-Deploy: check the patch's declared base against HEAD before applying
+elarxml: the hash tag was hardcoded, and one figure is a guess
 
-The naming convention landed in the previous commit; this makes the check
-automatic instead of depending on someone remembering to look.
+Two follow-ups on the finished executor, both found by reviewing it rather
+than by anything failing.
 
-tools/deploy_patch_base_check.bat is the block to paste into
-deploy_openproteo_patch.bat, which lives outside the repo, after the patch has
-been extracted and before git apply --check runs. It reads the repository's
-HEAD, reads the suffix the patch filename declares, and compares them.
+ElarRun carried a constant naming the digest element, while the content and
+DSAK tags were already read from the properties file. That broke the rule this
+spec itself sets out - no family's tag name anywhere in the code - and it had
+a concrete consequence: for any family whose template calls that element
+something else, the digest would have been written nowhere at all, silently,
+since the run would simply have found no tag by that name. Every family except
+the one whose template has been read is in that position.
 
-There are three outcomes rather than two, and the third is the one worth
-designing. A base equal to HEAD passes in silence. A base that differs stops
-the run and distinguishes the two possible causes, because the remedy is
-opposite: either the repository is behind and needs a pull, or the patch was
-generated on a superseded base and needs regenerating. And a name with no base
-at all warns and proceeds, because every zip delivered before today lacks the
-suffix and refusing them would turn a safety net into an obstacle. The test
-for whether a suffix is a commit is strict: seven hexadecimal characters after
-the last dash, or it is not a hash.
+output.hash_tag now sits beside output.content_tag and output.dsak_tag,
+defaulting to this family's name so no existing properties file needs editing.
+No ELAR literal remains anywhere in ElarRun, and the rule scan asserts it.
 
-One known limit is recorded rather than hidden. Seven decimal digits are valid
-hexadecimal, so a name like something-1234567 would be read as a base and
-would block. That is a false positive which stops rather than lets through,
-and the message says what to do; the alternative of requiring at least one
-letter would let genuinely all-numeric short hashes slip past unchecked, and
-those are just as possible. On a script that writes into the repository,
-stopping too often is the better error.
+It is verified by running the whole executor for a family that shares no tag
+name with this one - the block, the id, the constant, the digest, the kind and
+the body all called something different. The digest lands in that family's own
+hash tag and equals the SHA-256 of the source file's raw bytes, the extension
+lands in its own kind tag, the payload decodes back to the file byte for byte,
+the family's own constant survives from the template, and the word ELAR
+appears nowhere in the output.
 
-The block contains no labels and no goto, deliberately. The repository stores
-every file with LF endings and cmd.exe reads a .bat by byte offset, so a goto
-in an LF-only file can land in the wrong place; the other .bat files here are
-LF and work because they never jump. The first draft of this block used four
-labels and two goto loops, to take the last segment of the name and to count
-its characters. Both are gone: the last segment falls out of replacing every
-dash with a space and letting a for loop assign each token in turn, so the
-last assignment wins, and "exactly seven characters" is expressed as ~6,1 not
-empty and ~7 empty. The file now contains the word goto only inside a comment
-explaining why it does not use one.
+The second follow-up is a disclosure rather than a change.
+PER_DOCUMENT_OVERHEAD, the allowance for tags and line separators on top of
+the Base64, is the one figure in this executor that is chosen rather than
+derived from something. It is unused entirely under the default batching rule,
+and under the byte budget it only shifts the rollover point by a couple of
+kilobytes per document, so it cannot corrupt anything - but it is a guess and
+the code now says so. estimateDrifted already compares it against the bytes
+actually written for every document and logs when the two come apart, so a
+wrong figure reports itself on the first real run. Correct it from that log
+rather than from another guess.
 
-NOT verified, and this is the honest limit: the .bat was not executed, because
-the sandbox has no cmd.exe. What was verified is the decision it encodes - the
-same suffix extraction, the same hexadecimal test and the same three outcomes
-were simulated over eleven cases, including the one that actually happened
-here, elarxml-batch6-7-0f712c8 against a HEAD of 4bce645, which blocks; and
-the unsuffixed names of every earlier delivery, which warn rather than block.
-That proves the rule and not the batch syntax. The syntax gets its first real
-test the next time a zip is deployed, which is why the block prints what it is
-comparing before it decides.
+The lesson worth recording is that a rule written into a spec does not enforce
+itself. The scan for family literals covered this package from the start, but
+I had put the tag name in a named constant rather than in a comparison, so it
+read as ordinary code and the scan had nothing to object to. Scans catch
+shapes, not intentions.
+
+NOT verified: mvn clean package, and any of this against real data. This
+change touches only the elar package, which compiles and runs here; the eight
+suites pass, including the new one.

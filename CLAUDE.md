@@ -1801,3 +1801,20 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   comparator reporting equivalence because it is looking at nothing is the worst failure this tool
   could have. * 24 assertions; all seven suites green. * **Remaining gate: `mvn clean package`**, which
   the sandbox cannot run, plus a first real comparison.
+
+## elarxml follow-up: the hash tag was hardcoded (my defect, found on review)
+* `ElarRun` held `static String HASH_TAG = "ELAR:HashValue"` while content and dsak tags were already
+  configurable. It broke this spec's OWN rule — no family tag name in the code — and would have
+  written the digest nowhere for any family whose template names that element differently, i.e. every
+  family whose template has not been read. `output.hash_tag` now sits beside `output.content_tag` and
+  `output.dsak_tag`, same default so no properties file needs editing. **No `ELAR:` literal remains in
+  `ElarRun`** and the scan asserts it. * Verified by running the WHOLE executor for a family sharing
+  **no tag name** with this one: digest in its own hash tag and equal to the source's raw-bytes SHA-256,
+  extension in its own kind tag, payload decoding back to the file, its constant surviving, and the
+  word `ELAR` absent from the output. * `PER_DOCUMENT_OVERHEAD = 2048` is now documented as **the one
+  figure in this executor that is chosen rather than derived**. Unused under the default
+  `batchBy=DOCUMENTS`; under `BYTES` it only shifts the rollover by a couple of KB per document, and
+  `estimateDrifted` logs when estimate and reality part company — correct it from that log, not from
+  another guess. * Lesson: a rule written into a spec is not self-enforcing. The scan for family
+  literals covered the `elar` package but I had used a constant, not a literal in a comparison, so it
+  read as legitimate code. Scans catch shapes, not intentions.

@@ -554,6 +554,8 @@ The rest are optional and default to what the legacy tool did, with the three de
 - `overwriteExisting` - `false` by default; a final output name that already exists fails the run rather than being replaced.
 - `descriptorsElement` - default `DocumentDescriptors`, the element in the INDX template that holds the per-document blocks.
 
+Three tags are referred to by name and all three come from the properties file, because every family has its own template with its own tags: `output.content_tag` (default `ELAR:Content`), `output.dsak_tag` (default `ELAR:DSAK`) and `output.hash_tag` (default `ELAR:HashValue`). The defaults are what this family's template happens to use, so an existing properties file needs no edit; a family whose template calls them anything else sets all three and nothing in the code changes.
+
 Batching keys that already live in the properties file are read from there and are not step parameters: `max_index_docs`, `files_per_julian_date`, `julian_date_start`, `start_time`, `index_name_pattern` and `pull_name_pattern`. The byte budget is the exception because it is new and has no properties-file equivalent.
 
 ### The pre-scan, and why the step may refuse to start

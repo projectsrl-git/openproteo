@@ -54,7 +54,17 @@ public final class ElarRun {
 
     private ElarRun() { }
 
-    /** Overhead per document beyond the Base64 itself: tags, attributes and line separators. */
+    /**
+     * Overhead per document beyond the Base64 itself: tags, attributes and line separators.
+     *
+     * This figure is <b>chosen, not measured</b>. It only shifts where the byte budget rolls over by a
+     * couple of kilobytes per document, and it is unused entirely under the default
+     * {@code batchBy=DOCUMENTS}, so it cannot corrupt anything - but it is the one number in this
+     * executor that is not derived from something. {@link BatchPolicy#estimateDrifted} exists to catch
+     * it: it compares the estimate against the bytes actually written for every document and logs when
+     * the two come apart, so a wrong figure reports itself on the first real run rather than silently
+     * batching at the wrong point. Correct it from that log rather than from another guess.
+     */
     static final long PER_DOCUMENT_OVERHEAD = 2048;
 
     /**
@@ -68,6 +78,7 @@ public final class ElarRun {
         Map<String, String> mapping = cfg.tagNameMapping();
         String contentTag = cfg.contentTag();
         String dsakTag = cfg.dsakTag();
+        String hashTag = cfg.hashTag();
         String docIdTag = cfg.docIdTag(mapping);
         File docDir = new File(cfg.documentPath());
 
@@ -166,7 +177,7 @@ public final class ElarRun {
                         }
                         if (batch == null) batch = Batch.open(naming, o, indx, log);
 
-                        long actual = batch.writeDocument(indx, tags, content, contentTag, dsakTag);
+                        long actual = batch.writeDocument(indx, tags, content, contentTag, dsakTag, hashTag);
                         counters.wrote(tags.size(), actual);
                         policy.appended(estimate);
                         if (BatchPolicy.estimateDrifted(estimate, actual + PER_DOCUMENT_OVERHEAD)) {
@@ -254,25 +265,24 @@ public final class ElarRun {
         }
 
         long writeDocument(IndxTemplate indx, Map<String, String> tags, File content,
-                           String contentTag, String dsakTag) throws Exception {
+                           String contentTag, String dsakTag, String hashTag) throws Exception {
             if (!prologueWritten) { indx.writePrologue(xml); prologueWritten = true; }
             long[] bytes = new long[1];
-            indx.writeDocument(xml, source(tags, content, contentTag, dsakTag, bytes));
+            indx.writeDocument(xml, source(tags, content, contentTag, dsakTag, hashTag, bytes));
             docs++;
             return bytes[0];
         }
 
         private IndxTemplate.DocSource source(final Map<String, String> tags, final File content,
                                               final String contentTag, final String dsakTag,
-                                              final long[] bytesOut) throws Exception {
+                                              final String hashTag, final long[] bytesOut) throws Exception {
             final String hash = ContentEmbedder.sha256Hex(content);
             final ContentEmbedder.Stamp stamp = ContentEmbedder.stamp(content);
             final Map<String, String> values = new LinkedHashMap<String, String>(tags);
             values.put(dsakTag, extensionUpper(content.getName()));
-            final String hashTag = hashTagOf(values);
             return new IndxTemplate.DocSource() {
                 public String value(String qname) {
-                    if (hashTag != null && hashTag.equals(qname)) return hash;
+                    if (hashTag.equals(qname)) return hash;
                     return values.containsKey(qname) ? values.get(qname) : null;
                 }
                 public boolean isContentTag(String qname) { return contentTag.equals(qname); }
@@ -281,9 +291,6 @@ public final class ElarRun {
                 }
             };
         }
-
-        /** The hash tag is whatever the template calls it; only its position is fixed by the template. */
-        private String hashTagOf(Map<String, String> values) { return HASH_TAG; }
 
         void close(IndxTemplate indx, PullTemplate pull, ElarCounters counters,
                    List<String> written, Consumer<String> log) throws Exception {
@@ -311,9 +318,6 @@ public final class ElarRun {
             indexOut.abort();
         }
     }
-
-    /** The tag carrying the digest. Configurable for the same reason the content tag is. */
-    static String HASH_TAG = "ELAR:HashValue";
 
     static String extensionUpper(String fileName) {
         int dot = fileName.lastIndexOf('.');

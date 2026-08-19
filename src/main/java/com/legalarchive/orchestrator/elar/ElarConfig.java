@@ -205,6 +205,7 @@ public final class ElarConfig {
      */
     public String contentTag() { return opt("output.content_tag", "ELAR:Content"); }
     public String dsakTag() { return opt("output.dsak_tag", "ELAR:DSAK"); }
+    public String hashTag() { return opt("output.hash_tag", "ELAR:HashValue"); }
 
     static String trimToNull(String s) {
         if (s == null) return null;

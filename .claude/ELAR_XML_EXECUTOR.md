@@ -727,6 +727,30 @@ at the container. A comparator that reports equivalence because it is looking at
 possible failure for this particular tool, and it took writing the "both sides share a mistake" case
 to find it.
 
+### Follow-up: the hash tag was hardcoded
+
+Found while reviewing the finished executor rather than reported. `ElarRun` carried
+`static String HASH_TAG = "ELAR:HashValue"` while the content and DSAK tags were already read from
+the properties file. It contradicted this spec's own rule — no family's tag name in the code — and it
+would have silently written the digest nowhere for any family whose template names that element
+differently, which is every family whose template has not been read.
+
+`output.hash_tag` now sits beside `output.content_tag` and `output.dsak_tag`, defaulting to this
+family's name so no existing properties file needs editing. **No `ELAR:` literal remains anywhere in
+`ElarRun`.**
+
+Verified by a new suite that runs the whole executor for a family whose template shares **no tag name
+with this one** — block, id, constant, digest, kind and body all differently named. The digest lands in
+that family's own hash tag and equals the source file's raw-bytes SHA-256, the extension lands in its
+own kind tag, the payload decodes back to the file, its constant survives, and the word `ELAR` appears
+nowhere in the output.
+
+`PER_DOCUMENT_OVERHEAD` is now documented as what it is: **the one figure in this executor that is
+chosen rather than derived.** It is unused under the default `batchBy=DOCUMENTS`, and under `BYTES` it
+only shifts the rollover point by a couple of kilobytes per document. `estimateDrifted` compares it
+against the bytes actually written for every document and logs when they come apart, so a wrong figure
+reports itself on the first real run — correct it from that log rather than from another guess.
+
 ### The seven batches
 
 Spec and answers, flat CSV reader and pre-scan, streaming writer and template model, streaming Base64
