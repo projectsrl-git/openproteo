@@ -1049,16 +1049,32 @@
     return a.cn === b.cn && a.cp === b.cp && a.cq === b.cq && a.pn === b.pn && a.pp === b.pp && a.pq === b.pq;
   }
   /** Called whenever the link list changes. */
+  /**
+   * Save what is declared now, without forgetting what belongs to files that are not open.
+   *
+   * The first version only ADDED, so removing a relationship left it on disk and it came back on the
+   * next load - the only way to be rid of it was Forget, which cleared everything. Removing something
+   * and having it return is the kind of defect that teaches people not to trust the feature.
+   *
+   * The rule that fixes it without over-reaching: a saved relationship whose two files are BOTH open
+   * is fully described by what is declared right now, so it is replaced. One that names a file which
+   * is not open is left alone, because it is waiting for that file rather than having been removed.
+   */
   function linksPersist() {
-    var keep = linksLoadAll().slice(), added = 0;
-    for (var i = 0; i < WS.links.length; i++) {
-      var sig = linkSig(WS.links[i]);
+    var prev = linksLoadAll(), keep = [];
+    for (var i = 0; i < prev.length; i++) {
+      var s = prev[i];
+      var bothOpen = fileByName(s.cn) && fileByName(s.pn);
+      if (!bothOpen) keep.push(s);          // waiting for its other file: not ours to drop
+    }
+    for (var k = 0; k < WS.links.length; k++) {
+      var sig = linkSig(WS.links[k]);
       if (!sig) continue;
       var dup = false;
       for (var j = 0; j < keep.length; j++) if (sameSig(keep[j], sig)) { dup = true; break; }
-      if (!dup) { keep.push(sig); added++; }
+      if (!dup) keep.push(sig);
     }
-    if (added) linksSaveAll(keep);
+    linksSaveAll(keep);
   }
   function linkExists(sig) {
     for (var i = 0; i < WS.links.length; i++) {
@@ -1409,6 +1425,9 @@
         x.title = 'remove this relationship';
         x.onclick = function () {
           WS.links = WS.links.filter(function (o) { return o.id !== l.id; });
+          // persist AFTER removing: without this the relationship stays on disk and comes back on
+          // the next load, so removing it appears to work and then quietly does not
+          linksPersist();
           renderLinkList();
           if (WS.files[WS.active]) showFile(WS.files[WS.active]);
         };

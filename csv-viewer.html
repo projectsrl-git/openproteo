@@ -77,6 +77,61 @@
   .agg-table{margin-top:8px}
   .agg-table .gcell.num{text-align:right}.agg-table .head{background:var(--panel);font-weight:600}
   .agg-table .total{background:rgba(245,166,35,.08);font-weight:600}
+/* ---- workspace chrome ---- */
+  .tabs2{display:flex;gap:4px;flex-wrap:wrap;margin:10px 0 0}
+  .ftab{display:flex;align-items:center;gap:6px;background:var(--raise);border:1px solid var(--line);
+        border-bottom-color:transparent;border-radius:5px 5px 0 0;padding:5px 10px;font-size:12px;cursor:pointer}
+  .ftab.active{background:#31435f;color:#fff;border-color:var(--line)}
+  :root[data-theme="light"] .ftab.active{background:#bcd3ec;color:#16283c}
+  .ftab .x{color:var(--faint);font-weight:700;padding:0 2px}
+  .ftab .x:hover{color:#f85149}
+  .ftab .sz{color:var(--faint);font-size:10.5px}
+  .cap{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 0;font-size:11.5px;color:var(--dim)}
+  .capbar{width:220px;height:7px;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:var(--bg)}
+  .capbar > i{display:block;height:100%;background:var(--accent)}
+  .panel{border:1px solid var(--accent);border-radius:6px;background:var(--raise);padding:12px 14px;margin:10px 0}
+  .panel h3{margin:0 0 8px;font-size:13px;color:var(--accent)}
+  .prow{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin:6px 0}
+  .prow label{display:block;font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px}
+  select,input[type=number]{background:var(--raise);color:var(--ink);border:1px solid var(--line);
+        border-radius:5px;padding:5px 8px;font-size:12px;font-family:inherit}
+  .lnk{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;
+       border:1px solid var(--line);border-radius:5px;padding:4px 8px;margin:4px 0;background:var(--bg)}
+  .lnk .x{color:var(--faint);cursor:pointer;font-weight:700}
+  .lnk .x:hover{color:#f85149}
+  a.xt-link{color:var(--accent);text-decoration:underline;text-decoration-style:dotted;cursor:pointer}
+  a.xt-link:hover{text-decoration-style:solid}
+  /* ---- diagram ---- */
+  .dg-svg{width:100%;height:auto;background:var(--bg);border:1px solid var(--line);border-radius:6px}
+  .dg-focus-box{fill:#31435f;stroke:var(--accent);stroke-width:2}
+  :root[data-theme="light"] .dg-focus-box{fill:#bcd3ec}
+  .dg-badge-box{fill:var(--raise);stroke:var(--val);stroke-width:1.5}
+  .dg-badge:hover .dg-badge-box{stroke:var(--accent);stroke-width:2.5}
+  .dg-missing .dg-badge-box{stroke:#f85149;stroke-dasharray:5 3}
+  .dg-kicker{font-size:10px;font-weight:700;letter-spacing:2px;fill:var(--accent)}
+  .dg-kicker-s{font-size:9px;font-weight:700;letter-spacing:1.5px;fill:var(--val)}
+  .dg-missing .dg-kicker-s{fill:#f85149}
+  .dg-title{font-size:17px;font-weight:700;fill:var(--ink)}
+  :root[data-theme="light"] .dg-title{fill:#16283c}
+  .dg-name{font-size:14px;font-weight:700;fill:var(--ink)}
+  .dg-sub{font-size:11px;fill:var(--ink);opacity:.85}
+  :root[data-theme="light"] .dg-sub{fill:#16283c}
+  .dg-sub-s{font-size:10.5px;fill:var(--dim)}
+  .dg-file{font-size:9.5px;fill:var(--faint)}
+  .dg-arrow{stroke:var(--val);stroke-width:2;opacity:.85}
+  .dg-arrow-head{fill:var(--val)}
+  .dg-arrow-missing{stroke:#f85149;stroke-width:2;stroke-dasharray:5 3;opacity:.85}
+  .dg-arrow-missing-head{fill:#f85149}
+
+  /* +/- toggles: a small target is a bad target, and these are the only way to open a node */
+  .xt-tog{display:inline-block;min-width:18px;height:18px;line-height:16px;text-align:center;
+          border:1px solid var(--line);border-radius:3px;background:var(--bg);color:var(--ink);
+          font-family:var(--mono);font-size:14px;font-weight:700;flex:0 0 auto;user-select:none}
+  .xt-head:hover > .xt-tog, .xt-tog-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .xt-tog-btn{cursor:pointer;margin-right:6px}
+  .xt-tbl td.xt-num{padding:2px 6px}
+  .dg-owner{font-size:9.5px;fill:var(--faint)}
+
 </style>
 </head>
 <body>
@@ -107,12 +162,50 @@
       </div>
     </div>
   </div>
+  <div class="cap">
+    <span>Memory budget</span>
+    <span class="capbar"><i id="capFill" style="width:0%"></i></span>
+    <span id="capText">0 of 2,000,000 cells</span>
+    <span>&middot; limit</span>
+    <input type="number" id="capInput" value="2000000" min="10000" step="500000" style="width:120px"
+           title="Cells across all open files. A parsed CSV costs about 52 bytes a cell, roughly 4.6x the file on disk, so the limit is in cells and not in megabytes.">
+    <button id="capApply">set</button>
+  </div>
+
+  <div id="askPanel" class="panel" style="display:none">
+    <h3 id="askTitle">Does this file reference another?</h3>
+    <p class="dim small" id="askHint" style="margin:0 0 8px"></p>
+    <div class="prow">
+      <button id="askNo">No &mdash; just show the data</button>
+      <button id="askYes">Yes &mdash; let me declare it</button>
+    </div>
+  </div>
+
+  <div id="linkPanel" class="panel" style="display:none">
+    <h3>Declare a relationship</h3>
+    <p class="dim small" style="margin:0 0 8px">The <b>CHILD</b> column holds the reference; the <b>PARENT</b> column is the identity it points at, so the parent column is normally <b>unique</b>. Both ends become clickable in the grid.</p>
+    <div class="prow">
+      <div><label>Child file</label><select id="lcFile"></select></div>
+      <div><label>Child column</label><select id="lcField"></select></div>
+      <div style="align-self:center;padding:0 4px;color:var(--accent)">&rarr;</div>
+      <div><label>Parent file</label><select id="lpFile"></select></div>
+      <div><label>Parent column</label><select id="lpField"></select></div>
+      <div><label>&nbsp;</label><button id="swapSides" title="Swap the two sides before adding">&#8646; Swap sides</button></div>
+      <div><label>&nbsp;</label><button id="addLink">Add relationship</button></div>
+      <div><label>&nbsp;</label><button id="closeLinks">Done</button></div>
+    </div>
+    <div id="linkList"></div>
+  </div>
+
+  <div id="tabs2" class="tabs2" style="display:none"></div>
+
   <div id="msg" class="banner info">Load a CSV. Optionally load a <code>displayschema.json</code> for field titles and date formatting (the same schema OpenProteo uses per feed). Dates are formatted only for the rows on screen, so large files stay fast; the raw value is used for filtering and sorting.</div>
   <div id="meta" class="meta"></div>
   <div id="tabs" class="tabs" style="display:none">
     <button class="tab active" data-p="data" onclick="showTab('data')">Data</button>
     <button class="tab" data-p="agg" onclick="showTab('agg')">Aggregate</button>
-  </div>
+  
+    <button class="tab" id="tabLinks">Relationships&hellip;</button></div>
 
   <div id="pane-data" class="pane active">
     <div class="filter-row" id="filterRow" style="display:none">
@@ -128,6 +221,14 @@
     </div>
     <div class="filter-row" id="fchips" style="display:none;gap:6px"></div>
     <div id="viewer"></div>
+    <div id="diagView" style="display:none">
+      <div class="bar">
+        <button id="dgClose">&larr; Back to the data</button>
+        <button id="dgBack" style="display:none">&larr; Previous entity</button>
+        <span id="dgInfo" class="dim small"></span>
+      </div>
+      <div id="diagram"></div>
+    </div>
   </div>
 
   <div id="pane-agg" class="pane">
@@ -180,6 +281,14 @@
   function fmtDate(dt,fmt){if(!dt)return null;var map={yyyy:dt.getUTCFullYear(),yy:pad(dt.getUTCFullYear()%100,2),MM:pad(dt.getUTCMonth()+1,2),M:dt.getUTCMonth()+1,dd:pad(dt.getUTCDate(),2),d:dt.getUTCDate(),HH:pad(dt.getUTCHours(),2),mm:pad(dt.getUTCMinutes(),2),ss:pad(dt.getUTCSeconds(),2)};return fmt.replace(/yyyy|yy|MM|M|dd|d|HH|mm|ss/g,function(tok){return String(map[tok]);});}
   function applyDate(raw,spec){var s=String(raw==null?'':raw).trim();if(!s)return raw;var dt=spec.in?fromPattern(s,spec.in):autoParse(s);if(!dt)return raw;var f=fmtDate(dt,spec.out);return f==null?raw:f;}
   function parseNum(v){if(v==null)return null;var s=String(v).replace(/\s/g,'');if(s==='')return null;if(s.indexOf('.')<0&&s.indexOf(',')>=0)s=s.replace(',','.');var n=parseFloat(s);return isFinite(n)?n:null;}
+
+
+  /* ---- the workspace ----
+     WS itself is declared by the shared core below, so it is NOT re-declared here: two `var WS` in
+     one scope both parse, and the later assignment silently wins. That is how this file first ran
+     with the JSON viewer's record budget instead of its own cell budget. Only the value that
+     differs is set, and it is set after the core has been evaluated. */
+  var CURRENT = null;   // the file whose grid is on screen
 
   // ===== state =====
   var CURRENT_NAME='file.csv',CSV_TEXT=null,SCHEMA_LOADED=false;
@@ -243,12 +352,32 @@
     bodyEl=el('div',null,spacerEl);bodyEl.style.position='absolute';bodyEl.style.left='0';bodyEl.style.top='0';bodyEl.style.width=tw+'px';
     scrollEl.onscroll=drawRows;drawRows();
   }
+  var LINKCOLS={};
   function drawRows(){
+    LINKCOLS=linkedColumns();
     var top=scrollEl.scrollTop,h=scrollEl.clientHeight;
     var first=Math.max(0,Math.floor(top/ROWH)-8),last=Math.min(VIEW.length,Math.ceil((top+h)/ROWH)+8);
     bodyEl.style.transform='translateY('+(first*ROWH)+'px)';var frag=document.createDocumentFragment();var tw=totalW();
     for(var v=first;v<last;v++){var ri=VIEW[v],row=DATA.rows[ri];var rd=el('div','grow'+((v%2)?' odd':''));rd.style.height=ROWH+'px';rd.style.width=tw+'px';
-      for(var c=0;c<DATA.columns.length;c++){var cell=el('div','gcell'+(($('fmtDates').checked&&DATECOL[c])?' date':''),rd);cell.style.width=COLW[c]+'px';cell.textContent=cellDisp(row,c);}
+      for(var c=0;c<DATA.columns.length;c++){
+        var cell=el('div','gcell'+(($('fmtDates').checked&&DATECOL[c])?' date':''),rd);
+        cell.style.width=COLW[c]+'px';
+        var disp=cellDisp(row,c);
+        // a declared column becomes clickable on BOTH sides. The link map is computed once per
+        // draw, not per cell: drawRows runs on every scroll frame over the visible window only,
+        // so anything per-cell here is paid thousands of times a second.
+        if(LINKCOLS[c] && String(cellRaw(row,c)).trim()!==''){
+          var a=el('a','xt-link',cell);
+          a.textContent=disp;
+          a.title=(LINKCOLS[c]==='child')?'Follow to the parent it points at':'Show everything that points at this';
+          a.addEventListener('click',(function(ri,ci){return function(ev){
+            ev.preventDefault(); ev.stopPropagation();
+            openDiagramFor(CURRENT, CSV_ROOT, DATA.columns[ci], cellRaw(DATA.rows[ri],ci));
+          };})(ri,c));
+        } else {
+          cell.textContent=disp;
+        }
+      }
       frag.appendChild(rd);}
     bodyEl.innerHTML='';bodyEl.appendChild(frag);
   }
@@ -373,14 +502,980 @@
       buildAggControls();renderShell();
     }catch(e){showError(e.message);}
   }
+/* ===================== workspace: files, links, diagram (shared) =====================
+     Everything above renders ONE document. This layer holds several of them, the links declared
+     between them, and the focus diagram that makes a link navigable. */
+
+  var WS = {
+    files: [],            // { id, name, bytes, records, data, model, lists, api, host, search, openState }
+    links: [],            // { id, childFile, childPath, childField, parentFile, parentPath, parentField }
+    cap: 400000,          // MODEL RECORDS across all open files - see the note on the cap below
+    active: 0,
+    seq: 1
+  };
+
+  /**
+   * An entity's own path carries the element suffix - a customer inside 'records' has path
+   * 'records[]' - while a link is declared against the LIST, 'records'. One trailing '[]' is stripped
+   * so the two meet. Only one: 'a[][]' is an array of arrays, a different list.
+   */
+  function wsListPath(p) {
+    if (p == null) return '';
+    return (p.length > 2 && p.substring(p.length - 2) === '[]') ? p.substring(0, p.length - 2) : p;
+  }
+
+  /** Rows, distinct values and uniqueness of one side of a candidate link. */
+  function wsFieldStats(fileId, path, field) {
+    var f = wsFileById(fileId), rows = 0, seen = {}, distinct = 0;
+    if (!f) return { rows: 0, distinct: 0, unique: false };
+    f.iterField(path, field, function (v) {
+      if (v === undefined || v === null || String(v).trim() === '') return;
+      rows++;
+      var k = String(v).trim();
+      if (!seen[k]) { seen[k] = 1; distinct++; }
+    });
+    return { rows: rows, distinct: distinct, unique: rows > 0 && distinct === rows };
+  }
+
+  /**
+   * How well a candidate link resolves, in BOTH directions.
+   *
+   * This exists because the resolution rate on its own cannot catch a link declared backwards: on the
+   * reported data the inverted direction resolved 3315 of 5000 and looked perfectly healthy. Two
+   * things do catch it. A PARENT field is an identity, so it should be unique, while a CHILD field is
+   * a reference and usually is not; and the correct direction resolves a higher share. Both are
+   * reported, and when the reverse looks better the page says so instead of leaving the operator to
+   * discover it from a diagram that reads backwards.
+   */
+  function wsLinkStats(l) {
+    var cs = wsFieldStats(l.childFile, l.childPath, l.childField);
+    var ps = wsFieldStats(l.parentFile, l.parentPath, l.parentField);
+    var fwd = 0, ck = Object.keys(l.childIndex || {});
+    for (var i = 0; i < ck.length; i++) if (l.parentIndex[ck[i]]) fwd++;
+    var rev = 0, pk = Object.keys(l.parentIndex || {});
+    for (var j = 0; j < pk.length; j++) if (l.childIndex[pk[j]]) rev++;
+    var fwdRate = ck.length ? (fwd / ck.length) : 0;
+    var revRate = pk.length ? (rev / pk.length) : 0;
+    // "probably swapped" needs BOTH signals to agree, so a legitimately non-unique parent key on its
+    // own does not cry wolf
+    var swapped = (ps.unique === false && cs.unique === true) && (revRate > fwdRate + 0.05);
+    return { child: cs, parent: ps, fwd: fwd, fwdOf: ck.length, rev: rev, revOf: pk.length,
+             fwdRate: fwdRate, revRate: revRate, swapped: swapped };
+  }
+
+  /** Turn a declared link round, in place. */
+  function wsSwapLink(id) {
+    for (var i = 0; i < WS.links.length; i++) {
+      var l = WS.links[i];
+      if (l.id !== id) continue;
+      var cf = l.childFile, cp = l.childPath, cq = l.childField;
+      l.childFile = l.parentFile; l.childPath = l.parentPath; l.childField = l.parentField;
+      l.parentFile = cf; l.parentPath = cp; l.parentField = cq;
+      wsIndexLink(l);
+      return l;
+    }
+    return null;
+  }
+
+  function wsRecordsUsed() {
+    var n = 0;
+    for (var i = 0; i < WS.files.length; i++) n += WS.files[i].records;
+    return n;
+  }
+  function wsFileById(id) {
+    for (var i = 0; i < WS.files.length; i++) if (WS.files[i].id === id) return WS.files[i];
+    return null;
+  }
+
+  /**
+   * The cap is on MODEL RECORDS, not on file bytes, because the model costs about eighteen times the
+   * file: a 2.1 MB document measured 168 329 records and 37 MB of heap, so a megabyte limit would be
+   * wrong by an order of magnitude. The count is taken from the parsed document BEFORE the model is
+   * built, so a file that would not fit is refused without ever being materialised, and the files
+   * already open are untouched.
+   */
+  function wsWouldFit(records) { return (wsRecordsUsed() + records) <= WS.cap; }
+
+  // ---- link indexes -------------------------------------------------------------------
+  /*
+   * From here down the workspace knows nothing about JSON or CSV. A file supplies three things and
+   * that is the whole contract, so one implementation of links, indexes and the diagram serves both
+   * standalone pages instead of two copies drifting apart:
+   *   file.lists            [{ path, label, rows, keys }]
+   *   file.iterField(path, field, cb(value, ref))
+   *   file.entityOf(path, ref) -> { val, path, parent }
+   * For JSON a ref IS the model node; for CSV it is a row index, and the row object is built only
+   * for the handful of entities a diagram actually shows rather than for every row up front.
+   */
+  function wsListOf(file, path) {
+    for (var i = 0; i < file.lists.length; i++) if (file.lists[i].path === path) return file.lists[i];
+    return null;
+  }
+  /**
+   * value -> [entity] for one side of one link, built once when the link is declared.
+   * Matching is exact after trimming and case-sensitive, the same rule as ${COL@key}: a near miss
+   * has to be a visible miss rather than a quietly wrong row.
+   */
+  function wsBuildIndex(file, path, field) {
+    var idx = {};
+    file.iterField(path, field, function (v, ref) {
+      if (v === undefined || v === null) return;
+      var k = String(v).trim();
+      if (!k) return;
+      // the REF is stored, not a materialised entity: for a CSV that is a row number, so a
+      // hundred-thousand-row index costs an array of integers and not a hundred thousand objects
+      (idx[k] = idx[k] || []).push(ref);
+    });
+    return idx;
+  }
+  function wsIndexLink(l) {
+    var pf = wsFileById(l.parentFile), cf = wsFileById(l.childFile);
+    l.parentIndex = pf ? wsBuildIndex(pf, l.parentPath, l.parentField) : {};
+    l.childIndex = cf ? wsBuildIndex(cf, l.childPath, l.childField) : {};
+  }
+  function wsReindexAll() { for (var i = 0; i < WS.links.length; i++) wsIndexLink(WS.links[i]); }
+
+  /** Links whose CHILD side is this list+field, and whose PARENT side is. */
+  function wsLinksAsChild(fileId, path, field) {
+    return WS.links.filter(function (l) { return l.childFile === fileId && l.childPath === path && l.childField === field; });
+  }
+  function wsLinksAsParent(fileId, path, field) {
+    return WS.links.filter(function (l) { return l.parentFile === fileId && l.parentPath === path && l.parentField === field; });
+  }
+
+  /** The link hook handed to the renderer: makes a declared field clickable from either side. */
+  function wsLinkCell(file) {
+    return function (path, key, value) {
+      var lp = wsListPath(path);
+      var asChild = wsLinksAsChild(file.id, lp, key);
+      var asParent = wsLinksAsParent(file.id, lp, key);
+      if (!asChild.length && !asParent.length) return null;
+      var title = asChild.length ? 'Follow to the parent it points at' : 'Show everything that points at this';
+      return { title: title + ' \u2014 opens the relationship diagram',
+               onClick: function () { openDiagramFor(file, lp, key, value); } };
+    };
+  }
+
+  // ---- focus resolution ---------------------------------------------------------------
+  /** First three scalar fields of an entity, for a badge label. */
+  function wsLabelFields(ent) {
+    var out = [], v = ent && ent.val;
+    if (!v || typeof v !== 'object') return out;
+    var ks = Object.keys(v);
+    for (var i = 0; i < ks.length && out.length < 3; i++) {
+      var x = v[ks[i]];
+      if (x === null || typeof x === 'object') continue;
+      out.push({ k: ks[i], v: String(x) });
+    }
+    return out;
+  }
+  /**
+   * The row an entity LIVES INSIDE, as a label. A relationship inside customer UKC0003584 returns
+   * UKC0003584. Without it, a customer whose own relationships list is empty looked as if the diagram
+   * had invented four relationships out of nowhere - they were real, they just belonged to other rows.
+   */
+  function wsOwnerLabel(ent) {
+    var p = ent && ent.parent;
+    while (p) {
+      if (p.kind === 'object') {
+        var t = wsEntityTitle(p);
+        return (t === '(entity)') ? '' : t;
+      }
+      p = p.parent;
+    }
+    return '';
+  }
+
+  function wsEntityTitle(ent) {
+    var f = wsLabelFields(ent);
+    return f.length ? f[0].v : '(entity)';
+  }
+
+  /**
+   * Everything one entity is connected to, in one hop.
+   * outgoing: this entity's reference fields resolved against the target index.
+   * incoming: entities whose reference field names this entity.
+   * A child value that resolves to nothing yields a MISSING badge rather than no badge - in a data
+   * set that is supposed to be clean, a dangling reference is the finding, not noise to hide.
+   */
+  function wsNeighbours(file, ent) {
+    var outgoing = [], incoming = [];
+    for (var i = 0; i < WS.links.length; i++) {
+      var l = WS.links[i];
+      if (l.childFile === file.id && l.childPath === wsListPath(ent.path)) {
+        var cv = ent.val ? ent.val[l.childField] : undefined;
+        if (cv !== undefined && cv !== null && String(cv).trim() !== '') {
+          var key = String(cv).trim();
+          var hits = l.parentIndex[key] || [];
+          var pf = wsFileById(l.parentFile);
+          if (!hits.length) {
+            outgoing.push({ missing: true, value: key, link: l, file: pf });
+          } else {
+            for (var h = 0; h < hits.length; h++) {
+              outgoing.push({ ent: pf.entityOf(l.parentPath, hits[h]), value: key, link: l, file: pf });
+            }
+          }
+        }
+      }
+      if (l.parentFile === file.id && l.parentPath === wsListPath(ent.path)) {
+        var pv = ent.val ? ent.val[l.parentField] : undefined;
+        if (pv !== undefined && pv !== null && String(pv).trim() !== '') {
+          var pk = String(pv).trim();
+          var kids = l.childIndex[pk] || [];
+          var cf2 = wsFileById(l.childFile);
+          for (var q = 0; q < kids.length; q++) {
+            incoming.push({ ent: cf2.entityOf(l.childPath, kids[q]), value: pk, link: l, file: cf2 });
+          }
+        }
+      }
+    }
+    // incoming: records whose reference field names this entity. outgoing: what this entity's own
+    // reference field names. The diagram puts incoming on the left and outgoing on the right.
+    return { incoming: incoming, outgoing: outgoing, parents: outgoing, children: incoming };
+  }
+
+  /** The entity to focus when a link value is clicked, from either end. */
+  function wsResolveFocus(file, path, key, value) {
+    var v = String(value).trim();
+    var asChild = wsLinksAsChild(file.id, path, key);
+    for (var i = 0; i < asChild.length; i++) {
+      var hits = asChild[i].parentIndex[v] || [];
+      if (hits.length) {
+        var pf = wsFileById(asChild[i].parentFile);
+        return { file: pf, ent: pf.entityOf(asChild[i].parentPath, hits[0]) };
+      }
+    }
+    var asParent = wsLinksAsParent(file.id, path, key);
+    for (var j = 0; j < asParent.length; j++) {
+      var own = asParent[j].parentIndex[v] || [];
+      if (own.length) return { file: file, ent: file.entityOf(asParent[j].parentPath, own[0]) };
+    }
+    // the value points at nothing: focus the entity that carries it, so the diagram can SAY so
+    var found = null;
+    file.iterField(path, key, function (x, ref) {
+      if (found === null && x !== undefined && String(x).trim() === v) found = ref;
+    });
+    if (found !== null) return { file: file, ent: file.entityOf(path, found), dangling: v };
+    return null;
+  }
+
+  /* ===================== relationship diagram =====================
+     One FOCUS box in the middle, PARENT badges down the left, CHILD badges down the right, bezier
+     links with arrow heads - the shape of EOR_viewer.html's renderUmlDiagram, and the shape that
+     scales: five thousand entities cannot be drawn at once, one entity and its neighbours always can.
+     Every badge re-focuses the diagram on itself, so the graph is walked one hop at a time. */
+
+  var DIAG = { file: null, ent: null, history: [] };
+
+  function svgEsc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function svgTrunc(s, n) {
+    s = String(s == null ? '' : s);
+    return s.length > n ? (s.substring(0, n - 1) + String.fromCharCode(0x2026)) : s;
+  }
+
+  function renderDiagram(host, file, ent) {
+    var nb = wsNeighbours(file, ent);
+    // LEFT = everything that POINTS AT the focus, RIGHT = what the focus POINTS AT. The declaration
+    // calls the field that holds the value the CHILD field, which is the database convention, but on
+    // a diagram the record doing the pointing reads as the one above: a relationship row naming a
+    // customer is that customer's PARENT. Reported from the field, and the direction is what people
+    // read off a picture, so the picture follows the direction.
+    var parents = nb.incoming, children = nb.outgoing;
+
+    var W = 1180, ITEM_H = 118, PAD = 26;
+    var rows = Math.max(parents.length, children.length, 1);
+    var H = Math.max(240, PAD * 2 + rows * ITEM_H);
+    var cw = 300, ch = 118, cx = (W - cw) / 2, cy = (H - ch) / 2;
+    var cxL = cx, cxR = cx + cw, cxMid = cx + cw / 2, cyMid = cy + ch / 2;
+    var sw = 300, sh = 102, xL = 26, xR = W - sw - 26;   // taller: the owning row goes at the bottom
+
+    function colYs(n) {
+      if (n === 0) return [];
+      if (n === 1) return [H / 2 - sh / 2];
+      var avail = (H - PAD * 2) - sh, step = avail / (n - 1), out = [];
+      for (var i = 0; i < n; i++) out.push(PAD + i * step);
+      return out;
+    }
+    var yP = colYs(parents.length), yC = colYs(children.length);
+
+    var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMin meet" class="dg-svg">';
+
+    // FOCUS
+    var flab = wsLabelFields(ent);
+    s += '<rect x="' + cx + '" y="' + cy + '" width="' + cw + '" height="' + ch + '" rx="8" class="dg-focus-box"/>';
+    s += '<text x="' + cxMid + '" y="' + (cy + 20) + '" class="dg-kicker" text-anchor="middle">FOCUS</text>';
+    s += '<text x="' + cxMid + '" y="' + (cy + 46) + '" class="dg-title" text-anchor="middle">'
+       + svgEsc(svgTrunc(wsEntityTitle(ent), 30)) + '</text>';
+    for (var f = 0; f < flab.length; f++) {
+      s += '<text x="' + cxMid + '" y="' + (cy + 66 + f * 16) + '" class="dg-sub" text-anchor="middle">'
+         + svgEsc(svgTrunc(flab[f].k + ': ' + flab[f].v, 38)) + '</text>';
+    }
+
+    function badge(info, x, y, side) {
+      var isMissing = !!info.missing;
+      var cls = isMissing ? 'dg-badge dg-missing' : 'dg-badge';
+      var lab = isMissing ? [] : wsLabelFields(info.ent);
+      var head = isMissing ? (side === 'p' ? 'PARENT NOT FOUND' : 'CHILD NOT FOUND') : (side === 'p' ? 'PARENT' : 'CHILD');
+      var name = isMissing ? info.value : wsEntityTitle(info.ent);
+      var g = '<g class="' + cls + '"' + (isMissing ? '' : ' data-hop="' + info.hop + '"') + '>';
+      g += '<title>' + svgEsc((info.file ? info.file.name + '  ' : '') + (isMissing
+            ? ('no entity has ' + info.link.parentField + ' = ' + info.value)
+            : (info.link.childPath + '.' + info.link.childField + ' \u2192 ' + info.link.parentPath + '.' + info.link.parentField))) + '</title>';
+      g += '<rect x="' + x + '" y="' + y + '" width="' + sw + '" height="' + sh + '" rx="6" class="dg-badge-box"/>';
+      g += '<text x="' + (x + 12) + '" y="' + (y + 16) + '" class="dg-kicker-s">' + head + '</text>';
+      g += '<text x="' + (x + 12) + '" y="' + (y + 36) + '" class="dg-name">' + svgEsc(svgTrunc(name, 28)) + '</text>';
+      for (var i = 0; i < lab.length; i++) {
+        g += '<text x="' + (x + 12) + '" y="' + (y + 54 + i * 15) + '" class="dg-sub-s">'
+           + svgEsc(svgTrunc(lab[i].k + ': ' + lab[i].v, 34)) + '</text>';
+      }
+      if (info.file) {
+        g += '<text x="' + (x + sw - 12) + '" y="' + (y + 16) + '" class="dg-file" text-anchor="end">'
+           + svgEsc(svgTrunc(info.file.name, 22)) + '</text>';
+      }
+      // WHERE it lives. A relationship row that names this customer sits inside a DIFFERENT customer,
+      // and without saying so the diagram looked wrong on a customer whose own relationships list was
+      // empty - the four badges were right, they just belonged to other rows.
+      var owner = isMissing ? '' : wsOwnerLabel(info.ent);
+      if (owner) {
+        g += '<text x="' + (x + 12) + '" y="' + (y + sh - 8) + '" class="dg-owner">in '
+           + svgEsc(svgTrunc(owner, 30)) + '</text>';
+      }
+      return g + '</g>';
+    }
+    function arrow(x1, y1, x2, y2, missing) {
+      var dx = (x2 - x1) * 0.55, ah = 5;
+      var cls = missing ? 'dg-arrow dg-arrow-missing' : 'dg-arrow';
+      return '<path d="M ' + x1 + ' ' + y1 + ' C ' + (x1 + dx) + ' ' + y1 + ', ' + (x2 - dx) + ' ' + y2
+           + ', ' + x2 + ' ' + y2 + '" fill="none" class="' + cls + '"/>'
+           + '<polygon points="' + x2 + ',' + y2 + ' ' + (x2 - ah * 1.6) + ',' + (y2 - ah) + ' '
+           + (x2 - ah * 1.6) + ',' + (y2 + ah) + '" class="' + cls + '-head"/>';
+    }
+
+    var hops = [];
+    for (var p = 0; p < parents.length; p++) {
+      var yp = yP[p];
+      if (!parents[p].missing) { parents[p].hop = hops.length; hops.push(parents[p]); }
+      s += arrow(xL + sw, yp + sh / 2, cxL, cyMid, parents[p].missing);   // parent -> focus
+      s += badge(parents[p], xL, yp, 'p');
+    }
+    for (var c = 0; c < children.length; c++) {
+      var yc = yC[c];
+      children[c].hop = hops.length; hops.push(children[c]);
+      s += arrow(cxR, cyMid, xR, yc + sh / 2, false);                      // focus -> child
+      s += badge(children[c], xR, yc, 'c');
+    }
+    if (!parents.length && !children.length) {
+      s += '<text x="' + cxMid + '" y="' + (H - 12) + '" class="dg-sub" text-anchor="middle">'
+         + 'no declared relationship reaches this entity</text>';
+    }
+    s += '</svg>';
+    host.innerHTML = s;
+
+    // badges re-focus the diagram; a missing one has nothing to go to and is not clickable
+    var gs = host.querySelectorAll('g.dg-badge[data-hop]');
+    for (var i = 0; i < gs.length; i++) {
+      (function (g) {
+        g.style.cursor = 'pointer';
+        g.addEventListener('click', function () {
+          var info = hops[parseInt(g.getAttribute('data-hop'), 10)];
+          if (info && info.ent) focusEntity(info.file || file, info.ent, true);
+        });
+      })(gs[i]);
+    }
+  }
+
+  /** Show the diagram for an entity, remembering where we came from. */
+  function focusEntity(file, ent, push) {
+    if (push && DIAG.ent) DIAG.history.push({ file: DIAG.file, ent: DIAG.ent });
+    DIAG.file = file; DIAG.ent = ent;
+    showDiagramView(true);
+    renderDiagram($('diagram'), file, ent);
+    var nb = wsNeighbours(file, ent);
+    $('dgInfo').textContent = file.name + '  \u2014  ' + nb.incoming.length + ' parent(s) pointing at it, '
+      + nb.outgoing.length + ' child(ren) it points at';
+    $('dgBack').style.display = DIAG.history.length ? '' : 'none';
+  }
+  function diagramBack() {
+    var prev = DIAG.history.pop();
+    if (!prev) return;
+    DIAG.file = prev.file; DIAG.ent = prev.ent;
+    renderDiagram($('diagram'), prev.file, prev.ent);
+    $('dgBack').style.display = DIAG.history.length ? '' : 'none';
+  }
+  /** Called from a link in the table. */
+  function openDiagramFor(file, path, key, value) {
+    var r = wsResolveFocus(file, path, key, value);
+    if (!r) { banner(false, 'Nothing to show for ' + svgEsc(String(value)) + '.'); return; }
+    DIAG.history = [];
+    focusEntity(r.file, r.ent, false);
+    if (r.dangling) {
+      $('dgInfo').textContent += '  \u2014  ' + r.dangling + ' points at no entity';
+    }
+  }
+
+  // ---- CSV --------------------------------------------------------------------------
+  /**
+   * A CSV is an array of flat objects, which is exactly what the table view, the link declaration
+   * and the diagram already handle. So the CSV support is a PARSER in front of the same machinery
+   * rather than a second implementation of any of it - the two formats cannot drift apart because
+   * there is only one of everything downstream of this function.
+   *
+   * RFC 4180: quoted fields, doubled quotes inside them, delimiters and newlines inside quotes.
+   */
+  var CSV_LF = String.fromCharCode(10), CSV_CR = String.fromCharCode(13), CSV_TAB = String.fromCharCode(9),
+      CSV_BOM = String.fromCharCode(0xFEFF);
+
+  /** Delimiter guessed from the first unquoted line: the one with the most occurrences. */
+  function csvDelim(text) {
+    var line = '', i = 0, q = false;
+    while (i < text.length) {
+      var c = text.charAt(i);
+      if (c === '"') q = !q;
+      if (!q && (c === CSV_LF || c === CSV_CR)) break;
+      line += c; i++;
+    }
+    var cands = [',', ';', CSV_TAB, '|'], best = ',', bestN = -1;
+    for (var k = 0; k < cands.length; k++) {
+      var n = line.split(cands[k]).length - 1;
+      if (n > bestN) { bestN = n; best = cands[k]; }
+    }
+    return best;
+  }
+
+  function csvRows(text, delim) {
+    if (text.charAt(0) === CSV_BOM) text = text.substring(1);
+    var rows = [], row = [], cur = '', q = false, i = 0, n = text.length;
+    while (i < n) {
+      var c = text.charAt(i);
+      if (q) {
+        if (c === '"') {
+          if (text.charAt(i + 1) === '"') { cur += '"'; i += 2; continue; }
+          q = false; i++; continue;
+        }
+        cur += c; i++; continue;
+      }
+      if (c === '"') { q = true; i++; continue; }
+      if (c === delim) { row.push(cur); cur = ''; i++; continue; }
+      if (c === CSV_CR) { i++; continue; }                       // CRLF and lone CR both end a line
+      if (c === CSV_LF) { row.push(cur); rows.push(row); row = []; cur = ''; i++; continue; }
+      cur += c; i++;
+    }
+    if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+    return rows;
+  }
+
+  /** Header row -> array of objects. Ragged rows are kept: a short row simply lacks those keys. */
+  function csvToObjects(text) {
+    var delim = csvDelim(text);
+    var rows = csvRows(text, delim);
+    if (!rows.length) return { data: [], delim: delim, columns: [] };
+    var head = rows[0], cols = [], seen = {};
+    for (var c = 0; c < head.length; c++) {
+      var name = String(head[c] === undefined ? '' : head[c]).trim();
+      if (!name) name = 'column' + (c + 1);
+      // a duplicated header would silently overwrite a column, so it is suffixed instead
+      if (seen[name]) { var d = 2; while (seen[name + '_' + d]) d++; name = name + '_' + d; }
+      seen[name] = 1;
+      cols.push(name);
+    }
+    var out = [];
+    for (var r = 1; r < rows.length; r++) {
+      var src = rows[r];
+      if (src.length === 1 && String(src[0]).trim() === '') continue;   // trailing blank line
+      var o = {};
+      for (var k = 0; k < cols.length; k++) if (k < src.length) o[cols[k]] = src[k];
+      out.push(o);
+    }
+    return { data: out, delim: delim, columns: cols };
+  }
+  function csvDelimName(d) {
+    if (d === CSV_TAB) return 'tab';
+    if (d === ',') return 'comma';
+    if (d === ';') return 'semicolon';
+    if (d === '|') return 'pipe';
+    return d;
+  }
+
+  // ---- saved relationships ------------------------------------------------------------
+  /**
+   * Declared relationships are remembered in localStorage, keyed by FILE NAME, so reopening the same
+   * files brings them back instead of re-declaring them by hand every time.
+   *
+   * Only the SHAPE is stored - file names, entity list paths and field names. Never a value, never an
+   * index, never any row: this page is opened on customer data, and localStorage is a plain file on
+   * disk that anything on the machine can read. Schema is not data, and that line is where the
+   * storage stops.
+   */
+  var LINK_STORE_KEY = 'op-viewer-links-v1';
+  function linksLoadAll() {
+    try {
+      var raw = localStorage.getItem(LINK_STORE_KEY);
+      var a = raw ? JSON.parse(raw) : [];
+      return Object.prototype.toString.call(a) === '[object Array]' ? a : [];
+    } catch (e) { return []; }
+  }
+  function linksSaveAll(list) {
+    try { localStorage.setItem(LINK_STORE_KEY, JSON.stringify(list)); return true; }
+    catch (e) { return false; }   // private mode, or storage disabled: the page still works
+  }
+  function linkSig(l) {
+    var cf = wsFileById(l.childFile), pf = wsFileById(l.parentFile);
+    if (!cf || !pf) return null;
+    return { cn: cf.name, cp: l.childPath, cq: l.childField, pn: pf.name, pp: l.parentPath, pq: l.parentField };
+  }
+  function sameSig(a, b) {
+    return a.cn === b.cn && a.cp === b.cp && a.cq === b.cq && a.pn === b.pn && a.pp === b.pp && a.pq === b.pq;
+  }
+  /** Called whenever the link list changes. */
+  /**
+   * Save what is declared now, without forgetting what belongs to files that are not open.
+   *
+   * The first version only ADDED, so removing a relationship left it on disk and it came back on the
+   * next load - the only way to be rid of it was Forget, which cleared everything. Removing something
+   * and having it return is the kind of defect that teaches people not to trust the feature.
+   *
+   * The rule that fixes it without over-reaching: a saved relationship whose two files are BOTH open
+   * is fully described by what is declared right now, so it is replaced. One that names a file which
+   * is not open is left alone, because it is waiting for that file rather than having been removed.
+   */
+  function linksPersist() {
+    var prev = linksLoadAll(), keep = [];
+    for (var i = 0; i < prev.length; i++) {
+      var s = prev[i];
+      var bothOpen = fileByName(s.cn) && fileByName(s.pn);
+      if (!bothOpen) keep.push(s);          // waiting for its other file: not ours to drop
+    }
+    for (var k = 0; k < WS.links.length; k++) {
+      var sig = linkSig(WS.links[k]);
+      if (!sig) continue;
+      var dup = false;
+      for (var j = 0; j < keep.length; j++) if (sameSig(keep[j], sig)) { dup = true; break; }
+      if (!dup) keep.push(sig);
+    }
+    linksSaveAll(keep);
+  }
+  function linkExists(sig) {
+    for (var i = 0; i < WS.links.length; i++) {
+      var s = linkSig(WS.links[i]);
+      if (s && sameSig(s, sig)) return true;
+    }
+    return false;
+  }
+  function fileByName(name) {
+    for (var i = 0; i < WS.files.length; i++) if (WS.files[i].name === name) return WS.files[i];
+    return null;
+  }
+  /** The list must still be there AND still have that field: a file's shape can change between
+   *  sessions, and restoring a relationship onto a column that no longer exists would produce a link
+   *  that silently resolves nothing. */
+  function hasField(f, path, field) {
+    for (var i = 0; i < f.lists.length; i++) {
+      if (f.lists[i].path !== path) continue;
+      for (var k = 0; k < f.lists[i].keys.length; k++) if (f.lists[i].keys[k] === field) return true;
+      return false;
+    }
+    return false;
+  }
+  /**
+   * Restore every saved relationship whose BOTH files are open and whose paths still exist. Returns
+   * how many came back. A saved relationship whose shape no longer matches the file is skipped rather
+   * than restored broken - the file may genuinely have changed since.
+   */
+  function linksRestore() {
+    var saved = linksLoadAll(), n = 0, stale = 0;
+    for (var i = 0; i < saved.length; i++) {
+      var s = saved[i];
+      var cf = fileByName(s.cn), pf = fileByName(s.pn);
+      if (!cf || !pf) continue;                      // not both open yet: it keeps waiting
+      if (!hasField(cf, s.cp, s.cq) || !hasField(pf, s.pp, s.pq)) {
+        // both files are open but the list or the field is gone. Worth SAYING: a file that changed
+        // shape under a saved declaration is exactly the thing an operator wants to hear about, and
+        // silently skipping it looks identical to the cache having been forgotten.
+        stale++;
+        continue;
+      }
+      if (linkExists(s)) continue;
+      var l = { id: WS.seq++, childFile: cf.id, childPath: s.cp, childField: s.cq,
+                parentFile: pf.id, parentPath: s.pp, parentField: s.pq };
+      WS.links.push(l);
+      wsIndexLink(l);
+      n++;
+    }
+    return { added: n, stale: stale };
+  }
+
+  
+  /* ===================== relationships: the CSV side =====================
+     Everything about declaring links, indexing them and drawing the diagram is the shared core,
+     the same code the JSON viewer runs. A file only has to answer three questions:
+
+        lists                      what entity lists it offers
+        iterField(path, f, cb)     iterate one field
+        entityOf(path, ref)        turn a reference into an entity
+
+     For a CSV that is simple in a way JSON is not: the entity list is the file itself, an entity is
+     a row, and a field is a column. The interesting part is the REF. The index stores row numbers,
+     not row objects, so indexing a hundred-thousand-row file costs an array of integers rather than
+     a hundred thousand objects - and the object for a row is built only for the handful of entities
+     a diagram actually shows. */
+
+  // the CSV budget, in cells: about 52 bytes each, roughly 4.6x the file on disk. Set here rather
+  // than in the core, which counts JSON model records at about 18x and would be wrong for a CSV.
+  WS.cap = 2000000;
+
+  var CSV_ROOT = '$';           // the whole file is one entity list, named like the JSON root
+
+  /**
+   * The memory budget, counted in CELLS.
+   *
+   * Measured rather than guessed, the same way the JSON one was: 50 000 rows by 20 columns is a
+   * million cells and cost 50 MB of heap, so about 52 bytes a cell and roughly 4.6 times the file on
+   * disk. That is a very different ratio from JSON's eighteen, which is why the two viewers count
+   * different units instead of sharing a number that would be wrong for one of them.
+   *
+   * The count is taken before the rows are attached to the workspace, so a file that does not fit is
+   * refused without being kept and the files already open are untouched.
+   */
+  function cellsUsed() {
+    var n = 0;
+    for (var i = 0; i < WS.files.length; i++) n += WS.files[i].cells;
+    return n;
+  }
+  function paintCap() {
+    var used = cellsUsed(), pct = Math.min(100, Math.round(used * 100 / WS.cap));
+    var f = $('capFill'), t = $('capText');
+    if (!f || !t) return;
+    f.style.width = pct + '%';
+    t.textContent = fmtN(used) + ' of ' + fmtN(WS.cap) + ' cells'
+      + (WS.files.length ? ('  \u00b7  ' + WS.files.length + ' file' + (WS.files.length === 1 ? '' : 's')) : '');
+  }
+  function fmtN(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+
+  /** Attach the adapter the shared core expects to a parsed CSV. */
+  function wsAttachAdapter(f) {
+    f.lists = [{ path: CSV_ROOT, label: f.name, rows: f.data.rows.length, keys: f.data.columns.slice() }];
+    f.iterField = function (path, field, cb) {
+      if (path !== CSV_ROOT) return;
+      var ci = f.data.columns.indexOf(field);
+      if (ci < 0) return;
+      var rows = f.data.rows;
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        cb(ci < r.length ? r[ci] : '', i);        // the REF is the row number
+      }
+    };
+    f.entityOf = function (path, ref) {
+      var r = f.data.rows[ref], cols = f.data.columns, val = {};
+      for (var i = 0; i < cols.length; i++) val[cols[i]] = (r && i < r.length) ? r[i] : '';
+      // no parent: a CSV row is not nested, so the diagram's "lives inside" line stays empty,
+      // which is correct rather than merely absent
+      return { val: val, path: CSV_ROOT, parent: null, ref: ref };
+    };
+  }
+
+  /** Columns of the ACTIVE file that carry a declared link, as a set of column indexes. */
+  function linkedColumns() {
+    var out = {};
+    if (!CURRENT) return out;
+    for (var i = 0; i < WS.links.length; i++) {
+      var l = WS.links[i];
+      if (l.childFile === CURRENT.id && l.childPath === CSV_ROOT) {
+        var a = CURRENT.data.columns.indexOf(l.childField);
+        if (a >= 0) out[a] = 'child';
+      }
+      if (l.parentFile === CURRENT.id && l.parentPath === CSV_ROOT) {
+        var b = CURRENT.data.columns.indexOf(l.parentField);
+        if (b >= 0) out[b] = out[b] || 'parent';
+      }
+    }
+    return out;
+  }
+
+
+  /* ---- multi-file intake, tabs, and the declaration panel ---- */
+
+  function banner(ok, html) {
+    var m = $('msg');
+    m.className = 'banner' + (ok ? ' info' : ' error');
+    m.innerHTML = html;
+    m.style.display = '';
+  }
+  function showDiagramView(on) {
+    $('viewer').style.display = on ? 'none' : '';
+    $('diagView').style.display = on ? '' : 'none';
+    $('filterRow').style.display = on ? 'none' : 'flex';
+    $('rangeRow').style.display = on ? 'none' : 'flex';
+  }
+  $('dgClose').onclick = function () { showDiagramView(false); };
+  $('dgBack').onclick = function () { diagramBack(); };
+
+  $('capApply').onclick = function () {
+    var v = parseInt($('capInput').value, 10);
+    if (!v || v < 10000) { banner(false, 'The limit has to be at least 10 000 cells.'); return; }
+    WS.cap = v;
+    paintCap();
+    if (cellsUsed() > WS.cap) banner(false, 'The limit is now below what is already open ('
+      + fmtN(cellsUsed()) + ' cells). Nothing was closed \u2014 the next file will simply be refused.');
+  };
+
+  /** Parse one CSV into a workspace file, refusing it if the budget cannot hold it. */
+  function addFile(name, text, bytes) {
+    var data;
+    try { data = parseCsv(text, $('delimSel').value); }
+    catch (e) { banner(false, 'Could not parse <b>' + esc(name) + '</b>: ' + esc(e.message)); return null; }
+    var cells = data.rows.length * Math.max(1, data.columns.length);
+    if (cellsUsed() + cells > WS.cap) {
+      // refuse THIS file and keep the others, and say by how much it overflowed so the operator can
+      // choose between raising the limit and closing something
+      banner(false, '<b>' + esc(name) + '</b> was not added: it needs ' + fmtN(cells)
+        + ' cells and only ' + fmtN(WS.cap - cellsUsed()) + ' are left, so it overflows by '
+        + fmtN(cellsUsed() + cells - WS.cap) + '. The files already open are untouched.');
+      paintCap();
+      return null;
+    }
+    var f = { id: WS.seq++, name: name, bytes: bytes || text.length, cells: cells, data: data, text: text };
+    wsAttachAdapter(f);
+    WS.files.push(f);
+    WS.active = WS.files.length - 1;
+    paintCap();
+    renderTabs();
+    activate(f);
+    return f;
+  }
+
+  /** Make a file the one on screen, reusing every existing rendering path unchanged. */
+  function activate(f) {
+    CURRENT = f;
+    CURRENT_NAME = f.name;
+    DATA = f.data;
+    buildColumnMeta();
+    SORT = { col: -1, desc: false };
+    RANGES = [];
+    recomputeView();
+    var nD = DATECOL.filter(function (x) { return !!x; }).length;
+    var nT = DISPLAY.filter(function (x) { return !!x; }).length;
+    $('meta').innerHTML = '<b>' + esc(f.name) + '</b> \u2014 <b>' + DATA.rows.length + '</b> rows \u00b7 <b>'
+      + DATA.columns.length + '</b> cols \u00b7 delimiter <b>' + esc(DATA.delimiter) + '</b>'
+      + (SCHEMA_LOADED ? (' \u00b7 schema: <b>' + nT + '</b> titles, <b>' + nD + '</b> date col(s)') : ' \u00b7 no displayschema');
+    fillFilterCol(); renderRangeChips();
+    $('tabs').style.display = 'flex';
+    $('filterRow').style.display = 'flex';
+    $('rangeRow').style.display = 'flex';
+    $('drop').style.display = 'none';
+    showDiagramView(false);
+    renderShell();
+  }
+
+  function renderTabs() {
+    var host = $('tabs2');
+    host.innerHTML = '';
+    host.style.display = WS.files.length ? 'flex' : 'none';
+    for (var i = 0; i < WS.files.length; i++) {
+      (function (f, n) {
+        var t = el('div', 'ftab' + (n === WS.active ? ' active' : ''), host);
+        // the WHOLE tab switches, not just the text: a click on the padding or on the row count is
+        // a click on the tab as far as anyone using it is concerned
+        t.onclick = function () { WS.active = n; renderTabs(); activate(f); };
+        var lab = el('span', null, t);
+        lab.textContent = f.name;
+        var sz = el('span', 'sz', t);
+        sz.textContent = fmtN(f.cells) + ' cells';
+        var x = el('span', 'x', t);
+        x.textContent = String.fromCharCode(0x2715);
+        x.title = 'close this file and release its memory';
+        x.onclick = function (e) { e.stopPropagation(); closeFile(f); };
+      })(WS.files[i], i);
+    }
+  }
+
+  function closeFile(f) {
+    // links that mention it go too: one left behind would resolve against a file no longer open.
+    // The SAVED declaration stays, because the file will very likely be opened again tomorrow.
+    var lost = WS.links.filter(function (l) { return l.childFile === f.id || l.parentFile === f.id; }).length;
+    WS.links = WS.links.filter(function (l) { return l.childFile !== f.id && l.parentFile !== f.id; });
+    WS.files = WS.files.filter(function (o) { return o.id !== f.id; });
+    f.data = null; f.lists = null;
+    if (WS.active >= WS.files.length) WS.active = WS.files.length - 1;
+    paintCap(); renderTabs(); renderLinkList();
+    if (WS.files.length) activate(WS.files[WS.active]);
+    else {
+      CURRENT = null; DATA = null;
+      $('tabs').style.display = 'none'; $('viewer').innerHTML = '';
+      $('filterRow').style.display = 'none'; $('rangeRow').style.display = 'none';
+      $('drop').style.display = '';
+    }
+    banner(true, 'Closed ' + esc(f.name) + (lost ? (' and the ' + lost + ' relationship(s) that referred to it') : '') + '.');
+  }
+
+  /* ---- the question, asked per file after it is parsed ---- */
+  var PENDING = null;
+  function askRelationships(f) {
+    PENDING = f;
+    var others = WS.files.length - 1;
+    $('askTitle').textContent = 'Does "' + f.name + '" reference another file?';
+    $('askHint').textContent = others
+      ? ('A column holding a value that identifies a row in one of the ' + others + ' file(s) already open, or in this one.')
+      : 'For example a column holding an id that identifies another row.';
+    $('askPanel').style.display = '';
+    $('linkPanel').style.display = 'none';
+  }
+  $('askNo').onclick = function () { $('askPanel').style.display = 'none'; PENDING = null; };
+  $('askYes').onclick = function () { $('askPanel').style.display = 'none'; openLinkPanel(PENDING); };
+  $('tabLinks').onclick = function () { openLinkPanel(CURRENT); };
+
+  function fillOptions(sel, items, value, label) {
+    sel.innerHTML = '';
+    for (var i = 0; i < items.length; i++) {
+      var o = document.createElement('option');
+      o.value = value(items[i]); o.textContent = label(items[i]);
+      sel.appendChild(o);
+    }
+  }
+  function fillFieldSelect(side) {
+    var f = wsFileById(parseInt($(side + 'File').value, 10));
+    fillOptions($(side + 'Field'), f ? f.data.columns : [],
+      function (c) { return c; }, function (c) { return c; });
+  }
+  function openLinkPanel(prefer) {
+    if (!WS.files.length) { banner(false, 'Add a file first.'); return; }
+    var idOf = function (x) { return String(x.id); }, nameOf = function (x) { return x.name; };
+    fillOptions($('lcFile'), WS.files, idOf, nameOf);
+    fillOptions($('lpFile'), WS.files, idOf, nameOf);
+    if (prefer) $('lcFile').value = String(prefer.id);
+    fillFieldSelect('lc'); fillFieldSelect('lp');
+    $('linkPanel').style.display = '';
+    renderLinkList();
+  }
+  $('lcFile').onchange = function () { fillFieldSelect('lc'); };
+  $('lpFile').onchange = function () { fillFieldSelect('lp'); };
+  $('closeLinks').onclick = function () { $('linkPanel').style.display = 'none'; PENDING = null; };
+  $('swapSides').onclick = function () {
+    var cf = $('lcFile').value, cq = $('lcField').value;
+    var pf = $('lpFile').value, pq = $('lpField').value;
+    $('lcFile').value = pf; fillFieldSelect('lc'); $('lcField').value = pq;
+    $('lpFile').value = cf; fillFieldSelect('lp'); $('lpField').value = cq;
+  };
+
+  $('addLink').onclick = function () {
+    var l = { id: WS.seq++,
+      childFile: parseInt($('lcFile').value, 10), childPath: CSV_ROOT, childField: $('lcField').value,
+      parentFile: parseInt($('lpFile').value, 10), parentPath: CSV_ROOT, parentField: $('lpField').value };
+    if (!l.childField || !l.parentField) { banner(false, 'Both a child column and a parent column are needed.'); return; }
+    if (l.childFile === l.parentFile && l.childField === l.parentField) {
+      banner(false, 'A column cannot point at itself.'); return;
+    }
+    WS.links.push(l);
+    wsIndexLink(l);
+    linksPersist();
+    reportLink(l);
+    renderLinkList();
+    if (CURRENT) renderShell();
+  };
+
+  /**
+   * What the declaration actually did, in enough detail to catch it being backwards.
+   * A bare resolution rate cannot: on the reported JSON data the inverted direction resolved 3 315 of
+   * 5 000 and looked healthy. A parent column is an identity and should be unique; a child column is
+   * a reference and usually is not - and the correct direction resolves a higher share.
+   */
+  function reportLink(l) {
+    var st = wsLinkStats(l);
+    var pct = function (r) { return Math.round(r * 100) + '%'; };
+    var msg = 'Relationship added. <b>Child</b> ' + esc(l.childField) + ': ' + fmtN(st.child.distinct)
+      + ' distinct of ' + fmtN(st.child.rows) + ' row(s)' + (st.child.unique ? ' (unique)' : '')
+      + '. <b>Parent</b> ' + esc(l.parentField) + ': ' + fmtN(st.parent.distinct) + ' distinct of '
+      + fmtN(st.parent.rows) + ' row(s)' + (st.parent.unique ? ' (unique)' : ' <b>&mdash; not unique</b>')
+      + '. Resolved <b>' + pct(st.fwdRate) + '</b> this way, ' + pct(st.revRate) + ' the other way.';
+    if (st.swapped) {
+      banner(false, msg + '<br><br><b>These sides look swapped.</b> The parent column is not unique while'
+        + ' the child column is, and the opposite direction resolves better.'
+        + ' <button id="swapNow' + l.id + '">Turn this relationship round</button>');
+      var b = $('swapNow' + l.id);
+      if (b) b.onclick = function () {
+        var sw = wsSwapLink(l.id);
+        if (!sw) return;
+        linksPersist(); reportLink(sw); renderLinkList();
+        if (CURRENT) renderShell();
+      };
+      return;
+    }
+    banner(st.fwdRate > 0, msg + (st.fwd === 0 ? ' Zero matches usually means the wrong pair of columns.' : ''));
+  }
+
+  function renderLinkList() {
+    var host = $('linkList');
+    if (!host) return;
+    host.innerHTML = '';
+    if (!WS.links.length) {
+      var d = el('div', 'dim small', host);
+      d.textContent = 'No relationship declared yet.';
+      return;
+    }
+    for (var i = 0; i < WS.links.length; i++) {
+      (function (l) {
+        var cf = wsFileById(l.childFile), pf = wsFileById(l.parentFile);
+        var row = el('div', 'lnk', host);
+        var x = el('span', 'x', row);
+        x.textContent = String.fromCharCode(0x2715);
+        x.title = 'remove this relationship';
+        x.onclick = function () {
+          WS.links = WS.links.filter(function (o) { return o.id !== l.id; });
+          linksPersist(); renderLinkList();
+          if (CURRENT) renderShell();
+        };
+        var t = el('span', null, row);
+        t.textContent = (cf ? cf.name : '?') + ' \u00b7 ' + l.childField
+          + '   \u2192   ' + (pf ? pf.name : '?') + ' \u00b7 ' + l.parentField;
+      })(WS.links[i]);
+    }
+  }
+
   function readFile(file,cb){var fr=new FileReader();fr.onload=function(){cb(String(fr.result));};fr.onerror=function(){showError('Could not read '+file.name);};fr.readAsText(file);}
-  function onCsv(file){CURRENT_NAME=file.name;readFile(file,function(txt){CSV_TEXT=txt;load();});}
-  function onSchema(file){readFile(file,function(txt){try{SCHEMA=parseSchema(txt);SCHEMA_LOADED=true;if(DATA)load();}catch(e){showError(e.message);}});}
+  function onCsv(file){
+    readFile(file,function(txt){
+      CSV_TEXT=txt;
+      var f=addFile(file.name,txt,file.size);
+      if(!f) return;
+      // restore whatever was declared for these files in a previous session, then ask only if
+      // there is nothing to restore - the question would be pointless when the answer is on disk
+      var back=linksRestore();
+      if(back.added||back.stale){
+        renderLinkList();
+        renderShell();
+        banner(back.added>0,'Added <b>'+esc(file.name)+'</b>. '
+          +(back.added?('Restored '+back.added+' saved relationship(s) for these files. '):'')
+          +(back.stale?('<b>'+back.stale+' saved relationship(s) no longer fit these files</b> \u2014 a column they name is gone. They stay remembered in case an older version comes back. '):'')
+          +'<button id="forgetLinks">Forget saved relationships</button>');
+        var fb=$('forgetLinks');
+        if(fb) fb.onclick=function(){ linksSaveAll([]); banner(true,'Saved relationships forgotten. The ones currently declared stay until you remove them.'); };
+        if(back.stale&&!back.added) askRelationships(f);
+      } else {
+        askRelationships(f);
+      }
+    });
+  }
+  function onSchema(file){readFile(file,function(txt){try{SCHEMA=parseSchema(txt);SCHEMA_LOADED=true;if(CURRENT)activate(CURRENT);}catch(e){showError(e.message);}});}
 
   function setName(id,file){var el2=$(id);el2.textContent=file?file.name:'no file selected';el2.className='filename'+(file?' set':'');}
   $('csvFile').onchange=function(e){var f=e.target.files[0];if(f){setName('csvName',f);onCsv(f);}};
   $('schemaFile').onchange=function(e){var f=e.target.files[0];if(f){setName('schemaName',f);onSchema(f);}};
-  $('delimSel').onchange=function(){if(DATA)load();};
+  $('delimSel').onchange=function(){
+    // every open file was parsed with the previous delimiter, so re-parse them all and rebuild the
+    // indexes; leaving the others on the old split would make a declared link resolve against
+    // columns that no longer exist
+    for(var i=0;i<WS.files.length;i++){
+      var f=WS.files[i];
+      if(f.text==null) continue;
+      try{ f.data=parseCsv(f.text,$('delimSel').value); f.cells=f.data.rows.length*Math.max(1,f.data.columns.length); wsAttachAdapter(f); }
+      catch(e){ /* a delimiter that does not fit one file leaves it as it was */ }
+    }
+    wsReindexAll();
+    paintCap(); renderTabs();
+    if(CURRENT) activate(CURRENT);
+  };
   $('fmtDates').onchange=function(){if(DATA)renderShell();};
   $('filter').oninput=function(){if(DATA){recomputeView();renderShell();}};
   $('fadd').onclick=addRange;

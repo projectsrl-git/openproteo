@@ -1818,3 +1818,19 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   another guess. * Lesson: a rule written into a spec is not self-enforcing. The scan for family
   literals covered the `elar` package but I had used a constant, not a literal in a comparison, so it
   read as legitimate code. Scans catch shapes, not intentions.
+
+## Standalone CSV viewer: relationships (batch 2 of the linked-entity spec)
+* Built on the **shared core**, not a second implementation: a file answers `lists`, `iterField`,
+  `entityOf` and everything else is reused. For CSV the **ref is a row number**, so a 100k-row index
+  is an array of integers and the row object exists only for entities a diagram shows. * The existing
+  grid, filters, ranges, sort, aggregation and displayschema are untouched; only `drawRows` learned
+  links, and the link map is computed **once per frame** — `drawRows` runs on every scroll frame, so
+  anything per-cell there is paid thousands of times a second. * **Budget in CELLS** (~52 bytes each,
+  4.6x the file) vs JSON's records (~18x): two units because one number would be wrong for one of them.
+  * **Three defects the tests caught, two older than this batch**: (1) `linksPersist` only ADDED, so a
+  removed relationship came back on reload — now it replaces the entries whose files are both open and
+  leaves the ones waiting for a closed file; (2) the JSON viewer **never persisted on removal at all**;
+  (3) **two `var WS` in one scope** — the page silently ran with the JSON record budget. The
+  duplicate-FUNCTION scan could not see it, so the checks now scan **top-level `var`s** too. Second
+  time a silent duplicate declaration has cost a round. * 59 assertions on the CSV page + a JSON
+  regression suite, both green.

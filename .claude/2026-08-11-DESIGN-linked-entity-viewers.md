@@ -1,6 +1,6 @@
 # DESIGN — Linked entities: multi-file JSON/CSV viewers with a relationship graph
 
-Status: **CONFIRMED. Batch 1 (standalone JSON) delivered.** Batches 2 (CSV) and 3 (in-app) pending.
+Status: **Batches 1 (standalone JSON) and 2 (standalone CSV) delivered.** Batch 3 (in-app) pending.
 Scope: `json_viewer.html`, `csv-viewer.html`, and the in-app `viewer.js` equivalents.
 
 ## 1. Request
@@ -133,3 +133,44 @@ would resolve against nothing.
 * Tabs: independent state, close, memory released.
 * jsdom on both standalone pages driven through their real file inputs.
 * **Not verifiable here**: rendering on screen, and behaviour at the cap on a real workstation.
+
+## 7. Batch 2, as built — the standalone CSV
+
+`csv-viewer.html` gains tabs, the memory budget, declared relationships and the diagram, on the
+**same shared core** the JSON viewer runs. Nothing about links, indexes, the swapped-sides check, the
+cache or the diagram was rewritten: a file only answers `lists`, `iterField` and `entityOf`, and for a
+CSV those are trivial — the list is the file, an entity is a row, a field is a column. The **ref is a
+row number**, so indexing a hundred-thousand-row file costs an array of integers, and the row object
+is built only for the entities a diagram actually shows.
+
+The existing grid, filters, ranges, sorting, aggregation and displayschema handling are untouched.
+`activate()` reuses every rendering path unchanged; only `drawRows` learned to render a declared
+column as a link, and the link map is computed **once per frame** rather than per cell, because
+`drawRows` runs on every scroll frame.
+
+**The budget is in CELLS**, not records: 50 000 rows by 20 columns measured 50 MB, about 52 bytes a
+cell and 4.6x the file on disk. JSON's ratio is eighteen. Two viewers, two units, because one number
+would have been wrong for one of them.
+
+A CSV row has no parent, so the diagram's "lives inside" line is correctly absent rather than empty.
+
+### Three defects caught by the tests, two of them older than this batch
+
+* **`linksPersist` only ever ADDED.** Removing a relationship left it on disk, so it returned on the
+  next load and the only cure was Forget, which cleared everything. Now a saved relationship whose two
+  files are **both open** is replaced by what is declared, while one naming a file that is not open is
+  left alone — it is waiting, not removed. Fixed in **both** viewers.
+* **The JSON viewer never persisted on removal at all**: its remove handler updated the list and the
+  table but never wrote. Removing appeared to work and then quietly did not.
+* **Two `var WS` in one scope.** The CSV page declared its own beside the core's; both parse, the
+  later assignment wins, and the page ran with the JSON viewer's record budget instead of its cell
+  budget. The duplicate-*function* scan could not see it — the checks now scan **top-level `var`s**
+  too. This is the second time a silent duplicate declaration has cost a debugging round.
+
+**Verified** by 59 assertions driving the real page: the existing features still working, tabs and
+grid switching, a cross-file declaration with both directions reported, the swapped-sides warning
+firing on genuinely asymmetric data and staying silent when the signals disagree, both ends clickable,
+the diagram with incoming rows on the left and each naming its file, a dangling reference drawn as NOT
+FOUND, the budget refusing a file while keeping the others, a limit below the floor refused without
+taking effect, the declaration surviving a reload, removal really removing, and closing a file
+dropping the live link while the saved one waits.
