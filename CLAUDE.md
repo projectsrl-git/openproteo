@@ -200,9 +200,34 @@ committa e pusha. Contenuto:
 
 | file | note |
 |---|---|
-| `<nome>.patch` | `git diff` generato **su un clone fresco del main corrente** |
+| `<nome>-<base>.patch` | `git diff` generato **su un clone fresco del main corrente**; `<base>` e' l'hash corto del commit su cui e' stato generato |
 | `COMMIT_MSG.txt` | come sopra |
 | `csv-viewer.html` | **sempre**, in chiaro: file grande, sta fuori dal patch per evitare conflitti CRLF |
+
+**Il nome porta il commit base.** Lo zip si chiama
+`openproteo-<argomento>-<base>.zip` e il patch dentro `<argomento>-<base>.patch`,
+dove `<base>` e' l'output di `git rev-parse --short HEAD` sul clone da cui il
+patch e' stato generato. Esempio: `openproteo-elarxml-batch8-51019e1.zip`.
+
+Serve perche' lo script prende **lo zip piu' recente** in `D:\downloads` e non
+sa da dove viene. Col commit nel nome il controllo e' una sola occhiata prima di
+lanciare:
+
+```
+git rev-parse --short HEAD
+```
+
+Se non coincide col suffisso, il patch e' su una base diversa: non applicarlo e
+chiedere la rigenerazione. E' successo due volte - un patch generato su
+`0f712c8` mentre `main` era gia' a `4bce645` - e in entrambi i casi `git apply`
+ha fatto il suo lavoro rifiutandolo, ma solo dopo aver perso il giro. Il nome
+sposta la scoperta **prima** del lancio.
+
+Vale anche al contrario: se il suffisso coincide ma lo zip e' vecchio, e' lo
+stesso patch e riapplicarlo e' innocuo.
+
+Chi genera scrive il suffisso **dopo** aver letto l'HEAD del clone, mai a
+memoria.
 
 Regole imparate sul campo:
 
@@ -215,7 +240,11 @@ Regole imparate sul campo:
   sopra il primo.
 * `main` **avanza a ogni turno**: rileggere l'HEAD prima di generare.
 * Se rimandi una versione corretta, **dillo esplicitamente**: lo script prende
-  lo zip piu' recente in `D:\downloads` e puo' ripescare quello vecchio.
+  lo zip piu' recente in `D:\downloads` e puo' ripescare quello vecchio. Il
+  suffisso col commit base nel nome rende la cosa verificabile in un colpo
+  d'occhio, ma non sostituisce il dirlo.
+* **Rileggere l'HEAD e metterlo nel nome** e' un solo gesto: se il suffisso non
+  compare, il patch non e' pronto per la consegna.
 
 ## Verifica prima della consegna (obbligatoria in modalita' B)
 

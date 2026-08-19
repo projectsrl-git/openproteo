@@ -1,69 +1,27 @@
-elarxml batch 7: USAGE.md and the equivalence comparator
+Contract: the delivery filename carries the commit it was generated on
 
-The documentation and the comparison against the legacy JAR. With this the
-executor is complete.
+A zip delivered from chat is now named openproteo-<topic>-<base>.zip, and the
+patch inside <topic>-<base>.patch, where <base> is the short hash of the
+commit the patch was generated against. This delivery is named that way
+itself.
 
-USAGE.md gains a full elarxml section covering the parameters, the pre-scan
-and why the step may refuse to start, the one-rule batching, the filename
-clock and what a re-run does under each start_time setting, the encoding and
-its escape hatch, the line-break rule, validation and why it is off by
-default, what the step reports, the three deliberate changes from the legacy
-tool, and how to run the comparison.
+The reason is the deploy script: it picks the most recent zip in D:\\downloads
+and has no way of knowing where that zip came from. With the commit in the
+name the check before launching is a single glance - run git rev-parse --short
+HEAD, compare it with the suffix, and if they differ the patch is on a
+different base and should be regenerated rather than applied.
 
-It is written to the renderer's rules - one source line per paragraph, one per
-bullet, no markdown tables - and that was verified rather than assumed, by
-extracting docs.html's own render function and running it against the real
-file under jsdom. No raw markdown leaks outside the code blocks, and of the
-thirty-two paragraphs in the new section none is a sentence fragment, which is
-what a wrapped source line would produce. Two things about the renderer are
-worth recording for next time: it returns an object with html and toc rather
-than a string, and its script needs the doc, toc and clock elements present
-before it will bootstrap.
+This has now happened twice in this project, both times because main had moved
+between my reading it and my generating the patch. In both cases git apply did
+its job and refused, so nothing was corrupted, but the discovery came after
+the attempt rather than before it. The name moves it earlier.
 
-ElarEquivalence compares a directory of legacy output against a directory of
-new output and runs as a main, so it can be pointed at real directories on the
-server. Equivalence is semantic rather than byte-identical, because
-byte-identical is unattainable by construction: the filename clock differs
-between runs, the line-length default moved, breaks now fall at safe
-positions, and correct escaping differs from the legacy output wherever the
-legacy output was wrong. It strips the line breaks from both sides and
-re-parses each, so wrapping cannot register as a difference, then compares the
-document-id set, each document's tags and values including the template
-constants, the document count, the batch count and the distribution of
-documents across batches, and the PULLs structurally with attribute order and
-whitespace normalised away.
+It also works in the reassuring direction: if the suffix matches but the zip
+looks old, it is the same patch, and applying it again is harmless.
 
-The decision worth stating is that each payload is checked against the source
-file itself rather than against the other side. Comparing the two outputs to
-each other would pass any mistake the two tools share, and that is exactly the
-class of mistake a rewrite is most likely to inherit from what it replaces.
+The rule for whoever generates the patch is that the suffix is written after
+reading the HEAD of the clone, never from memory - which is the same
+discipline the contract already requires for generating on a fresh clone in
+the first place.
 
-Verified with 24 assertions driving the comparator against hand-built
-legacy-shaped output: identical content with blind ninety-seven-character
-breaks on one side and none on the other reported as equivalent; a changed
-metadata value caught with the tag and the document named but not the value; a
-missing document caught and named; a different batch distribution caught,
-showing both shapes and naming the rule to re-run with; a wrong payload that
-both sides share still caught, because the source file is the reference;
-attribute order and added whitespace normalised away; a genuinely different
-PULL caught; an ampersand written two different but equivalent ways treated as
-the same value; and an accented id comparing equal, which proves each file is
-read with the charset it declares.
-
-One of those tests caught a real defect in the comparator itself. docBlocks
-descended to the element containing the id tag, which is the id tag itself,
-since every ancestor contains it too and the recursion had no reason to stop
-earlier. Every document therefore appeared to carry exactly one field, and
-both the metadata comparison and the payload comparison passed silently. It
-now walks up from each id element for as long as the ancestor still holds
-exactly one, stopping at the first that holds two or more - that ancestor is
-the container and the element below it is the block, whatever the family calls
-it. A comparator that reports equivalence because it is looking at nothing is
-the worst failure this particular tool could have, and it took writing the
-case where both sides share a mistake to find it.
-
-NOT verified: mvn clean package, which needs the internal Nexus and is the
-gate before any of this is deployed, and a first comparison against a real
-feed. For that: run the legacy JAR and the new step over the same input into
-two directories, with batchBy left at its default, then point ElarEquivalence
-at those two directories and the content source directory.
+NOT verified: nothing to verify, this is a documentation change to CLAUDE.md.
