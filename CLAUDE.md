@@ -229,6 +229,15 @@ stesso patch e riapplicarlo e' innocuo.
 Chi genera scrive il suffisso **dopo** aver letto l'HEAD del clone, mai a
 memoria.
 
+Il controllo e' automatizzabile: `tools/deploy_patch_base_check.bat` e' il blocco
+da incollare in `deploy_openproteo_patch.bat` (che vive fuori dal repo), dopo
+l'estrazione del patch e prima di `git apply --check`. Tre esiti: base uguale a
+HEAD prosegue; base diversa si ferma **distinguendo** se manchi un `git pull` o
+se il patch vada rigenerato, perche' il rimedio e' opposto; nome senza suffisso
+**avvisa e prosegue**, perche' tutti gli zip precedenti a questa convenzione ne
+sono privi e rifiutarli trasformerebbe una rete di sicurezza in un ostacolo.
+Dettagli e limiti in `.claude/2026-08-19-deploy-base-check.md`.
+
 Regole imparate sul campo:
 
 * **Generare sempre da un clone fresco di `main`**, applicando li' le modifiche.

@@ -1,27 +1,48 @@
-Contract: the delivery filename carries the commit it was generated on
+Deploy: check the patch's declared base against HEAD before applying
 
-A zip delivered from chat is now named openproteo-<topic>-<base>.zip, and the
-patch inside <topic>-<base>.patch, where <base> is the short hash of the
-commit the patch was generated against. This delivery is named that way
-itself.
+The naming convention landed in the previous commit; this makes the check
+automatic instead of depending on someone remembering to look.
 
-The reason is the deploy script: it picks the most recent zip in D:\\downloads
-and has no way of knowing where that zip came from. With the commit in the
-name the check before launching is a single glance - run git rev-parse --short
-HEAD, compare it with the suffix, and if they differ the patch is on a
-different base and should be regenerated rather than applied.
+tools/deploy_patch_base_check.bat is the block to paste into
+deploy_openproteo_patch.bat, which lives outside the repo, after the patch has
+been extracted and before git apply --check runs. It reads the repository's
+HEAD, reads the suffix the patch filename declares, and compares them.
 
-This has now happened twice in this project, both times because main had moved
-between my reading it and my generating the patch. In both cases git apply did
-its job and refused, so nothing was corrupted, but the discovery came after
-the attempt rather than before it. The name moves it earlier.
+There are three outcomes rather than two, and the third is the one worth
+designing. A base equal to HEAD passes in silence. A base that differs stops
+the run and distinguishes the two possible causes, because the remedy is
+opposite: either the repository is behind and needs a pull, or the patch was
+generated on a superseded base and needs regenerating. And a name with no base
+at all warns and proceeds, because every zip delivered before today lacks the
+suffix and refusing them would turn a safety net into an obstacle. The test
+for whether a suffix is a commit is strict: seven hexadecimal characters after
+the last dash, or it is not a hash.
 
-It also works in the reassuring direction: if the suffix matches but the zip
-looks old, it is the same patch, and applying it again is harmless.
+One known limit is recorded rather than hidden. Seven decimal digits are valid
+hexadecimal, so a name like something-1234567 would be read as a base and
+would block. That is a false positive which stops rather than lets through,
+and the message says what to do; the alternative of requiring at least one
+letter would let genuinely all-numeric short hashes slip past unchecked, and
+those are just as possible. On a script that writes into the repository,
+stopping too often is the better error.
 
-The rule for whoever generates the patch is that the suffix is written after
-reading the HEAD of the clone, never from memory - which is the same
-discipline the contract already requires for generating on a fresh clone in
-the first place.
+The block contains no labels and no goto, deliberately. The repository stores
+every file with LF endings and cmd.exe reads a .bat by byte offset, so a goto
+in an LF-only file can land in the wrong place; the other .bat files here are
+LF and work because they never jump. The first draft of this block used four
+labels and two goto loops, to take the last segment of the name and to count
+its characters. Both are gone: the last segment falls out of replacing every
+dash with a space and letting a for loop assign each token in turn, so the
+last assignment wins, and "exactly seven characters" is expressed as ~6,1 not
+empty and ~7 empty. The file now contains the word goto only inside a comment
+explaining why it does not use one.
 
-NOT verified: nothing to verify, this is a documentation change to CLAUDE.md.
+NOT verified, and this is the honest limit: the .bat was not executed, because
+the sandbox has no cmd.exe. What was verified is the decision it encodes - the
+same suffix extraction, the same hexadecimal test and the same three outcomes
+were simulated over eleven cases, including the one that actually happened
+here, elarxml-batch6-7-0f712c8 against a HEAD of 4bce645, which blocks; and
+the unsuffixed names of every earlier delivery, which warn rather than block.
+That proves the rule and not the batch syntax. The syntax gets its first real
+test the next time a zip is deployed, which is why the block prints what it is
+comparing before it decides.
