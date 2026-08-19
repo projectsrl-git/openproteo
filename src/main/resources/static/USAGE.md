@@ -517,3 +517,129 @@ In the CSV view, the free-text filter and the FROM/TO range filters also apply t
 ### Deleting a run
 
 Deleting a run removes its record, its step logs and its step working directories, and the run disappears from the run history. The **audit trail is deliberately kept**: the events of that run (including the deletion itself) remain in the audit log for compliance, they are simply no longer listed as a run.
+
+## The elarxml step
+
+`elarxml` builds ELAR INDX and PULL files from a flat source CSV, replacing the standalone `elar-file-maker.jar`. It reads one row per document, embeds that document's content file as Base64 with its SHA-256, and groups documents into INDX/PULL pairs. Nothing accumulates across documents, so the memory it uses does not depend on how many documents a batch holds or how large the embedded files are.
+
+### The parameters it needs
+
+Six are required and have no defaults.
+
+- `inputDir` - the directory scanned for `*.csv`.
+- `outputDir` - where the INDX and PULL pairs are written.
+- `propertiesPath` - the family mapping properties file.
+- `familyType` - the prefix of every key in that file, for example `CLICT@DT`.
+- `indexTemplatePath` - the INDX template.
+- `pullTemplatePath` - the PULL template.
+
+If any of these is missing the step names **all** of them in one message and stops, so a new feed can be configured in one pass rather than six.
+
+The rest are optional and default to what the legacy tool did, with the three deliberate exceptions listed further down.
+
+- `inputCharset` - default `UTF-8`. The source CSVs from AS/400 are usually `windows-1252`; set it explicitly rather than relying on the platform.
+- `outputCharset` - default `ISO-8859-1`, which is what the templates declare. See the section on encoding below.
+- `onMalformedInput` - `FAIL` (default) or `REPLACE`. `REPLACE` accepts a byte that is invalid in the declared charset by substituting a replacement character, which hides corruption rather than fixing it.
+- `separator` - default `;`.
+- `quoteChar` - empty by default, which disables quoting and makes the parse exactly the legacy split. Set it only if the source really quotes values that contain the separator.
+- `listSeparator` - default `,`, the separator inside `not_duplicated_tags_list`.
+- `skipPrefix` - default `out_`. Files with this prefix are skipped so leftover legacy intermediates in an input directory are ignored. It is a compatibility measure now: this executor writes no intermediate at all.
+- `maxLineLength` - taken from `max.line.length` in the properties file, and `25000` when that key is absent.
+- `batchBy` - `DOCUMENTS` (default) or `BYTES`. See the batching section.
+- `maxBytesPerBatch` - default `209715200` (200 MB). Read only under `batchBy=BYTES`.
+- `oversizeDocumentPolicy` - `WRITE_ALONE` (default) or `FAIL`. Read only under `batchBy=BYTES`.
+- `onMalformedRow` - `FAIL` (default) or `SKIP`. See the pre-scan section.
+- `validate` - `false` by default. See the validation section.
+- `renameProcessed` - `true` by default; the input is renamed to `.done` after its output is delivered.
+- `overwriteExisting` - `false` by default; a final output name that already exists fails the run rather than being replaced.
+- `descriptorsElement` - default `DocumentDescriptors`, the element in the INDX template that holds the per-document blocks.
+
+Batching keys that already live in the properties file are read from there and are not step parameters: `max_index_docs`, `files_per_julian_date`, `julian_date_start`, `start_time`, `index_name_pattern` and `pull_name_pattern`. The byte budget is the exception because it is new and has no properties-file equivalent.
+
+### The pre-scan, and why the step may refuse to start
+
+Before a single byte of output is written, every CSV in `inputDir` is scanned for two things: a row whose field count differs from the header's, and a referenced content file that does not exist. If either is found and `onMalformedRow` is `FAIL`, the run stops with nothing written and no input renamed, and the message names every offending file and line rather than only the first.
+
+This is deliberate and it is a change from the legacy tool, which dropped such rows silently and delivered the feed short. Checking first rather than mid-file matters: by the time a bad row is reached during processing, some batches have already been renamed to their final deliverable names, so the output directory would hold a partial set with nothing to say so, and a re-run would then re-deliver what had already gone out. Scanning first makes the refusal complete - either everything is written or nothing is.
+
+Set `onMalformedRow=SKIP` for a feed where the source cannot be corrected. That restores the legacy behaviour with one difference: the loss is counted and reported instead of being invisible.
+
+### Batching: one rule, not two
+
+`batchBy` selects the rule, and the other limit is not read at all.
+
+- `batchBy=DOCUMENTS` is the default and is exactly what the legacy tool did: a new INDX every `max_index_docs` documents. `maxBytesPerBatch` and `oversizeDocumentPolicy` are ignored.
+- `batchBy=BYTES` rolls over when the next document would take the batch past `maxBytesPerBatch`, checked before the document is written. `max_index_docs` is ignored.
+
+Under `BYTES` the step logs, at start, that `max_index_docs` is not in effect **and what its value is**, because that key sits in the properties file where anyone can read it and would otherwise silently stop mattering.
+
+A single document whose estimated size exceeds the whole budget cannot be split. Under `WRITE_ALONE` the open batch is closed first and the document is written in a batch of its own, exceeding the cap, with a warning and a counter. Under `FAIL` the run stops, explaining that the document can never be written and giving both ways out.
+
+ELAR imposes no maximum INDX size, so the byte budget is an operational convenience rather than a compliance requirement.
+
+### File names, and what happens on a re-run
+
+The `D26229` segment is the two-digit year and the three-digit day of the year. The `C152100` segment is a **synthetic clock**, not a timestamp and not a sequence: it starts at `start_time`, or at the run's own wall-clock time when that key is absent, and advances by exactly sixty seconds per batch. Each PULL takes the counter of its INDX by construction, so a pair always matches.
+
+This has a consequence worth knowing before it surprises anyone. With `start_time` set explicitly, a second run on the same day produces the **same names**, so the run is refused on its first batch rather than replacing a file that may already have been delivered - which is the protection working. With `start_time` absent, the clock takes the wall time, so a re-run produces **new** names, nothing is overwritten, and duplicate deliverables quietly accumulate. In that case the step reports how many files for today's date it already found in the output directory. It reports rather than refuses, because a re-run is most needed immediately after a partial failure.
+
+### Encoding
+
+`outputCharset` defaults to `ISO-8859-1`, matching what the templates declare. The XML declaration written into each file is **generated from that setting** rather than copied from the template, so the encoding a file declares is always the encoding it was actually written in - on any platform and under any locale. The legacy tool copied the declaration and wrote the bytes with the JVM platform default, which on the Italian Windows Server is `windows-1252`, so every delivered file has been declaring one encoding and potentially written in another.
+
+A metadata value that cannot be represented in `outputCharset` fails that document with a message naming the tag and the character's code point. It is never substituted with a question mark, because a silent substitution would place a corrupted value inside a legally archived document with nothing downstream to flag it.
+
+The escape hatch, if a feed's source data contains characters in the `windows-1252` range that ISO-8859-1 has no room for - typographic quotes, en and em dashes, the euro sign - is `outputCharset=windows-1252` for that feed while the source is corrected. Both are honest; only silence is not.
+
+Input and output charsets are independent and are configured separately. The source CSV is typically `windows-1252` while the INDX is `ISO-8859-1`.
+
+### Line breaks
+
+Output lines stay within `maxLineLength`, which is a maximum and not an exact width. Breaks fall only where they are legal: between elements, between attributes inside a start tag, and inside a Base64 payload at a multiple of four so every line holds whole quads. A break never falls inside any other text node, because that would change the value. If a value cannot fit on a line of its own the document fails naming the tag, rather than the line running over or the value being split.
+
+The legacy tool chopped the serialized XML at blind character offsets. That survived because at twenty-five thousand characters a line and payloads of megabytes essentially every break landed inside the Base64, where whitespace is ignored by any decoder - but a metadata value straddling a boundary would have been silently corrupted.
+
+### Validation
+
+`validate` is `false` by default, because these checks have **never executed on any delivered feed**: the legacy validator required four columns and was handed a three-column file, so it returned before running anything. Whatever they find has therefore been in production for as long as the feed has, and enabling them may reject data that is already archived. Run them on a feed that has already been delivered before turning them on anywhere.
+
+Three checks run per row.
+
+- The document id must not repeat. A duplicate names the id, because that is what you need to find the row.
+- Each tag named in `not_duplicated_tags_list` must not carry a repeated value. A duplicate names the tag and the line numbers but not the value, because an arbitrary tag can carry anything.
+- The document id must be present and non-empty.
+
+That third check is not the one the legacy tool intended. Its reference check compared the document id against the value of the tag it maps to, which on a flat row is the same value by construction and can therefore never fail. A check that cannot fail reports confidence it does not have, so it was replaced by the invariant that survives and does still fail on real data.
+
+Memory during validation is two sets of small keys - the document ids, and one value set per configured tag - bounded by the number of documents and by nothing about content size. At a few thousand documents this is nothing. At tens of millions it is not, and that is the point at which this needs revisiting.
+
+### What the step reports
+
+These reach `run.vars` and the step log: `filesProcessed`, `filesFailed`, `documentsWritten`, `documentsSkippedNoPath`, `documentsSkippedFileMissing`, `rowsMalformed`, `tagsWritten`, `batchesWritten`, `documentsOversize`, `bytesEmbedded` and `sameDayPairsFound`.
+
+Skip counts are stated even when they are zero. A line that appears only when something has gone wrong teaches people not to look for it.
+
+No log line ever carries a row's content, a field value, or a path that embeds a customer identifier. File names, line numbers and counters only.
+
+### Three deliberate changes from the legacy tool
+
+Everything else reproduces the legacy behaviour. These three do not, and each changes what happens to a feed that works today.
+
+- A malformed row stops the run instead of being dropped in silence. Escape hatch: `onMalformedRow=SKIP`.
+- A missing content file stops the run instead of the feed being delivered short. Same escape hatch.
+- A family whose properties file does not set `max.line.length` gets `25000` instead of the legacy fallback of `20000`, which moves where its lines break. Families that set the key explicitly, as `CLICT@DT` does, are unaffected.
+
+### Comparing against the legacy output
+
+`ElarEquivalence` compares a directory of legacy output against a directory of new output. Equivalence is semantic rather than byte-identical, because byte-identical is unattainable by construction: the filename clock differs between runs, the line-length default moved, breaks now fall at safe positions, and correct escaping differs from the legacy output wherever the legacy output was wrong.
+
+Run it with `batchBy=DOCUMENTS`, the default and the only rule the legacy tool had. Under `BYTES` the distribution comparison is meaningless.
+
+```
+java -cp openproteo.war com.legalarchive.orchestrator.elar.ElarEquivalence \
+     G:\legacy\out G:\new\out G:\ELAR\OUT\CMOD\S210967_CLICT\SRC
+```
+
+It strips line breaks from both sides and re-parses each, so wrapping cannot register as a difference, then compares the set of document ids, the tags and values of each document including the template constants, the document count, the batch count and the distribution of documents across batches, and the PULLs structurally with attribute order and whitespace normalised away.
+
+The payload of each document is checked against the **source file itself** rather than against the other side, so a mistake both tools share is still caught. It exits `0` when equivalent and `1` when not, and names the document and the tag for every difference - never the value.

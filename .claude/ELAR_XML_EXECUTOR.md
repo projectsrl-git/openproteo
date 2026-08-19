@@ -689,7 +689,74 @@ declaration (`xStr`, `blankToNull`, `VarResolver.resolve`, `Result.outVars`, `Re
 name collision on the two new helpers, and the designer line free of literal `\n`, `[[` and `[(`.
 **`mvn clean package` is the gate before this is deployed.**
 
-Not yet present: `USAGE.md` and the equivalence script (batch 7).
+### Batch 7 — DELIVERED. The executor is complete.
+
+**`USAGE.md`** gained a full `elarxml` section: the parameters, the pre-scan and why the step may
+refuse to start, the one-rule batching, the filename clock and what a re-run does under each
+`start_time` setting, encoding and the `windows-1252` escape hatch, line breaks, validation and why it
+is off, what the step reports, the three deliberate changes from the legacy tool, and how to run the
+comparison. Written to the renderer's rules — one source line per paragraph, one per bullet, no
+markdown tables — and **verified by running `docs.html`'s own `render()` against the real file**: no
+raw markdown leaks outside code blocks, and of the 32 paragraphs in the new section, **zero** are
+sentence fragments, which is what a wrapped source line would produce.
+
+**`ElarEquivalence`** compares a legacy output directory against a new one, semantically, and runs as
+a `main` so it can be pointed at real directories on the server. It strips line breaks from both sides
+and re-parses each, then compares the document-id set, each document's tags and values including the
+template constants, the document count, the batch count and the distribution across batches, and the
+PULLs structurally with attribute order and whitespace normalised away.
+
+The decision worth stating: **each payload is checked against the source file itself, not against the
+other side.** Comparing the two outputs to each other would pass any mistake they share, which is
+exactly the class of mistake a rewrite is most likely to inherit.
+
+**Verified** by 24 assertions driving the comparator against hand-built legacy-shaped output: identical
+content with blind 97-character breaks on one side and none on the other reported as equivalent; a
+changed metadata value caught with the tag and document named but **not the value**; a missing document
+caught and named; a different batch distribution caught, showing both shapes and naming the rule to
+re-run with; **a wrong payload that both sides share still caught**, because the source file is the
+reference; attribute order and whitespace normalised away; a genuinely different PULL caught; `&amp;`
+and `&#38;` treated as the same value; and an accented id comparing equal, proving each file is read
+with the charset it declares.
+
+**A real defect in the comparator was caught by these tests.** `docBlocks` descended to the element
+containing the id tag — which is the id tag itself, since every ancestor contains it too — so every
+document appeared to carry exactly one field and both the metadata and payload comparisons silently
+passed. It now walks **up** from each id element while the ancestor still holds exactly one, stopping
+at the container. A comparator that reports equivalence because it is looking at nothing is the worst
+possible failure for this particular tool, and it took writing the "both sides share a mistake" case
+to find it.
+
+### The seven batches
+
+Spec and answers, flat CSV reader and pre-scan, streaming writer and template model, streaming Base64
+and SHA-256, naming and batching, the run loop and registration, documentation and equivalence. The
+remaining gate is `mvn clean package`, which the sandbox cannot run, and a first comparison against a
+real feed.
+
+**Verified** by 46 assertions compiled with `--release 8`: the declaration following the charset
+parameter rather than the template; template constants surviving while a row value overrides, `BU`
+included; two documents inside the container; escaping in text and in attributes; **no line over the
+maximum, every payload line a whole number of quads, no line ending inside a tag, and the payload
+byte-identical once the breaks are stripped**; the over-long value refused by name; the euro sign
+refused in ISO-8859-1 and accepted under the documented `windows-1252` escape hatch; three malformed
+templates refused with actionable messages; a family with entirely different tag names working
+unchanged; and the atomic file, including that an aborted batch leaves neither a deliverable nor a
+temp. End to end the file is re-read with its declared charset and the accented byte on disk is
+**0xE9** — the declaration is proven against the bytes rather than asserted.
+
+Rule scans clean on the new code with comments excluded, and now also asserting the **absence** of
+`StringWriter`, `ByteArrayOutputStream` and `Transformer`/`DOMSource`: the three vehicles of the
+legacy OutOfMemoryError are gone by construction rather than by discipline.
+
+**Verified** by 62 assertions compiled with `-source 8`, covering the production NPE and its
+replacement message, both unprefixed-key paths and their precedence, the doc-id translation and its
+failure, the charset failure and the `REPLACE` escape, trailing empty fields against the legacy
+`split` for comparison, the BOM, quoting on and off over the same line, and the pre-scan across
+several files including the capped listing, the "malformed row is not also counted missing" rule and
+the traversal case. The rule scans run clean on the new package with comments excluded: no family
+literal, no charset-less `getBytes()`, no `FileWriter`/`FileReader`, no platform-default
+`OutputStreamWriter`, no `ofPattern` containing `DD`.
 
 **Verified** by 46 assertions compiled with `--release 8`: the declaration following the charset
 parameter rather than the template; template constants surviving while a row value overrides, `BU`

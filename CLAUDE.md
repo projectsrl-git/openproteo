@@ -1747,3 +1747,19 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   need the Spring tree from the internal Nexus, unreachable here. Checked structurally instead (brace
   balance, every helper/field verified against its real declaration, no helper-name collision, the
   designer line free of literal `\n` / `[[` / `[(`). `mvn clean package` is the gate before deploy.
+
+## elarxml — Batch 7 delivered: USAGE.md + equivalence comparator. Executor COMPLETE.
+* `USAGE.md` elarxml section written to the renderer's rules and **verified by running docs.html's own
+  `render()` against the real file** — note `render()` returns `{html, toc}`, not a string, and the
+  script needs `#doc`, `#toc` and `#clock` to bootstrap under jsdom. Result: no raw markdown leaking
+  outside code blocks; of 32 paragraphs in the new section, ZERO are sentence fragments (the 118
+  fragments elsewhere are pre-existing, not mine). * `ElarEquivalence` runs as a `main` against real
+  directories. **Each payload is checked against the SOURCE FILE, not against the other side** —
+  comparing the two outputs to each other would pass any mistake they share, which is the class a
+  rewrite is most likely to inherit. * **A real defect was caught by that very test**: `docBlocks`
+  descended to the element containing the id tag, which is the id tag ITSELF since every ancestor
+  contains it, so every document looked like it carried one field and both comparisons silently
+  passed. Now walks UP while the ancestor holds exactly one id, stopping at the container. A
+  comparator reporting equivalence because it is looking at nothing is the worst failure this tool
+  could have. * 24 assertions; all seven suites green. * **Remaining gate: `mvn clean package`**, which
+  the sandbox cannot run, plus a first real comparison.

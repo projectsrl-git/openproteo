@@ -1,67 +1,69 @@
-elarxml batch 6: the run loop, and registration in five places
+elarxml batch 7: USAGE.md and the equivalence comparator
 
-The executor itself, and the wiring that makes it reachable from a workflow.
+The documentation and the comparison against the legacy JAR. With this the
+executor is complete.
 
-ElarRun holds the run loop and stays free of Spring and of the orchestrator's
-own types, exactly as the rest of the package does. That is not tidiness: it
-is what allows the whole executor to be exercised end to end against real
-files on disk in a test, rather than only on deploy. runElarXml in
-InternalSteps does two things and nothing else - translate step parameters
-into options, and translate counters back into run variables.
+USAGE.md gains a full elarxml section covering the parameters, the pre-scan
+and why the step may refuse to start, the one-rule batching, the filename
+clock and what a re-run does under each start_time setting, the encoding and
+its escape hatch, the line-break rule, validation and why it is off by
+default, what the step reports, the three deliberate changes from the legacy
+tool, and how to run the comparison.
 
-IndxTemplate needed a streaming form. The one-call write, which takes a list
-of documents, would have meant building the list of a batch's documents before
-writing any of them, and that is precisely the accumulation this rewrite
-exists to remove. Prologue, each document and epilogue are now separate calls,
-and the caller decides how many documents go between them.
+It is written to the renderer's rules - one source line per paragraph, one per
+bullet, no markdown tables - and that was verified rather than assumed, by
+extracting docs.html's own render function and running it against the real
+file under jsdom. No raw markdown leaks outside the code blocks, and of the
+thirty-two paragraphs in the new section none is a sentence fragment, which is
+what a wrapped source line would produce. Two things about the renderer are
+worth recording for next time: it returns an object with html and toc rather
+than a string, and its script needs the doc, toc and clock elements present
+before it will bootstrap.
 
-Registration is in five places rather than four: the parser whitelist, the
-parser's own error message, the parser's internal set,
-WorkflowEngine.internalKind, the InternalSteps dispatch, and the designer
-dropdown. The error message and the dropdown are the two that get forgotten,
-and the reportQuery defect earlier in this project was exactly a preview that
-disagreed with the writer.
+ElarEquivalence compares a directory of legacy output against a directory of
+new output and runs as a main, so it can be pointed at real directories on the
+server. Equivalence is semantic rather than byte-identical, because
+byte-identical is unattainable by construction: the filename clock differs
+between runs, the line-length default moved, breaks now fall at safe
+positions, and correct escaping differs from the legacy output wherever the
+legacy output was wrong. It strips the line breaks from both sides and
+re-parses each, so wrapping cannot register as a difference, then compares the
+document-id set, each document's tags and values including the template
+constants, the document count, the batch count and the distribution of
+documents across batches, and the PULLs structurally with attribute order and
+whitespace normalised away.
 
-Every missing required parameter is named in one message. An operator
-configuring a new feed should not have to run the step six times to be told
-six things.
+The decision worth stating is that each payload is checked against the source
+file itself rather than against the other side. Comparing the two outputs to
+each other would pass any mistake the two tools share, and that is exactly the
+class of mistake a rewrite is most likely to inherit from what it replaces.
 
-Verified with 39 assertions across two harnesses. End to end against real
-files: five documents in three batches, filenames sixty seconds apart, each
-INDX parsing as XML with its prologue, its template constants, its mapped
-values and an uppercase DSAK. The load-bearing assertion is that the digest in
-the delivered INDX matches the SHA-256 of the source file's raw bytes, and
-that the embedded Base64, decoded, hashes to that same value - so the file
-that went in is provably the file that came out. Then: the PULL referencing
-its own INDX by name; the input renamed only after delivery; a missing content
-file refusing the run with the output directory untouched and the input
-unrenamed; batching by BYTES with the ignored max_index_docs named in the log;
-an oversize document alone in its batch; validate off by default and reporting
-when on; an empty input directory saying so rather than succeeding quietly;
-leftover out_ intermediates ignored; an existing final name refused with
-neither a PULL nor a .part left behind; a mapped tag missing from the template
-warned about; and no row content anywhere in the log. Separately, runElarXml
-was extracted and run against stubs of the real signatures: all six missing
-parameters in one message, a partial configuration naming only what is
-actually missing, and a failure inside the run reported through the step log
-rather than thrown at the engine.
+Verified with 24 assertions driving the comparator against hand-built
+legacy-shaped output: identical content with blind ninety-seven-character
+breaks on one side and none on the other reported as equivalent; a changed
+metadata value caught with the tag and the document named but not the value; a
+missing document caught and named; a different batch distribution caught,
+showing both shapes and naming the rule to re-run with; a wrong payload that
+both sides share still caught, because the source file is the reference;
+attribute order and added whitespace normalised away; a genuinely different
+PULL caught; an ampersand written two different but equivalent ways treated as
+the same value; and an accented id comparing equal, which proves each file is
+read with the charset it declares.
 
-One of these tests caught a real behaviour I had documented but not pinned.
-With output.start_time set explicitly the synthetic clock restarts at the same
-value, so a same-day re-run produces colliding filenames and the run is
-refused on its first batch rather than replacing a file that may already have
-been delivered. With start_time unset the clock takes the wall time, a re-run
-produces new names, and duplicates accumulate quietly - which is what the
-same-day warning covers. Both are now separate assertions rather than one
-assumption, since which of the two applies depends only on a line in a
-properties file.
+One of those tests caught a real defect in the comparator itself. docBlocks
+descended to the element containing the id tag, which is the id tag itself,
+since every ancestor contains it too and the recursion had no reason to stop
+earlier. Every document therefore appeared to carry exactly one field, and
+both the metadata comparison and the payload comparison passed silently. It
+now walks up from each id element for as long as the ancestor still holds
+exactly one, stopping at the first that holds two or more - that ancestor is
+the container and the element below it is the block, whatever the family calls
+it. A comparator that reports equivalence because it is looking at nothing is
+the worst failure this particular tool could have, and it took writing the
+case where both sides share a mistake to find it.
 
-NOT compiled, and this is the honest limit of this batch: InternalSteps,
-WorkflowXmlParser, WorkflowEngine and designer.html need the full Spring tree
-from the internal Nexus, which the sandbox cannot reach. They were checked
-structurally instead - brace and parenthesis balance, every helper and field
-verified against its real declaration rather than assumed, no name collision
-on the two helpers added, and the designer line checked for literal
-backslash-n, for the Thymeleaf markers and for anything the corporate proxy
-rewrites. mvn clean package is the gate before this is deployed, and it is the
-first thing to run.
+NOT verified: mvn clean package, which needs the internal Nexus and is the
+gate before any of this is deployed, and a first comparison against a real
+feed. For that: run the legacy JAR and the new step over the same input into
+two directories, with batchBy left at its default, then point ElarEquivalence
+at those two directories and the content source directory.
