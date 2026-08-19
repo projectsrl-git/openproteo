@@ -1729,3 +1729,21 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   * 30 assertions, `--release 8`; batches 1-4 re-run. **Two failures on the first run were both mine**:
   the helper put the id tag into the unique list, so two checks legitimately fired where the assertion
   expected one — isolated, with the two-checks case kept as its own deliberate assertion.
+* `ElarRun` keeps the whole executor free of Spring, so it is tested END TO END against real files on
+  disk rather than only on deploy. `runElarXml` in `InternalSteps` does nothing but translate
+  parameters in and counters out. * `IndxTemplate` needed a STREAMING form: the one-call
+  `write(out, docs)` would mean building the list of a batch's documents first, which is the very
+  accumulation this rewrite removes. Prologue / document / epilogue are now separate calls.
+  * **FIVE registration points**: parser whitelist, **the parser's error message**, parser `internal`
+  set, `WorkflowEngine.internalKind()`, `InternalSteps` dispatch, designer dropdown. The message and
+  the dropdown are the two that get forgotten — `reportQuery` was exactly a preview disagreeing with
+  the writer. * Missing required parameters are ALL named in one message: nobody should run a step six
+  times to be told six things. * 39 assertions across two harnesses; the load-bearing one is that the
+  digest in the DELIVERED INDX matches the source file's raw bytes AND the embedded payload decodes
+  back to that same digest. * **A test caught a behaviour I had not pinned**: with `output.start_time`
+  set, a same-day re-run produces COLLIDING names and is refused on the first batch; with it unset the
+  clock takes wall time, names differ, and duplicates accumulate. Both now pinned separately.
+  * **NOT COMPILED**: `InternalSteps`, `WorkflowXmlParser`, `WorkflowEngine`, `designer.html` — they
+  need the Spring tree from the internal Nexus, unreachable here. Checked structurally instead (brace
+  balance, every helper/field verified against its real declaration, no helper-name collision, the
+  designer line free of literal `\n` / `[[` / `[(`). `mvn clean package` is the gate before deploy.

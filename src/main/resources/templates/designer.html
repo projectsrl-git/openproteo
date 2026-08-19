@@ -846,6 +846,7 @@
                     '<option value="xlsx2csv"' + (ex === 'xlsx2csv' ? ' selected' : '') + '>xlsx2csv (Excel sheet → CSV)</option>' +
                     '<option value="diff"' + (ex === 'diff' ? ' selected' : '') + '>diff (reconcile two CSVs)</option>' +
                     '<option value="sqlreport"' + (ex === 'sqlreport' ? ' selected' : '') + '>sqlreport (read-only queries → Markdown report)</option>' +
+                    '<option value="elarxml"' + (ex === 'elarxml' ? ' selected' : '') + '>elarxml (ELAR \u2014 build INDX/PULL from a flat CSV)</option>' +
                     '</select></div>';
                 h += '<div class="field wide"><label>Script / executable (relative to scripts dir or absolute)' + (isExternal(ex) ? ' *' : '') + '</label>' +
                     '<input value="' + attresc(n.script) + '" placeholder="' + (isExternal(ex) ? 'Prepare-Feed.ps1 | tool.bat | app.jar' : '(not used for this executor)') + '" oninput="updNode(' + i + ',\'script\',this.value)"' + (isExternal(ex) ? '' : ' disabled') + '></div>' +

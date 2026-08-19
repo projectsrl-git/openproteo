@@ -127,11 +127,65 @@ public final class IndxTemplate {
         boolean isContentTag(String qname);
     }
 
-    /** Emits the whole document: prologue, one block per document, epilogue. */
+    /** Emits the whole document in one call. Used by tests; the run streams instead. */
     public void write(WrappingXmlOut out, List<DocSource> docs) throws IOException {
         out.declaration();
         emit(out, doc.getDocumentElement(), docs);
         out.newLine();
+    }
+
+    /*
+     * The streaming form. The run cannot hand over a list of documents, because building that list
+     * would mean holding every document of a batch in memory - which is the accumulation this whole
+     * rewrite exists to remove. So the prologue, each document and the epilogue are written
+     * separately, and the caller decides how many documents go between them.
+     */
+
+    private final java.util.ArrayDeque<String> openTags = new java.util.ArrayDeque<String>();
+
+    /** Everything up to and including the container's start tag. */
+    public void writePrologue(WrappingXmlOut out) throws IOException {
+        out.declaration();
+        openTags.clear();
+        emitOpen(out, doc.getDocumentElement());
+    }
+
+    /** One document block. */
+    public void writeDocument(WrappingXmlOut out, DocSource src) throws IOException {
+        emitBlock(out, block, src);
+    }
+
+    /** The container's end tag and everything after it. */
+    public void writeEpilogue(WrappingXmlOut out) throws IOException {
+        while (!openTags.isEmpty()) out.endElement(openTags.pop());
+        out.newLine();
+    }
+
+    /**
+     * Walks down to the container, emitting start tags and any siblings that precede it, and records
+     * the tags left open so the epilogue can close them in the right order.
+     */
+    private void emitOpen(WrappingXmlOut out, Element e) throws IOException {
+        String q = e.getNodeName();
+        out.startElement(q);
+        writeAttrs(out, e);
+        out.closeStartTag();
+        openTags.push(q);
+        if (e == container) return;
+        List<Element> kids = elementChildren(e);
+        String txt = directText(e);
+        if (!txt.isEmpty()) out.text(q, txt);
+        for (int i = 0; i < kids.size(); i++) {
+            if (containsContainer(kids.get(i))) { emitOpen(out, kids.get(i)); return; }
+            emit(out, kids.get(i), java.util.Collections.<DocSource>emptyList());
+        }
+    }
+
+    private boolean containsContainer(Element e) {
+        if (e == container) return true;
+        List<Element> kids = elementChildren(e);
+        for (int i = 0; i < kids.size(); i++) if (containsContainer(kids.get(i))) return true;
+        return false;
     }
 
     private void emit(WrappingXmlOut out, Element e, List<DocSource> docs) throws IOException {

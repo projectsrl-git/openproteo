@@ -642,8 +642,54 @@ Two assertions failed on the first run and **both were mine, not the code's**: t
 id tag into the unique list as well, so two checks legitimately fired where the assertion expected one.
 Isolated, with the two-checks case kept as its own deliberate assertion.
 
-Not yet present, deliberately: registration (batch 6), `USAGE.md` and the equivalence script
-(batch 7).
+### Batch 6 — DELIVERED
+
+**`ElarRun`** — the run loop, still free of Spring and of the orchestrator's own types, so the whole
+executor is exercised end to end **against real files in a test** rather than only on deploy. Pre-scan
+every input, then stream each row: map, digest, embed, discard. Nothing accumulates.
+
+`IndxTemplate` gained the streaming form it needed. The one-call `write(out, docs)` would have meant
+building the list of documents in a batch first — which is exactly the accumulation this rewrite
+exists to remove — so prologue, each document and epilogue are written separately and the caller
+decides how many go between them.
+
+**Registration in five places**, not four: the parser whitelist, **its error message**, the parser
+`internal` set, `WorkflowEngine.internalKind()`, the `InternalSteps` dispatch, and the designer
+dropdown. The message and the dropdown are the two that get forgotten — the `reportQuery` defect was
+exactly a preview that disagreed with the writer.
+
+`runElarXml` does two things only: translate parameters into options and counters back into run
+variables. Every missing required parameter is named in **one** message; an operator configuring a new
+feed should not have to run the step six times to be told six things.
+
+**Verified** by 39 assertions across two harnesses. End to end against real files on disk: five
+documents in three batches, filenames sixty seconds apart, each INDX parsing as XML with its
+prologue, its constants, its mapped values and an uppercase DSAK; **the digest in the delivered INDX
+matching the source file's raw bytes, and the embedded payload decoding back to that same digest**;
+the PULL referencing its own INDX; the input renamed only after delivery; a missing content file
+refusing the run with the output directory untouched and the input unrenamed; batching by BYTES with
+the ignored `max_index_docs` named in the log; an oversize document alone in its batch; validate off
+by default and reporting when on; an empty input directory saying so; leftover `out_*` intermediates
+ignored; an existing final name refused with no PULL and no `.part` left behind; a mapped tag missing
+from the template warned about; and **no row content anywhere in the log**. Separately, `runElarXml`
+extracted against stubs of the real signatures: all six missing parameters in one message, a partial
+configuration naming only what is missing, and a failure inside the run reported rather than thrown at
+the engine.
+
+**A test of mine caught a real behaviour I had not pinned.** With `output.start_time` set explicitly,
+the synthetic clock restarts at the same value, so a same-day re-run produces **colliding filenames**
+and the run is refused on its first batch rather than replacing a delivered file. With `start_time`
+unset it takes the wall clock, so a re-run produces new names and duplicates accumulate — which is
+what the warning covers. Both are now pinned as separate assertions rather than one assumption.
+
+**NOT compiled**: `InternalSteps`, `WorkflowXmlParser`, `WorkflowEngine` and `designer.html` need the
+full Spring tree from the internal Nexus, which the sandbox cannot reach. They were checked
+structurally — brace and parenthesis balance, every helper and field verified against its real
+declaration (`xStr`, `blankToNull`, `VarResolver.resolve`, `Result.outVars`, `Result.exitCode`), no
+name collision on the two new helpers, and the designer line free of literal `\n`, `[[` and `[(`.
+**`mvn clean package` is the gate before this is deployed.**
+
+Not yet present: `USAGE.md` and the equivalence script (batch 7).
 
 **Verified** by 46 assertions compiled with `--release 8`: the declaration following the charset
 parameter rather than the template; template constants surviving while a row value overrides, `BU`

@@ -93,6 +93,8 @@ public class InternalSteps {
                 runSafeCopy(step, resolvedParams, vars, res, line);
             } else if ("dequote".equals(kind)) {
                 runDequote(step, resolvedParams, vars, res, line);
+            } else if ("elarxml".equals(kind)) {
+                runElarXml(step, resolvedParams, vars, res, line);
             } else if ("csvsql".equals(kind)) {
                 runCsvSql(step, resolvedParams, vars, res, line, control);
             } else if ("xlsx2csv".equals(kind)) {
@@ -1538,6 +1540,90 @@ public class InternalSteps {
      * hasHeader (default true), columns (comma-separated names or 1-based indexes; empty=all),
      * bom (default false), quoteIfNeeded (default true).
      */
+    /**
+     * The ELAR INDX/PULL builder. Everything of substance lives in
+     * {@code com.legalarchive.orchestrator.elar}, free of Spring and of the orchestrator's own types,
+     * so the whole run is exercised in tests against real files rather than only on deploy. This
+     * method does two things and nothing else: translate step parameters into options, and translate
+     * counters back into run variables.
+     */
+    private void runElarXml(StepDef step, Map<String, String> params, Map<String, String> vars,
+                            StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        com.legalarchive.orchestrator.elar.ElarRun.Options o =
+                new com.legalarchive.orchestrator.elar.ElarRun.Options();
+
+        String inputDir = blankToNull(VarResolver.resolve(params.get("inputDir"), vars));
+        String outputDir = blankToNull(VarResolver.resolve(params.get("outputDir"), vars));
+        String propsPath = blankToNull(VarResolver.resolve(params.get("propertiesPath"), vars));
+        String family = blankToNull(VarResolver.resolve(params.get("familyType"), vars));
+        String indexTpl = blankToNull(VarResolver.resolve(params.get("indexTemplatePath"), vars));
+        String pullTpl = blankToNull(VarResolver.resolve(params.get("pullTemplatePath"), vars));
+        // every required parameter is reported in ONE message: an operator configuring a new feed
+        // should not have to run the step six times to be told six things
+        java.util.List<String> missing = new java.util.ArrayList<String>();
+        if (inputDir == null) missing.add("inputDir");
+        if (outputDir == null) missing.add("outputDir");
+        if (propsPath == null) missing.add("propertiesPath");
+        if (family == null) missing.add("familyType");
+        if (indexTpl == null) missing.add("indexTemplatePath");
+        if (pullTpl == null) missing.add("pullTemplatePath");
+        if (!missing.isEmpty()) {
+            line.accept("elarxml: missing required parameter(s): " + String.join(", ", missing));
+            res.exitCode = 2;
+            return;
+        }
+        o.inputDir = new java.io.File(inputDir);
+        o.outputDir = new java.io.File(outputDir);
+        o.propertiesFile = new java.io.File(propsPath);
+        o.familyType = family;
+        o.indexTemplate = new java.io.File(indexTpl);
+        o.pullTemplate = new java.io.File(pullTpl);
+
+        o.inputCharset = xStr(params.get("inputCharset"), "UTF-8");
+        o.outputCharset = xStr(params.get("outputCharset"), "ISO-8859-1");
+        o.failOnMalformedInput = !"REPLACE".equalsIgnoreCase(xStr(params.get("onMalformedInput"), "FAIL"));
+        String sep = params.get("separator");
+        if (sep != null && !sep.isEmpty()) o.separator = sep.charAt(0);
+        String q = params.get("quoteChar");
+        if (q != null && !q.isEmpty()) o.quoteChar = q.charAt(0);
+        o.listSeparator = xStr(params.get("listSeparator"), ",");
+        o.skipPrefix = xStr(params.get("skipPrefix"), "out_");
+        o.maxLineLength = intParam(params.get("maxLineLength"), 0);
+        o.batchBy = "BYTES".equalsIgnoreCase(xStr(params.get("batchBy"), "DOCUMENTS"))
+                ? com.legalarchive.orchestrator.elar.BatchPolicy.By.BYTES
+                : com.legalarchive.orchestrator.elar.BatchPolicy.By.DOCUMENTS;
+        o.maxBytesPerBatch = longParam(params.get("maxBytesPerBatch"), 200L * 1024 * 1024);
+        o.oversize = "FAIL".equalsIgnoreCase(xStr(params.get("oversizeDocumentPolicy"), "WRITE_ALONE"))
+                ? com.legalarchive.orchestrator.elar.BatchPolicy.Oversize.FAIL
+                : com.legalarchive.orchestrator.elar.BatchPolicy.Oversize.WRITE_ALONE;
+        o.onMalformedRowFail = !"SKIP".equalsIgnoreCase(xStr(params.get("onMalformedRow"), "FAIL"));
+        o.validate = "true".equalsIgnoreCase(params.get("validate"));
+        o.renameProcessed = !"false".equalsIgnoreCase(params.get("renameProcessed"));
+        o.overwriteExisting = "true".equalsIgnoreCase(params.get("overwriteExisting"));
+        o.descriptorsElement = xStr(params.get("descriptorsElement"), "DocumentDescriptors");
+
+        try {
+            com.legalarchive.orchestrator.elar.ElarCounters c =
+                    com.legalarchive.orchestrator.elar.ElarRun.run(o, line);
+            for (Map.Entry<String, String> e : c.asVars().entrySet()) res.outVars.put(e.getKey(), e.getValue());
+            // a run that wrote nothing is not a failure, but it is not a success worth being quiet
+            // about either: the counters say so and the step log carries the reason
+            res.exitCode = 0;
+        } catch (Exception ex) {
+            line.accept("elarxml: " + ex.getMessage());
+            res.exitCode = 2;
+        }
+    }
+
+    private static int intParam(String v, int def) {
+        if (v == null || v.trim().isEmpty()) return def;
+        try { return Integer.parseInt(v.trim()); } catch (NumberFormatException e) { return def; }
+    }
+    private static long longParam(String v, long def) {
+        if (v == null || v.trim().isEmpty()) return def;
+        try { return Long.parseLong(v.trim()); } catch (NumberFormatException e) { return def; }
+    }
+
     private void runDequote(StepDef step, Map<String, String> params, Map<String, String> vars,
                             StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
         String inPath = VarResolver.resolve(step.source, vars);

@@ -1,59 +1,67 @@
-elarxml batch 5: the validate checks, and the one that could not exist
+elarxml batch 6: the run loop, and registration in five places
 
-The checks the legacy Validator was supposed to perform and never did, off by
-default.
+The executor itself, and the wiring that makes it reachable from a workflow.
 
-Why it never ran is worth repeating in the code, and is: CsvValidator.validate
-began by requiring four columns, the vertical intermediate it was handed has
-three, so it returned immediately and silently before any check executed.
-Every delivered INDX went out unvalidated.
+ElarRun holds the run loop and stays free of Spring and of the orchestrator's
+own types, exactly as the rest of the package does. That is not tidiness: it
+is what allows the whole executor to be exercised end to end against real
+files on disk in a test, rather than only on deploy. runElarXml in
+InternalSteps does two things and nothing else - translate step parameters
+into options, and translate counters back into run variables.
 
-Two of the three checks are reproduced. The third is not, and that is the
-substantive decision in this batch. The reference check compared the document
-id against the value of the tag that doc_id_reference maps to. On a vertical
-intermediate those were different things; on a flat row they are the same
-value by construction, because the document id is the value of the column that
-maps to that tag. The check can therefore never fail. A green check that
-cannot go red is worse than no check at all, since it reports confidence it
-does not have, so it is replaced by the invariant that survives the
-translation and can still fail on real data: the document id must be present
-and non-empty. Section 10 of the spec now records this rather than leaving the
-original wording to be implemented literally by whoever picks it up next.
+IndxTemplate needed a streaming form. The one-call write, which takes a list
+of documents, would have meant building the list of a batch's documents before
+writing any of them, and that is precisely the accumulation this rewrite
+exists to remove. Prologue, each document and epilogue are now separate calls,
+and the caller decides how many documents go between them.
 
-Two reporting decisions are worth stating. A duplicate document id names the
-id, because it is a document identifier and is what an operator needs in order
-to find the row - the same class of value the pre-scan already reports for a
-missing content file. A duplicate value on any other tag names the tag and the
-line numbers but never the value, because an arbitrary tag can carry anything
-at all and the tag plus the line number is enough to act on. Findings are data
-rather than errors, so nothing here throws, including on a null row.
+Registration is in five places rather than four: the parser whitelist, the
+parser's own error message, the parser's internal set,
+WorkflowEngine.internalKind, the InternalSteps dispatch, and the designer
+dropdown. The error message and the dropdown are the two that get forgotten,
+and the reportQuery defect earlier in this project was exactly a preview that
+disagreed with the writer.
 
-Memory is two sets of small keys: the document ids, and one value set per tag
-named in not_duplicated_tags_list. That is bounded by the document count and
-by nothing about content size. At a few thousand documents it is nothing; at
-tens of millions it is not, and the spec says so explicitly, because the point
-at which this needs revisiting should be written down rather than discovered
-as an OutOfMemoryError.
+Every missing required parameter is named in one message. An operator
+configuring a new feed should not have to run the step six times to be told
+six things.
 
-Verified with 30 assertions compiled with --release 8 and run: a clean file
-saying so rather than staying silent, which is the whole point of running a
-check; the duplicate id flagged on the second occurrence with the id named; an
-empty, absent or whitespace-only id caught and not also counted as a
-duplicate; duplicate tag values naming the tag but not the value; absent and
-blank values not counting as duplicates of each other; values compared
-trimmed, as the map lookups are; the listing capped at twenty with the count
-left uncapped and the message saying how many more; the message reporting that
-no not_duplicated_tags_list is configured rather than looking as though the
-check passed; a repeated tag in the list collapsed; and a null row handled
-without an exception. The batch 1 to 4 suites were re-run and pass.
+Verified with 39 assertions across two harnesses. End to end against real
+files: five documents in three batches, filenames sixty seconds apart, each
+INDX parsing as XML with its prologue, its template constants, its mapped
+values and an uppercase DSAK. The load-bearing assertion is that the digest in
+the delivered INDX matches the SHA-256 of the source file's raw bytes, and
+that the embedded Base64, decoded, hashes to that same value - so the file
+that went in is provably the file that came out. Then: the PULL referencing
+its own INDX by name; the input renamed only after delivery; a missing content
+file refusing the run with the output directory untouched and the input
+unrenamed; batching by BYTES with the ignored max_index_docs named in the log;
+an oversize document alone in its batch; validate off by default and reporting
+when on; an empty input directory saying so rather than succeeding quietly;
+leftover out_ intermediates ignored; an existing final name refused with
+neither a PULL nor a .part left behind; a mapped tag missing from the template
+warned about; and no row content anywhere in the log. Separately, runElarXml
+was extracted and run against stubs of the real signatures: all six missing
+parameters in one message, a partial configuration naming only what is
+actually missing, and a failure inside the run reported through the step log
+rather than thrown at the engine.
 
-Two assertions failed on the first run and both were mine rather than the
-code's: the test helper put the document-id tag into the unique-tag list as
-well, so two checks legitimately fired where the assertion expected one. They
-are isolated now, and the two-checks case is kept as its own deliberate
-assertion so the behaviour is pinned rather than merely avoided.
+One of these tests caught a real behaviour I had documented but not pinned.
+With output.start_time set explicitly the synthetic clock restarts at the same
+value, so a same-day re-run produces colliding filenames and the run is
+refused on its first batch rather than replacing a file that may already have
+been delivered. With start_time unset the clock takes the wall time, a re-run
+produces new names, and duplicates accumulate quietly - which is what the
+same-day warning covers. Both are now separate assertions rather than one
+assumption, since which of the two applies depends only on a line in a
+properties file.
 
-NOT verified: mvn clean package, and the checks against real data. Worth
-running once with validate=true on a feed already delivered before turning it
-on anywhere: these checks have never executed, so whatever they find has been
-in production for as long as the feed has.
+NOT compiled, and this is the honest limit of this batch: InternalSteps,
+WorkflowXmlParser, WorkflowEngine and designer.html need the full Spring tree
+from the internal Nexus, which the sandbox cannot reach. They were checked
+structurally instead - brace and parenthesis balance, every helper and field
+verified against its real declaration rather than assumed, no name collision
+on the two helpers added, and the designer line checked for literal
+backslash-n, for the Thymeleaf markers and for anything the corporate proxy
+rewrites. mvn clean package is the gate before this is deployed, and it is the
+first thing to run.
