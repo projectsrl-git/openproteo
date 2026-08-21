@@ -181,7 +181,7 @@ Both business-date bound checks read **Date format** as OpenProteo's own date **
 - **safecopy** — copy files matching one or more wildcards (comma-separated, e.g. `*.md5, *.tar`) from one directory to another, writing each
   file as `<name>.on_fly_` and renaming it to the final name only after the copy completes
   (atomic move when possible). Prevents a downstream watcher from picking up a partial file.
-- **ifscopy** — copy from an IBM i IFS path to local. This is the one executor that needs the **IBM i native** datasource type, because it reuses that connection's credentials for the file transfer.
+- **ifscopy** — copy from an IBM i IFS path to local, either by listing a directory and matching a pattern or by copying exactly the files named in one column of a CSV (see «ifscopy: copying the files listed in a CSV»). This is the one executor that needs the **IBM i native** datasource type, because it reuses that connection's credentials for the file transfer.
 - **csvreplace** — string substitution inside CSV columns.
 - **validate** — run a checklist of validations over a CSV.
 - **anonymize** — ARX-based CSV anonymization (statistical; in progress).
@@ -219,6 +219,24 @@ dates would shift by ~4 years. **Formulas are never calculated** — only the ca
 the file is emitted (empty if absent). The shared-strings table is read in memory, fine for typical
 extracts. `.xls` (the old BIFF format), merged-header flattening and formula evaluation are
 out of scope for this batch.
+
+## ifscopy: copying the files listed in a CSV
+
+The **Files to copy** dropdown on an `ifscopy` step chooses between two shapes. **directory + pattern** is what the executor has always done — list an IFS directory and copy what matches the glob — and it is what a step with nothing set still does, unchanged. **The ones listed in a CSV column** copies exactly the files named in one column of a CSV, typically the output of an earlier step in the same workflow: an extraction produces a list of document paths, and this step fetches those documents and nothing else.
+
+You give it the **file list CSV** (a `${dir.<stepId>}/…` path from an earlier step works, and so does a feed-relative one), the **column with the file name** (a header name, matched ignoring case, or a 1-based column number — a number is only tried when no column carries that name, so a column genuinely called `2` still wins), and optionally the **path to prepend**, the **delimiter** (empty = detected from the header, exactly as `csvsql` detects it), the **charset** (default UTF-8) and whether the file **has a header** (default yes).
+
+**The path to prepend is for lists that hold bare file names.** A name that already starts with `/` is taken as a full IFS path and the prefix is **not** applied, so one step can read a column that sometimes holds a full path and sometimes a name. When the prefix is left empty the **IFS source path** field above it is used as the base instead, which means a list of bare names needs no second copy of the directory it came from; when both are empty the names are used as they are. Whichever base was used is written in the step log. A backslash inside a name is left alone: it is a legal character in an IFS file name, and rewriting it would corrupt a genuine name to accommodate a Windows-flavoured list this source system does not produce.
+
+**Nothing is lost in silence.** Before any transfer starts the step logs how many rows it read, how many files it is about to copy, how many repeated names it collapsed (a file listed twice is copied once) and how many rows carried no file name at all, naming the first fifty line numbers. A row whose cell is empty, or that is too short to have that column, is counted rather than skipped invisibly; a physically empty line is not counted as a row at all.
+
+**When a listed file is not on the IFS the step fails**, naming it, and this is the default. It can be set to skip and count instead, in which case the missing files are counted in `${missingFiles}` and named in the log. There is deliberately no existence pre-scan: checking every file first would cost one round trip per listed file — for a list of thousands, the whole transfer twice over — and the destination here is a step working directory, not a delivered set, so stopping at the first problem loses nothing that a re-run does not recover. The files copied before the stop are reported as usual.
+
+**Two listed files whose names differ but whose local name is the same** — `/one/x.pdf` and `/two/x.pdf` — would land on top of each other in the destination directory, and by default that fails the step before anything is copied. The alternative would be a step reporting success with fewer files than it copied. Set the collision policy to let the later one win only when that is genuinely what you want; the usual answers are to copy them in separate steps with different destinations.
+
+**The pattern field is ignored** in this shape, and if one is set the step says so in its log rather than leaving you to wonder which of the two rules applied. **Overwrite** keeps its meaning: with it off, a file already present locally is left alone and counted in `${skippedExisting}`.
+
+Outputs, in addition to the usual `${filesCopied}`, `${bytesCopied}` and `${matchedFiles}`: `${listRows}` (data rows read), `${listedFiles}` (distinct files the list asked for), `${duplicatesInList}`, `${blankNames}`, `${missingFiles}` and `${skippedExisting}`. Comparing `${listedFiles}` with `${filesCopied}` is the one check worth putting in a downstream `validate` step.
 
 ## Gates
 

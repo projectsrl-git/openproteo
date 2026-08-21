@@ -156,7 +156,7 @@ A STEP runs one executor. Built-in (internal) executors:
 - **safecopy** — copy files matching one or more wildcards (comma-separated, e.g. `*.md5, *.tar`) from one directory to another, writing each
   file as `<name>.on_fly_` and renaming it to the final name only after the copy completes
   (atomic move when possible). Prevents a downstream watcher from picking up a partial file.
-- **ifscopy** — copy from an AS400 IFS path to local.
+- **ifscopy** — copy from an AS400 IFS path to local, either by directory + pattern or by copying the files named in one column of a CSV (see USAGE.md, "ifscopy: copying the files listed in a CSV").
 - **csvreplace** — string substitution inside CSV columns.
 - **validate** — run a checklist of validations over a CSV.
 - **anonymize** — ARX-based CSV anonymization (statistical; in progress).

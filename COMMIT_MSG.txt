@@ -1,68 +1,59 @@
-Relationships in the standalone CSV viewer
+ifscopy: copy the files listed in a CSV column
 
-Batch 2 of the linked-entity spec. csv-viewer.html gains tabs, a memory
-budget, declared relationships and the focus diagram, on the same shared core
-the JSON viewer runs.
+A new param, listSource, gives the IFS copy executor a second shape. Absent or
+'pattern' is exactly today's behaviour, including the variables it publishes;
+'csv' copies exactly the files named in one column of a CSV, typically the
+output of an earlier step. An unrecognised value FAILS rather than falling
+back
+to 'pattern', because a typo would otherwise be answered by a directory copy
+with no pattern set - that is, everything.
 
-Nothing about links, indexes, the swapped-sides check, the cache or the
-diagram was rewritten. A file answers three questions - what entity lists it
-offers, how to iterate one field, and how to turn a reference into an entity -
-and for a CSV those are trivial: the list is the file, an entity is a row, a
-field is a column. The reference is a row number, which is what the core was
-reshaped for when the cache was built: indexing a hundred-thousand-row file
-costs an array of integers, and the row object is built only for the handful
-of entities a diagram actually shows.
+Params (new shape only): listFile, listColumn (header name, matched
+case-insensitively, or a 1-based index tried only when no column carries that
+name), listPathPrefix, listDelimiter (empty = detected, via the same
+detectDelimiter csvsql uses), listCharset, hasHeader, onMissingFile,
+onNameCollision. Nothing was added to StepDef, the parser, the writer, the DTO
+or buildXml: params round-trip already.
 
-The existing grid, filters, ranges, sorting, aggregation and displayschema
-handling are untouched. Switching tabs reuses every rendering path unchanged.
-Only drawRows learned to render a declared column as a link, and the link map
-is computed once per frame rather than per cell, because drawRows runs on
-every scroll frame over the visible window and anything per-cell there is paid
-thousands of times a second.
+The prefix falls back to the step's existing IFS source path field, so a list
+of bare names needs no second copy of the directory it came from; a name
+starting with / is a full IFS path and the prefix is not applied. Which base
+was used is stated in the log. A backslash in a name is left alone: it is
+legal
+in an IFS name.
 
-The budget is counted in cells rather than records. Fifty thousand rows by
-twenty columns measured fifty megabytes, about fifty-two bytes a cell and
-roughly four and a half times the file on disk; the JSON model costs eighteen
-times. Two viewers with two units, because a single number would have been
-wrong for one of them. A CSV row has no parent, so the diagram's "lives
-inside" line is correctly absent rather than empty.
+Missing file and local-name collision both fail by default. A collision
+(/one/x.pdf and /two/x.pdf both landing on x.pdf) is caught before anything is
+copied, because otherwise the step reports success with fewer files than it
+copied. The same path twice is a duplicate - collapsed and counted - not a
+collision. Rows read, duplicates, and rows with no file name are logged before
+the transfer starts, with the first fifty line numbers named and the counts
+uncapped.
 
-Three defects came out of the tests, and two of them are older than this
-batch.
+No existence pre-scan, unlike elarxml: the destination is a step working
+directory, not a delivered set, and a pre-scan would cost the whole transfer
+twice over. copyListToLocal returns rather than throws, so the counters are
+still published when it stops.
 
-linksPersist only ever added. Removing a relationship left it on disk, so it
-came back on the next load and the only cure was Forget, which cleared
-everything. Removing something and having it return is the kind of defect that
-teaches people not to trust a feature. A saved relationship whose two files
-are both open is now replaced by whatever is declared, while one naming a file
-that is not open is left alone, because it is waiting for that file rather
-than having been removed. Fixed in both viewers.
+New outputs in this shape: listRows, listedFiles, duplicatesInList,
+blankNames,
+missingFiles, skippedExisting.
 
-The JSON viewer never persisted on removal at all: its remove handler updated
-the list and redrew the table but never wrote to storage. Removing appeared to
-work and then quietly did not.
+VERIFIED: IfsListSupport compiled --release 8 and RUN (73 assertions: path
+building, absolute names, column by name and by index, no-header refusal, BOM
+on header and first data row, ISO-8859-1 and unknown charset, RFC-4180
+quoting,
+duplicates vs collisions, short rows, degenerate files, reporting cap, order).
+IfsSupport.java COMPILED against minimal AS400/IFSFile stubs. designer.html
+driven under jsdom against the real script (44 assertions: pattern shape
+unchanged, default option writes no param, unrecognised value does not open
+the
+CSV panel, policy defaults, clientValidate per shape). USAGE.md rendered with
+docs.html's own render(). node --check on both templates; zero literal escapes
+for newline or carriage return; no uncommented [[ or [(; duplicate top-level
+function/var scan clean; brace and paren balance on all three Java files.
 
-And the CSV page declared its own var WS beside the one the shared core
-declares. Both parse, the later assignment wins, and the page ran with the
-JSON viewer's record budget instead of its own cell budget - which surfaced as
-a budget test that would not fail. The duplicate-function scan could not see
-it, because it scans functions; the checks now scan top-level vars as well.
-This is the second time in this project that a silent duplicate declaration
-has cost a debugging round, the first being a whole second copy of the cache.
-
-Verified with 59 assertions driving the real page under jsdom: the existing
-features still working and no script error on load, tabs and grid switching, a
-cross-file declaration with both directions reported, the swapped-sides
-warning firing on genuinely asymmetric data and staying silent when the two
-signals disagree, both ends clickable in the grid, the diagram with the
-referencing rows on the left and each naming the file it lives in, a dangling
-reference drawn as NOT FOUND, the budget refusing a file while keeping the
-others open and saying by how much, a limit below the floor refused without
-taking effect, the declaration surviving a reload, removal really removing,
-and closing a file dropping the live link while the saved one waits for its
-return. A regression suite for the JSON viewer covers the two fixes that touch
-it.
-
-NOT verified: how any of it looks on screen, and behaviour on a real
-multi-hundred-thousand-row extraction. Load two related CSVs - an extraction
-and its reconciliation - declare the link and click a value from either side.
+NOT VERIFIED: InternalSteps.java is not compilable in the chat sandbox (needs
+the Spring tree from the internal Nexus) - checked structurally, every helper
+and every CopyResult field verified against its real declaration. The transfer
+itself needs a real IBM i. mvn clean package is the gate.

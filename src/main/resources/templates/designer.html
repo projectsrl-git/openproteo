@@ -426,6 +426,8 @@
     function outputDataText(n) { if (!n.params) return ''; var lines = []; for (var k = 0; k < n.params.length; k++) { var pn = n.params[k].name; if (pn && pn.indexOf('outputData.') === 0) lines.push(pn.substring(11) + ' = ' + (n.params[k].value || '')); } return lines.join(NL); }
     function setOutputData(i, txt) { var n = wf.nodes[i]; if (!n.params) n.params = []; n.params = n.params.filter(function (p) { return !(p.name && p.name.indexOf('outputData.') === 0); }); var lines = String(txt).split(String.fromCharCode(10)); for (var k = 0; k < lines.length; k++) { var ln = lines[k].split(String.fromCharCode(13)).join('').trim(); if (!ln) continue; var eq = ln.indexOf('='); var vn = eq >= 0 ? ln.substring(0, eq).trim() : ln; var ds = eq >= 0 ? ln.substring(eq + 1).trim() : ''; if (!vn) continue; n.params.push({ name: 'outputData.' + vn, value: ds }); } preview(); }
     function diffSetMode(i, v) { setNodeParam(i, 'mode', v); renderNodes(); }
+    /** ifscopy: switching between "directory + pattern" and "the files listed in a CSV" re-renders the card. */
+    function ifsSetListSource(i, v) { setNodeParam(i, 'listSource', v); renderNodes(); }
     function diffMatches(n) {
         var byIdx = {};
         if (n.params) n.params.forEach(function (p) {
@@ -965,13 +967,39 @@
                         '<div class="xmlbox" id="qprev_' + i + '" style="display:none;margin-top:8px;max-height:220px"></div>';
                     h += '<div class="dim small" style="margin-top:6px">All cells become text; dates → the date format; numbers → plain decimals. Codes (NDG/CF/IBAN) must be stored as TEXT in the xlsx — if stored as numbers, Excel already lost leading zeros/precision and it cannot be recovered here.</div>';
                 } else if (ex === 'ifscopy') {
+                    var ifsList = (nodeParam(n, 'listSource') === 'csv');
                     h += '<div class="form-row">' + dsSelect(i, n.datasource) +
-                        '<div class="field wide"><label>IFS source path (IBM i) *</label><input value="' + attresc(n.ifsPath) + '" placeholder="/QIBM/feeds/EOR/${runDate}" oninput="updNode(' + i + ',\'ifsPath\',this.value)"></div></div>' +
+                        '<div class="field"><label>Files to copy</label><select onchange="ifsSetListSource(' + i + ',this.value)">' +
+                        '<option value=""' + (ifsList ? '' : ' selected') + '>directory + pattern</option>' +
+                        '<option value="csv"' + (ifsList ? ' selected' : '') + '>the ones listed in a CSV column</option></select></div>' +
+                        '<div class="field wide"><label>IFS source path (IBM i)' + (ifsList ? ' — base for names that are not full paths' : ' *') + '</label><input value="' + attresc(n.ifsPath) + '" placeholder="/QIBM/feeds/EOR/${runDate}" oninput="updNode(' + i + ',\'ifsPath\',this.value)"></div></div>' +
                         '<div class="form-row">' +
                         '<div class="field wide"><label>Local destination dir *</label><input value="' + attresc(n.dest) + '" placeholder="${stepDir}" oninput="updNode(' + i + ',\'dest\',this.value)"></div>' +
-                        '<div class="field"><label>Pattern</label><input value="' + attresc(n.pattern) + '" placeholder="*.csv" oninput="updNode(' + i + ',\'pattern\',this.value)"></div>' +
-                        '<div class="field"><label>Overwrite</label><select onchange="updNode(' + i + ',\'overwrite\',this.value===\'true\')"><option value="false"' + (n.overwrite ? '' : ' selected') + '>no</option><option value="true"' + (n.overwrite ? ' selected' : '') + '>yes</option></select></div></div>' +
-                        '<div class="subsection dim small" style="padding-bottom:12px">outputs: ##VAR filesCopied, bytesCopied, matchedFiles</div>';
+                        (ifsList ? '' : '<div class="field"><label>Pattern</label><input value="' + attresc(n.pattern) + '" placeholder="*.csv" oninput="updNode(' + i + ',\'pattern\',this.value)"></div>') +
+                        '<div class="field"><label>Overwrite</label><select onchange="updNode(' + i + ',\'overwrite\',this.value===\'true\')"><option value="false"' + (n.overwrite ? '' : ' selected') + '>no</option><option value="true"' + (n.overwrite ? ' selected' : '') + '>yes</option></select></div></div>';
+                    if (ifsList) {
+                        h += '<div class="subsection"><div class="sub-label">File list — one column of a CSV holds the file name (typically produced by an earlier step)</div>' +
+                            '<div class="form-row">' +
+                            '<div class="field wide"><label>File list CSV *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'listFile')) + '" placeholder="${dir.EXTRACT}/documents.csv" oninput="setNodeParam(' + i + ',\'listFile\',this.value)"></div>' +
+                            '<div class="field"><label>Column with the file name *</label><input value="' + attresc(nodeParam(n, 'listColumn')) + '" placeholder="DOCPATH or 3" oninput="setNodeParam(' + i + ',\'listColumn\',this.value)"></div>' +
+                            '<div class="field"><label>Delimiter</label><input value="' + attresc(nodeParam(n, 'listDelimiter')) + '" placeholder="(detect)" oninput="setNodeParam(' + i + ',\'listDelimiter\',this.value)"></div></div>' +
+                            '<div class="form-row">' +
+                            '<div class="field wide"><label>Path to prepend</label><input value="' + attresc(nodeParam(n, 'listPathPrefix')) + '" placeholder="(empty = the IFS source path above)" oninput="setNodeParam(' + i + ',\'listPathPrefix\',this.value)"></div>' +
+                            '<div class="field"><label>Has header</label><select onchange="setNodeParam(' + i + ',\'hasHeader\',this.value)">' +
+                            '<option value="true"' + (nodeParam(n, 'hasHeader') !== 'false' ? ' selected' : '') + '>yes</option>' +
+                            '<option value="false"' + (nodeParam(n, 'hasHeader') === 'false' ? ' selected' : '') + '>no</option></select></div>' +
+                            '<div class="field"><label>Charset</label><input value="' + attresc(nodeParam(n, 'listCharset')) + '" placeholder="UTF-8" oninput="setNodeParam(' + i + ',\'listCharset\',this.value)"></div></div>' +
+                            '<div class="form-row">' +
+                            '<div class="field"><label>A listed file is not on the IFS</label><select onchange="setNodeParam(' + i + ',\'onMissingFile\',this.value)">' +
+                            '<option value="fail"' + (nodeParam(n, 'onMissingFile') === 'skip' ? '' : ' selected') + '>fail the step</option>' +
+                            '<option value="skip"' + (nodeParam(n, 'onMissingFile') === 'skip' ? ' selected' : '') + '>skip it and count it</option></select></div>' +
+                            '<div class="field"><label>Two listed files share a local name</label><select onchange="setNodeParam(' + i + ',\'onNameCollision\',this.value)">' +
+                            '<option value="fail"' + (nodeParam(n, 'onNameCollision') === 'overwrite' ? '' : ' selected') + '>fail the step</option>' +
+                            '<option value="overwrite"' + (nodeParam(n, 'onNameCollision') === 'overwrite' ? ' selected' : '') + '>let the later one win</option></select></div>' +
+                            '<div class="field wide"><label></label><span class="dim small">A name starting with / is taken as a full IFS path and the prefix is not applied. Repeated names are copied once. A row with an empty cell is counted and its line number logged.</span></div></div></div>';
+                    }
+                    h += '<div class="subsection dim small" style="padding-bottom:12px">outputs: ##VAR filesCopied, bytesCopied, matchedFiles' +
+                        (ifsList ? ', listRows, listedFiles, duplicatesInList, blankNames, missingFiles, skippedExisting' : '') + '</div>';
                 } else if (ex === 'filecopy') {
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Source dir *</label><input value="' + attresc(n.source) + '" placeholder="${landingIn}" oninput="updNode(' + i + ',\'source\',this.value)"></div>' +
@@ -1463,7 +1491,15 @@
                 var ex = n.exec || 'auto';
                 if (isExternal(ex) && !n.script) errs.push(label + ' (' + n.id + '): script is required');
                 if (ex === 'sql' && (!n.datasource || !n.query)) errs.push(label + ' (' + n.id + '): datasource and query are required');
-                if (ex === 'ifscopy' && (!n.datasource || !n.ifsPath || !n.dest)) errs.push(label + ' (' + n.id + '): datasource, ifsPath and dest are required');
+                if (ex === 'ifscopy') {
+                    if (nodeParam(n, 'listSource') === 'csv') {
+                        if (!n.datasource || !n.dest) errs.push(label + ' (' + n.id + '): datasource and dest are required');
+                        if (!nodeParam(n, 'listFile')) errs.push(label + ' (' + n.id + '): the file list CSV is required');
+                        if (!nodeParam(n, 'listColumn')) errs.push(label + ' (' + n.id + '): the column holding the file name is required');
+                    } else if (!n.datasource || !n.ifsPath || !n.dest) {
+                        errs.push(label + ' (' + n.id + '): datasource, ifsPath and dest are required');
+                    }
+                }
                 if (ex === 'filecopy') {
                     if (!n.source) errs.push(label + ' (' + n.id + '): source is required');
                     if ((n.mode || 'copy') !== 'list' && !n.dest) errs.push(label + ' (' + n.id + '): dest is required unless mode=list');

@@ -72,7 +72,7 @@ public class InternalSteps {
             if ("sql".equals(kind)) {
                 runSql(step, resolvedParams, vars, res, line, control);
             } else if ("ifscopy".equals(kind)) {
-                runIfsCopy(step, vars, res, line);
+                runIfsCopy(step, resolvedParams, vars, res, line);
             } else if ("filecopy".equals(kind)) {
                 runFileCopy(step, vars, res, line);
             } else if ("setvar".equals(kind)) {
@@ -1404,11 +1404,36 @@ public class InternalSteps {
     }
 
     // ------------------------------------------------------------- ifscopy
-    private void runIfsCopy(StepDef step, Map<String, String> vars,
+    /**
+     * IFS copy, in one of two shapes chosen by the {@code listSource} param:
+     * <ul>
+     *   <li>{@code pattern} (default, and what the param's absence means): list a directory on the
+     *       IFS and copy what matches the glob - the behaviour this executor has always had, byte
+     *       for byte, including which variables it publishes;</li>
+     *   <li>{@code csv}: copy exactly the files named in one column of a CSV, typically the output
+     *       of an earlier step in the same workflow.</li>
+     * </ul>
+     * An unrecognised value FAILS rather than falling back to the pattern shape: a typo would
+     * otherwise be answered by a directory copy with no pattern, i.e. everything.
+     */
+    private void runIfsCopy(StepDef step, Map<String, String> params, Map<String, String> vars,
                             StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
         publishDataSource(step, res);
         DataSourceDef d = dataSources.get(step.datasource);
         if (d == null) { line.accept("datasource not found: " + step.datasource); res.exitCode = 2; return; }
+
+        String listSource = xStr(VarResolver.resolve(params.get("listSource"), vars), "pattern");
+        if ("csv".equalsIgnoreCase(listSource)) {
+            runIfsCopyList(step, params, vars, d, res, line);
+            return;
+        }
+        if (!"pattern".equalsIgnoreCase(listSource)) {
+            line.accept("ifscopy: listSource must be 'pattern' or 'csv', not '" + listSource + "'");
+            res.lastLines = "invalid listSource";
+            res.exitCode = 2;
+            return;
+        }
+
         String ifsPath = VarResolver.resolve(step.ifsPath, vars);
         String dest = VarResolver.resolve(step.dest, vars);
         String glob = VarResolver.resolve(step.pattern, vars);
@@ -1418,6 +1443,118 @@ public class InternalSteps {
         res.outVars.put("bytesCopied", String.valueOf(cr.bytesCopied));
         res.outVars.put("matchedFiles", String.join(step.delimiter == null ? ";" : step.delimiter, cr.names));
         for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
+        res.exitCode = 0;
+    }
+
+    /**
+     * Copy the files named in one column of a CSV.
+     *
+     * <p>The list is read whole and reported BEFORE anything is transferred - how many rows, how many
+     * names, how many duplicates, how many blanks, which column, which base path - so an operator
+     * reading the log knows what the step was about to do even when it then fails. Duplicates are
+     * collapsed rather than copied twice; a blank cell is counted and its line named rather than
+     * being an invisible short delivery, which is the failure mode this project keeps meeting.</p>
+     *
+     * <p>Two listed files whose names differ but whose LOCAL name is the same would land on top of
+     * each other in the destination. That is refused by default ({@code onNameCollision=fail}),
+     * because the loss would be silent and the step would report a success with fewer files than it
+     * copied.</p>
+     */
+    private void runIfsCopyList(StepDef step, Map<String, String> params, Map<String, String> vars,
+                                DataSourceDef d, StepExecutor.Result res,
+                                java.util.function.Consumer<String> line) throws Exception {
+        String listFile = blankToNull(VarResolver.resolve(params.get("listFile"), vars));
+        String column = blankToNull(VarResolver.resolve(params.get("listColumn"), vars));
+        String dest = blankToNull(VarResolver.resolve(step.dest, vars));
+        List<String> missingCfg = new ArrayList<String>();
+        if (listFile == null) missingCfg.add("listFile");
+        if (column == null) missingCfg.add("listColumn");
+        if (dest == null) missingCfg.add("dest");
+        if (!missingCfg.isEmpty()) {
+            line.accept("ifscopy: missing required parameter(s) for a CSV file list: " + String.join(", ", missingCfg));
+            res.lastLines = "missing parameter(s): " + String.join(", ", missingCfg);
+            res.exitCode = 2;
+            return;
+        }
+
+        // the explicit prefix wins; without one the existing "IFS source path" field is the base, so a
+        // list of bare file names needs no second copy of the directory it came from
+        String prefix = blankToNull(VarResolver.resolve(params.get("listPathPrefix"), vars));
+        String base = prefix != null ? prefix : blankToNull(VarResolver.resolve(step.ifsPath, vars));
+        String baseFrom = prefix != null ? "listPathPrefix" : "the IFS source path";
+
+        java.io.File csv = new java.io.File(rebaseRel(listFile, vars));
+        if (!csv.isFile()) {
+            line.accept("ifscopy: file list not found: " + csv.getPath());
+            res.lastLines = "file list not found: " + csv.getPath();
+            res.exitCode = 2;
+            return;
+        }
+
+        String charset = xStr(VarResolver.resolve(params.get("listCharset"), vars), "UTF-8");
+        String dl = VarResolver.resolve(params.get("listDelimiter"), vars);
+        char delim = (dl != null && !dl.isEmpty()) ? dl.charAt(0) : detectDelim(csv, ';');
+        boolean hasHeader = !"false".equalsIgnoreCase(xStr(params.get("hasHeader"), "true"));
+        boolean failOnMissing = !"skip".equalsIgnoreCase(xStr(params.get("onMissingFile"), "fail"));
+        boolean failOnCollision = !"overwrite".equalsIgnoreCase(xStr(params.get("onNameCollision"), "fail"));
+
+        String glob = blankToNull(VarResolver.resolve(step.pattern, vars));
+        if (glob != null) line.accept("ifscopy: the pattern '" + glob + "' is IGNORED when the list comes from a CSV");
+
+        IfsListSupport.ListResult lr =
+                IfsListSupport.read(csv, charset, delim, column, hasHeader, base);
+        if (lr.error != null) {
+            line.accept("ifscopy: " + lr.error);
+            res.lastLines = lr.error;
+            res.exitCode = 2;
+            return;
+        }
+
+        line.accept("IFS copy from the list " + csv.getPath() + "  ->  " + dest);
+        line.accept("ifscopy: delimiter '" + delim + "', " + (hasHeader ? "with" : "without")
+                + " header, charset " + charset + ", file name in " + lr.columnLabel);
+        line.accept("ifscopy: " + lr.dataRows + " row(s) read, " + lr.paths.size() + " file(s) to copy, "
+                + lr.duplicates + " duplicate(s) collapsed, " + lr.blankRows + " row(s) with no file name");
+        if (!lr.blankLines.isEmpty()) {
+            line.accept("ifscopy: no file name at line(s) " + String.join(", ", lr.blankLines)
+                    + (lr.blankRows > lr.blankLines.size() ? " ... (" + lr.blankRows + " in total)" : ""));
+        }
+        line.accept("ifscopy: names that are not absolute are resolved under "
+                + (base == null ? "(nothing - set listPathPrefix or the IFS source path if the names are not full paths)" : base + " (from " + baseFrom + ")"));
+        for (String c : lr.collisions) line.accept("ifscopy: local name collision - " + c);
+        if (!lr.collisions.isEmpty() && failOnCollision) {
+            String msg = lr.collisions.size() + " listed file(s) would overwrite each other in " + dest
+                    + "; rename them, copy them in separate steps, or set onNameCollision=overwrite";
+            line.accept("ifscopy: " + msg);
+            res.lastLines = msg;
+            res.exitCode = 1;
+            return;
+        }
+
+        IfsSupport.CopyResult cr = ifs.copyListToLocal(d, lr.paths, dest, step.overwrite, failOnMissing, line);
+        String sep = step.delimiter == null ? ";" : step.delimiter;
+        res.outVars.put("filesCopied", String.valueOf(cr.filesCopied));
+        res.outVars.put("bytesCopied", String.valueOf(cr.bytesCopied));
+        res.outVars.put("matchedFiles", String.join(sep, cr.names));
+        res.outVars.put("listRows", String.valueOf(lr.dataRows));
+        res.outVars.put("listedFiles", String.valueOf(lr.paths.size()));
+        res.outVars.put("duplicatesInList", String.valueOf(lr.duplicates));
+        res.outVars.put("blankNames", String.valueOf(lr.blankRows));
+        res.outVars.put("missingFiles", String.valueOf(cr.missing));
+        res.outVars.put("skippedExisting", String.valueOf(cr.skippedExisting));
+        for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
+
+        if (cr.failure != null) {
+            line.accept("ifscopy: " + cr.failure);
+            res.lastLines = cr.failure;
+            res.exitCode = 1;
+            return;
+        }
+        if (cr.missing > 0) {
+            line.accept("ifscopy: " + cr.missing + " listed file(s) were not on the IFS and were skipped"
+                    + " (onMissingFile=skip): " + String.join(", ", cr.missingNames)
+                    + (cr.missing > cr.missingNames.size() ? " ..." : ""));
+        }
         res.exitCode = 0;
     }
 
