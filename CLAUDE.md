@@ -1834,3 +1834,35 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   duplicate-FUNCTION scan could not see it, so the checks now scan **top-level `var`s** too. Second
   time a silent duplicate declaration has cost a round. * 59 assertions on the CSV page + a JSON
   regression suite, both green.
+  regression suite, both green.
+
+## elarcheck — Batch 0 (spec only)
+* Spec at `.claude/ELAR_CHECK_EXECUTOR.md`. Read-only validation executor for delivered INDX files;
+  built BEFORE the generator on purpose, since it is the acceptance harness — the decisive criterion
+  for `elarxml` is that a regenerated file passes every check while the original does not.
+  * **The five reference scripts live in `github.com/projectsrl-git/htmlviewers`**, not in this repo.
+  Read, and they answered the three open points — two differently from what the descriptions implied.
+  (a) Lines are 1-based including the declaration, but a line BREAK is reported at `lineNo - 1`, the
+  line where it starts and which must be repaired, while `InvalidSpaceAfterAngle` is reported at
+  `lineNo`. Reporting both at the current line would put every break one line late. (b) The record
+  ordinal accumulates `<Doc` starts across the whole file, never restarts, and is 0 before the first
+  document; the break checks run BEFORE the current line's starts are added and the bad-angle check
+  AFTER, so two findings on one line can legitimately differ by one. (c) 25000 is the agreed target,
+  **30000 is what the receiver enforces** — so the message must separate "over target" from "would be
+  truncated". * **A distinction the prompt did not carry**: the script separates `MarkupLineBreak`
+  from `TextLineBreak` by whether the previous line ended inside a tag, because the repairs differ —
+  and its own comment records that repairing a markup break by inserting a space anywhere but between
+  two attributes produces `< ELAR:TaxCode>`, the very invalid start that check 5.2 finds. Reported
+  separately here for that reason. * Payload exclusion is by **local name carried across lines**, not
+  by any heuristic on line content. * **Two design points decide the shape.**
+  (a) TWO physical passes, not one: textual checks need physical lines and must continue after the
+  document stops being well-formed — which is the whole point of reporting every `< Name` when StAX
+  stops at the first — while structural checks need the parser. Sharing a Reader fails on both counts.
+  Cost is I/O, not memory, and it is why progress reporting is a requirement. (b) **StAX coalescing
+  must be OFF**: `IS_COALESCING=true` would materialise a payload of tens of MB as one String, the
+  exact accumulation that killed the legacy generator. So 5.3 tests EACH `CHARACTERS` fragment for
+  CR/LF instead of assembling the value — equally sensitive, no memory. * Read-only is made
+  VERIFIABLE, not promised: no write API may appear in the package, asserted by a build scan; the
+  findings file goes to the step directory, never to `inputDir`. * `CORRUPTED` (well-formed but wrong)
+  is the verdict that matters — ELAR accepts the file and archives a wrong value, and nothing
+  downstream ever flags it.

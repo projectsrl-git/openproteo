@@ -1,59 +1,68 @@
-ifscopy: copy the files listed in a CSV column
+elarcheck batch 0: specification, written from the reference scripts
 
-A new param, listSource, gives the IFS copy executor a second shape. Absent or
-'pattern' is exactly today's behaviour, including the variables it publishes;
-'csv' copies exactly the files named in one column of a CSV, typically the
-output of an earlier step. An unrecognised value FAILS rather than falling
-back
-to 'pattern', because a typo would otherwise be answered by a directory copy
-with no pattern set - that is, everything.
+Specification committed at .claude/ELAR_CHECK_EXECUTOR.md, self-contained. No
+implementation.
 
-Params (new shape only): listFile, listColumn (header name, matched
-case-insensitively, or a 1-based index tried only when no column carries that
-name), listPathPrefix, listDelimiter (empty = detected, via the same
-detectDelimiter csvsql uses), listCharset, hasHeader, onMissingFile,
-onNameCollision. Nothing was added to StepDef, the parser, the writer, the DTO
-or buildXml: params round-trip already.
+The executor is read-only and is built before the generator on purpose,
+because it is the acceptance harness: the decisive criterion for elarxml is
+that a regenerated file passes every check here while the original does not. A
+regeneration that reproduces the original's defects has reproduced the wrong
+thing.
 
-The prefix falls back to the step's existing IFS source path field, so a list
-of bare names needs no second copy of the directory it came from; a name
-starting with / is a full IFS path and the prefix is not applied. Which base
-was used is stated in the log. A backslash in a name is left alone: it is
-legal
-in an IFS name.
+The five reference scripts are in the htmlviewers repository rather than this
+one. They were read, and they answered the three points this spec first listed
+as open - two of them differently from what the descriptions alone implied.
 
-Missing file and local-name collision both fail by default. A collision
-(/one/x.pdf and /two/x.pdf both landing on x.pdf) is caught before anything is
-copied, because otherwise the step reports success with fewer files than it
-copied. The same path twice is a duplicate - collapsed and counted - not a
-collision. Rows read, duplicates, and rows with no file name are logged before
-the transfer starts, with the first fifty line numbers named and the counts
-uncapped.
+Lines are one-based and the declaration line counts like any other, but the
+number reported depends on the finding: a line break is reported at lineNo
+minus one, the line where the break starts and which has to be repaired, while
+an invalid space after an angle bracket is reported at the current line.
+Reporting both at the current line would have put every break one line late,
+and the definition of done requires the numbers to match what the scripts and
+ELAR reported.
 
-No existence pre-scan, unlike elarxml: the destination is a step working
-directory, not a delivered set, and a pre-scan would cost the whole transfer
-twice over. copyListToLocal returns rather than throws, so the counters are
-still published when it stops.
+The record ordinal accumulates document starts across the whole file and never
+restarts, so it is the count of documents begun so far and is zero before the
+first one. The loop adds the current line's document starts between the break
+checks and the bad-angle check, so two findings on the same physical line can
+legitimately carry record numbers that differ by one. That is worth knowing
+before it looks like an off-by-one.
 
-New outputs in this shape: listRows, listedFiles, duplicatesInList,
-blankNames,
-missingFiles, skippedExisting.
+Twenty-five thousand is the default and the agreed target; thirty thousand is
+what the receiver actually enforces, by horizontal truncation. So the message
+has to separate over target from would be truncated, or a line at twenty-seven
+thousand reads as fatal when it would still arrive.
 
-VERIFIED: IfsListSupport compiled --release 8 and RUN (73 assertions: path
-building, absolute names, column by name and by index, no-header refusal, BOM
-on header and first data row, ISO-8859-1 and unknown charset, RFC-4180
-quoting,
-duplicates vs collisions, short rows, degenerate files, reporting cap, order).
-IfsSupport.java COMPILED against minimal AS400/IFSFile stubs. designer.html
-driven under jsdom against the real script (44 assertions: pattern shape
-unchanged, default option writes no param, unrecognised value does not open
-the
-CSV panel, policy defaults, clientValidate per shape). USAGE.md rendered with
-docs.html's own render(). node --check on both templates; zero literal escapes
-for newline or carriage return; no uncommented [[ or [(; duplicate top-level
-function/var scan clean; brace and paren balance on all three Java files.
+The scripts also carry a distinction the prompt's description did not. A break
+inside markup and a break inside a value are reported as different kinds,
+separated by whether the previous line ended inside a tag, because they need
+different repairs - and the script's own comment records a defect it once
+caused: rejoining a markup break by inserting a space is correct only where
+the break fell between two attributes, and anywhere else, after an opening
+angle bracket in particular, it produces an invalid element start, which is
+exactly what another check exists to find. This checker never repairs
+anything, but it reports the two kinds separately so that whoever does knows
+which repair applies. The payload is excluded by tracking the current
+element's local name across lines, prefix ignored, rather than by any
+heuristic on line content.
 
-NOT VERIFIED: InternalSteps.java is not compilable in the chat sandbox (needs
-the Spring tree from the internal Nexus) - checked structurally, every helper
-and every CopyResult field verified against its real declaration. The transfer
-itself needs a real IBM i. mvn clean package is the gate.
+Two design points decide the shape of the implementation and are settled in
+the spec. There are two physical passes over each file rather than one,
+because the textual checks need physical lines and must keep going after the
+document stops being well-formed - which is the point of reporting every
+occurrence when the parser stops at the first - while the structural checks
+need the parser, and sharing one reader fails on both counts. And StAX
+coalescing must be off, because it would materialise a payload of tens of
+megabytes as a single string, the exact accumulation that killed the legacy
+generator; the line-break check therefore tests each character fragment rather
+than assembling the value, which is equally sensitive and needs no memory.
+
+Read-only is made verifiable rather than promised: no write API may appear in
+the package, asserted by a build scan, and the findings file is written to the
+step directory and never to the inspected one.
+
+NOT verified: nothing to verify, this batch is a document. What is needed
+before batch 1 is not a decision but an artefact - a known-bad INDX and, if it
+can be found, the ELAR report that rejected it, since the requirement that
+reported line and record numbers match what ELAR said can only be checked
+against a real pair.
