@@ -2018,3 +2018,36 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   bytes. Under UTF-8 a 25000-character line can exceed 25000 bytes. Whether the receiver's 30000
   limit is bytes or characters is NOT confirmed with the receiving team. At 147 accented characters
   per 1000 documents the difference is far inside the margin, but the question is open.
+
+## elarxml: the .skipped discards file, and onMissingFile split from onMalformedRow
+* **Requested**: a referenced content file that is not on disk should skip the row and leave a record,
+  not refuse the run. It DID refuse, and through the SAME switch as a malformed row. Two different
+  problems: a malformed row means the input is broken and re-running will not help; a missing content
+  file usually means staging has not finished, and the rows that DO have their files are deliverable.
+  One switch made the second hostage to the first.
+* **`onMissingFile`, separate from `onMalformedRow`.** SKIP is the default — a **DECLARED EXCEPTION**
+  to conservative defaults, because until now a missing file refused the run: a family relying on that
+  refusal must now set `onMissingFile=FAIL`.
+* **`<input>.skipped`**, beside its input, the input's own header line plus each dropped row
+  **VERBATIM** — re-serialising the split fields would rewrite quoting and separators, and this file
+  exists to be re-read. Rename it to end in `.csv` and the next run picks it up (`listInputs` only
+  accepts `.csv`, so it is never mistaken for an input while it ends in `.skipped`). The name APPENDS,
+  matching `.done`: the original name stays legible and `a.csv`/`a.txt` cannot collide.
+* **Published at the SAME moment the input becomes `.done`**, reusing the §5 machinery: temp until
+  then, thrown away if the run fails. A discards file from a run that delivered nothing would read as
+  a complete account of what was dropped and would be the opposite of one. `.skipped` means what
+  `.done` means. Created lazily, so nothing to discard leaves no empty artefact to be mistaken for a
+  report.
+* **Empty-path rows go in it too.** Re-running will not rescue them, but a discards file listing only
+  SOME of the dropped rows would misrepresent what was archived, and this is an archive.
+* `writeSkippedRows=false` turns the file off, keeping the skip and the counters. New result var
+  `skippedFilesWritten` so a gate can branch without parsing a log. 36 assertions; the decisive one is
+  that a FAILED run publishes no discards file, no temp file, and an un-renamed input.
+* **`onMissingFile` deliberately NOT in `PARAM_OPTIONS`**: `ifscopy` already uses that name with the
+  OPPOSITE default, and the table is keyed by name with no executor context. Same rule as
+  `inputCharset` — the second time this has come up, so treat a shared parameter name as the norm.
+* **DEFECT found alongside, pre-existing: `rowsMalformed` counted TWICE** under
+  `onMalformedRow=SKIP`. Assigned from the pre-scan, then incremented again in the write loop, so
+  every malformed row was reported double in `run.vars` and in the cross-feed log report. The
+  pre-scan's count is authoritative — taken before any output exists, over rows the loop may never
+  reach — so the loop no longer counts. Caught by an assertion that expected 1 and got 2.

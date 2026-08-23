@@ -1018,3 +1018,68 @@ Consequences, stated rather than discovered later:
 
 The XML declaration is generated from this setting, so whatever it is set to, the file stays
 self-consistent.
+
+### The discards file, and two policies where there was one
+
+**Requested from the field.** A referenced content file that is not on disk should skip the row and
+leave a record of it, not refuse the whole run.
+
+Until now it did refuse, and through the **same switch** as a malformed row: `onMalformedRow=FAIL`
+gated both. That conflated two different problems. A malformed row means the input is broken and
+re-running will not help. A missing content file usually means staging has not finished — the rows
+that *do* have their files are perfectly deliverable, and the ones that do not will be next time.
+One switch made the second hostage to the first.
+
+Now `onMissingFile`, separate from `onMalformedRow`:
+
+- **`SKIP` (default)** — the row is skipped, counted, and copied to the discards file. **A declared
+  exception to the conservative-default rule**: until this change a missing file refused the run, so
+  a family that has been relying on that refusal must now set `onMissingFile=FAIL` to keep it.
+- **`FAIL`** — the pre-scan refuses before a single byte of output exists, exactly as before.
+
+**The discards file.** `<input>.skipped`, beside its input, opening with the input's own header line
+and carrying each dropped row **verbatim**. Verbatim matters: re-serialising the split fields would
+quietly rewrite quoting and separators, and this file exists to be re-read. Correct the staging,
+rename it to end in `.csv`, and the next run picks it up — `listInputs` only accepts `.csv`, so a
+discards file is never mistaken for an input while it still ends in `.skipped`.
+
+The name **appends** rather than replacing the extension, matching the `.done` convention: the
+original name stays legible and `a.csv` and `a.txt` cannot collide.
+
+**It is published at the same moment its input is renamed to `.done`** — that is, once every batch
+that input produced has reached its final name, reusing the machinery from §5. Written under a temp
+name until then, and thrown away if the run fails. A discards file left behind by a run that
+delivered nothing would read as a complete account of what was dropped, and would be the opposite of
+one. `.skipped` therefore means exactly what `.done` means.
+
+**Rows with an empty content path go in it too.** Re-running will not rescue them — the source has to
+be corrected — but a discards file listing only *some* of the dropped rows would misrepresent what was
+archived, and this is an archive. Both reasons keep their separate counters.
+
+The file is created lazily, so an input with nothing to discard leaves no empty artefact to be
+mistaken for a report. `writeSkippedRows=false` turns the file off while leaving the skip and its
+counters intact. New result variable: `skippedFilesWritten`, so a gate can branch on it without
+parsing a log.
+
+`onMissingFile` is deliberately **not** added to the Variables page's `PARAM_OPTIONS`: `ifscopy`
+already uses that parameter name with the opposite default, and that table is keyed by name with no
+executor context. Same reason `inputCharset` was left out.
+
+**Verified** by 36 assertions, `--release 8`, running the whole executor against real files: the
+skip, the counters and the `.done` rename still happening; the discards file byte-for-byte identical
+to the source lines, trailing space included, with the input's own header; **the round trip** — rename
+to `.csv`, put the missing file in place, re-run, and the row is delivered with nothing left to
+discard; `onMissingFile=FAIL` refusing the run with nothing written and nothing renamed; the two
+policies proved independent in both directions; an input with nothing to discard leaving no file at
+all; and `writeSkippedRows=false` still skipping and still counting.
+
+The one that matters most: **a run that fails after discarding rows publishes no discards file**, and
+leaves no temp file and an un-renamed input, so the whole input is reprocessed.
+
+### Defect found alongside: `rowsMalformed` counted twice
+
+Pre-existing, and visible only under `onMalformedRow=SKIP`. `counters.rowsMalformed` was assigned from
+the pre-scan and then incremented again in the write loop, so every malformed row was reported twice
+in `run.vars` and in the cross-feed log report. The pre-scan's count is the authoritative one — taken
+before any output exists, over rows the loop may never reach — so the loop no longer counts. Caught by
+an assertion that expected 1 and got 2.

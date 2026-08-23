@@ -34,7 +34,13 @@ public final class FlatCsvReader implements AutoCloseable {
     public static final class Row {
         public final long lineNo;
         public final String[] fields;
-        Row(long lineNo, String[] fields) { this.lineNo = lineNo; this.fields = fields; }
+        /**
+         * The line exactly as it was read, before splitting. Kept so a discarded row can be copied
+         * out VERBATIM: re-joining the fields with the separator would silently rewrite quoting and
+         * turn the discards file into something that no longer round-trips.
+         */
+        public final String raw;
+        Row(long lineNo, String[] fields, String raw) { this.lineNo = lineNo; this.fields = fields; this.raw = raw; }
     }
 
     private final File file;
@@ -43,6 +49,7 @@ public final class FlatCsvReader implements AutoCloseable {
     private final CountingInputStream counter;
     private final BufferedReader reader;
     private final String[] header;
+    private final String headerLine;
     private long lineNo = 0;
 
     /**
@@ -67,11 +74,14 @@ public final class FlatCsvReader implements AutoCloseable {
             throw new IOException("the file is empty, so it has no header row: " + file.getAbsolutePath());
         }
         if (first.length() > 0 && first.charAt(0) == '\uFEFF') first = first.substring(1);   // BOM
+        this.headerLine = first;
         this.header = split(first);
         for (int i = 0; i < header.length; i++) header[i] = header[i].trim();
     }
 
     public String[] header() { return header; }
+    /** The header exactly as read, BOM stripped: the first line of a discards file. */
+    public String headerLine() { return headerLine; }
     public int headerSize() { return header.length; }
     public String fileName() { return file.getName(); }
 
@@ -80,7 +90,7 @@ public final class FlatCsvReader implements AutoCloseable {
         String line;
         while ((line = readLineChecked()) != null) {
             if (line.isEmpty()) continue;
-            return new Row(lineNo, split(line));
+            return new Row(lineNo, split(line), line);
         }
         return null;
     }

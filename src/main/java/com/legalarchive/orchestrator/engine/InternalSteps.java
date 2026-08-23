@@ -1806,6 +1806,11 @@ public class InternalSteps {
                 ? com.legalarchive.orchestrator.elar.BatchPolicy.Oversize.FAIL
                 : com.legalarchive.orchestrator.elar.BatchPolicy.Oversize.WRITE_ALONE;
         o.onMalformedRowFail = !"SKIP".equalsIgnoreCase(xStr(params.get("onMalformedRow"), "FAIL"));
+        // SKIP by default, unlike onMalformedRow. A malformed row means the input is broken and
+        // re-running will not help; a missing content file usually means staging has not
+        // finished, and the rows that DO have their files are still deliverable.
+        o.onMissingFileFail = "FAIL".equalsIgnoreCase(xStr(params.get("onMissingFile"), "SKIP"));
+        o.writeSkippedRows = !"false".equalsIgnoreCase(xStr(params.get("writeSkippedRows"), "true"));
         o.validate = "true".equalsIgnoreCase(params.get("validate"));
         o.renameProcessed = !"false".equalsIgnoreCase(params.get("renameProcessed"));
         o.overwriteExisting = "true".equalsIgnoreCase(params.get("overwriteExisting"));

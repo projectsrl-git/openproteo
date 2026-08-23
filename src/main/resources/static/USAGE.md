@@ -566,7 +566,9 @@ The rest are optional and default to what the legacy tool did, with the three de
 - `batchBy` - `DOCUMENTS` (default) or `BYTES`. See the batching section.
 - `maxBytesPerBatch` - default `209715200` (200 MB). Read only under `batchBy=BYTES`.
 - `oversizeDocumentPolicy` - `WRITE_ALONE` (default) or `FAIL`. Read only under `batchBy=BYTES`.
-- `onMalformedRow` - `FAIL` (default) or `SKIP`. See the pre-scan section.
+- `onMalformedRow` - `FAIL` (default) or `SKIP`. A row whose field count differs from the header's. See the pre-scan section.
+- `onMissingFile` - `SKIP` (default) or `FAIL`. A referenced content file that is not on disk. Separate from `onMalformedRow` on purpose: see the pre-scan section.
+- `writeSkippedRows` - default `true`. Copy every skipped row to `<input>.skipped`. See the section on discarded rows.
 - `validate` - `false` by default. See the validation section.
 - `renameProcessed` - `true` by default; the input is renamed to `.done` after its output is delivered.
 - `overwriteExisting` - `false` by default; a final output name that already exists fails the run rather than being replaced.
@@ -578,11 +580,25 @@ Batching keys that already live in the properties file are read from there and a
 
 ### The pre-scan, and why the step may refuse to start
 
-Before a single byte of output is written, every CSV in `inputDir` is scanned for two things: a row whose field count differs from the header's, and a referenced content file that does not exist. If either is found and `onMalformedRow` is `FAIL`, the run stops with nothing written and no input renamed, and the message names every offending file and line rather than only the first.
+Before a single byte of output is written, every CSV in `inputDir` is scanned for two things: a row whose field count differs from the header's, and a referenced content file that does not exist. They are **two different problems and have two separate policies**, because a malformed row means the input itself is broken and re-running will not help, while a missing content file usually means staging has not finished - and the rows that do have their files are perfectly deliverable.
+
+A malformed row is governed by `onMalformedRow`, `FAIL` by default: the run stops with nothing written and no input renamed, and the message names every offending file and line rather than only the first. A missing content file is governed by `onMissingFile`, **`SKIP` by default**: the row is skipped, counted, and copied to the discards file described below. Set `onMissingFile=FAIL` for a feed where a missing file should stop everything, which is what the executor used to do for every feed.
 
 This is deliberate and it is a change from the legacy tool, which dropped such rows silently and delivered the feed short. Checking first rather than mid-file matters: by the time a bad row is reached during processing, some batches have already been renamed to their final deliverable names, so the output directory would hold a partial set with nothing to say so, and a re-run would then re-deliver what had already gone out. Scanning first makes the refusal complete - either everything is written or nothing is.
 
 Set `onMalformedRow=SKIP` for a feed where the source cannot be corrected. That restores the legacy behaviour with one difference: the loss is counted and reported instead of being invisible.
+
+### Rows that produced no document
+
+A row can fail to produce a document for three reasons: its field count does not match the header, its content path is empty, or the file that path points at is not on disk. Whenever any of them is skipped rather than fatal, the row is copied into a **discards file** named after its input with `.skipped` appended - `feed_2026.csv` produces `feed_2026.csv.skipped`, beside it in `inputDir`.
+
+The file opens with the input's own header line and carries each dropped row **exactly as it was read**, byte for byte, trailing spaces and all. That is the point: correct whatever was wrong, rename the file so it ends in `.csv`, and the next run picks it up and delivers the rows. Nothing needs editing by hand, and nothing was rewritten on the way out - re-serialising the parsed fields would have quietly changed quoting and separators.
+
+The discards file appears at the **same moment** its input is renamed to `.done`, once every batch that input produced has reached its final name. Until then it is a temp file, and if the run fails it is removed. A discards file left behind by a run that delivered nothing would read as a complete account of what was dropped, and would be the opposite of one - so `.skipped` means exactly what `.done` means. An input with nothing to discard leaves no file at all, rather than an empty one that could be mistaken for a report.
+
+Rows with an empty content path are included even though re-running will not rescue them - the source has to be corrected for those. A discards file that listed only some of the dropped rows would misrepresent what was archived.
+
+`writeSkippedRows=false` turns the file off. The rows are still skipped and still counted; there is simply no record of which ones. `${skippedFilesWritten}` counts the inputs that produced a discards file, so a gate can branch on it without reading a log.
 
 ### Batching: one rule, not two
 

@@ -27,6 +27,8 @@ public final class ElarCounters {
     public long documentsOversize;
     public long bytesEmbedded;
     public long sameDayPairsFound;
+    /** Inputs that produced a '.skipped' discards file. A gate can branch on it without parsing a log. */
+    public long skippedFilesWritten;
 
     /** Why a document was not written, or null when it was. */
     public enum Skip { NO_PATH, FILE_MISSING }
@@ -57,6 +59,7 @@ public final class ElarCounters {
         m.put("documentsOversize", String.valueOf(documentsOversize));
         m.put("bytesEmbedded", String.valueOf(bytesEmbedded));
         m.put("sameDayPairsFound", String.valueOf(sameDayPairsFound));
+        m.put("skippedFilesWritten", String.valueOf(skippedFilesWritten));
         return m;
     }
 

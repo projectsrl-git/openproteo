@@ -1,107 +1,84 @@
-elarxml: never break at a value edge; outputCharset defaults to UTF-8
+elarxml: a .skipped discards file; onMissingFile split from onMalformedRow
 
-Both found by running the equivalence comparator over 1000 real documents,
-reference produced by the PowerShell scripts and candidate by elarxml. Neither
-was visible in the sandbox until the field run pointed at where to look.
+Requested from the field: a referenced content file that is not on disk should
+skip the row and leave a record of it, not refuse the whole run.
 
-1. THE BREAK LANDED AT THE EDGES OF A VALUE
+Until now it refused, and through the SAME switch as a malformed row. Two
+different problems sharing one gate: a malformed row means the input itself is
+broken and re-running will not help, while a missing content file usually
+means staging has not finished and the rows that do have their files are
+perfectly deliverable. One switch made the second hostage to the first.
 
-43 WHITESPACE findings plus 2 records reported as both missing and extra. In
-every one of them the line break was on the CANDIDATE's side, ours, and always
-at one of two positions: immediately before the value or immediately after it.
-AccountID, ClientID, ClientAdvisor, RecordDescr; and for the 2 split records
-UniqueReportID, where a break inside the key made one document look like two.
+onMissingFile is now separate from onMalformedRow, SKIP by default. That is a
+DECLARED EXCEPTION to the conservative-default rule: a family relying on the
+previous refusal must set onMissingFile=FAIL to keep it. Under FAIL the
+pre-scan refuses before a single byte of output exists, exactly as before.
 
-Section 5 already stated the rule correctly: between elements legal, inside
-any other text node never. The implementation got the BOUNDARY wrong. The
-position immediately after the '>' of a start tag and the one immediately
-before the '</' of an end tag look like element boundaries and are not: both
-are inside the character data. text() and endElement() each called fit(), so
-either could break there. It is the legacy defect moved from mid-value to the
-edges, and arguably worse, because a break in the middle of a value is visible
-on sight while a leading or trailing one is not.
+The discards file is named after its input with .skipped appended, sits beside
+it, opens with the input's own header line and carries each dropped row
+VERBATIM, byte for byte and trailing spaces included. Verbatim is the point:
+the file exists to be re-read, and re-serialising the parsed fields would
+quietly rewrite quoting and separators. Correct the staging, rename the file
+so it ends in .csv, and the next run delivers the rows with nothing edited by
+hand. The name appends rather than replacing the extension, matching the .done
+convention: the original name stays legible, a.csv and a.txt cannot collide,
+and listInputs only accepts .csv so a discards file is never mistaken for an
+input while it still ends in .skipped.
 
-An element carrying a value is now written by WrappingXmlOut.textElement as
-ONE UNBREAKABLE UNIT: the whole start tag, attributes, value and end tag are
-measured first, the break if any is taken BEFORE the start tag where it is
-genuinely between elements, and nothing inside can break, which is why it
-writes through raw and never through fit. text() is now private and
-non-breaking; a public breaking text writer is what produced the defect.
+It is published at the SAME moment its input is renamed to .done, once every
+batch that input produced has reached its final name, reusing the machinery
+from the per-file rename. Until then it is a temp file, and if the run fails
+it is removed. A discards file left behind by a run that delivered nothing
+would read as a complete account of what was dropped and would be the opposite
+of one, so .skipped means exactly what .done means. It is created lazily, so
+an input with nothing to discard leaves no empty artefact to be mistaken for a
+report.
 
-The refusal now counts the tags. If the unit cannot fit a line the document is
-refused naming the tag, and the threshold includes the tags rather than only
-the value, so a value that used to pass by a few characters begins to fail.
-That is deliberate: overflowing the line delivers a value the receiver
-truncates at 30000, and a truncated value inside a legally archived document
-with nothing to flag it is worse than a refusal that names the field.
+Rows with an empty content path are included too. Re-running will not rescue
+them, since the source has to be corrected, but a discards file listing only
+some of the dropped rows would misrepresent what was archived, and this is an
+archive. Each reason keeps its own counter.
 
-The content tag is exempt by construction rather than by exception: a Base64
-payload never reaches textElement, it goes through base64Chunk, which breaks
-at quad boundaries where whitespace is ignored by every decoder. Asserted
-rather than assumed.
+writeSkippedRows=false turns the file off while leaving the skip and the
+counters intact. New result variable skippedFilesWritten, so a gate can branch
+on it without parsing a log.
 
-Mixed content is now refused at load, naming the element. It has no position
-its text could keep under the unit rule, and the previous emitter reordered it
-anyway, writing all the text first and then every child, while also being free
-to break between the text and the first child. Whitespace-only text between
-children is formatting and is still discarded, so an indented template passes.
+onMissingFile is deliberately NOT added to the Variables page's PARAM_OPTIONS:
+ifscopy already uses that parameter name with the opposite default, and that
+table is keyed by name with no executor context. Same rule as inputCharset,
+and the second time it has come up, so a shared parameter name should now be
+treated as the norm rather than the surprise.
 
-2. OUTPUTCHARSET DEFAULTS TO UTF-8
+DEFECT FOUND ALONGSIDE: rowsMalformed COUNTED TWICE
 
-A declared exception to the conservative-default rule, taken deliberately: it
-changes the bytes of every family that does not set the parameter, on the
-first run after deploy.
-
-Measured, not assumed. A byte probe over the INDX ELAR receives today found
-294 non-ASCII bytes forming 147 valid UTF-8 multibyte sequences, zero stray
-high bytes, and a declaration of UTF-8. That file is UTF-8 and says so. The
-candidate under the old default was ISO-8859-1, also coherent with its own
-declaration, and the two therefore differed on every accented character: 147
-VALUE findings, all U+00C3 to U+00E0 at the same position of the same field.
-
-The old default came from elar-file-maker.jar, whose declared-versus-actual
-mismatch section 2 recorded as the reason for choosing ISO-8859-1. That
-reasoning was right about the JAR and wrong about the target: the file to be
-equivalent to is the one the PowerShell scripts produce. The XML declaration
-is generated from this setting, so whatever it is set to the file stays
-self-consistent, and a family whose receiver wants an 8-bit encoding sets the
-parameter explicitly.
-
-Stated now rather than discovered later: maxLineLength counts CHARACTERS, not
-bytes. Under UTF-8 a line of 25000 characters can exceed 25000 bytes. Whether
-the receiver's 30000 limit is counted in bytes or characters has NOT been
-confirmed with the receiving team. At the density measured, 147 accented
-characters across 1000 documents, the difference is far inside the 5000
-margin, but the question is open.
+Pre-existing, and visible only under onMalformedRow=SKIP. The counter was
+assigned from the pre-scan and then incremented again in the write loop, so
+every malformed row was reported double in run.vars and in the cross-feed log
+report. The pre-scan's count is the authoritative one, taken before any output
+exists and over rows the loop may never reach, so the loop no longer counts.
+Caught by an assertion that expected 1 and got 2, which is the argument for
+asserting exact counts rather than greater than zero.
 
 VERIFIED
-- 31 assertions, --release 8. The decisive one is exhaustive rather than
-  representative: the same value written at EVERY starting column of a line,
-  all of which must round-trip. The defect only appeared at the few columns
-  where the element straddled the limit, which is precisely why 43 documents
-  in 1000 slipped through and why a handful of hand-picked cases would not
-  have caught it.
-- Against the previous code, 47 of 114 columns corrupt the value, and end to
-  end two values per run come back carrying a line break. The same suite,
-  reduced to what the old API can express, fails 6 assertions.
-- Also asserted: the break lands before a start tag and at neither edge; the
-  refusal names the tag and says why it is not simply broken; the tag overhead
-  counts toward the threshold and an element that fits exactly is written
-  whole; attributes and escaping survive the unit; a 5000-byte payload under a
-  100-character limit wraps across more than fifty lines and decodes
-  byte-for-byte; end to end over 200 documents at a 300-character limit not
-  one value carries a line break and every value is exactly what went in; the
-  accented character survives; the PULL still names its INDX with no break
-  inside it; and the declaration says UTF-8 with the accented a written as the
-  two bytes C3 A0.
-- The .done rename suite, 33 assertions, and the naming suite, 15 assertions,
-  re-run unchanged. Both designer panel suites re-run green, 88 and 67, after
-  the default label moved to UTF-8. Template scans and elar rule scans clean.
+- 36 assertions, --release 8, running the whole executor against real files.
+  The decisive one: a run that fails after discarding rows publishes NO
+  discards file, leaves no temp file, and leaves the input un-renamed so the
+  whole thing is reprocessed.
+- Also asserted: the skip, the counters and the .done rename still happen; the
+  discards file is byte-for-byte the source lines with the input's own header;
+  the round trip, meaning rename to .csv, put the missing file back, re-run,
+  and the row is delivered with nothing left to discard; onMissingFile=FAIL
+  refuses with nothing written and nothing renamed; the two policies are
+  independent in both directions; an input with nothing to discard leaves no
+  file at all; and writeSkippedRows=false still skips and still counts.
+- The value-edge suite, 31 assertions, the naming suite, 15, and the .done
+  rename suite, 33, re-run unchanged. Both designer panel suites green at 92
+  and 67; the two new fields are covered by the assertion that no panel field
+  writes a parameter the executor does not read. Template scans and elar rule
+  scans clean.
 
 NOT VERIFIED
 - mvn clean package: Maven Central is unreachable from the chat sandbox, so
   the build on the target machine remains the only final proof. The elar
   package compiles and runs standalone in full; InternalSteps and
   designer.html were checked structurally and under jsdom.
-- Whether the receiver counts its 30000 line limit in bytes or in characters.
-  Open with the receiving team.

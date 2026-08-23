@@ -52,6 +52,17 @@ public final class ElarRun {
         public long maxBytesPerBatch = 200L * 1024 * 1024;
         public BatchPolicy.Oversize oversize = BatchPolicy.Oversize.WRITE_ALONE;
         public boolean onMalformedRowFail = true;
+        /**
+         * A referenced content file that is not on disk. SKIP by default, which is a DECLARED
+         * exception to the conservative-default rule: until now a missing file failed the whole run,
+         * through the same switch as a malformed row. The two are different problems - a malformed
+         * row means the file is broken and re-running will not help, a missing content file usually
+         * means staging has not finished - so they now have separate policies. FAIL restores the
+         * previous behaviour for a family that wants it.
+         */
+        public boolean onMissingFileFail = false;
+        /** Copy each skipped row into '<input>.skipped'. On by default: a skip with no record of it is a silent loss. */
+        public boolean writeSkippedRows = true;
         public boolean validate = false;
         public boolean renameProcessed = true;
         public boolean overwriteExisting = false;
@@ -141,8 +152,23 @@ public final class ElarRun {
         ElarPreScan.Report scan = ElarPreScan.scan(inputs, cfg, o.inputCharset, o.failOnMalformedInput,
                 o.separator, o.quoteChar);
         log.accept("elarxml: " + scan.message());
-        if (!scan.clean() && o.onMalformedRowFail) {
+        // Two problems, two policies. A malformed row means the input is broken and re-running will
+        // not help; a missing content file usually means staging has not finished, and the rows that
+        // DO have their files are still deliverable. One switch for both made the second hostage to
+        // the first.
+        if (scan.malformedRowCount > 0 && o.onMalformedRowFail) {
             throw new IOException(scan.message());
+        }
+        if (scan.missingFileCount > 0 && o.onMissingFileFail) {
+            throw new IOException(scan.message());
+        }
+        if (scan.missingFileCount > 0) {
+            log.accept("elarxml: " + scan.missingFileCount + " row(s) reference a content file that is not"
+                    + " on disk; they are skipped and"
+                    + (o.writeSkippedRows
+                        ? " copied to '<input>" + SkippedRows.SUFFIX + "' beside their input, header included,"
+                          + " so the file can be fixed and fed back in"
+                        : " NOT recorded anywhere, because writeSkippedRows is off"));
         }
         counters.rowsMalformed = scan.malformedRowCount;
 
@@ -158,27 +184,46 @@ public final class ElarRun {
         // A batch closing flushes the intersection. See §5 of ELAR_XML_EXECUTOR.md.
         List<File> contributors = new ArrayList<File>();
         List<File> awaitingRename = new ArrayList<File>();
+        // One discards file per input, keyed by input, finalised on the SAME event as the .done
+        // rename: a '.skipped' file therefore means exactly what '.done' means.
+        Map<File, SkippedRows> discards = new LinkedHashMap<File, SkippedRows>();
         try {
             for (int fi = 0; fi < inputs.size(); fi++) {
                 File in = inputs.get(fi);
                 counters.filesProcessed++;
                 FlatCsvReader r = new FlatCsvReader(in, o.inputCharset, o.failOnMalformedInput, o.separator, o.quoteChar);
+                SkippedRows skipped = new SkippedRows(in, r.headerLine(), o.inputCharset);
+                discards.put(in, skipped);
                 try {
                     int expect = r.headerSize();
                     FlatCsvReader.Row row;
                     while ((row = r.next()) != null) {
-                        if (row.fields.length != expect) { counters.rowsMalformed++; continue; }   // SKIP mode only
+                        if (row.fields.length != expect) {                                        // SKIP mode only
+                            // NOT counted here: the pre-scan already counted every malformed row in
+                            // every file, and counting again made rowsMalformed report double under
+                            // onMalformedRow=SKIP. The pre-scan's count is the authoritative one - it
+                            // is taken before any output exists and it sees rows this loop may never
+                            // reach.
+                            if (o.writeSkippedRows) skipped.add(row.raw);
+                            continue;
+                        }
                         Map<String, String> tags = r.asTagMap(row, mapping);
                         if (validator != null) validator.check(row.lineNo, tags);
 
                         String raw = tags.get(contentTag);
                         if (raw == null || raw.trim().isEmpty()) {
                             counters.skipped(ElarCounters.Skip.NO_PATH);
+                            // an empty path is a discard too. Re-running will not rescue it - the
+                            // source has to be corrected - but a discards file that listed only SOME
+                            // of the dropped rows would misrepresent what was archived, and this is
+                            // an archive.
+                            if (o.writeSkippedRows) skipped.add(row.raw);
                             continue;
                         }
                         File content = ElarPreScan.resolveContentFile(docDir, raw.trim());
                         if (!content.isFile()) {
                             counters.skipped(ElarCounters.Skip.FILE_MISSING);
+                            if (o.writeSkippedRows) skipped.add(row.raw);
                             continue;
                         }
 
@@ -187,7 +232,7 @@ public final class ElarRun {
                         if (dec.oversizeDocument) counters.documentsOversize++;
                         if (dec.action != BatchPolicy.Action.APPEND && batch != null) {
                             closeBatch(batch, indx, pull, counters, written, log,
-                                    contributors, awaitingRename, o.renameProcessed);
+                                    contributors, awaitingRename, o.renameProcessed, discards);
                             batch = null;
                             policy.rolled();
                         }
@@ -206,7 +251,7 @@ public final class ElarRun {
                         }
                         if (dec.action == BatchPolicy.Action.ROLL_THEN_ALONE) {
                             closeBatch(batch, indx, pull, counters, written, log,
-                                    contributors, awaitingRename, o.renameProcessed);
+                                    contributors, awaitingRename, o.renameProcessed, discards);
                             batch = null;
                             policy.rolled();
                         }
@@ -218,16 +263,21 @@ public final class ElarRun {
                 // - it produced none, or the last one closed its batch - there is nothing left to
                 // wait for and it is renamed now. Otherwise it waits for that batch to be committed.
                 if (contributors.contains(in)) awaitingRename.add(in);
-                else renameDone(in, o.renameProcessed, log);
+                else finishInput(in, o.renameProcessed, log, counters, discards);
             }
             if (batch != null) {
                 closeBatch(batch, indx, pull, counters, written, log,
-                        contributors, awaitingRename, o.renameProcessed);
+                        contributors, awaitingRename, o.renameProcessed, discards);
                 batch = null;
             }
         } finally {
-            // an exception anywhere leaves the open batch unpublished rather than half-delivered
+            // an exception anywhere leaves the open batch unpublished rather than half-delivered,
+            // and the discards of every input not yet finished are thrown away with it: a discards
+            // file for an input that was never delivered would read as a complete account of what
+            // was dropped, which is exactly what it would not be
             if (batch != null) batch.abort();
+            for (SkippedRows s : discards.values()) s.abort();
+            discards.clear();
         }
 
         if (validator != null) log.accept("elarxml: " + validator.message());
@@ -257,13 +307,33 @@ public final class ElarRun {
     private static void closeBatch(Batch batch, IndxTemplate indx, PullTemplate pull, ElarCounters counters,
                                    List<String> written, Consumer<String> log,
                                    List<File> contributors, List<File> awaitingRename,
-                                   boolean renameProcessed) throws Exception {
+                                   boolean renameProcessed, Map<File, SkippedRows> discards) throws Exception {
         batch.close(indx, pull, counters, written, log);
         for (int i = 0; i < contributors.size(); i++) {
             File c = contributors.get(i);
-            if (awaitingRename.remove(c)) renameDone(c, renameProcessed, log);
+            if (awaitingRename.remove(c)) finishInput(c, renameProcessed, log, counters, discards);
         }
         contributors.clear();
+    }
+
+    /**
+     * An input is finished: its discards are published and it is renamed to {@code .done}, in that
+     * order and at the same moment. Both mean the same thing - every batch this input produced has
+     * reached its final name - so neither may appear without the other.
+     */
+    private static void finishInput(File in, boolean renameProcessed, Consumer<String> log,
+                                    ElarCounters counters, Map<File, SkippedRows> discards) throws IOException {
+        SkippedRows s = discards.remove(in);
+        if (s != null) {
+            File f = s.commit();
+            if (f != null) {
+                counters.skippedFilesWritten++;
+                log.accept("elarxml: " + s.rows() + " row(s) of " + in.getName() + " produced no document"
+                        + " and were copied to " + f.getName() + ", header included; correct them and rename"
+                        + " the file to end in .csv to feed them back in");
+            }
+        }
+        renameDone(in, renameProcessed, log);
     }
 
     /**
