@@ -663,3 +663,67 @@ java -cp openproteo.war com.legalarchive.orchestrator.elar.ElarEquivalence \
 It strips line breaks from both sides and re-parses each, so wrapping cannot register as a difference, then compares the set of document ids, the tags and values of each document including the template constants, the document count, the batch count and the distribution of documents across batches, and the PULLs structurally with attribute order and whitespace normalised away.
 
 The payload of each document is checked against the **source file itself** rather than against the other side, so a mistake both tools share is still caught. It exits `0` when equivalent and `1` when not, and names the document and the tag for every difference - never the value.
+
+## The elarcheck step
+
+`elarcheck` inspects delivered ELAR INDX files and reports every defect that has caused a real rejection, before the files are sent. It is **read-only**: it never modifies, renames or deletes anything in the directory it inspects, and no write API appears anywhere in its code, so it is safe to run against a live delivery folder at any moment.
+
+Why it is worth its runtime: ELAR validates an INDX in full and rejects it in full, so one bad character produces a validation failure with zero business records and eighteen hundred good documents are lost because of one. The cost of a rejection is a whole regeneration and redelivery cycle.
+
+### Parameters
+
+`inputDir` is the only required one.
+
+- `filePattern` - default `*INDX*`, which files to inspect.
+- `inputCharset` - default `windows-1252`. This is deliberate and is **not** the encoding the files declare: delivered INDX files declare ISO-8859-1 while the legacy writer emitted the JVM platform default, which on the target server is windows-1252. Trusting the declaration would surface an encoding mismatch as a spurious structural error, which is the most misleading thing a checker can do.
+- `maxLineLength` - default `25000`, the agreed target.
+- `receiverLineLimit` - default `30000`, what the receiver actually enforces by horizontal truncation.
+- `contentElement`, `hashElement`, `docElement` - defaults `Content`, `HashValue`, `Doc`. Matched on **local name**, so a family binding the same namespace to another prefix needs no change.
+- `mandatoryTags` - comma-separated local names that must occur exactly once per record. Empty by default, which disables that check.
+- `checkPull` - default `true`.
+- `deliveredDir` - empty by default; when set, each file is checked against it for a name already delivered.
+- `verifyHash` - default `false`, because it decodes every payload.
+- `maxFindingsPerFile` - default `100`. The list is capped; the counters never are.
+- `failOnFindings` - default `false`. See the workflow note at the end.
+
+### What it checks
+
+**Well-formedness.** The whole file is parsed. This catches every structural defect at once, including forms nobody anticipated - and it says nothing at all about whether the content is correct.
+
+**Malformed tag openers.** `< Name`, `< /Name`, `</ Name` are all invalid and all three have been seen in delivered files. The parser stops at the first; this check reports every one, which is why it runs as a separate textual pass over the whole file.
+
+**Line breaks in character data.** This is the check that justifies the executor. A break inside a metadata value leaves the document **perfectly well-formed** while corrupting the value: a DSAK split across two lines parses fine and yields a value with a newline in it. Nothing else finds this.
+
+Two kinds are reported separately, because they need different repairs: a break inside a value, and a break inside markup. Repairing a markup break by inserting a space is correct only where the break fell between two attributes; anywhere else, and after an opening angle bracket in particular, it produces exactly the invalid element start the previous check exists to find.
+
+Breaks inside the payload are **not** reported: there they are whitespace, ignored by any Base64 decoder, and are the intended wrapping. Reporting them would bury the real findings under tens of thousands of false ones.
+
+**Line length.** Two distinct findings, because the remedies differ: over the target is a line that would still arrive, while over the receiver's limit is a line that loses its closing tag and gets the file rejected with the content unterminated.
+
+**Mandatory elements**, reported as three distinct conditions rather than one. Missing, duplicate and empty have three different causes: a tag missing on nearly every record is a mapping problem, since the column is absent from `tagNameMapping` and the element is never emitted, while one missing on three records is a data problem. An empty element serialises as a self-closing tag and the receiver treats it as absent, which is why it cannot be folded into "present".
+
+**Pair integrity.** The matching PULL must exist and must name its INDX at least once. A PULL that does not reference its INDX means the pair is broken however good the INDX is.
+
+**Name reuse.** ELAR refuses a resend that reuses a name it has already seen, so a file that has to be regenerated cannot go back out under the name it left with. When `deliveredDir` is set, the check reports whether the name was already delivered and what the next available name is. The trailing counter is a synthetic clock, so the next name is computed by real time arithmetic and not by a numeric increment: `C113859` becomes `C113900`, never `C113860`, because a numeric increment produces a name that is not a valid time and therefore a second rejection for a new reason.
+
+**Payload integrity**, behind `verifyHash`. Each payload is decoded in streaming and its SHA-256 compared against the sibling digest. The only check that verifies the archived document matches what it claims to be.
+
+### The verdict, and which one matters
+
+Each file gets `OK`, `CORRUPTED` or `MALFORMED`, because that is the decision the operator actually needs: send, or regenerate.
+
+`CORRUPTED` means well-formed but wrong, and it is the verdict that matters. Such a file is **accepted** by ELAR and archived with a wrong value inside it, and nothing downstream will ever flag it. `MALFORMED` is expensive but self-announcing: the receiver rejects it and says why. A file that is both is reported `MALFORMED`, with the corruption findings still listed, since it has to be regenerated either way.
+
+### What it produces
+
+Counters reach `run.vars`: `filesScanned`, `filesWellFormed`, `filesRejectedLikely`, `filesCorrupted`, `documentsTotal`, `whitespaceAfterAngle`, `valueLineBreaks`, `markupLineBreaks`, `linesOverLimit`, `linesOverReceiverLimit`, `longestLine`, `tagsMissing`, `tagsDuplicate`, `tagsEmpty`, `nameAlreadyDelivered`, `pullMissing`, `pullUnreferenced`, `hashMismatches`, `findingsTotal`.
+
+A findings file, `elarcheck_findings.tsv`, is written into the **step directory** - never into the inspected one - with one record per finding: file, verdict, line, record ordinal, kind, element and a short description. **No field value appears anywhere in it**, nor in any log line: these files carry customer names, tax codes and account identifiers, so findings carry element names, positions and counts only.
+
+The findings list is capped by `maxFindingsPerFile` while the counters stay exact. A capped list with an exact count tells you both what to fix and how big the problem is; a capped count would quietly understate it.
+
+### It never repairs, and that is the point
+
+Repair happens through the PowerShell scripts that already exist, run as ordinary `powershell` exec steps in the same workflow. Read-only is what makes this step safe to run against a live delivery folder, and a single write anywhere in it would turn a verifiable property into a conditional promise.
+
+That makes the natural workflow shape **check, then repair only if the check found something**, which is what the counters in `run.vars` are for and why `failOnFindings` defaults to `false`: a step that always failed could not drive a conditional. Set it to `true` only when you want the run to stop rather than branch.

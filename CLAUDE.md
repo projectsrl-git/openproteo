@@ -1866,3 +1866,22 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   findings file goes to the step directory, never to `inputDir`. * `CORRUPTED` (well-formed but wrong)
   is the verdict that matters — ELAR accepts the file and archives a wrong value, and nothing
   downstream ever flags it.
+
+## elarcheck — DELIVERED (batches 1-7 in one pass)
+* Package `com.legalarchive.orchestrator.elarcheck`, no Spring, so the whole checker runs against real
+  files in tests. `ElarCheckReport` + `ElarCheckRun`; `runElarCheck` only adapts. Registered in all
+  five places; findings file goes to the STEP directory. * **Read-only verified by scan**: no
+  `FileOutputStream`/`Files.write`/`Files.delete`/`renameTo`/`createNewFile`/`FileWriter`/`.delete()`
+  in the package, plus a test asserting the inspected dir's listing and mtimes are unchanged.
+  * **Two passes**: textual (openers, line length) must outlive the first fatal parse error; structural
+  (well-formedness, values, occurrence, hash) needs StAX. **Coalescing OFF** — else a payload of tens
+  of MB becomes one String; the value-break check tests EACH `CHARACTERS` fragment instead, equally
+  sensitive, no memory. * **Two defects the tests caught**: (1) `nextName` searched `.C` from the LEFT
+  and matched `.CLICT` inside the family name, returning the name unchanged and silently — now scans
+  from the right for `.C` + exactly six digits; found only because the test used the REAL family name.
+  (2) The counter advances by **one second, not sixty** — sixty lands on the next batch's name, the one
+  name guaranteed to be taken. * 63 + 15 assertions, `--release 8`; `USAGE.md` verified through
+  `docs.html`'s own `render()` (20 paragraphs, zero fragments). * **Not verified**: `mvn clean package`,
+  and nothing has run against a real INDX — matching ELAR's reported line/record numbers still needs
+  the known-bad file. Designer has the dropdown but NO config panel, same gap as `elarxml`; use
+  `+ param`, only `inputDir` is required.

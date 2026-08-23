@@ -1,6 +1,6 @@
 # ELAR INDX checker (`elarcheck`) — specification
 
-Status: **Batch 0 — specification only. No implementation.**
+Status: **DELIVERED.** Batches 1-7 implemented in one pass; see §14.
 
 Inspects delivered ELAR INDX files and reports every defect that has caused a real rejection, before
 the files are sent. Read-only by construction. Self-contained: everything needed to implement is here.
@@ -295,3 +295,55 @@ Nothing. The three open points are answered in §3 from the scripts themselves, 
 One thing to have ready rather than to decide: **a known-bad INDX**, and if possible the ELAR report
 that rejected it. The definition of done requires the reported line and record numbers to match what
 ELAR reported, and that can only be checked against a real pair.
+
+## 14. As built
+
+Package `com.legalarchive.orchestrator.elarcheck`, free of Spring and of the orchestrator's own types,
+so the whole checker runs against real files in a test rather than only on deploy. Two classes:
+`ElarCheckReport` (findings, counters, verdict) and `ElarCheckRun` (the two passes and the run).
+`runElarCheck` in `InternalSteps` translates parameters in and counters out, and writes the findings
+file to the **step** directory.
+
+**Read-only is verified, not promised.** The scan finds no `FileOutputStream`, no `Files.write` or
+`Files.delete`, no `renameTo`, no `createNewFile`, no `FileWriter` and no `.delete()` anywhere in the
+package. A test asserts the inspected directory's file list and modification times are unchanged after
+a run.
+
+### Two defects the tests caught
+
+**`nextName` searched for the counter from the left.** A real name is
+`RZ2.ELA.FTP.CLICT@DT.D26229.INDX.C152100.xml`, so the first `.C` is inside the **family** — the
+search found `.CLICT` and returned the name unchanged, silently, which is the worst way for this
+particular function to be wrong. It now scans from the right for `.C` followed by exactly six digits.
+Caught only because the test used the real family name rather than a toy one.
+
+**The counter advances by one second, not sixty.** Sixty would land exactly on the next batch's name,
+which is the one name in the directory guaranteed to be taken. One second is the smallest change that
+makes a name unique and cannot collide with a sibling batch. (The assertion that found this was the
+test's, not the code's — it expected a minute.)
+
+### Verified
+
+63 assertions on the checker and 15 on the adapter, compiled with `--release 8` and run against
+purpose-built files: a clean file verdict `OK`; **a line break inside a value giving `CORRUPTED` while
+well-formedness passes**, reported at the line where the break starts and with the record ordinal; a
+markup break reported as a different kind; twenty wrapped payload lines producing **no** findings; a
+malformed opener caught by both passes independently, with the parse error stating that the textual
+checks still covered the whole file; the two line-length findings with their distinct messages;
+missing, duplicate and empty as three findings on four records; both pair failures and a correct pair;
+the clock arithmetic including the family-name case; the hash check off and on, catching exactly the
+wrong document; **no field value in the findings file or the log**; the cap with exact counters; the
+counters reaching `run.vars`; and the inspected directory unchanged.
+
+`USAGE.md` verified by running `docs.html`'s own `render()` against the real file: 20 paragraphs in
+the new section, **zero** sentence fragments, no raw markdown outside code blocks.
+
+### Not verified
+
+`mvn clean package` — `InternalSteps`, the parser, `WorkflowEngine` and `designer.html` need the
+Spring tree from the internal Nexus and were checked structurally instead. And nothing has run against
+a real INDX: the definition of done requires the reported line and record numbers to match what ELAR
+reported, and that needs the known-bad file and its rejection report.
+
+The designer has the dropdown entry but **no configuration panel**, the same gap `elarxml` has. Until
+one exists, configure it with `+ param` entries — only `inputDir` is required.

@@ -95,6 +95,8 @@ public class InternalSteps {
                 runDequote(step, resolvedParams, vars, res, line);
             } else if ("elarxml".equals(kind)) {
                 runElarXml(step, resolvedParams, vars, res, line);
+            } else if ("elarcheck".equals(kind)) {
+                runElarCheck(step, resolvedParams, vars, res, line);
             } else if ("csvsql".equals(kind)) {
                 runCsvSql(step, resolvedParams, vars, res, line, control);
             } else if ("xlsx2csv".equals(kind)) {
@@ -1684,6 +1686,76 @@ public class InternalSteps {
      * method does two things and nothing else: translate step parameters into options, and translate
      * counters back into run variables.
      */
+    /**
+     * The ELAR INDX checker. Read-only: everything it inspects it only reads, and the findings file is
+     * written into the STEP directory, never into the inspected one.
+     */
+    private void runElarCheck(StepDef step, Map<String, String> params, Map<String, String> vars,
+                              StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        com.legalarchive.orchestrator.elarcheck.ElarCheckRun.Options o =
+                new com.legalarchive.orchestrator.elarcheck.ElarCheckRun.Options();
+        String inputDir = blankToNull(VarResolver.resolve(params.get("inputDir"), vars));
+        if (inputDir == null) {
+            line.accept("elarcheck: missing required parameter: inputDir");
+            res.exitCode = 2;
+            return;
+        }
+        o.inputDir = new java.io.File(inputDir);
+        o.filePattern = xStr(params.get("filePattern"), "*INDX*");
+        o.inputCharset = xStr(params.get("inputCharset"), "windows-1252");
+        o.maxLineLength = intParam(params.get("maxLineLength"), 25000);
+        o.receiverLineLimit = intParam(params.get("receiverLineLimit"), 30000);
+        o.contentElement = xStr(params.get("contentElement"), "Content");
+        o.hashElement = xStr(params.get("hashElement"), "HashValue");
+        o.docElement = xStr(params.get("docElement"), "Doc");
+        String tags = blankToNull(VarResolver.resolve(params.get("mandatoryTags"), vars));
+        if (tags != null) {
+            String[] parts = tags.split(",", -1);
+            for (int i = 0; i < parts.length; i++) {
+                String t = parts[i].trim();
+                if (!t.isEmpty()) o.mandatoryTags.add(t);
+            }
+        }
+        o.checkPull = !"false".equalsIgnoreCase(params.get("checkPull"));
+        String dd = blankToNull(VarResolver.resolve(params.get("deliveredDir"), vars));
+        if (dd != null) o.deliveredDir = new java.io.File(dd);
+        o.verifyHash = "true".equalsIgnoreCase(params.get("verifyHash"));
+        o.maxFindingsPerFile = intParam(params.get("maxFindingsPerFile"), 100);
+
+        try {
+            com.legalarchive.orchestrator.elarcheck.ElarCheckReport rep =
+                    com.legalarchive.orchestrator.elarcheck.ElarCheckRun.run(o, line);
+            for (Map.Entry<String, String> e : rep.asVars().entrySet()) res.outVars.put(e.getKey(), e.getValue());
+
+            // the findings file goes to the STEP directory. Never to inputDir: writing there would
+            // break the property that makes this safe to run on a live delivery folder.
+            String sd = VarResolver.resolve("${stepDir}", vars);
+            if (sd != null && !sd.trim().isEmpty()) {
+                java.io.File out = new java.io.File(sd.trim(), "elarcheck_findings.tsv");
+                java.nio.file.Files.write(out.toPath(),
+                        rep.toTsv().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                line.accept("elarcheck: findings written to " + out.getName());
+                res.outVars.put("findingsFile", out.getAbsolutePath());
+            } else {
+                line.accept("elarcheck: no step directory available, so the findings file was not"
+                        + " written; the counters and the per-file verdicts below carry the same"
+                        + " information");
+            }
+
+            for (int i = 0; i < rep.files.size(); i++) {
+                com.legalarchive.orchestrator.elarcheck.ElarCheckReport.FileReport f = rep.files.get(i);
+                line.accept("elarcheck: " + f.name + " = " + f.verdict());
+            }
+            boolean any = rep.totalFindings() > 0;
+            // failing is opt-in: the natural workflow is check, then repair only if the counters say
+            // so, and a step that always failed could not drive that
+            res.exitCode = (any && "true".equalsIgnoreCase(params.get("failOnFindings"))) ? 2 : 0;
+        } catch (Exception ex) {
+            line.accept("elarcheck: " + ex.getMessage());
+            res.exitCode = 2;
+        }
+    }
+
     private void runElarXml(StepDef step, Map<String, String> params, Map<String, String> vars,
                             StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
         com.legalarchive.orchestrator.elar.ElarRun.Options o =
