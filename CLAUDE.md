@@ -1976,3 +1976,45 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * 15 assertions on the generator + 6 on the checker, `--release 8`. The decisive one (a PULL naming
   the prefix without the counter) returns **zero findings** pre-patch. `.done` rename suite re-run
   unchanged; the elarcheck read-only scan re-run clean, since the change touches no file API.
+
+## elarxml: the line break landed at the EDGES of a value; outputCharset now UTF-8
+* **Found on the field, by the equivalence comparator over 1000 real documents**: 43 WHITESPACE
+  findings plus 2 records reported as BOTH missing and extra, and in every one the break was on the
+  CANDIDATE's side — ours — always immediately before or immediately after the value. The 2 split
+  records had it inside `UniqueReportID`, so one document looked like two.
+* **The boundary was got wrong, not the rule.** §5 already said "between elements legal, inside any
+  other text node never". But the position right after the `>` of a start tag and right before the
+  `</` of an end tag LOOK like element boundaries and are not — both are inside the character data.
+  `text()` and `endElement()` each called `fit()`, so either could break there. It is the legacy
+  defect moved from mid-value to the edges, and **worse**: a break in the middle of a value is
+  visible, a leading or trailing one is not.
+* **Fix: the unbreakable unit.** `WrappingXmlOut.textElement` measures the whole
+  `<tag attrs>value</tag>` first, takes the break BEFORE the start tag where it is genuinely between
+  elements, and writes through `raw` and never `fit`. `text()` is now **private** and non-breaking:
+  a public breaking text writer is what produced the defect.
+* **Refusal decided explicitly**: if the unit cannot fit, the document is refused naming the tag. The
+  threshold now includes the TAGS, not just the value, so a value that used to pass by a few
+  characters begins to fail — deliberate, because overflowing delivers a value the receiver truncates
+  at 30000, and a truncated value in a legally archived document is worse than a named refusal.
+* **The content tag is exempt BY CONSTRUCTION**, not by exception: Base64 never reaches
+  `textElement`, it goes through `base64Chunk` and breaks at quad boundaries where whitespace is
+  ignored by every decoder. Asserted, not assumed.
+* **Mixed content is now refused at LOAD**, naming the element: it has no position its text could
+  keep under the unit rule, and the previous emitter reordered it anyway (all text first, then every
+  child). Whitespace-only text between children is formatting and still discarded, so indented
+  templates pass.
+* **The decisive test is exhaustive, not representative**: the same value written at EVERY starting
+  column of a line, all must round-trip. The defect only showed at the few columns where the element
+  straddled the limit — which is exactly why 43 in 1000 slipped through and why hand-picked cases
+  would have missed it. **47 of 114 columns corrupt the value pre-patch.** 31 assertions.
+* **DECLARED EXCEPTION to conservative defaults: `outputCharset` ISO-8859-1 -> UTF-8.** It changes
+  the bytes of every family that does not set the parameter. Measured, not assumed: a byte probe over
+  the INDX ELAR receives today (produced by the PowerShell scripts) found 294 non-ASCII bytes forming
+  147 valid UTF-8 sequences, ZERO stray high bytes, declaration UTF-8. The old default came from
+  `elar-file-maker.jar` — a DIFFERENT producer — and made the candidate differ on every accented
+  character (147 VALUE findings, all `U+00C3 -> U+00E0`). **The file to be equivalent to is the one
+  the PowerShell scripts produce.**
+* **OPEN, and stated rather than left to be discovered**: `maxLineLength` counts CHARACTERS, not
+  bytes. Under UTF-8 a 25000-character line can exceed 25000 bytes. Whether the receiver's 30000
+  limit is bytes or characters is NOT confirmed with the receiving team. At 147 accented characters
+  per 1000 documents the difference is far inside the margin, but the question is open.

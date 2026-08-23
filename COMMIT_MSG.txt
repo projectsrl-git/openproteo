@@ -1,65 +1,107 @@
-ELAR: no file extension is expected, and the PULL had lost the counter
+elarxml: never break at a value edge; outputCharset defaults to UTF-8
 
-Reported: ELAR expects no fixed extension. A delivered file ends at its
-.CHHMMSS counter, which is how output.index_name_pattern is written in the
-properties file. The generator already produced that name correctly - the
-whole name comes from the pattern, and nothing in the executor adds, assumes
-or requires an extension.
+Both found by running the equivalence comparator over 1000 real documents,
+reference produced by the PowerShell scripts and candidate by elarxml. Neither
+was visible in the sandbox until the field run pointed at where to look.
 
-What did not survive it is the name the PULL references.
-BatchNaming.stripExtension removed the last dot-segment with lastIndexOf. On
-x.INDX.C152100.xml that is indistinguishable from removing .xml; on
-x.INDX.C152100 it eats the counter, because there the counter IS the last
-dot-segment. The INDEX_NAME placeholder was therefore substituted as x.INDX,
-so every delivered PULL referenced a file that does not exist. Both files
-still look right in a directory listing, with correct names, correct counters
-and a matching pair; only the manifest inside the PULL is wrong, and nothing
-on our side would have said so.
+1. THE BREAK LANDED AT THE EDGES OF A VALUE
 
-The legacy tool did a literal replace of ".xml" with the empty string, and
-therefore a no-op on a name without an extension. Legacy was right here and
-the rewrite was wrong. Rewriting that crude line as something tidier is what
-introduced the defect: lastIndexOf is the obviously equivalent version, and it
-is only equivalent while an extension is present.
+43 WHITESPACE findings plus 2 records reported as both missing and extra. In
+every one of them the line break was on the CANDIDATE's side, ours, and always
+at one of two positions: immediately before the value or immediately after it.
+AccountID, ClientID, ClientAdvisor, RecordDescr; and for the 2 split records
+UniqueReportID, where a break inside the key made one document look like two.
 
-elarcheck carried the same shortcut in ElarCheckRun.stripExtension, which
-decides what name the PULL must contain. With no extension it looked for the
-family-and-INDX prefix alone, a substring of almost any PULL for that family
-including the PULL's own file name, so the pair check passed on a broken pair.
-The two bugs agreed with each other, which is why neither could reveal the
-other, and that is the failure direction that makes a checker worthless: the
-pair-integrity check, one of the reasons elarcheck exists, was reporting
-confidence it did not have.
+Section 5 already stated the rule correctly: between elements legal, inside
+any other text node never. The implementation got the BOUNDARY wrong. The
+position immediately after the '>' of a start tag and the one immediately
+before the '</' of an end tag look like element boundaries and are not: both
+are inside the character data. text() and endElement() each called fit(), so
+either could break there. It is the legacy defect moved from mid-value to the
+edges, and arguably worse, because a break in the middle of a value is visible
+on sight while a leading or trailing one is not.
 
-Both now strip a literal .xml suffix, case-insensitively. One deliberate
-divergence from legacy: replace substituted the sequence anywhere in the name
-while this removes it only as a suffix, so a family whose name contained .xml
-in the middle, which legacy would have corrupted, is left alone here.
+An element carrying a value is now written by WrappingXmlOut.textElement as
+ONE UNBREAKABLE UNIT: the whole start tag, attributes, value and end tag are
+measured first, the break if any is taken BEFORE the start tag where it is
+genuinely between elements, and nothing inside can break, which is why it
+writes through raw and never through fit. text() is now private and
+non-breaking; a public breaking text writer is what produced the defect.
 
-USAGE.md states the rule where the file names are explained: there is no
-extension and none is expected, the whole name comes from the pattern, and the
-only place one is ever removed is the PULL's reference to its INDX.
+The refusal now counts the tags. If the unit cannot fit a line the document is
+refused naming the tag, and the threshold includes the tags rather than only
+the value, so a value that used to pass by a few characters begins to fail.
+That is deliberate: overflowing the line delivers a value the receiver
+truncates at 30000, and a truncated value inside a legally archived document
+with nothing to flag it is worse than a refusal that names the field.
+
+The content tag is exempt by construction rather than by exception: a Base64
+payload never reaches textElement, it goes through base64Chunk, which breaks
+at quad boundaries where whitespace is ignored by every decoder. Asserted
+rather than assumed.
+
+Mixed content is now refused at load, naming the element. It has no position
+its text could keep under the unit rule, and the previous emitter reordered it
+anyway, writing all the text first and then every child, while also being free
+to break between the text and the first child. Whitespace-only text between
+children is formatting and is still discarded, so an indented template passes.
+
+2. OUTPUTCHARSET DEFAULTS TO UTF-8
+
+A declared exception to the conservative-default rule, taken deliberately: it
+changes the bytes of every family that does not set the parameter, on the
+first run after deploy.
+
+Measured, not assumed. A byte probe over the INDX ELAR receives today found
+294 non-ASCII bytes forming 147 valid UTF-8 multibyte sequences, zero stray
+high bytes, and a declaration of UTF-8. That file is UTF-8 and says so. The
+candidate under the old default was ISO-8859-1, also coherent with its own
+declaration, and the two therefore differed on every accented character: 147
+VALUE findings, all U+00C3 to U+00E0 at the same position of the same field.
+
+The old default came from elar-file-maker.jar, whose declared-versus-actual
+mismatch section 2 recorded as the reason for choosing ISO-8859-1. That
+reasoning was right about the JAR and wrong about the target: the file to be
+equivalent to is the one the PowerShell scripts produce. The XML declaration
+is generated from this setting, so whatever it is set to the file stays
+self-consistent, and a family whose receiver wants an 8-bit encoding sets the
+parameter explicitly.
+
+Stated now rather than discovered later: maxLineLength counts CHARACTERS, not
+bytes. Under UTF-8 a line of 25000 characters can exceed 25000 bytes. Whether
+the receiver's 30000 limit is counted in bytes or characters has NOT been
+confirmed with the receiving team. At the density measured, 147 accented
+characters across 1000 documents, the difference is far inside the 5000
+margin, but the question is open.
 
 VERIFIED
-- 15 assertions on the generator, --release 8: the extension-less pattern end
-  to end, where the delivered INDX ends at .C152100, the PULL on disk names
-  that exact file, and the referenced name equals the delivered file name;
-  plus the .xml pattern still stripping only the extension, uppercase .XML, an
-  unrelated .dat left alone, and a bare name returned unchanged. The first
-  group fails against the previous code.
-- 6 assertions on the checker. The decisive one: a PULL naming the prefix
-  without the counter is now reported as a broken pair, where against the
-  pre-patch code the same case returns zero findings.
-- The .done rename suite, 33 assertions, re-run unchanged.
-- The elarcheck read-only scan re-run clean: no FileOutputStream, no
-  Files.write, delete, copy or move, no renameTo, no createNewFile, no mkdir,
-  no delete call, no deleteOnExit, no setWritable and no setLastModified
-  anywhere in the package. The change removes characters from a String and
-  touches no file API, but the property is asserted rather than reasoned
-  about.
+- 31 assertions, --release 8. The decisive one is exhaustive rather than
+  representative: the same value written at EVERY starting column of a line,
+  all of which must round-trip. The defect only appeared at the few columns
+  where the element straddled the limit, which is precisely why 43 documents
+  in 1000 slipped through and why a handful of hand-picked cases would not
+  have caught it.
+- Against the previous code, 47 of 114 columns corrupt the value, and end to
+  end two values per run come back carrying a line break. The same suite,
+  reduced to what the old API can express, fails 6 assertions.
+- Also asserted: the break lands before a start tag and at neither edge; the
+  refusal names the tag and says why it is not simply broken; the tag overhead
+  counts toward the threshold and an element that fits exactly is written
+  whole; attributes and escaping survive the unit; a 5000-byte payload under a
+  100-character limit wraps across more than fifty lines and decodes
+  byte-for-byte; end to end over 200 documents at a 300-character limit not
+  one value carries a line break and every value is exactly what went in; the
+  accented character survives; the PULL still names its INDX with no break
+  inside it; and the declaration says UTF-8 with the accented a written as the
+  two bytes C3 A0.
+- The .done rename suite, 33 assertions, and the naming suite, 15 assertions,
+  re-run unchanged. Both designer panel suites re-run green, 88 and 67, after
+  the default label moved to UTF-8. Template scans and elar rule scans clean.
 
 NOT VERIFIED
 - mvn clean package: Maven Central is unreachable from the chat sandbox, so
-  the build on the target machine remains the only final proof. Both classes
-  changed here sit in packages free of Spring and were compiled and executed
-  in full.
+  the build on the target machine remains the only final proof. The elar
+  package compiles and runs standalone in full; InternalSteps and
+  designer.html were checked structurally and under jsdom.
+- Whether the receiver counts its 30000 line limit in bytes or in characters.
+  Open with the receiving team.

@@ -26,8 +26,12 @@ import java.nio.charset.CodingErrorAction;
  * <ul>
  *   <li>between elements, and between attributes inside a start tag - always legal;</li>
  *   <li>inside a Base64 payload - legal at any multiple of 4, the natural quad boundary;</li>
- *   <li>inside any other text node - <b>never</b>. If a value cannot fit on a line of its own the
- *       document fails naming the tag, rather than emitting an over-length line or a corrupted value.</li>
+ *   <li>inside any other text node - <b>never</b>, and that includes the two positions that look
+ *       like element boundaries and are not: immediately after the {@code >} of the start tag and
+ *       immediately before the {@code </} of the end tag. Both are inside the character data. An
+ *       element carrying a value is therefore written by {@link #textElement} as one unbreakable
+ *       unit, measured before it is begun. If the unit cannot fit a line the document fails naming
+ *       the tag, rather than emitting an over-length line or a corrupted value.</li>
  * </ul>
  *
  * {@code maxLineLength} is a maximum and not an exact width (confirmed with the receiving team), which
@@ -98,19 +102,64 @@ public final class WrappingXmlOut implements Closeable {
     }
 
     /**
-     * Element text. Never broken, so it must fit a line by itself; when it cannot, the failure names
-     * the tag rather than letting the line run over or the value be split.
+     * A complete {@code <tag attrs>value</tag>}, written as ONE UNBREAKABLE UNIT.
+     *
+     * This is the only way a value reaches the file, and it exists because the two positions around a
+     * text node are not what they look like. Immediately after the {@code >} of the start tag, and
+     * immediately before the {@code </} of the end tag, are <b>inside the character data</b>, not
+     * between elements. Breaking there does not corrupt the markup and does not corrupt the Base64 -
+     * it corrupts the VALUE, by giving it a leading or trailing line break that nothing downstream
+     * would flag. Confirmed in the field: 43 documents in 1000 came back from the equivalence
+     * comparator with the line break on OUR side, always at one of those two positions.
+     *
+     * So the whole unit is measured first and the break, if any, is taken BEFORE the start tag, where
+     * it is genuinely between elements. Once the room is reserved nothing inside can break, which is
+     * why this writes through {@link #raw} and never through {@link #fit}.
+     *
+     * The content tag does not come through here: a Base64 payload is written by
+     * {@link #base64Chunk}, which breaks at quad boundaries where whitespace is ignored by any
+     * decoder. It is exempt by construction, not by exception.
      */
-    public void text(String qname, String value) throws IOException {
+    public void textElement(String qname, String[][] attrs, String value) throws IOException {
         String esc = escapeText(check(value, qname));
-        if (esc.length() > max) {
-            throw new IOException("the value of <" + qname + "> is " + esc.length()
-                    + " characters after escaping and cannot fit a line of " + max
-                    + ". A line break inside a value would change the value, so the document is refused."
+        String[][] escAttrs = attrs == null ? new String[0][] : new String[attrs.length][];
+        int width = 1 + qname.length();                       // <q
+        for (int i = 0; i < escAttrs.length; i++) {
+            String an = attrs[i][0];
+            String av = escapeAttr(check(attrs[i][1], qname + "/@" + an));
+            escAttrs[i] = new String[] { an, av };
+            width += 1 + an.length() + 2 + av.length() + 1;   // ' n="v"'
+        }
+        width += 1;                                           // >
+        width += esc.length();
+        width += 3 + qname.length();                          // </q>
+
+        if (width > max) {
+            throw new IOException("<" + qname + "> and its value need " + width
+                    + " characters on one line, which is more than the maximum of " + max
+                    + " (the value alone is " + esc.length() + " after escaping; the tags add "
+                    + (width - esc.length()) + "). A line break inside a value would change the value,"
+                    + " so the document is refused rather than delivered corrupted."
                     + " Raise max.line.length for this family, or shorten the field.");
         }
-        fit(esc.length());
-        raw(esc);
+
+        fit(width);                                           // the ONLY break, and it is before the tag
+        StringBuilder sb = new StringBuilder(width);
+        sb.append('<').append(qname);
+        for (int i = 0; i < escAttrs.length; i++) {
+            sb.append(' ').append(escAttrs[i][0]).append("=\"").append(escAttrs[i][1]).append('"');
+        }
+        sb.append('>').append(esc).append("</").append(qname).append('>');
+        raw(sb.toString());
+    }
+
+    /**
+     * Element text. PRIVATE and non-breaking on purpose: room for the whole element is reserved by
+     * {@link #textElement} before this is reached, so there is nothing left to decide here. Exposing
+     * a breaking text writer is what produced the field defect.
+     */
+    private void text(String qname, String value) throws IOException {
+        raw(escapeText(check(value, qname)));
     }
 
     /**

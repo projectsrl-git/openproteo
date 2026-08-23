@@ -80,7 +80,34 @@ public final class IndxTemplate {
                     + kids.size() + (kids.isEmpty() ? "" : (" (" + names(kids) + ")"))
                     + ". A template of a different shape needs the model revisiting rather than working around.");
         }
+        String mixed = firstMixedContent(d.getDocumentElement());
+        if (mixed != null) {
+            throw new IllegalArgumentException("<" + mixed + "> in " + templateFile.getAbsolutePath()
+                    + " has both text of its own and element children. That is mixed content, and this"
+                    + " writer cannot reproduce it: a value is written as one unbreakable unit, so text"
+                    + " sitting between child elements has no position it could keep. The template is"
+                    + " refused here, where the element can be named, rather than delivered with the"
+                    + " text silently moved or broken. Move the text into a child element of its own.");
+        }
         return new IndxTemplate(d, cont, kids.get(0), templateFile.getAbsolutePath());
+    }
+
+    /**
+     * The first element carrying BOTH direct text and element children, or null.
+     *
+     * Whitespace-only text between children is formatting, not content, and {@link #directText}
+     * already discards it - so an indented template passes. This catches only real mixed content,
+     * which the previous emitter reordered (all the text first, then every child) while also being
+     * free to break a line between the text and the first child, corrupting the value.
+     */
+    private static String firstMixedContent(Element e) {
+        List<Element> kids = elementChildren(e);
+        if (!kids.isEmpty() && !directText(e).isEmpty()) return e.getNodeName();
+        for (int i = 0; i < kids.size(); i++) {
+            String hit = firstMixedContent(kids.get(i));
+            if (hit != null) return hit;
+        }
+        return null;
     }
 
     private static String names(List<Element> els) {
@@ -173,8 +200,8 @@ public final class IndxTemplate {
         openTags.push(q);
         if (e == container) return;
         List<Element> kids = elementChildren(e);
-        String txt = directText(e);
-        if (!txt.isEmpty()) out.text(q, txt);
+        // mixed content is refused at load, so an element on the way down to the container has
+        // element children and no text of its own
         for (int i = 0; i < kids.size(); i++) {
             if (containsContainer(kids.get(i))) { emitOpen(out, kids.get(i)); return; }
             emit(out, kids.get(i), java.util.Collections.<DocSource>emptyList());
@@ -191,20 +218,25 @@ public final class IndxTemplate {
     private void emit(WrappingXmlOut out, Element e, List<DocSource> docs) throws IOException {
         if (e == block) return;                       // the placeholder itself is never emitted as-is
         String q = e.getNodeName();
-        out.startElement(q);
-        writeAttrs(out, e);
         List<Element> kids = elementChildren(e);
         String txt = directText(e);
 
         if (e == container) {
+            out.startElement(q);
+            writeAttrs(out, e);
             out.closeStartTag();
             for (int i = 0; i < docs.size(); i++) emitBlock(out, block, docs.get(i));
             out.endElement(q);
             return;
         }
-        if (kids.isEmpty() && txt.isEmpty()) { out.selfClose(); return; }
+        if (kids.isEmpty() && !txt.isEmpty()) {
+            out.textElement(q, attrPairs(e), txt);    // one unbreakable unit, as in the block
+            return;
+        }
+        out.startElement(q);
+        writeAttrs(out, e);
+        if (kids.isEmpty()) { out.selfClose(); return; }
         out.closeStartTag();
-        if (!txt.isEmpty()) out.text(q, txt);
         for (int i = 0; i < kids.size(); i++) emit(out, kids.get(i), docs);
         out.endElement(q);
     }
@@ -215,17 +247,22 @@ public final class IndxTemplate {
      */
     private void emitBlock(WrappingXmlOut out, Element e, DocSource src) throws IOException {
         String q = e.getNodeName();
-        out.startElement(q);
-        writeAttrs(out, e);
         List<Element> kids = elementChildren(e);
 
         if (src.isContentTag(q)) {
+            // NOT an unbreakable unit, and deliberately so: the payload is written by base64Chunk,
+            // which breaks at quad boundaries where whitespace is ignored by every decoder. The
+            // content tag is exempt by construction rather than by exception.
+            out.startElement(q);
+            writeAttrs(out, e);
             out.closeStartTag();
             src.writeContent(out, q);
             out.endElement(q);
             return;
         }
         if (!kids.isEmpty()) {
+            out.startElement(q);
+            writeAttrs(out, e);
             out.closeStartTag();
             for (int i = 0; i < kids.size(); i++) emitBlock(out, kids.get(i), src);
             out.endElement(q);
@@ -235,10 +272,26 @@ public final class IndxTemplate {
         // null means "the row says nothing about this tag", so the template's own text stands - which
         // is how a family's constants survive. An empty string is a value, and overrides.
         if (v == null) v = directText(e);
-        if (v.isEmpty()) { out.selfClose(); return; }
-        out.closeStartTag();
-        out.text(q, v);
-        out.endElement(q);
+        if (v.isEmpty()) {
+            out.startElement(q);
+            writeAttrs(out, e);
+            out.selfClose();
+            return;
+        }
+        // ONE unbreakable unit: a line break immediately after the start tag or immediately before
+        // the end tag lands inside the value, not between elements. See WrappingXmlOut.textElement.
+        out.textElement(q, attrPairs(e), v);
+    }
+
+    /** Attributes as name/value pairs, so the writer can measure the whole element before starting it. */
+    private static String[][] attrPairs(Element e) {
+        NamedNodeMap m = e.getAttributes();
+        String[][] out = new String[m.getLength()][];
+        for (int i = 0; i < m.getLength(); i++) {
+            Attr a = (Attr) m.item(i);
+            out[i] = new String[] { a.getName(), a.getValue() };
+        }
+        return out;
     }
 
     private void writeAttrs(WrappingXmlOut out, Element e) throws IOException {

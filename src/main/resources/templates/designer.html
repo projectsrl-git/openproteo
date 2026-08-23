@@ -1233,7 +1233,7 @@
                     var elarInCs = nodeParam(n, 'inputCharset');
                     var elarOutCs = nodeParam(n, 'outputCharset');
                     var elarInList = [ '', 'UTF-8', 'windows-1252', 'ISO-8859-1', 'ISO-8859-15', 'UTF-16LE' ];
-                    var elarOutList = [ '', 'ISO-8859-1', 'windows-1252', 'UTF-8' ];
+                    var elarOutList = [ '', 'ISO-8859-1', 'windows-1252' ];
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Input directory *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'inputDir')) + '" placeholder="${landingOut}" title="The flat source CSVs. Files starting with the skip prefix, and files already renamed to .done, are ignored." oninput="setNodeParam(' + i + ',\'inputDir\',this.value)"></div>' +
                         '<div class="field wide"><label>Output directory *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'outputDir')) + '" placeholder="${landingOut}/elar" title="Where the INDX/PULL pairs are delivered. Each is written under a temp name and renamed only after a clean close." oninput="setNodeParam(' + i + ',\'outputDir\',this.value)"></div></div>';
@@ -1266,9 +1266,9 @@
 
                     h += subHead('Writing the INDX');
                     h += '<div class="form-row">' +
-                        '<div class="field"><label>Output charset</label><select onchange="setNodeParam(' + i + ',\'outputCharset\',this.value)" title="The XML declaration is GENERATED from this value, never copied from the template, so the declaration and the bytes cannot diverge.">';
+                        '<div class="field"><label>Output charset</label><select onchange="setNodeParam(' + i + ',\'outputCharset\',this.value)" title="The XML declaration is GENERATED from this value, never copied from the template, so the declaration and the bytes cannot diverge. UTF-8 is what ELAR receives today, measured on a delivered INDX.">';
                     elarOutList.forEach(function (cs) {
-                        h += '<option value="' + attresc(cs) + '"' + (elarOutCs === cs ? ' selected' : '') + '>' + (cs === '' ? 'ISO-8859-1 (default)' : cs) + '</option>';
+                        h += '<option value="' + attresc(cs) + '"' + (elarOutCs === cs ? ' selected' : '') + '>' + (cs === '' ? 'UTF-8 (default)' : cs) + '</option>';
                     });
                     h += '</select></div>' +
                         '<div class="field"><label>Max line length</label><input type="number" min="0" value="' + attresc(nodeParam(n, 'maxLineLength')) + '" placeholder="(max.line.length)" title="A MAXIMUM, not an exact width. Empty or 0 takes max.line.length from the properties file. Breaks land only between elements or on a Base64 quad boundary, never inside a value." oninput="setNodeParam(' + i + ',\'maxLineLength\',this.value)"></div>' +

@@ -34,7 +34,14 @@ public final class ElarRun {
         public File pullTemplate;
 
         public String inputCharset = "UTF-8";
-        public String outputCharset = "ISO-8859-1";
+        // UTF-8, and it is a DELIBERATE exception to the conservative-default rule: it changes the
+        // bytes of every family that does not set the parameter, on the first run after deploy.
+        // Measured, not assumed - the INDX ELAR receives today from the PowerShell scripts is
+        // UTF-8 and declares UTF-8 (byte probe: 147 valid multibyte sequences, zero stray high
+        // bytes). ISO-8859-1 was chosen from the legacy JAR's behaviour, which is a different
+        // producer. The declaration is generated from this value, so the file stays
+        // self-consistent whatever it is set to.
+        public String outputCharset = "UTF-8";
         public boolean failOnMalformedInput = true;
         public char separator = ';';
         public char quoteChar = 0;

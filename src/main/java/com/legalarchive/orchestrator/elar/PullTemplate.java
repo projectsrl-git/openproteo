@@ -73,17 +73,27 @@ public final class PullTemplate {
 
     private void emit(WrappingXmlOut out, Element e, String indexName) throws IOException {
         String q = e.getNodeName();
-        out.startElement(q);
         NamedNodeMap m = e.getAttributes();
+        String[][] attrs = new String[m.getLength()][];
         for (int i = 0; i < m.getLength(); i++) {
             Attr a = (Attr) m.item(i);
-            out.attribute(a.getName(), a.getValue().replace(PLACEHOLDER, indexName));
+            attrs[i] = new String[] { a.getName(), a.getValue().replace(PLACEHOLDER, indexName) };
         }
         List<Element> kids = IndxTemplate.elementChildren(e);
         String txt = IndxTemplate.directText(e);
-        if (kids.isEmpty() && txt.isEmpty()) { out.selfClose(); return; }
+
+        // Same rule as the INDX: an element carrying text is ONE unbreakable unit. The PULL is small
+        // enough that it never approaches the line limit, but the value it carries is the name of its
+        // own INDX - the one string in the pair that has to be exact - so it follows the same rule
+        // rather than relying on being short.
+        if (kids.isEmpty() && !txt.isEmpty()) {
+            out.textElement(q, attrs, txt.replace(PLACEHOLDER, indexName));
+            return;
+        }
+        out.startElement(q);
+        for (int i = 0; i < attrs.length; i++) out.attribute(attrs[i][0], attrs[i][1]);
+        if (kids.isEmpty()) { out.selfClose(); return; }
         out.closeStartTag();
-        if (!txt.isEmpty()) out.text(q, txt.replace(PLACEHOLDER, indexName));
         for (int i = 0; i < kids.size(); i++) emit(out, kids.get(i), indexName);
         out.endElement(q);
     }

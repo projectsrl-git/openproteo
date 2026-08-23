@@ -939,3 +939,82 @@ equals the delivered file name; the `.xml` pattern still stripping only the exte
 group fails against the previous code. The `.done` rename suite (33 assertions) was re-run unchanged.
 
 `USAGE.md` now states the rule where the file names are explained.
+
+### Field defect: the line break landed at the EDGES of a value
+
+The equivalence comparator, run over 1 000 real documents (reference produced by the PowerShell
+scripts, candidate by `elarxml`), returned 43 `WHITESPACE` findings plus 2 records reported as both
+missing and extra. In every one of them the line break was on the **candidate's** side — ours — and
+always at one of two positions: immediately before the value or immediately after it. `AccountID`,
+`ClientID`, `ClientAdvisor`, `RecordDescr`, and for the 2 split records `UniqueReportID`, where a
+break inside the key made one document look like two.
+
+§5 already stated the rule correctly — *between elements legal, inside any other text node never* —
+and the implementation got the boundary wrong. The two positions immediately after the `>` of a start
+tag and immediately before the `</` of an end tag **look** like element boundaries and are not: both
+are inside the character data. `text()` and `endElement()` each called `fit()`, so either could break
+there. It is the legacy defect moved from mid-value to the edges, and it is arguably worse: a break
+in the middle of a value is visible, a leading or trailing one is not.
+
+**The unbreakable unit.** An element carrying a value is now written by `WrappingXmlOut.textElement`
+as one unit: the whole `<tag attrs>value</tag>` is measured first, the break — if any — is taken
+**before** the start tag where it is genuinely between elements, and nothing inside can break, which
+is why it writes through `raw` and never through `fit`. `text()` became private and non-breaking; a
+public breaking text writer is what produced the defect.
+
+**The refusal, decided explicitly.** If the unit cannot fit a line the document is refused naming the
+tag. The threshold now includes the tags, not just the value, so a value that used to pass by a few
+characters begins to fail. That is deliberate: overflowing the line would deliver a value the
+receiver truncates at 30 000, and a truncated value inside a legally archived document with nothing to
+flag it is worse than a refusal that names the field.
+
+**The content tag is exempt by construction, not by exception.** A Base64 payload never reaches
+`textElement`: it is written by `base64Chunk`, which breaks at quad boundaries where whitespace is
+ignored by every decoder. Asserted rather than assumed — a 5 000-byte payload under a 100-character
+limit is wrapped across more than fifty lines and decodes byte-for-byte.
+
+**Mixed content is now refused at load.** An element with both direct text and element children has
+no position its text could keep under the unit rule. The previous emitter reordered it anyway — all
+the text first, then every child — while also being free to break between the text and the first
+child. Refusing at load, where the element can be named, is strictly better than either. Whitespace-only
+text between children is formatting and is discarded as before, so an indented template passes.
+
+**Verified** by 31 assertions, `--release 8`. The one that matters is exhaustive rather than
+representative: the same value is written at **every** starting column of a line and must round-trip
+at all of them, because the defect only appeared at the few columns where the element straddled the
+limit — which is precisely why 43 documents in 1 000 slipped through and why a handful of hand-picked
+cases would not have caught it. Against the previous code, **47 of 114 columns corrupt the value**.
+Plus: the break lands before a start tag and at neither edge; the refusal names the tag and says why;
+the tag overhead counts toward the threshold and an element that fits exactly is written whole;
+attributes and escaping survive the unit; and end to end over 200 documents at a 300-character limit,
+**not one value carries a line break** and every value is exactly what went in.
+
+### Decision: `outputCharset` now defaults to UTF-8
+
+**A declared exception to the conservative-default rule**, taken deliberately: it changes the bytes of
+every family that does not set the parameter, on the first run after deploy.
+
+Measured, not assumed. A byte probe over a real delivered INDX — the file ELAR receives today, produced
+by the PowerShell scripts — found 294 non-ASCII bytes forming 147 valid UTF-8 multibyte sequences,
+**zero stray high bytes**, and a declaration of UTF-8. The file is UTF-8 and says so. The candidate
+written by `elarxml` under the old default was ISO-8859-1, also coherent with its own declaration, and
+the two therefore differed on every accented character: 147 `VALUE` findings, all `U+00C3 -> U+00E0`
+at the same position of the same field.
+
+The old default came from `elar-file-maker.jar`, and §2 of this spec recorded its declared/actual
+mismatch as the reason for choosing ISO-8859-1. That reasoning was sound about the JAR and wrong about
+the target: the file to be equivalent to is the one the PowerShell scripts produce, and it is UTF-8.
+
+Consequences, stated rather than discovered later:
+
+- a family whose receiver wants an 8-bit encoding sets `outputCharset` explicitly and is unaffected;
+- under UTF-8 the encodability failure — a character the charset cannot represent — can no longer
+  arise, so the euro sign and typographic quotes stop being a reason to refuse a document;
+- **`maxLineLength` counts characters, not bytes.** Under UTF-8 a line of 25 000 characters can exceed
+  25 000 bytes. Whether the receiver's 30 000 limit is counted in bytes or characters has **not** been
+  confirmed with the receiving team. At the density measured — 147 accented characters across 1 000
+  documents — the difference is far inside the 5 000 margin, but this is an open question and not a
+  closed one.
+
+The XML declaration is generated from this setting, so whatever it is set to, the file stays
+self-consistent.

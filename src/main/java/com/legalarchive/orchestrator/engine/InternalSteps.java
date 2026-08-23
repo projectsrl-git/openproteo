@@ -1789,7 +1789,7 @@ public class InternalSteps {
         o.pullTemplate = new java.io.File(pullTpl);
 
         o.inputCharset = xStr(params.get("inputCharset"), "UTF-8");
-        o.outputCharset = xStr(params.get("outputCharset"), "ISO-8859-1");
+        o.outputCharset = xStr(params.get("outputCharset"), "UTF-8");
         o.failOnMalformedInput = !"REPLACE".equalsIgnoreCase(xStr(params.get("onMalformedInput"), "FAIL"));
         String sep = params.get("separator");
         if (sep != null && !sep.isEmpty()) o.separator = sep.charAt(0);

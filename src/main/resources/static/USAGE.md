@@ -556,7 +556,7 @@ If any of these is missing the step names **all** of them in one message and sto
 The rest are optional and default to what the legacy tool did, with the three deliberate exceptions listed further down.
 
 - `inputCharset` - default `UTF-8`. The source CSVs from AS/400 are usually `windows-1252`; set it explicitly rather than relying on the platform.
-- `outputCharset` - default `ISO-8859-1`, which is what the templates declare. See the section on encoding below.
+- `outputCharset` - default `UTF-8`, which is what ELAR receives today. See the section on encoding below.
 - `onMalformedInput` - `FAIL` (default) or `REPLACE`. `REPLACE` accepts a byte that is invalid in the declared charset by substituting a replacement character, which hides corruption rather than fixing it.
 - `separator` - default `;`.
 - `quoteChar` - empty by default, which disables quoting and makes the parse exactly the legacy split. Set it only if the source really quotes values that contain the separator.
@@ -607,13 +607,15 @@ This has a consequence worth knowing before it surprises anyone. With `start_tim
 
 ### Encoding
 
-`outputCharset` defaults to `ISO-8859-1`, matching what the templates declare. The XML declaration written into each file is **generated from that setting** rather than copied from the template, so the encoding a file declares is always the encoding it was actually written in - on any platform and under any locale. The legacy tool copied the declaration and wrote the bytes with the JVM platform default, which on the Italian Windows Server is `windows-1252`, so every delivered file has been declaring one encoding and potentially written in another.
+`outputCharset` defaults to `UTF-8`. That default was **measured, not assumed**: a byte probe over a real delivered INDX produced by the PowerShell scripts found 147 valid multibyte sequences covering every non-ASCII byte in the file, no stray high bytes at all, and a declaration of UTF-8 - so what ELAR receives today is UTF-8, and it is coherent. The earlier default of `ISO-8859-1` came from the legacy JAR, which is a different producer, and had the new executor deliver a file that differed from the current one on every accented character. The XML declaration written into each file is **generated from that setting** rather than copied from the template, so the encoding a file declares is always the encoding it was actually written in - on any platform and under any locale. The legacy JAR copied the declaration and wrote the bytes with the JVM platform default, which on the Italian Windows Server is `windows-1252`, so files it delivered have been declaring one encoding and potentially written in another.
 
 A metadata value that cannot be represented in `outputCharset` fails that document with a message naming the tag and the character's code point. It is never substituted with a question mark, because a silent substitution would place a corrupted value inside a legally archived document with nothing downstream to flag it.
 
-The escape hatch, if a feed's source data contains characters in the `windows-1252` range that ISO-8859-1 has no room for - typographic quotes, en and em dashes, the euro sign - is `outputCharset=windows-1252` for that feed while the source is corrected. Both are honest; only silence is not.
+A family whose receiver genuinely wants an 8-bit encoding sets `outputCharset=ISO-8859-1` or `outputCharset=windows-1252` on its step. Under an 8-bit charset a character the charset cannot represent - typographic quotes, en and em dashes, the euro sign - fails the document naming the tag and the code point, rather than being silently substituted. Under UTF-8 that failure cannot arise. Every option is honest; only silence is not.
 
-Input and output charsets are independent and are configured separately. The source CSV is typically `windows-1252` while the INDX is `ISO-8859-1`.
+One thing to know before changing this on a live family: `maxLineLength` counts **characters**, not bytes. Under an 8-bit charset the two are the same; under UTF-8 a line of 25 000 characters can be more than 25 000 bytes. Whether the receiver's 30 000 limit is counted in bytes or characters has not been confirmed with the receiving team, and with accented characters at the density measured so far - 147 in 1 000 documents - the difference is far inside the margin between 25 000 and 30 000.
+
+Input and output charsets are independent and are configured separately. The source CSV is typically `windows-1252` while the INDX is written in `UTF-8`.
 
 ### Line breaks
 
@@ -677,7 +679,7 @@ Why it is worth its runtime: ELAR validates an INDX in full and rejects it in fu
 `inputDir` is the only required one.
 
 - `filePattern` - default `*INDX*`, which files to inspect.
-- `inputCharset` - default `windows-1252`. This is deliberate and is **not** the encoding the files declare: delivered INDX files declare ISO-8859-1 while the legacy writer emitted the JVM platform default, which on the target server is windows-1252. Trusting the declaration would surface an encoding mismatch as a spurious structural error, which is the most misleading thing a checker can do.
+- `inputCharset` - default `windows-1252`. This is deliberate and is **not** necessarily the encoding the files declare: files from the legacy JAR declare ISO-8859-1 while it emitted the JVM platform default, which on the target server is windows-1252. Trusting the declaration would surface an encoding mismatch as a spurious structural error, which is the most misleading thing a checker can do. Note that files produced by the PowerShell scripts, and by `elarxml` from now on, are UTF-8 and declare it - so set this explicitly when checking those, or accented characters will be read as two characters each.
 - `maxLineLength` - default `25000`, the agreed target.
 - `receiverLineLimit` - default `30000`, what the receiver actually enforces by horizontal truncation.
 - `contentElement`, `hashElement`, `docElement` - defaults `Content`, `HashValue`, `Doc`. Matched on **local name**, so a family binding the same namespace to another prefix needs no change.
