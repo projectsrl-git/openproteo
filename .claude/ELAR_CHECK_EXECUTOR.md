@@ -345,5 +345,60 @@ Spring tree from the internal Nexus and were checked structurally instead. And n
 a real INDX: the definition of done requires the reported line and record numbers to match what ELAR
 reported, and that needs the known-bad file and its rejection report.
 
-The designer has the dropdown entry but **no configuration panel**, the same gap `elarxml` has. Until
-one exists, configure it with `+ param` entries — only `inputDir` is required.
+~~The designer has the dropdown entry but no configuration panel.~~ Resolved — see the section below.
+
+### Follow-up: the designer configuration panel
+
+`elarcheck` was in the executor dropdown but had no branch of its own, so a step fell through to the
+generic external one: `+ param` name/value rows and a Script field reading *(not used for this
+executor)*. Every parameter had to be typed by hand as a name/value pair, with nothing to say what
+the names are — and this executor has fourteen of them, thirteen optional. Built on the `elarxml`
+panel delivered in the previous turn, which is now the model for both.
+
+The panel is `inputDir` plus three collapsible subsections, grouped by what is decided together
+rather than listed in declaration order:
+
+- **Line length** — target beside receiver limit, with the reason they are two findings and not one
+  written between them;
+- **Element names** — the three locals plus the mandatory list, with the note that a tag missing on
+  nearly every record is a mapping problem while one missing on three records is a data problem. That
+  is the sentence that tells an operator which of the two they are looking at, and it belonged next
+  to the field rather than only in `USAGE.md`;
+- **Optional checks and reporting** — the delivered directory, the findings cap and the three
+  switches.
+
+Each field carries the executor's own default as its placeholder and its reasoning in a `title`.
+Three of those reasons are easy to lose and now sit on the screen beside their setting: the charset
+is deliberately **not** the one the files declare; the findings cap caps the **list** and never the
+counters; and `failOnFindings` is off so a gate can branch on the counters, because a step that
+always failed could not drive the check-then-repair shape this executor exists for.
+
+Two things the panel states outright rather than leaving to the documentation: that the executor is
+**read-only by construction**, which is what makes it safe against a live delivery folder, and that
+**no field value reaches the findings file or any log line**. Both are asserted by the test, so they
+cannot quietly fall out of the panel later.
+
+`clientValidate` requires `inputDir` and refuses a **target line length above the receiver limit**.
+That combination is accepted by the executor and produces findings that read backwards — "over
+target" would be the rejection and "over the receiver limit" the survivable one — which is worse than
+a refusal. Equal values are allowed: the receiver limit is a bound, not a strict outer one.
+
+`buildXml` needed no change; every field is a step `<param>`, which it already emits generically.
+
+`inputCharset` was deliberately **left out** of the Variables page's `PARAM_OPTIONS`. That table is
+keyed by parameter name with no executor context, and the two ELAR executors share the name with
+different defaults — UTF-8 for `elarxml`, windows-1252 for `elarcheck` — so one dropdown would print
+the wrong default for one of them, which on a mass-edit page is worse than a free-text box. The
+unambiguous enums (`checkPull`, `verifyHash`, `failOnFindings`) were added.
+
+**Verified** with jsdom against the real `designer.html`: 67 assertions covering the panel not being
+the generic one, a bound field for each of the 14 parameters, no field writing a parameter
+`runElarCheck` does not read, both stated properties, the `inputDir` refusal, the target/receiver
+refusal and the equal-values case, the `buildXml` round-trip for twelve parameters, untouched
+optionals staying absent, re-enabling `checkPull` removing the parameter rather than writing `true`
+(the executor's rule is *anything but false means on*), and the generated XML parsing with every
+`<param>` a direct child of `<step>`. **The same suite fails 23 of them against the pre-patch file.**
+
+Three of those assertions render an `elarcheck` and an `elarxml` step **side by side** and check that
+each keeps its own panel. The two branches are adjacent in the same chain, and a collision there
+would be invisible in either suite on its own.

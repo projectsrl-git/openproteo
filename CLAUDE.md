@@ -1884,8 +1884,7 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   `docs.html`'s own `render()` (20 paragraphs, zero fragments). * **Not verified**: `mvn clean package`,
   and nothing has run against a real INDX — matching ELAR's reported line/record numbers still needs
   the known-bad file. Designer has the dropdown but NO config panel, the gap `elarxml` had; use
-  `+ param`, only `inputDir` is required. (That gap is now `elarcheck`'s alone: the section below
-  gives `elarxml` its panel, and it is the model to copy.)
+  `+ param`, only `inputDir` is required. **Resolved** — see the elarcheck panel section below.
 
 ## elarxml: designer panel, and the `.done` rename per file
 * **The `.done` rename ran once at the end of the run.** `ElarRun` renamed the inputs after the LAST
@@ -1927,3 +1926,30 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   The log states a width the bytes do not have. §8b's 25000 fallback never reached the code either.
   One line to fix, but it moves the line breaks of every delivered INDX on the first run after
   deploy, so it needs its own batch and an explicit decision.
+
+## elarcheck: designer configuration panel
+* Closes the gap its own commit message recorded. `inputDir` plus three collapsible subsections
+  grouped by **what is decided together**, not by declaration order: line length (target beside
+  receiver limit, with the reason they are two findings and not one written between them), element
+  names (the three locals + the mandatory list), optional checks and reporting. Defaults as
+  placeholders, reasoning in `title`. Built on the `elarxml` panel from the previous turn, now the
+  model for both.
+* **Three reasons that are easy to lose now sit beside their setting**: the charset is deliberately
+  NOT the one the files declare; the findings cap caps the LIST and never the counters;
+  `failOnFindings` is off so a gate can branch on the counters, because a step that always failed
+  could not drive the check-then-repair shape. The panel also STATES the two properties that make the
+  executor what it is — read-only by construction, and no field value in the findings file or any log
+  — and **both are asserted**, so they cannot quietly fall out of the panel later.
+* `clientValidate` requires `inputDir` and refuses a **target line length above the receiver limit**:
+  the executor accepts it and the two findings then read backwards, which is worse than a refusal.
+  **Equal values are allowed** — the receiver limit is a bound, not a strict outer one.
+* **`inputCharset` is deliberately NOT in `PARAM_OPTIONS`.** That table is keyed by parameter name
+  with no executor context, and the two ELAR executors share the name with DIFFERENT defaults
+  (elarxml UTF-8, elarcheck windows-1252), so one dropdown would print the wrong default for one of
+  them — on a mass-edit page, worse than a free-text box. The unambiguous enums (`checkPull`,
+  `verifyHash`, `failOnFindings`) were added. Worth remembering before the next executor reuses a
+  common parameter name.
+* 67 jsdom assertions against the real template; the same suite fails 23 against the pre-patch file.
+  **Three of them render an elarcheck and an elarxml step SIDE BY SIDE** and check each keeps its own
+  panel: the branches are adjacent in the same chain and a collision would be invisible in either
+  suite on its own. `buildXml` needed no change — every field is a `<param>`.

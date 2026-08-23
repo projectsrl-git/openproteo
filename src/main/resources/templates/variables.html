@@ -250,12 +250,14 @@
     var PARAM_OPTIONS = {
         batchBy: [ ['','DOCUMENTS — output.max_index_docs per INDX (default)'], ['BYTES','BYTES — roll on a size budget']],
         bom: [ ['false','no (UTF-8 without BOM)'], ['true','yes (UTF-8 with BOM)']],
+        checkPull: [ ['','yes — the matching PULL must exist and name its INDX (default)'], ['false','no']],
         cidMode: [ ['formatPreserving','format-preserving (per-class)'], ['partial','partial — mask middle with -'], ['hash','hash (deterministic, fixed length)']],
         columnQuote: [ ['','none (PLAIN)'], ['double','double ("COL")']],
         deleteOnSuccessType: [ ['','(none)'], ['directory','directory'], ['file','file']],
         dropBlankLines: [ ['no','no (default)'], ['yes','yes']],
         embeddedNewlines: [ ['keep','keep the break — the record stays split (default)'], ['space','join the record, replace the break with a space'], ['strip','join the record, remove the break']],
         engine: [ ['','auto'], ['mem','in-memory (fast)'], ['file','on-disk (huge inputs)']],
+        failOnFindings: [ ['','no — let a gate branch on the counters (default)'], ['true','yes — stop the run']],
         freeTextStrategy: [ ['redact','pattern redaction (mask CF/IBAN/email/date/phone/amount)'], ['lorem','lorem-ipsum (replace whole field)']],
         hasHeader: [ ['true','yes'], ['false','no']],
         listSource: [ ['','directory + pattern (default)'], ['csv','the files listed in a CSV column']],
@@ -275,6 +277,7 @@
         selectBy: [ ['header','header name'], ['letter','column letter']],
         skipEmptyRows: [ ['true','yes'], ['false','no']],
         validate: [ ['','no (default)'], ['true','yes']],
+        verifyHash: [ ['','no — it decodes every payload (default)'], ['true','yes']],
         'match.*.type': [ ['text','text'], ['numeric','numeric'] ],
         'match.*.agg': [ ['value','value'], ['sum','sum (numeric)'], ['count','count'], ['count_distinct','distinct count'] ],
         unmappedColumnPolicy: [ ['fail','fail (require every column classified)'], ['redact','redact'], ['passthrough','passthrough']]

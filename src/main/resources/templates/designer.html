@@ -1291,6 +1291,45 @@
 
                     h += '<div class="dim small" style="margin-top:6px">Builds one INDX and one PULL per batch from the flat source CSV, embedding each document as Base64 with its SHA-256 over the RAW file bytes. Nothing accumulates: peak memory is independent of the batch size and of the size of the embedded files. Outputs: <b>${filesProcessed}</b>, <b>${documentsWritten}</b>, <b>${batchesWritten}</b>, <b>${bytesEmbedded}</b>, <b>${rowsMalformed}</b>, <b>${documentsSkippedNoPath}</b>, <b>${documentsSkippedFileMissing}</b>, <b>${sameDayPairsFound}</b>.</div>';
                     h += '<div class="dim small" style="margin-top:4px">The <code>C152100</code> segment of the filename is a <b>synthetic clock</b> &mdash; it starts at <code>output.start_time</code> or at the wall clock and advances 60s per batch. It is neither a timestamp nor a sequence: two runs on the same day with the same explicit <code>start_time</code> produce colliding names, and without it they produce new ones, so duplicates accumulate rather than overwrite. The step reports how many pairs for today already sit in the output directory.</div>';
+                } else if (ex === 'elarcheck') {
+                    var chkCs = nodeParam(n, 'inputCharset');
+                    var chkCsList = [ '', 'windows-1252', 'ISO-8859-1', 'UTF-8' ];
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Directory to inspect *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'inputDir')) + '" placeholder="${landingOut}/elar" title="Read-only: nothing in this directory is modified, renamed or deleted, so it is safe to point at a live delivery folder while something else is writing into it." oninput="setNodeParam(' + i + ',\'inputDir\',this.value)"></div>' +
+                        '<div class="field"><label>File pattern</label><input value="' + attresc(nodeParam(n, 'filePattern')) + '" placeholder="*INDX*" oninput="setNodeParam(' + i + ',\'filePattern\',this.value)"></div>' +
+                        '<div class="field"><label>Read as</label><select onchange="setNodeParam(' + i + ',\'inputCharset\',this.value)" title="Deliberately NOT the charset the files declare: delivered INDX declare ISO-8859-1 while the legacy writer emitted the platform default. Trusting the declaration would surface an encoding mismatch as a spurious structural error.">';
+                    chkCsList.forEach(function (cs) {
+                        h += '<option value="' + attresc(cs) + '"' + (chkCs === cs ? ' selected' : '') + '>' + (cs === '' ? 'windows-1252 (default)' : cs) + '</option>';
+                    });
+                    h += '</select></div></div>';
+
+                    h += subHead('Line length — two findings, because the remedies differ');
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Target length</label><input type="number" min="0" value="' + attresc(nodeParam(n, 'maxLineLength')) + '" placeholder="25000" title="The agreed target. A line over it would still arrive." oninput="setNodeParam(' + i + ',\'maxLineLength\',this.value)"></div>' +
+                        '<div class="field"><label>Receiver limit</label><input type="number" min="0" value="' + attresc(nodeParam(n, 'receiverLineLimit')) + '" placeholder="30000" title="What the receiver actually enforces, by horizontal truncation. A line over it loses its closing tag and the file is rejected with the content unterminated." oninput="setNodeParam(' + i + ',\'receiverLineLimit\',this.value)"></div>' +
+                        '<div class="field wide"><label></label><span class="dim small">Over the target is a line that still arrives; over the receiver limit is a rejection. They are counted apart on purpose &mdash; folding them into one number would hide which of the two you have.</span></div></div></div>';
+
+                    h += subHead('Element names — matched on LOCAL name, so a different namespace prefix needs no change');
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Document element</label><input value="' + attresc(nodeParam(n, 'docElement')) + '" placeholder="Doc" title="What one record is. The record ordinal in every finding counts starts of this element." oninput="setNodeParam(' + i + ',\'docElement\',this.value)"></div>' +
+                        '<div class="field"><label>Content element</label><input value="' + attresc(nodeParam(n, 'contentElement')) + '" placeholder="Content" title="The Base64 payload. Line breaks inside it are the intended wrapping and are never reported." oninput="setNodeParam(' + i + ',\'contentElement\',this.value)"></div>' +
+                        '<div class="field"><label>Hash element</label><input value="' + attresc(nodeParam(n, 'hashElement')) + '" placeholder="HashValue" oninput="setNodeParam(' + i + ',\'hashElement\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Mandatory elements (comma-separated local names, exactly once per record)</label><input value="' + attresc(nodeParam(n, 'mandatoryTags')) + '" placeholder="DocId,DSAK,HashValue" title="Empty disables the check. Missing, duplicate and empty are reported as three distinct findings: they have three different causes." oninput="setNodeParam(' + i + ',\'mandatoryTags\',this.value)"></div>' +
+                        '<div class="field wide"><label></label><span class="dim small">A tag missing on nearly every record is a mapping problem &mdash; the column is absent from <code>tagNameMapping</code> and the element is never emitted. One missing on three records is a data problem.</span></div></div></div>';
+
+                    h += subHead('Optional checks and reporting');
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Already-delivered directory (empty disables the name-reuse check)</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'deliveredDir')) + '" placeholder="${landingOut}/elar/sent" title="ELAR refuses a resend that reuses a name it has already seen. Reported only: this executor renames nothing." oninput="setNodeParam(' + i + ',\'deliveredDir\',this.value)"></div>' +
+                        '<div class="field"><label>Max findings per file</label><input type="number" min="0" value="' + attresc(nodeParam(n, 'maxFindingsPerFile')) + '" placeholder="100" title="Caps the LIST. The counters are never capped: a capped list with an exact count tells you what to fix and how big it is." oninput="setNodeParam(' + i + ',\'maxFindingsPerFile\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label><input type="checkbox"' + (nodeParam(n, 'checkPull') !== 'false' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'checkPull\',this.checked?\'\':\'false\')"> Check the matching PULL exists and names its INDX</label></div>' +
+                        '<div class="field wide"><label><input type="checkbox"' + (nodeParam(n, 'verifyHash') === 'true' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'verifyHash\',this.checked?\'true\':\'\')"> Verify each payload against its digest</label><span class="dim small">Off by default: it decodes every payload. The only check that proves the archived document is what it claims to be.</span></div>' +
+                        '<div class="field wide"><label><input type="checkbox"' + (nodeParam(n, 'failOnFindings') === 'true' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'failOnFindings\',this.checked?\'true\':\'\')"> Fail the step when anything is found</label><span class="dim small">Off by default so a gate can branch on the counters: the natural shape is check, then repair only if something was found, and a step that always failed could not drive that.</span></div></div></div>';
+
+                    h += '<div class="dim small" style="margin-top:6px"><b>Read-only by construction</b> &mdash; no write API exists anywhere in the package and a build scan asserts it, which is what makes this safe against a live delivery folder. It never repairs: repair stays in the PowerShell scripts, run as ordinary <code>powershell</code> steps in the same workflow.</div>';
+                    h += '<div class="dim small" style="margin-top:4px">Each file gets <b>OK</b>, <b>CORRUPTED</b> or <b>MALFORMED</b>, which is the decision the operator needs: send, or regenerate. <b>CORRUPTED</b> is the one that matters &mdash; well-formed but wrong, so ELAR <i>accepts</i> it and archives a wrong value with nothing downstream to flag it. A file that is both is reported MALFORMED, since it has to be regenerated either way.</div>';
+                    h += '<div class="dim small" style="margin-top:4px">Writes <code>elarcheck_findings.tsv</code> into the <b>step</b> directory, never into the inspected one, published as <b>${findingsFile}</b>. <b>No field value appears in it or in any log line</b>: findings carry element names, positions and counts only. Counters: <b>${filesScanned}</b>, <b>${filesWellFormed}</b>, <b>${filesRejectedLikely}</b>, <b>${filesCorrupted}</b>, <b>${documentsTotal}</b>, <b>${whitespaceAfterAngle}</b>, <b>${valueLineBreaks}</b>, <b>${markupLineBreaks}</b>, <b>${linesOverLimit}</b>, <b>${linesOverReceiverLimit}</b>, <b>${longestLine}</b>, <b>${tagsMissing}</b>, <b>${tagsDuplicate}</b>, <b>${tagsEmpty}</b>, <b>${nameAlreadyDelivered}</b>, <b>${pullMissing}</b>, <b>${pullUnreferenced}</b>, <b>${hashMismatches}</b>, <b>${findingsTotal}</b>.</div>';
                 } else if (ex === 'split') {
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Input file *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${anonymize.outputFile} | ${landingOut}/data.csv" oninput="updNode(' + i + ',\'source\',this.value)"></div></div>';
@@ -1628,6 +1667,15 @@
                     // both are read with charAt(0), so a longer value would be truncated in silence
                     if (String(nodeParam(n, 'separator') || '').length > 1) errs.push(label + ' (' + n.id + '): the field separator must be a single character');
                     if (String(nodeParam(n, 'quoteChar') || '').length > 1) errs.push(label + ' (' + n.id + '): the quote character must be a single character, or empty to disable quoting');
+                }
+                if (ex === 'elarcheck') {
+                    if (!String(nodeParam(n, 'inputDir') || '').trim()) errs.push(label + ' (' + n.id + '): elarcheck needs the directory to inspect (inputDir)');
+                    // the two length findings only mean different things while the target is the lower
+                    // of the two; inverted, "over target" would be the rejection and nobody would read
+                    // it that way
+                    var tgt = parseInt(nodeParam(n, 'maxLineLength'), 10);
+                    var rcv = parseInt(nodeParam(n, 'receiverLineLimit'), 10);
+                    if (!isNaN(tgt) && !isNaN(rcv) && tgt > rcv) errs.push(label + ' (' + n.id + '): the target line length (' + tgt + ') is above the receiver limit (' + rcv + '), so the two findings would swap meaning');
                 }
                 if (ex === 'safecopy' && (!n.source || !n.dest)) errs.push(label + ' (' + n.id + '): source and dest directories are required');
                 if (ex === 'dequote' && !n.source) errs.push(label + ' (' + n.id + '): input CSV (source) is required');

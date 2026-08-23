@@ -1,87 +1,79 @@
-elarxml: designer panel, and rename each input to .done per file
+elarcheck: the designer configuration panel
 
-Two defects reported from the first real use of the executor.
+Closes the gap the executor's own commit message and spec both recorded.
+elarcheck was in the executor dropdown of designer.html but had no branch of
+its own, so a step fell through to the generic external one: name/value param
+rows, an output-var repeater it has no use for, and a Script field reading
+"not used for this executor". Every parameter had to be typed by hand as a
+name/value pair with nothing to say what the names are, and this executor has
+fourteen of them, thirteen optional. Built on the elarxml panel from the
+previous commit, which is now the model for both.
 
-1. The .done rename ran once at the end of the run. ElarRun renamed the
-processed inputs after the last batch of the last file, so it renamed either
-all of them or none. A run of three CSVs whose third failed left the first two
-DELIVERED BUT NOT RENAMED, and the next run reprocessed them: colliding
-filenames when output.start_time is set, silent duplicates when it is not,
-which is the live configuration.
+The panel is inputDir, the only required parameter, then three collapsible
+subsections grouped by what is decided together rather than listed in
+declaration order. Line length puts the target beside the receiver limit with
+the reason they are two findings and not one written between them. Element
+names carries the three local names plus the mandatory list, together with the
+note that a tag missing on nearly every record is a mapping problem while one
+missing on three records is a data problem: that sentence tells an operator
+which of the two they are looking at, and it belonged beside the field rather
+than only in USAGE.md. Optional checks and reporting holds the
+already-delivered directory, the findings cap and the three switches.
 
-Section 5 of the spec already read "only after every batch that input
-produced"; the implementation took that as EVERY batch. The correct reading is
-ITS OWN, and section 5 has been rewritten so it cannot be read the other way.
-Two lists decide it: the inputs contributing a document to the batch currently
-open, and the inputs read to the end whose last documents are still in it.
-Closing a batch flushes the intersection; an input contributing to no open
-batch is renamed as soon as it has been read. The contributor is recorded
-BEFORE the write, so a document closing its own batch under ROLL_THEN_ALONE
-still attributes that batch. Every close goes through one closeBatch helper
-and the rename is downstream of it, so .done continues to mean delivered.
+Each field carries the executor's own default as its placeholder and its
+reasoning in a title, so the why travels with the field. Three reasons that
+are easy to lose now sit on the screen beside their setting: the charset is
+deliberately NOT the one the files declare, because trusting the declaration
+would surface an encoding mismatch as a spurious structural error; the
+findings cap caps the LIST and never the counters; and failOnFindings is off
+so a gate can branch on the counters, since a step that always failed could
+not drive the check-then-repair shape this executor exists for.
 
-2. The executor had no designer panel. It was registered in the executor
-dropdown but had no branch of its own, so an elarxml step fell through to the
-generic external one: name/value param rows and a disabled Script field. Added
-a dedicated branch on the sqlreport model - the six required parameters plus
-three subsections carrying every optional parameter of section 8, each with
-the executor's own default as its placeholder. clientValidate names all six
-missing parameters in ONE message, as the executor does, and refuses a
-multi-character separator or quoteChar because both are read with charAt(0).
+Two properties are stated in the panel rather than left to the documentation:
+that the executor is read-only by construction, which is what makes it safe
+against a live delivery folder, and that no field value reaches the findings
+file or any log line. The first is why it can be pointed anywhere, the second
+is why it can be pointed at files carrying customer names and tax codes. Both
+are asserted by the test, so they cannot quietly fall out of the panel later.
 
-maxBytesPerBatch and oversizeDocumentPolicy stay VISIBLE under
-batchBy=DOCUMENTS, labelled "NOT in effect", rather than hidden: the step log
-already names the ignored limit with its value for the same reason. A field at
-its default writes no parameter at all, so the defaults stay in the executor
-instead of being frozen into every workflow XML.
+clientValidate requires inputDir and refuses a target line length above the
+receiver limit. The executor accepts that combination and the two findings
+then read backwards, with "over target" becoming the rejection and "over the
+receiver limit" the survivable one, which is worse than a refusal. Equal
+values are allowed: the receiver limit is a bound, not a strict outer one.
 
-buildXml needed NO change: every field is a step <param>, which it already
-emits generically. This is not the reportQuery case. Checked rather than
-assumed - those assertions pass against the unpatched file too, which is the
-proof. variables.html gained the matching PARAM_OPTIONS entries, so a
-parameter offered as a dropdown in the designer is not a free-text box in the
-mass editor.
+inputCharset was deliberately LEFT OUT of the Variables page's PARAM_OPTIONS.
+That table is keyed by parameter name with no executor context, and the two
+ELAR executors share the name with different defaults, UTF-8 for elarxml and
+windows-1252 for elarcheck, so one dropdown would print the wrong default for
+one of them. On a mass-edit page a confidently wrong label is worse than a
+free-text box. The unambiguous enums were added: checkPull, verifyHash,
+failOnFindings.
+
+buildXml needed no change. Every field is a step param, which it already emits
+generically.
 
 VERIFIED
-- 33 assertions, --release 8, running the whole executor against real files:
-  the happy path; one document per batch with the third file failing, which is
-  the reported defect and fails against the previous code with exactly three
-  assertions; one batch spanning all three inputs, where nothing may be
-  renamed; an input straddling two batches with the second aborted; and an
-  input that produced no document. The mid-run failure is a metadata value the
-  output charset cannot represent - a WRITING failure, therefore invisible to
-  the pre-scan.
-- 88 assertions with jsdom against the real designer.html, driving the page's
-  own handlers: the panel is not the generic one, a bound field for each of
-  the 22 parameters, no field writing a parameter the executor does not read,
-  the validation message and its contents, the two single-character refusals,
-  the buildXml round-trip for twelve parameters, an untouched optional staying
-  absent, a cleared checkbox removing its parameter, and the generated XML
-  parsing with every <param> a direct child of <step>. The same harness fails
-  34 of those against the pre-patch file.
+- 67 assertions with jsdom driving the real designer.html against a real DOM:
+  the panel is not the generic one; a bound field for each of the 14
+  parameters; no field writes a parameter runElarCheck does not read; both
+  stated properties present; the inputDir refusal; the target-above-receiver
+  refusal and the equal-values case; the buildXml round-trip for twelve
+  parameters; untouched optionals staying absent; re-enabling checkPull
+  removing the parameter rather than writing true, because the executor's rule
+  is that anything but false means on; and the generated XML parsing with
+  every param a direct child of step, which is what WorkflowXmlParser reads.
+- The same suite fails 23 of those against the pre-patch file, which is the
+  reported gap stated as a test.
+- Three of those assertions render an elarcheck and an elarxml step SIDE BY
+  SIDE and check that each keeps its own panel. The two branches are adjacent
+  in the same chain and a collision there would be invisible in either suite
+  on its own. The elarxml suite, 88 assertions, was re-run unchanged.
 - Template scans clean on designer.html and variables.html: no uncommented
-  double-bracket or bracket-paren inlining, no literal escape sequences in the
-  inline script, node --check clean, no duplicate top-level function or var.
-  That scan is now brace-depth aware; the indentation-based one used on the
-  standalone pages flags every local variable in a Thymeleaf template.
-- elar package rule scans clean with comments stripped: no family literal, no
-  StringWriter/ByteArrayOutputStream/Transformer/DOMSource, no ofPattern, no
-  argument-less getBytes(), no ELAR: literal in ElarRun, braces balanced.
+  Thymeleaf inlining brackets, no literal escape sequences in the inline
+  script, node --check clean, no duplicate top-level function or var.
 
 NOT VERIFIED
-- mvn clean package: Maven Central is unreachable from the chat sandbox, so
-  the build on the target machine remains the only final proof. Nothing here
-  needs Spring, so the elar package was compiled and executed in full; the two
-  templates cannot be rendered without the internal Nexus and were checked
-  structurally and under jsdom instead.
-
-OPEN, deliberately not changed in this commit
-- max.line.length from the properties file is read, LOGGED and then ignored.
-  ElarRun:104 resolves it, but Batch.open and the PULL writer recompute the
-  width as maxLineLength > 0 ? maxLineLength : 20000 without the config, so
-  every INDX is wrapped at the hardcoded 20000 whatever the family declares.
-  Measured: a family declaring 25000 logs 25000 and delivers 20000, so the
-  step log states a width the bytes do not have. Section 8b's 25000 fallback
-  never reached the code either. One line to fix, but it moves the line breaks
-  of every delivered INDX on the first run after deploy, so it needs its own
-  batch and an explicit decision.
+- mvn clean package: this delivery touches only two Thymeleaf templates, which
+  cannot be rendered without the internal Nexus, and no Java changed. The
+  build on the target machine remains the only final proof.
