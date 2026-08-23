@@ -184,7 +184,7 @@ public final class IndxTemplate {
 
     /** The container's end tag and everything after it. */
     public void writeEpilogue(WrappingXmlOut out) throws IOException {
-        while (!openTags.isEmpty()) out.endElement(openTags.pop());
+        while (!openTags.isEmpty()) out.endTag(openTags.pop());
         out.newLine();
     }
 
@@ -194,9 +194,7 @@ public final class IndxTemplate {
      */
     private void emitOpen(WrappingXmlOut out, Element e) throws IOException {
         String q = e.getNodeName();
-        out.startElement(q);
-        writeAttrs(out, e);
-        out.closeStartTag();
+        out.startTag(q, attrPairs(e));
         openTags.push(q);
         if (e == container) return;
         List<Element> kids = elementChildren(e);
@@ -222,23 +220,19 @@ public final class IndxTemplate {
         String txt = directText(e);
 
         if (e == container) {
-            out.startElement(q);
-            writeAttrs(out, e);
-            out.closeStartTag();
+            out.startTag(q, attrPairs(e));
             for (int i = 0; i < docs.size(); i++) emitBlock(out, block, docs.get(i));
-            out.endElement(q);
+            out.endTag(q);
             return;
         }
         if (kids.isEmpty() && !txt.isEmpty()) {
             out.textElement(q, attrPairs(e), txt);    // one unbreakable unit, as in the block
             return;
         }
-        out.startElement(q);
-        writeAttrs(out, e);
-        if (kids.isEmpty()) { out.selfClose(); return; }
-        out.closeStartTag();
+        if (kids.isEmpty()) { out.emptyTag(q, attrPairs(e)); return; }
+        out.startTag(q, attrPairs(e));
         for (int i = 0; i < kids.size(); i++) emit(out, kids.get(i), docs);
-        out.endElement(q);
+        out.endTag(q);
     }
 
     /**
@@ -253,19 +247,17 @@ public final class IndxTemplate {
             // NOT an unbreakable unit, and deliberately so: the payload is written by base64Chunk,
             // which breaks at quad boundaries where whitespace is ignored by every decoder. The
             // content tag is exempt by construction rather than by exception.
-            out.startElement(q);
-            writeAttrs(out, e);
-            out.closeStartTag();
+            out.startTag(q, attrPairs(e));
             src.writeContent(out, q);
-            out.endElement(q);
+            // attached: no break and no indent before the end tag, so the payload sits between its
+            // own tags exactly as it does in an unformatted file
+            out.endTagAttached(q);
             return;
         }
         if (!kids.isEmpty()) {
-            out.startElement(q);
-            writeAttrs(out, e);
-            out.closeStartTag();
+            out.startTag(q, attrPairs(e));
             for (int i = 0; i < kids.size(); i++) emitBlock(out, kids.get(i), src);
-            out.endElement(q);
+            out.endTag(q);
             return;
         }
         String v = src.value(q);
@@ -273,9 +265,7 @@ public final class IndxTemplate {
         // is how a family's constants survive. An empty string is a value, and overrides.
         if (v == null) v = directText(e);
         if (v.isEmpty()) {
-            out.startElement(q);
-            writeAttrs(out, e);
-            out.selfClose();
+            out.emptyTag(q, attrPairs(e));
             return;
         }
         // ONE unbreakable unit: a line break immediately after the start tag or immediately before
@@ -292,14 +282,6 @@ public final class IndxTemplate {
             out[i] = new String[] { a.getName(), a.getValue() };
         }
         return out;
-    }
-
-    private void writeAttrs(WrappingXmlOut out, Element e) throws IOException {
-        NamedNodeMap m = e.getAttributes();
-        for (int i = 0; i < m.getLength(); i++) {
-            Attr a = (Attr) m.item(i);
-            out.attribute(a.getName(), a.getValue());
-        }
     }
 
     /** Text directly inside this element, ignoring whitespace-only formatting between child elements. */

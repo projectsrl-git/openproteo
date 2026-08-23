@@ -45,11 +45,23 @@ public final class WrappingXmlOut implements Closeable {
     private final int max;
     private int col = 0;
     private long chars = 0;
+    private final boolean format;
+    private int depth = 0;
+    private static final int INDENT = 2;
 
     /** Line separator built without a literal escape: the corporate proxy rewrites those in sources. */
     private static final String NL = String.valueOf((char) 10);
 
     public WrappingXmlOut(OutputStream os, String charsetName, int maxLineLength) {
+        this(os, charsetName, maxLineLength, false);
+    }
+
+    /**
+     * @param format one element per line, indented by depth. Costs space and changes the bytes of
+     *               every delivered file; buys a file a human can read and check by eye, which for a
+     *               feed being validated against a legacy one is worth the space.
+     */
+    public WrappingXmlOut(OutputStream os, String charsetName, int maxLineLength, boolean format) {
         if (maxLineLength < 64) {
             throw new IllegalArgumentException("maxLineLength " + maxLineLength + " is too small to hold a start tag");
         }
@@ -66,6 +78,7 @@ public final class WrappingXmlOut implements Closeable {
                 .onMalformedInput(CodingErrorAction.REPORT)
                 .onUnmappableCharacter(CodingErrorAction.REPORT);
         this.max = maxLineLength;
+        this.format = format;
     }
 
     public long charsWritten() { return chars; }
@@ -84,21 +97,59 @@ public final class WrappingXmlOut implements Closeable {
 
     // ------------------------------------------------------------------ markup
 
-    public void startElement(String qname) throws IOException {
-        fit(1 + qname.length());
-        raw("<" + qname);
+    /**
+     * A start tag, written whole: {@code <q a="1" b="2">}.
+     *
+     * Atomic for the same reason a value is. The old API let the name, each attribute and the closing
+     * {@code >} be placed independently, and {@code >} alone could be pushed to the next line when the
+     * column happened to land exactly on the limit - one column in every {@code maxLineLength}. The
+     * result, {@code <ELAR:Doc} then {@code >}, is valid XML that a conformant parser forgives, which
+     * is precisely why it survived: the equivalence comparator saw nothing and only a byte-level
+     * check found it. Two occurrences in a delivered file of 1 000 documents.
+     */
+    public void startTag(String qname, String[][] attrs) throws IOException {
+        writeTag(qname, attrs, ">");
+        depth++;
     }
-    public void attribute(String name, String value) throws IOException {
-        String esc = escapeAttr(check(value, name));
-        // a break between attributes is legal XML; a break inside one is not
-        fit(2 + name.length() + esc.length() + 2);
-        raw(" " + name + "=\"" + esc + "\"");
+
+    /** {@code <q a="1"/>}, whole. */
+    public void emptyTag(String qname, String[][] attrs) throws IOException {
+        writeTag(qname, attrs, "/>");
     }
-    public void closeStartTag() throws IOException { fit(1); raw(">"); }
-    public void selfClose() throws IOException { fit(2); raw("/>"); }
-    public void endElement(String qname) throws IOException {
-        fit(3 + qname.length());
+
+    /** {@code </q>}, on its own line when formatting. */
+    public void endTag(String qname) throws IOException {
+        depth--;
+        place(3 + qname.length());
         raw("</" + qname + ">");
+    }
+
+    /**
+     * {@code </q>} written straight after whatever precedes it, with no line break and no indent.
+     * Used to close the content element: the payload is attached to its own tags, so a reader sees
+     * {@code <ELAR:Content>} immediately followed by Base64 and the end tag immediately after the
+     * last quad, exactly as an unformatted file has it.
+     */
+    public void endTagAttached(String qname) throws IOException {
+        depth--;
+        raw("</" + qname + ">");
+    }
+
+    private void writeTag(String qname, String[][] attrs, String close) throws IOException {
+        StringBuilder sb = new StringBuilder(32);
+        sb.append('<').append(qname);
+        if (attrs != null) {
+            for (int i = 0; i < attrs.length; i++) {
+                String an = attrs[i][0];
+                // a break between attributes is legal XML, but it still ends a line inside a tag,
+                // which is what the byte-level check reports - so the whole tag goes as one token
+                sb.append(' ').append(an).append("=\"")
+                  .append(escapeAttr(check(attrs[i][1], qname + "/@" + an))).append('"');
+            }
+        }
+        sb.append(close);
+        place(sb.length());
+        raw(sb.toString());
     }
 
     /**
@@ -143,7 +194,7 @@ public final class WrappingXmlOut implements Closeable {
                     + " Raise max.line.length for this family, or shorten the field.");
         }
 
-        fit(width);                                           // the ONLY break, and it is before the tag
+        place(width);                                         // the ONLY break, and it is before the tag
         StringBuilder sb = new StringBuilder(width);
         sb.append('<').append(qname);
         for (int i = 0; i < escAttrs.length; i++) {
@@ -198,6 +249,27 @@ public final class WrappingXmlOut implements Closeable {
     /** Break first if the token would not fit; a token longer than a whole line is a caller error. */
     private void fit(int len) throws IOException {
         if (col > 0 && col + len > max) newLine();
+    }
+
+    /**
+     * Where a token of {@code len} characters starts. Without formatting this is just {@link #fit}.
+     * With formatting each token opens its own line, indented by depth.
+     *
+     * The indent is DROPPED rather than the token refused when the two together would not fit, so
+     * turning formatting on can never cause a refusal that would not have happened anyway. It only
+     * ever makes lines shorter, so it cannot push a line past the receiver's limit either.
+     */
+    private void place(int len) throws IOException {
+        if (!format) { fit(len); return; }
+        if (col > 0) newLine();
+        int ind = depth * INDENT;
+        if (ind > 0 && ind + len <= max) raw(spaces(ind));
+    }
+
+    private static String spaces(int n) {
+        StringBuilder sb = new StringBuilder(n);
+        for (int i = 0; i < n; i++) sb.append(' ');
+        return sb.toString();
     }
 
     // ------------------------------------------------------------------ escaping and encodability

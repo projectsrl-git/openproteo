@@ -1,84 +1,108 @@
-elarxml: a .skipped discards file; onMissingFile split from onMalformedRow
+ELAR: atomic start tag, formatOutput, and elarcheck's always-empty Content
 
-Requested from the field: a referenced content file that is not on disk should
-skip the row and leave a record of it, not refuse the whole run.
+Two defects reported from the field on the same delivered file, plus the
+formatting option and a log line that would have saved a round trip.
 
-Until now it refused, and through the SAME switch as a malformed row. Two
-different problems sharing one gate: a malformed row means the input itself is
-broken and re-running will not help, while a missing content file usually
-means staging has not finished and the rows that do have their files are
-perfectly deliverable. One switch made the second hostage to the first.
+1. ELARCHECK REPORTED EVERY MANDATORY CONTENT AS EMPTY
 
-onMissingFile is now separate from onMalformedRow, SKIP by default. That is a
-DECLARED EXCEPTION to the conservative-default rule: a family relying on the
-previous refusal must set onMissingFile=FAIL to keep it. Under FAIL the
-pre-scan refuses before a single byte of output exists, exactly as before.
+With Content in mandatoryTags, every document of every file came back
+TagEmpty, on a file whose payloads are megabytes, and the verdict was
+CORRUPTED on files that were fine.
 
-The discards file is named after its input with .skipped appended, sits beside
-it, opens with the input's own header line and carries each dropped row
-VERBATIM, byte for byte and trailing spaces included. Verbatim is the point:
-the file exists to be re-read, and re-serialising the parsed fields would
-quietly rewrite quoting and separators. Correct the staging, rename the file
-so it ends in .csv, and the next run delivers the rows with nothing edited by
-hand. The name appends rather than replacing the extension, matching the .done
-convention: the original name stays legible, a.csv and a.txt cannot collide,
-and listInputs only accepts .csv so a discards file is never mistaken for an
-input while it still ends in .skipped.
+The payload is streamed rather than assembled, deliberately, so a
+half-gigabyte INDX costs no memory. The branch that records "this tag has
+content" sat on the other side of that if, so nonEmpty was never set for the
+content element and checkMandatory concluded it was empty every time.
 
-It is published at the SAME moment its input is renamed to .done, once every
-batch that input produced has reached its final name, reusing the machinery
-from the per-file rename. Until then it is a temp file, and if the run fails
-it is removed. A discards file left behind by a run that delivered nothing
-would read as a complete account of what was dropped and would be the opposite
-of one, so .skipped means exactly what .done means. It is created lazily, so
-an input with nothing to discard leaves no empty artefact to be mistaken for a
-report.
+This is the worst shape a checker defect can take, because it is systematic: a
+thousand documents produce a thousand identical false alarms, and the noise
+buries whatever is real, which is the opposite of what the executor exists to
+do.
 
-Rows with an empty content path are included too. Re-running will not rescue
-them, since the source has to be corrected, but a discards file listing only
-some of the dropped rows would misrepresent what was archived, and this is an
-archive. Each reason keeps its own counter.
+Fixed by marking the element non-empty on the first non-whitespace character
+of the payload: one scan of the first fragment, nothing after it. The
+complement is what keeps the fix honest, and is asserted: a genuinely empty
+and a whitespace-only content element are STILL reported. A fix that silenced
+those too would have swapped a false positive for a false negative, which in
+an archive is the worse trade.
 
-writeSkippedRows=false turns the file off while leaving the skip and the
-counters intact. New result variable skippedFilesWritten, so a gate can branch
-on it without parsing a log.
+2. A LINE COULD END INSIDE A START TAG
 
-onMissingFile is deliberately NOT added to the Variables page's PARAM_OPTIONS:
-ifscopy already uses that parameter name with the opposite default, and that
-table is keyed by name with no executor context. Same rule as inputCharset,
-and the second time it has come up, so a shared parameter name should now be
-treated as the norm rather than the surprise.
+Two MarkupLineBreak findings, "line ends inside a tag", in 1000 delivered
+documents. Same shape as the value-edge defect, one level further out: a start
+tag was written in three independent pieces, the name, each attribute, then
+the closing angle, and each could break on its own. closeStartTag called
+fit(1), so when the column landed exactly on the limit the closing angle alone
+was pushed to the next line. One column in every maxLineLength per element:
+fifteen elements a document and a thousand documents makes two occurrences the
+expected order of magnitude.
 
-DEFECT FOUND ALONGSIDE: rowsMalformed COUNTED TWICE
+The equivalence comparator called the same file fully equivalent, and was
+right. A start tag split that way is valid XML that any conformant parser
+forgives; only a byte-level reader sees it. The two tools were not
+contradicting each other, they were measuring different things. That also
+bounds the severity: to a conformant parser this is nothing. But ELAR's ingest
+is not known to be one, and the legacy produced the same class of break, so it
+gets fixed.
 
-Pre-existing, and visible only under onMalformedRow=SKIP. The counter was
-assigned from the pre-scan and then incremented again in the write loop, so
-every malformed row was reported double in run.vars and in the cross-feed log
-report. The pre-scan's count is the authoritative one, taken before any output
-exists and over rows the loop may never reach, so the loop no longer counts.
-Caught by an assertion that expected 1 and got 2, which is the argument for
-asserting exact counts rather than greater than zero.
+startTag(qname, attrs) now writes the whole tag, measured before it is begun,
+with the break taken before the opening angle. emptyTag and endTag join it,
+and the piecewise startElement, attribute, closeStartTag, selfClose and
+endElement are REMOVED from the API rather than merely left unused: leaving a
+way to place the pieces independently is what let this recur after the value
+fix.
+
+3. FORMATOUTPUT, ON BY DEFAULT
+
+One element per line, indented by depth. On by default, decided explicitly: it
+changes the bytes of every family on the first run after deploy, and buys a
+file an operator can check by eye, which is what a feed being validated
+against a legacy one is for.
+
+Nothing about the content changes, and that is asserted rather than argued.
+Whitespace between elements is insignificant in XML, every element carrying a
+value is written as one unbreakable unit, and the payload stays attached to
+its own tags: the content start tag is immediately followed by the first quad
+and the end tag immediately follows the last, exactly as an unformatted file
+has it. endTagAttached exists for that one case.
+
+Two properties that bound the risk. Formatting only ever makes lines SHORTER,
+so it cannot push a line past the receiver's limit; checked by running the
+same feed both ways and comparing the longest line. And formatting never
+causes a refusal: when the indent and an element together would not fit a
+line, the indent is dropped rather than the element rejected, so the refusal
+threshold still depends on the element alone.
+
+4. THE NAME PATTERNS ARE IN THE STEP LOG
+
+output.index_name_pattern and output.pull_name_pattern, with output.start_time
+and whether formatting is on. The filenames come entirely from those two
+patterns, since nothing in the executor adds an extension, a counter or a
+suffix, so "where did this .xml come from" is now a log lookup instead of a
+hunt through a properties file on a share.
 
 VERIFIED
-- 36 assertions, --release 8, running the whole executor against real files.
-  The decisive one: a run that fails after discarding rows publishes NO
-  discards file, leaves no temp file, and leaves the input un-renamed so the
-  whole thing is reprocessed.
-- Also asserted: the skip, the counters and the .done rename still happen; the
-  discards file is byte-for-byte the source lines with the input's own header;
-  the round trip, meaning rename to .csv, put the missing file back, re-run,
-  and the row is delivered with nothing left to discard; onMissingFile=FAIL
-  refuses with nothing written and nothing renamed; the two policies are
-  independent in both directions; an input with nothing to discard leaves no
-  file at all; and writeSkippedRows=false still skips and still counts.
-- The value-edge suite, 31 assertions, the naming suite, 15, and the .done
-  rename suite, 33, re-run unchanged. Both designer panel suites green at 92
-  and 67; the two new fields are covered by the assertion that no panel field
-  writes a parameter the executor does not read. Template scans and elar rule
-  scans clean.
+- 19 assertions for the tag unit and formatting, --release 8. The decisive one
+  is exhaustive again: a start tag written at EVERY starting column of a line,
+  and no column ends a line inside a tag. Plus the exact column that used to
+  split it; the indent shape line by line; the payload's attachment checked on
+  the characters either side of its tags; and the same 40 documents run with
+  the option on and off, where no value differs, none gains a line break, and
+  the payload decodes to the same bytes.
+- 5 assertions for the checker, including the complement that a genuinely
+  empty and a whitespace-only content element are still reported.
+- The value-edge suite, 31 assertions, the naming suite, 15, the discards
+  suite, 36, the .done rename suite, 33, and the elarcheck pair suite, 6,
+  re-run unchanged. Designer panel suites green at 94 and 67.
+- elar and elarcheck rule scans clean, elarcheck still read-only by scan,
+  template scans clean, and the new USAGE.md section written one paragraph per
+  line for the docs.html renderer.
 
 NOT VERIFIED
 - mvn clean package: Maven Central is unreachable from the chat sandbox, so
-  the build on the target machine remains the only final proof. The elar
-  package compiles and runs standalone in full; InternalSteps and
-  designer.html were checked structurally and under jsdom.
+  the build on the target machine remains the only final proof. Both packages
+  compile and run standalone in full; InternalSteps and designer.html were
+  checked structurally and under jsdom.
+- Whether ELAR's ingest tolerates the formatted file. Whitespace between
+  elements is insignificant to any XML parser, but the receiving team has not
+  confirmed it, and this is the first delivery where the option is on.

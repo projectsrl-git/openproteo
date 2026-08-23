@@ -2051,3 +2051,38 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   every malformed row was reported double in `run.vars` and in the cross-feed log report. The
   pre-scan's count is authoritative — taken before any output exists, over rows the loop may never
   reach — so the loop no longer counts. Caught by an assertion that expected 1 and got 2.
+
+## ELAR: start tag atomic, formatOutput, and elarcheck's always-empty Content
+* **`elarcheck` reported EVERY mandatory `Content` as empty.** The payload is streamed rather than
+  assembled — deliberately, for memory — and the branch that records "this tag has content" sat on the
+  other side of that `if`, so `nonEmpty` was never set for it. A thousand documents, a thousand
+  identical false alarms, verdict CORRUPTED on files that were fine. **The worst shape a checker defect
+  can take is the systematic one**: the noise buries whatever is real. Fixed by marking non-empty on
+  the first non-whitespace character of the payload. **The complement is what keeps it honest**: a
+  genuinely empty and a whitespace-only Content are still reported — silencing those too would have
+  swapped a false positive for a false negative, which is worse in an archive.
+* **A line could end INSIDE A START TAG.** Two `MarkupLineBreak` findings in 1000 delivered documents.
+  Same shape as the value-edge defect, one level out: the start tag was written in three independent
+  pieces (name, attributes, `>`), and `closeStartTag`'s `fit(1)` pushed the closing angle alone to the
+  next line when the column landed EXACTLY on the limit. One column in every `maxLineLength` per
+  element — fifteen elements a document, a thousand documents, two occurrences is the expected order.
+* **Compare said the same file was fine, and was right.** `<ELAR:Doc` / `>` is VALID XML that a
+  conformant parser forgives; only a byte-level reader sees it. The two tools were not contradicting
+  each other, they were measuring different things — worth remembering before treating a disagreement
+  as one tool being broken.
+* **Fix: `startTag(qname, attrs)` writes the whole tag**, measured before it is begun, break before the
+  `<`. `emptyTag`/`endTag` join it, and the piecewise `startElement`/`attribute`/`closeStartTag`/
+  `selfClose`/`endElement` are **removed from the API**, not merely unused — leaving a way to place the
+  pieces independently is what let this recur after the value fix. Verified exhaustively over every
+  starting column, as with the values.
+* **`formatOutput`, ON by default** (decided explicitly): one element per line, indented. Changes the
+  bytes of every family on deploy. Content is untouched and it is ASSERTED, not argued: same 40
+  documents run both ways, no value differs, none gains a line break, the payload decodes identically.
+  **The payload stays attached to its own tags** (`endTagAttached`) — as requested, and as an
+  unformatted file has it. Two bounding properties: formatting only ever makes lines SHORTER, so the
+  receiver limit cannot be crossed by enabling it; and it never causes a refusal — when indent plus
+  element would not fit, the INDENT is dropped, not the element rejected.
+* **The two name patterns are now in the step log**, with `start_time` and the formatting flag. The
+  filenames come ENTIRELY from those patterns — nothing adds an extension or a counter — so "where did
+  this `.xml` come from" is a log lookup instead of a hunt through a properties file on a share. That
+  question cost a round trip; this is the cheapest possible answer to it.

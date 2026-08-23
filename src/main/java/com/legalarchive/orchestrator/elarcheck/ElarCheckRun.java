@@ -269,7 +269,7 @@ public final class ElarCheckRun {
             Map<String, Integer> seen = new LinkedHashMap<String, Integer>();
             Map<String, Boolean> nonEmpty = new LinkedHashMap<String, Boolean>();
             String current = null;
-            boolean inPayload = false, inDoc = false;
+            boolean inPayload = false, inDoc = false, payloadNonEmpty = false;
             long docLine = 0;
             MessageDigest md = null;
             Base64Streamer b64 = null;
@@ -295,6 +295,7 @@ public final class ElarCheckRun {
                     }
                     if (local.equals(o.contentElement)) {
                         inPayload = true;
+                        payloadNonEmpty = false;
                         if (o.verifyHash) {
                             md = MessageDigest.getInstance("SHA-256");
                             b64 = new Base64Streamer(md);
@@ -306,6 +307,16 @@ public final class ElarCheckRun {
                     char[] buf = x.getTextCharacters();
                     int start = x.getTextStart(), len = x.getTextLength();
                     if (inPayload) {
+                        // The payload counts as a value. It is streamed rather than assembled, and
+                        // the branch that records "this tag has content" lives on the other side of
+                        // this if - so a content element listed in mandatoryTags was reported EMPTY
+                        // on every document of every file, however many megabytes it carried. A
+                        // checker that cries wolf on every record hides the findings that are real.
+                        if (!payloadNonEmpty) {
+                            for (int i = 0; i < len; i++) {
+                                if (!Character.isWhitespace(buf[start + i])) { payloadNonEmpty = true; break; }
+                            }
+                        }
                         if (o.verifyHash && b64 != null) b64.accept(buf, start, len);
                     } else {
                         boolean any = false;
@@ -324,6 +335,7 @@ public final class ElarCheckRun {
                     String local = x.getLocalName();
                     if (local.equals(o.contentElement)) {
                         inPayload = false;
+                        if (payloadNonEmpty && inDoc) nonEmpty.put(local, Boolean.TRUE);
                         if (o.verifyHash && b64 != null) {
                             String got = hex(b64.finish());
                             if (declaredHash != null && !declaredHash.isEmpty()

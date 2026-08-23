@@ -90,11 +90,9 @@ public final class PullTemplate {
             out.textElement(q, attrs, txt.replace(PLACEHOLDER, indexName));
             return;
         }
-        out.startElement(q);
-        for (int i = 0; i < attrs.length; i++) out.attribute(attrs[i][0], attrs[i][1]);
-        if (kids.isEmpty()) { out.selfClose(); return; }
-        out.closeStartTag();
+        if (kids.isEmpty()) { out.emptyTag(q, attrs); return; }
+        out.startTag(q, attrs);
         for (int i = 0; i < kids.size(); i++) emit(out, kids.get(i), indexName);
-        out.endElement(q);
+        out.endTag(q);
     }
 }

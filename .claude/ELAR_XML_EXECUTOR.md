@@ -1083,3 +1083,59 @@ the pre-scan and then incremented again in the write loop, so every malformed ro
 in `run.vars` and in the cross-feed log report. The pre-scan's count is the authoritative one — taken
 before any output exists, over rows the loop may never reach — so the loop no longer counts. Caught by
 an assertion that expected 1 and got 2.
+
+### Field defect: a line could end inside a start tag
+
+Found by `elarcheck` on a delivered file: two `MarkupLineBreak` findings, *line ends inside a tag*, in
+1 000 documents. The equivalence comparator reported the same file as fully equivalent — correctly,
+because `<ELAR:Doc>` split as `<ELAR:Doc` / `>` is **valid XML** that any conformant parser forgives.
+That is exactly why it survived a whole round of value-level checking: only a byte-level reader sees it.
+
+The cause is the same shape as the value-edge defect, one level further out. A start tag was written in
+three independent pieces — the name, each attribute, then the `>` — and each could break on its own.
+`closeStartTag` called `fit(1)`, so when the column landed **exactly** on the limit the closing angle
+alone was pushed to the next line. One column in every `maxLineLength`, per element: with fifteen
+elements a document and a thousand documents, two occurrences is the expected order of magnitude.
+
+The start tag is now written whole by `startTag(qname, attrs)`, measured before it is begun, with the
+break taken before the `<`. `emptyTag` and `endTag` join it, and the piecewise `startElement` /
+`attribute` / `closeStartTag` / `selfClose` / `endElement` methods are **gone from the API** rather
+than merely unused — leaving a way to place the pieces independently is what let this recur after the
+value fix.
+
+**Verified** exhaustively, as with the values: a start tag written at every starting column of a line,
+and **no column ends a line inside a tag**. Plus the specific column that used to split it, where the
+whole tag now moves and the angle is not left behind.
+
+### `formatOutput`: one element per line
+
+**On by default**, decided explicitly. It changes the bytes of every family on the first run after
+deploy, and buys a file an operator can check by eye — which is what a feed being validated against a
+legacy one is for.
+
+Nothing about the content changes, and that is asserted rather than argued: whitespace between
+elements is insignificant in XML, every element carrying a value is written as one unbreakable unit,
+and the payload stays **attached to its own tags** — `<ELAR:Content>` immediately followed by the first
+quad, the end tag immediately after the last, exactly as an unformatted file has it. `endTagAttached`
+exists for that one case.
+
+Two properties worth stating because they bound the risk:
+
+- **Formatting only ever makes lines shorter.** It cannot push a line past the receiver's limit.
+  Asserted by running the same feed both ways and comparing the longest line.
+- **Formatting never causes a refusal.** When the indent and an element together would not fit, the
+  indent is dropped, not the element rejected — so the refusal threshold depends on the element alone,
+  as it did before.
+
+**Verified** by running the same 40 documents with the option on and off and comparing the parsed
+documents: no value differs, no value gains a line break, and the payload decodes to the same bytes.
+Plus the exact indent shape, and the payload's attachment checked on the characters either side of its
+tags.
+
+### The name patterns are now in the step log
+
+`output.index_name_pattern` and `output.pull_name_pattern` are printed at the start of every run,
+together with `output.start_time` and whether formatting is on. The filenames come **entirely** from
+those two patterns — nothing in the executor adds an extension, a counter or a suffix — so a question
+like *where did this `.xml` come from* is now a log lookup instead of a hunt through a properties file
+on a share.

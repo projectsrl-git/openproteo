@@ -424,3 +424,24 @@ the pre-patch code that same case returns **zero findings**: the broken pair pas
 
 The read-only property is unaffected and was re-asserted by the scan: the change removes characters
 from a String and touches no file API.
+
+### Field defect: a mandatory content element was always reported empty
+
+Reported from the first real use with `Content` in `mandatoryTags`: **every document of every file**
+came back `TagEmpty`, on a file whose payloads are megabytes.
+
+The payload is streamed rather than assembled — deliberately, so a half-gigabyte INDX costs no memory —
+and the branch that records *this tag has content* sat on the other side of that `if`. So `nonEmpty`
+was never set for the content element, and `checkMandatory` concluded it was empty every time.
+
+This is the worst shape a checker defect can take, because it is **systematic**: a thousand documents,
+a thousand identical false alarms, and the noise buries whatever is real. The verdict was `CORRUPTED`
+on files that were fine.
+
+Fixed by marking the element non-empty on the first non-whitespace character of the payload, which
+costs one scan of the first fragment and nothing after it.
+
+**Verified** by 5 assertions, and the complement is what keeps the fix honest: a payload of 400
+characters and the same payload wrapped over many lines are no longer reported, while a genuinely empty
+and a whitespace-only content element **still are**. A fix that silenced those too would have replaced
+a false positive with a false negative, which is worse in an archive.

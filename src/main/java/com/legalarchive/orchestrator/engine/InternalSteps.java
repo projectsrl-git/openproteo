@@ -1811,6 +1811,7 @@ public class InternalSteps {
         // finished, and the rows that DO have their files are still deliverable.
         o.onMissingFileFail = "FAIL".equalsIgnoreCase(xStr(params.get("onMissingFile"), "SKIP"));
         o.writeSkippedRows = !"false".equalsIgnoreCase(xStr(params.get("writeSkippedRows"), "true"));
+        o.formatOutput = !"false".equalsIgnoreCase(xStr(params.get("formatOutput"), "true"));
         o.validate = "true".equalsIgnoreCase(params.get("validate"));
         o.renameProcessed = !"false".equalsIgnoreCase(params.get("renameProcessed"));
         o.overwriteExisting = "true".equalsIgnoreCase(params.get("overwriteExisting"));

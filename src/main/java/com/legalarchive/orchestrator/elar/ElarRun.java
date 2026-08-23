@@ -63,6 +63,14 @@ public final class ElarRun {
         public boolean onMissingFileFail = false;
         /** Copy each skipped row into '<input>.skipped'. On by default: a skip with no record of it is a silent loss. */
         public boolean writeSkippedRows = true;
+        /**
+         * One element per line, indented. ON by default, decided explicitly: it costs space and
+         * changes the bytes of every family on the first run after deploy, and buys a file that can
+         * be checked by eye - which is what a feed being validated against a legacy one is for.
+         * Whitespace between elements is insignificant in XML, values are written as unbreakable
+         * units so none of them is touched, and the content payload stays attached to its own tags.
+         */
+        public boolean formatOutput = true;
         public boolean validate = false;
         public boolean renameProcessed = true;
         public boolean overwriteExisting = false;
@@ -122,6 +130,15 @@ public final class ElarRun {
         int maxLine = o.maxLineLength > 0 ? o.maxLineLength : cfg.optInt("max.line.length", 20000);
         BatchPolicy policy = new BatchPolicy(o.batchBy, cfg.optInt("output.max_index_docs", 0),
                 o.maxBytesPerBatch, o.oversize);
+        // The filenames come ENTIRELY from these two patterns - nothing here adds an extension or a
+        // counter - so printing them turns "where did this name come from" into a log lookup instead
+        // of a properties-file hunt. start_time is printed with them because the C-segment is a
+        // synthetic clock seeded from it, not a timestamp.
+        log.accept("elarxml: index pattern " + cfg.req("output.index_name_pattern")
+                + ", pull pattern " + cfg.req("output.pull_name_pattern")
+                + ", start_time " + (cfg.opt("output.start_time", null) == null
+                        ? "(unset - the run's wall clock)" : cfg.opt("output.start_time", null))
+                + ", output formatting " + (o.formatOutput ? "on" : "off"));
         BatchNaming naming = new BatchNaming(cfg.req("output.index_name_pattern"),
                 cfg.req("output.pull_name_pattern"),
                 cfg.optInt("output.files_per_julian_date", 0),
@@ -389,7 +406,7 @@ public final class ElarRun {
             BatchNaming.Pair n = naming.next();
             AtomicOutput a = new AtomicOutput(new File(o.outputDir, n.indexFileName), o.overwriteExisting);
             int maxLine = o.maxLineLength > 0 ? o.maxLineLength : 20000;
-            WrappingXmlOut x = new WrappingXmlOut(a.stream(), o.outputCharset, maxLine);
+            WrappingXmlOut x = new WrappingXmlOut(a.stream(), o.outputCharset, maxLine, o.formatOutput);
             return new Batch(n, a, x, o);
         }
 
@@ -431,7 +448,7 @@ public final class ElarRun {
             AtomicOutput pullOut = new AtomicOutput(new File(opts.outputDir, names.pullFileName), opts.overwriteExisting);
             try {
                 int maxLine = opts.maxLineLength > 0 ? opts.maxLineLength : 20000;
-                WrappingXmlOut px = new WrappingXmlOut(pullOut.stream(), opts.outputCharset, maxLine);
+                WrappingXmlOut px = new WrappingXmlOut(pullOut.stream(), opts.outputCharset, maxLine, opts.formatOutput);
                 pull.write(px, names.indexName);
                 px.close();
                 pullOut.commit();

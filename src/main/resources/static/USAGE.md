@@ -569,6 +569,7 @@ The rest are optional and default to what the legacy tool did, with the three de
 - `onMalformedRow` - `FAIL` (default) or `SKIP`. A row whose field count differs from the header's. See the pre-scan section.
 - `onMissingFile` - `SKIP` (default) or `FAIL`. A referenced content file that is not on disk. Separate from `onMalformedRow` on purpose: see the pre-scan section.
 - `writeSkippedRows` - default `true`. Copy every skipped row to `<input>.skipped`. See the section on discarded rows.
+- `formatOutput` - default `true`. Write one element per line, indented. See the section on formatting below.
 - `validate` - `false` by default. See the validation section.
 - `renameProcessed` - `true` by default; the input is renamed to `.done` after its output is delivered.
 - `overwriteExisting` - `false` by default; a final output name that already exists fails the run rather than being replaced.
@@ -587,6 +588,16 @@ A malformed row is governed by `onMalformedRow`, `FAIL` by default: the run stop
 This is deliberate and it is a change from the legacy tool, which dropped such rows silently and delivered the feed short. Checking first rather than mid-file matters: by the time a bad row is reached during processing, some batches have already been renamed to their final deliverable names, so the output directory would hold a partial set with nothing to say so, and a re-run would then re-deliver what had already gone out. Scanning first makes the refusal complete - either everything is written or nothing is.
 
 Set `onMalformedRow=SKIP` for a feed where the source cannot be corrected. That restores the legacy behaviour with one difference: the loss is counted and reported instead of being invisible.
+
+### Formatting the INDX
+
+`formatOutput` is on by default: each element goes on its own line, indented by depth. It costs space and buys a file that can be checked by eye, which is what a feed being validated against a legacy one needs.
+
+Nothing about the content changes. Whitespace between elements is insignificant in XML, every element carrying a value is written as one unbreakable unit so no value is touched, and the Base64 payload stays **attached to its own tags** - `<ELAR:Content>` is immediately followed by the first quad and the end tag immediately follows the last one, exactly as in an unformatted file. Turning the option on or off produces files that differ in whitespace and in nothing else.
+
+Formatting only ever makes lines **shorter**, so it cannot push a line past the receiver's limit, and it never causes a document to be refused: when the indent and an element together would not fit a line, the indent is dropped rather than the element rejected.
+
+Set `formatOutput=false` to deliver the compact form.
 
 ### Rows that produced no document
 
