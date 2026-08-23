@@ -458,9 +458,20 @@ public final class ElarCheckRun {
         return fileName.substring(0, i + 2) + next + fileName.substring(i + 8);
     }
 
+    /**
+     * The name a PULL is expected to carry: the INDX file name with a literal {@code .xml} suffix
+     * removed if it has one.
+     *
+     * ELAR expects <b>no fixed extension</b> - a delivered file ends at its {@code .CHHMMSS} counter -
+     * so removing "the last dot-segment" would strip the counter and leave this check looking for
+     * {@code x.INDX}. That matches as a substring of almost any PULL, so the check would pass on a
+     * broken pair: over-permissive in exactly the direction that makes a checker worthless.
+     */
     static String stripExtension(String n) {
-        int d = n.lastIndexOf('.');
-        return d > 0 ? n.substring(0, d) : n;
+        if (n == null) return null;
+        int len = n.length();
+        if (len > 4 && n.regionMatches(true, len - 4, ".xml", 0, 4)) return n.substring(0, len - 4);
+        return n;
     }
 
     // ------------------------------------------------------------------ plumbing

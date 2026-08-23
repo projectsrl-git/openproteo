@@ -1953,3 +1953,26 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   **Three of them render an elarcheck and an elarxml step SIDE BY SIDE** and check each keeps its own
   panel: the branches are adjacent in the same chain and a collision would be invisible in either
   suite on its own. `buildXml` needed no change — every field is a `<param>`.
+
+## ELAR: no file extension is expected, and the PULL had lost the counter
+* **ELAR expects NO fixed extension.** A delivered file ends at its `.CHHMMSS` counter, which is how
+  `output.index_name_pattern` is written. The generator already produced that name correctly — the
+  whole name comes from the pattern and nothing adds, assumes or requires an extension.
+* **What did not survive it is the name the PULL references.** `BatchNaming.stripExtension` removed
+  the last dot-segment via `lastIndexOf('.')`, which on `x.INDX.C152100.xml` is indistinguishable
+  from removing `.xml` and on `x.INDX.C152100` **eats the counter** — there the counter IS the last
+  dot-segment. `[INDEX_NAME]` was substituted as `x.INDX`, so **every delivered PULL referenced a
+  file that does not exist**. Both files still look right in a directory listing; only the manifest
+  is wrong.
+* **Legacy did `replace(".xml","")`** — a literal replace, therefore a NO-OP without an extension.
+  Rewriting that crude line as the "obviously equivalent" `lastIndexOf('.')` is what introduced the
+  defect: it is only equivalent while an extension is present. **Remember this before tidying the
+  next legacy oddity.** Both now strip a literal `.xml` SUFFIX, case-insensitive; deliberate
+  divergence from legacy, which substituted the sequence anywhere in the name.
+* **`elarcheck` carried the SAME shortcut in its pair check**, so with no extension it looked for
+  `...INDX` — a substring of almost any PULL for that family, including the PULL's own name — and
+  **passed on a broken pair**. The two bugs agreed with each other, which is why neither could reveal
+  the other: the failure direction that makes a checker worthless.
+* 15 assertions on the generator + 6 on the checker, `--release 8`. The decisive one (a PULL naming
+  the prefix without the counter) returns **zero findings** pre-patch. `.done` rename suite re-run
+  unchanged; the elarcheck read-only scan re-run clean, since the change touches no file API.

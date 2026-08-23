@@ -1,79 +1,65 @@
-elarcheck: the designer configuration panel
+ELAR: no file extension is expected, and the PULL had lost the counter
 
-Closes the gap the executor's own commit message and spec both recorded.
-elarcheck was in the executor dropdown of designer.html but had no branch of
-its own, so a step fell through to the generic external one: name/value param
-rows, an output-var repeater it has no use for, and a Script field reading
-"not used for this executor". Every parameter had to be typed by hand as a
-name/value pair with nothing to say what the names are, and this executor has
-fourteen of them, thirteen optional. Built on the elarxml panel from the
-previous commit, which is now the model for both.
+Reported: ELAR expects no fixed extension. A delivered file ends at its
+.CHHMMSS counter, which is how output.index_name_pattern is written in the
+properties file. The generator already produced that name correctly - the
+whole name comes from the pattern, and nothing in the executor adds, assumes
+or requires an extension.
 
-The panel is inputDir, the only required parameter, then three collapsible
-subsections grouped by what is decided together rather than listed in
-declaration order. Line length puts the target beside the receiver limit with
-the reason they are two findings and not one written between them. Element
-names carries the three local names plus the mandatory list, together with the
-note that a tag missing on nearly every record is a mapping problem while one
-missing on three records is a data problem: that sentence tells an operator
-which of the two they are looking at, and it belonged beside the field rather
-than only in USAGE.md. Optional checks and reporting holds the
-already-delivered directory, the findings cap and the three switches.
+What did not survive it is the name the PULL references.
+BatchNaming.stripExtension removed the last dot-segment with lastIndexOf. On
+x.INDX.C152100.xml that is indistinguishable from removing .xml; on
+x.INDX.C152100 it eats the counter, because there the counter IS the last
+dot-segment. The INDEX_NAME placeholder was therefore substituted as x.INDX,
+so every delivered PULL referenced a file that does not exist. Both files
+still look right in a directory listing, with correct names, correct counters
+and a matching pair; only the manifest inside the PULL is wrong, and nothing
+on our side would have said so.
 
-Each field carries the executor's own default as its placeholder and its
-reasoning in a title, so the why travels with the field. Three reasons that
-are easy to lose now sit on the screen beside their setting: the charset is
-deliberately NOT the one the files declare, because trusting the declaration
-would surface an encoding mismatch as a spurious structural error; the
-findings cap caps the LIST and never the counters; and failOnFindings is off
-so a gate can branch on the counters, since a step that always failed could
-not drive the check-then-repair shape this executor exists for.
+The legacy tool did a literal replace of ".xml" with the empty string, and
+therefore a no-op on a name without an extension. Legacy was right here and
+the rewrite was wrong. Rewriting that crude line as something tidier is what
+introduced the defect: lastIndexOf is the obviously equivalent version, and it
+is only equivalent while an extension is present.
 
-Two properties are stated in the panel rather than left to the documentation:
-that the executor is read-only by construction, which is what makes it safe
-against a live delivery folder, and that no field value reaches the findings
-file or any log line. The first is why it can be pointed anywhere, the second
-is why it can be pointed at files carrying customer names and tax codes. Both
-are asserted by the test, so they cannot quietly fall out of the panel later.
+elarcheck carried the same shortcut in ElarCheckRun.stripExtension, which
+decides what name the PULL must contain. With no extension it looked for the
+family-and-INDX prefix alone, a substring of almost any PULL for that family
+including the PULL's own file name, so the pair check passed on a broken pair.
+The two bugs agreed with each other, which is why neither could reveal the
+other, and that is the failure direction that makes a checker worthless: the
+pair-integrity check, one of the reasons elarcheck exists, was reporting
+confidence it did not have.
 
-clientValidate requires inputDir and refuses a target line length above the
-receiver limit. The executor accepts that combination and the two findings
-then read backwards, with "over target" becoming the rejection and "over the
-receiver limit" the survivable one, which is worse than a refusal. Equal
-values are allowed: the receiver limit is a bound, not a strict outer one.
+Both now strip a literal .xml suffix, case-insensitively. One deliberate
+divergence from legacy: replace substituted the sequence anywhere in the name
+while this removes it only as a suffix, so a family whose name contained .xml
+in the middle, which legacy would have corrupted, is left alone here.
 
-inputCharset was deliberately LEFT OUT of the Variables page's PARAM_OPTIONS.
-That table is keyed by parameter name with no executor context, and the two
-ELAR executors share the name with different defaults, UTF-8 for elarxml and
-windows-1252 for elarcheck, so one dropdown would print the wrong default for
-one of them. On a mass-edit page a confidently wrong label is worse than a
-free-text box. The unambiguous enums were added: checkPull, verifyHash,
-failOnFindings.
-
-buildXml needed no change. Every field is a step param, which it already emits
-generically.
+USAGE.md states the rule where the file names are explained: there is no
+extension and none is expected, the whole name comes from the pattern, and the
+only place one is ever removed is the PULL's reference to its INDX.
 
 VERIFIED
-- 67 assertions with jsdom driving the real designer.html against a real DOM:
-  the panel is not the generic one; a bound field for each of the 14
-  parameters; no field writes a parameter runElarCheck does not read; both
-  stated properties present; the inputDir refusal; the target-above-receiver
-  refusal and the equal-values case; the buildXml round-trip for twelve
-  parameters; untouched optionals staying absent; re-enabling checkPull
-  removing the parameter rather than writing true, because the executor's rule
-  is that anything but false means on; and the generated XML parsing with
-  every param a direct child of step, which is what WorkflowXmlParser reads.
-- The same suite fails 23 of those against the pre-patch file, which is the
-  reported gap stated as a test.
-- Three of those assertions render an elarcheck and an elarxml step SIDE BY
-  SIDE and check that each keeps its own panel. The two branches are adjacent
-  in the same chain and a collision there would be invisible in either suite
-  on its own. The elarxml suite, 88 assertions, was re-run unchanged.
-- Template scans clean on designer.html and variables.html: no uncommented
-  Thymeleaf inlining brackets, no literal escape sequences in the inline
-  script, node --check clean, no duplicate top-level function or var.
+- 15 assertions on the generator, --release 8: the extension-less pattern end
+  to end, where the delivered INDX ends at .C152100, the PULL on disk names
+  that exact file, and the referenced name equals the delivered file name;
+  plus the .xml pattern still stripping only the extension, uppercase .XML, an
+  unrelated .dat left alone, and a bare name returned unchanged. The first
+  group fails against the previous code.
+- 6 assertions on the checker. The decisive one: a PULL naming the prefix
+  without the counter is now reported as a broken pair, where against the
+  pre-patch code the same case returns zero findings.
+- The .done rename suite, 33 assertions, re-run unchanged.
+- The elarcheck read-only scan re-run clean: no FileOutputStream, no
+  Files.write, delete, copy or move, no renameTo, no createNewFile, no mkdir,
+  no delete call, no deleteOnExit, no setWritable and no setLastModified
+  anywhere in the package. The change removes characters from a String and
+  touches no file API, but the property is asserted rather than reasoned
+  about.
 
 NOT VERIFIED
-- mvn clean package: this delivery touches only two Thymeleaf templates, which
-  cannot be rendered without the internal Nexus, and no Java changed. The
-  build on the target machine remains the only final proof.
+- mvn clean package: Maven Central is unreachable from the chat sandbox, so
+  the build on the target machine remains the only final proof. Both classes
+  changed here sit in packages free of Spring and were compiled and executed
+  in full.

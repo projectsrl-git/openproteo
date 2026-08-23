@@ -402,3 +402,25 @@ optionals staying absent, re-enabling `checkPull` removing the parameter rather 
 Three of those assertions render an `elarcheck` and an `elarxml` step **side by side** and check that
 each keeps its own panel. The two branches are adjacent in the same chain, and a collision there
 would be invisible in either suite on its own.
+
+### Follow-up: the pair check agreed with the generator's bug
+
+The same `lastIndexOf('.')` shortcut was in `ElarCheckRun.stripExtension`, which decides what name the
+PULL must contain. **ELAR expects no fixed extension**, so with a delivered name ending at its counter
+it reduced `RZ2.ELA.FTP.CLICT@DT.D26229.INDX.C152100` to `...INDX` — a substring of almost any PULL
+for that family, including the PULL's own file name — and the check therefore **passed on a broken
+pair**.
+
+That is the direction that makes a checker worthless. It agreed with the generator's own defect (see
+the corresponding section of `ELAR_XML_EXECUTOR.md`), so neither could reveal the other, and the pair
+integrity check — one of the reasons this executor exists — was reporting confidence it did not have.
+
+Fixed the same way: a literal case-insensitive `.xml` suffix strip.
+
+**Verified** by 6 assertions, `--release 8`: the whole name kept when there is no extension, `.xml`
+and `.XML` still removed, an unrelated suffix left alone, a correct pair producing no finding, and —
+the decisive one — a PULL naming `...INDX` without the counter reported as a broken pair. Run against
+the pre-patch code that same case returns **zero findings**: the broken pair passed.
+
+The read-only property is unaffected and was re-asserted by the scan: the change removes characters
+from a String and touches no file API.

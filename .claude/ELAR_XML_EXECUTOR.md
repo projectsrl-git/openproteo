@@ -909,3 +909,33 @@ two single-character refusals, the `buildXml` round-trip for twelve parameters, 
 staying absent, a cleared checkbox removing its parameter, and the generated XML parsing with every
 `<param>` a direct child of `<step>` — which is what `WorkflowXmlParser` reads. **The same harness run
 against the pre-patch file fails 34 of them**, which is the reported defect stated as a test.
+
+### Field defect: `stripExtension` ate the counter when the name has no extension
+
+Reported: **ELAR expects no fixed extension.** A delivered file ends at its `.CHHMMSS` counter, which
+is how `output.index_name_pattern` is written, and the executor produces that name correctly — the
+whole name comes from the pattern and nothing here adds, assumes or requires an extension.
+
+What did not survive it is the name the **PULL references**. `BatchNaming.stripExtension` removed
+"the last dot-segment" via `lastIndexOf('.')`, which is indistinguishable from removing `.xml` on
+`x.INDX.C152100.xml` and destroys `x.INDX.C152100`: there, the counter *is* the last dot-segment. So
+`[INDEX_NAME]` was substituted as `x.INDX`, and every delivered PULL referenced a file that does not
+exist. Both files still look right in a directory listing; only the manifest is wrong.
+
+The legacy tool did `replace(".xml","")` — a literal replace, and therefore a **no-op** on a name
+without an extension. This is a case where reimplementing a crude line as something tidier introduced
+the defect: `lastIndexOf('.')` is the "obviously equivalent" version, and it is only equivalent while
+an extension is present. Worth remembering the next time a legacy oddity looks like it can be cleaned
+up.
+
+Now a literal `.xml` suffix strip, case-insensitive. One deliberate divergence from legacy: `replace`
+substituted the sequence **anywhere** in the name while this removes it only as a suffix, so a family
+whose name contained `.xml` in the middle — which legacy would have corrupted — is left alone here.
+
+**Verified** by 15 assertions, `--release 8`: the extension-less pattern end to end, where the
+delivered INDX ends at `.C152100`, the PULL on disk names that exact file, and the referenced name
+equals the delivered file name; the `.xml` pattern still stripping only the extension; uppercase
+`.XML`; an unrelated suffix such as `.dat` left alone; and a bare name returned unchanged. The first
+group fails against the previous code. The `.done` rename suite (33 assertions) was re-run unchanged.
+
+`USAGE.md` now states the rule where the file names are explained.

@@ -103,10 +103,29 @@ public final class BatchNaming {
         return String.format("%02d%02d%02d", s / 3600, (s % 3600) / 60, s % 60);
     }
 
-    /** {@code x.INDX.C152100.xml} -> {@code x.INDX.C152100}; the legacy {@code replace(".xml","")}. */
+    /**
+     * The name the PULL references: the delivered INDX file name with a literal {@code .xml} suffix
+     * removed if it has one.
+     *
+     * <b>ELAR expects no fixed extension.</b> A delivered file ends at its {@code .CHHMMSS} counter,
+     * and the pattern in the properties file is written that way. So this must remove a literal
+     * {@code .xml} and nothing else - exactly what the legacy {@code replace(".xml","")} did.
+     * Removing "the last dot-segment" instead looks equivalent on {@code x.INDX.C152100.xml} and is
+     * catastrophic on {@code x.INDX.C152100}: it eats the counter, and the PULL then references
+     * {@code x.INDX}, a file that does not exist. The pair is broken while both files look right in a
+     * directory listing.
+     *
+     * The one divergence from legacy is deliberate: {@code replace} substituted the sequence anywhere
+     * in the name, this only removes it as a SUFFIX. A family whose name contained {@code .xml} in the
+     * middle would have been corrupted by legacy; here it is left alone.
+     */
     static String stripExtension(String fileName) {
-        int dot = fileName.lastIndexOf('.');
-        return dot > 0 ? fileName.substring(0, dot) : fileName;
+        if (fileName == null) return null;
+        int n = fileName.length();
+        if (n > 4 && fileName.regionMatches(true, n - 4, ".xml", 0, 4)) {
+            return fileName.substring(0, n - 4);
+        }
+        return fileName;
     }
 
     /**

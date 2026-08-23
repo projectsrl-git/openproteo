@@ -601,6 +601,8 @@ ELAR imposes no maximum INDX size, so the byte budget is an operational convenie
 
 The `D26229` segment is the two-digit year and the three-digit day of the year. The `C152100` segment is a **synthetic clock**, not a timestamp and not a sequence: it starts at `start_time`, or at the run's own wall-clock time when that key is absent, and advances by exactly sixty seconds per batch. Each PULL takes the counter of its INDX by construction, so a pair always matches.
 
+**There is no file extension, and none is expected.** ELAR requires no particular one, and the delivered name ends at its `.C152100` counter. The whole name comes from `index_name_pattern` and `pull_name_pattern` in the properties file, so if a family did append an extension it would appear there; nothing in the executor adds, assumes or requires one. The only place an extension is ever removed is the name the PULL uses to reference its INDX, and only a literal `.xml` is removed, so a name that ends at its counter is passed through whole.
+
 This has a consequence worth knowing before it surprises anyone. With `start_time` set explicitly, a second run on the same day produces the **same names**, so the run is refused on its first batch rather than replacing a file that may already have been delivered - which is the protection working. With `start_time` absent, the clock takes the wall time, so a re-run produces **new** names, nothing is overwritten, and duplicate deliverables quietly accumulate. In that case the step reports how many files for today's date it already found in the output directory. It reports rather than refuses, because a re-run is most needed immediately after a partial failure.
 
 ### Encoding
