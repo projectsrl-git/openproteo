@@ -248,6 +248,7 @@
        Where the designer words the same param differently per executor the VALUES are identical, so a
        neutral label is used. */
     var PARAM_OPTIONS = {
+        batchBy: [ ['','DOCUMENTS — output.max_index_docs per INDX (default)'], ['BYTES','BYTES — roll on a size budget']],
         bom: [ ['false','no (UTF-8 without BOM)'], ['true','yes (UTF-8 with BOM)']],
         cidMode: [ ['formatPreserving','format-preserving (per-class)'], ['partial','partial — mask middle with -'], ['hash','hash (deterministic, fixed length)']],
         columnQuote: [ ['','none (PLAIN)'], ['double','double ("COL")']],
@@ -260,14 +261,20 @@
         listSource: [ ['','directory + pattern (default)'], ['csv','the files listed in a CSV column']],
         newlinesInValues: [ ['keep','keep them as the database returns them (default)'], ['space','replace with a space — one record per line'], ['strip','remove them — one record per line']],
         numericPreserveSeparators: [ ['true','preserve - / .'], ['false','randomize all positions']],
+        onMalformedInput: [ ['','FAIL — report the file, line and offset (default)'], ['REPLACE','REPLACE — substitute silently (legacy)']],
+        onMalformedRow: [ ['','FAIL — refuse the run before writing anything (default)'], ['SKIP','SKIP — count and report it, deliver the rest']],
         onMissingFile: [ ['fail','fail the step'], ['skip','skip it and count it']],
         onNameCollision: [ ['fail','fail the step'], ['overwrite','let the later one win']],
+        oversizeDocumentPolicy: [ ['','WRITE_ALONE — deliver it in a batch of its own (default)'], ['FAIL','FAIL — it can never be written, so refuse']],
+        overwriteExisting: [ ['','no (default)'], ['true','yes']],
         quoteIfNeeded: [ ['true','quote only if needed (safe)'], ['false','never quote']],
         rawValues: [ ['false','no (render dates/numbers)'], ['true','yes (stored value)']],
         recursive: [ ['false','no'], ['true','yes']],
+        renameProcessed: [ ['','yes — rename each processed input to .done (default)'], ['false','no — leave the inputs in place']],
         reportFormat: [ ['md','.md'], ['docx','.docx'], ['both','both']],
         selectBy: [ ['header','header name'], ['letter','column letter']],
         skipEmptyRows: [ ['true','yes'], ['false','no']],
+        validate: [ ['','no (default)'], ['true','yes']],
         'match.*.type': [ ['text','text'], ['numeric','numeric'] ],
         'match.*.agg': [ ['value','value'], ['sum','sum (numeric)'], ['count','count'], ['count_distinct','distinct count'] ],
         unmappedColumnPolicy: [ ['fail','fail (require every column classified)'], ['redact','redact'], ['passthrough','passthrough']]

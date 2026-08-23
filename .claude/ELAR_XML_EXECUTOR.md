@@ -304,9 +304,30 @@ Because only one trigger can fire, the per-batch trigger attribution of the earl
 to exceed. Setting it under `DOCUMENTS` is accepted and ignored, and said so in the log.
 
 **Atomicity.** Every INDX and PULL is written to a temp name and renamed only after a clean close.
-A final name that already exists fails unless `overwriteExisting`. The `.done` rename of the input
-happens only after every batch that input produced has reached its final name; a rename failure is
-logged and non-fatal.
+A final name that already exists fails unless `overwriteExisting`. A rename failure is logged and
+non-fatal.
+
+**The `.done` rename is per input file, not per run.** An input is renamed as soon as every batch
+**that input** contributed to has reached its final name — *its own* batches, not all of them. The
+distinction is the whole point: a batch is closed and renamed while other inputs are still to be
+read, so waiting for the last batch of the last file would mean that a failure on the third of three
+CSVs leaves the first two **delivered but not renamed**. The next run then reprocesses them: with
+`output.start_time` set the filenames collide and the run stops; with it unset — the live
+configuration — it produces duplicates in silence. Both were observed in the field.
+
+The rule is decidable with two lists, and neither direction may be got wrong:
+
+- an input whose documents are all in batches already committed is renamed **immediately**, even
+  though later files have not been read;
+- an input with even one document in a batch that is still open **waits**, and is never renamed if
+  that batch is aborted. An input straddling two batches waits for both.
+
+An input that produced no document at all — every row skipped — has nothing to wait for and is
+renamed when it has been read, otherwise it would be picked up on every subsequent run.
+
+The rename is downstream of the batch close, so an input marked `.done` always corresponds to output
+that has actually been delivered. If the close fails, nothing is renamed and the whole set is
+reprocessed, which is correct: none of it went out.
 
 ## 6. The defects, and what makes each impossible
 
@@ -805,3 +826,86 @@ several files including the capped listing, the "malformed row is not also count
 the traversal case. The rule scans run clean on the new package with comments excluded: no family
 literal, no charset-less `getBytes()`, no `FileWriter`/`FileReader`, no platform-default
 `OutputStreamWriter`, no `ofPattern` containing `DD`.
+
+### Field defect: the `.done` rename ran once at the end of the run
+
+Reported from the field, and the more damaging of the two defects found on the first real use. The
+loop that renamed the processed inputs sat *after* the last batch of the last file, so it renamed
+either everything or nothing. A run of three CSVs in which the third failed left the first two
+**delivered but not renamed**, and the next run reprocessed them — colliding on the filename clock
+with `output.start_time` set, and producing silent duplicates without it, which is the live
+configuration.
+
+§5 said the right thing already: *"only after every batch that input produced has reached its final
+name"*. The implementation read that as *every* batch. The correct reading is *its own*, and §5 now
+states it in a way that cannot be read the other way.
+
+The rule is decided by two lists: the inputs that contributed a document to the batch currently open,
+and the inputs fully read whose last documents are still in it. Closing a batch flushes the
+intersection; an input contributing to no open batch is renamed as soon as it has been read. The
+contributor is recorded **before** the document is written, so a document that closes its own batch
+under `ROLL_THEN_ALONE` still counts its input as one of that batch's producers.
+
+**Verified** by 33 assertions running the whole executor against real files, `--release 8`. The
+scenario matters more than the count, so all five are stated:
+
+- nothing fails → every input renamed, unchanged from before;
+- one document per batch, the third file failing on an unencodable value → the first two renamed
+  **while the run failed**, the third left for the re-run (this is the reported defect; it fails
+  against the previous code with exactly these three assertions);
+- one batch spanning all three inputs, the third failing → **nothing** renamed, because that batch
+  never reached a final name. Renaming early here would be the same defect with the sign flipped;
+- an input straddling two batches, the second aborted → the file wholly inside the committed batch is
+  renamed, the straddling one is not. This is the assertion that distinguishes "its own batches" from
+  both "all batches" and "the batch open when it finished";
+- an input whose every row is skipped renames immediately — it has nothing to wait for, and otherwise
+  it would be picked up on every subsequent run.
+
+The failure used to force a mid-run abort is a metadata value the output charset cannot represent,
+which is a *writing* failure and therefore invisible to the pre-scan — the pre-scan refuses before
+anything is written, so it cannot produce this class of half-delivered run at all.
+
+An input is never renamed before the batch close that publishes its output, so `.done` continues to
+mean *delivered*. On the path where the final close is skipped the run now says which files were left
+waiting, rather than renaming on a guess.
+
+### Field defect: the executor had no designer panel
+
+Registered in the executor dropdown of `designer.html` but with no branch of its own, so an `elarxml`
+step fell through to the generic external one: `＋ param` name/value rows, an output-var repeater it
+has no use for, and a Script / executable field reading *(not used for this executor)*. Every
+parameter had to be typed by hand as a name/value pair, with nothing to say what the names are.
+
+Fixed with a dedicated branch on the `sqlreport` model: the six required parameters, then three
+collapsible subsections — reading the source CSV, writing the INDX, batching — carrying every
+optional parameter of §8, each with the executor's own default as its placeholder and the reasoning
+in a `title`. `clientValidate` names all six missing parameters in **one** message, matching what the
+executor itself does, and refuses a multi-character `separator` or `quoteChar` because both are read
+with `charAt(0)` and would otherwise be truncated in silence.
+
+Two decisions worth recording:
+
+- **`maxBytesPerBatch` and `oversizeDocumentPolicy` stay visible under `batchBy=DOCUMENTS`**, with
+  *NOT in effect* appended to their labels, rather than being hidden. Hiding them would contradict
+  §5's own rule — the step log already names the ignored limit with its value for exactly this
+  reason, and a field that vanishes teaches nothing about why.
+- **A field left at its default writes no parameter at all.** `setNodeParam` removes a parameter set
+  to the empty string, so the defaults live in one place — the executor — instead of being frozen
+  into every workflow XML at the moment it was saved.
+
+**`buildXml` needed no change, and that was checked rather than assumed.** Every field here is a step
+`<param>`, which `buildXml` already emits generically; this is not the `reportQuery` case, where a new
+child element had to be added in a fifth place. The harness asserts the round-trip explicitly, and
+those assertions pass against the *unpatched* file too, which is what proves it.
+
+The Variables page gained the matching `PARAM_OPTIONS` entries (`batchBy`, `onMalformedInput`,
+`onMalformedRow`, `oversizeDocumentPolicy`, `overwriteExisting`, `renameProcessed`, `validate`), so a
+parameter offered as a dropdown in the designer is not a free-text box in the mass editor.
+
+**Verified** with jsdom, driving the real `designer.html` script against a real DOM: 88 assertions
+covering the panel not being the generic one, a bound field for each of the 22 parameters, no field
+writing a parameter the executor does not read, the single validation message and its contents, the
+two single-character refusals, the `buildXml` round-trip for twelve parameters, an untouched optional
+staying absent, a cleared checkbox removing its parameter, and the generated XML parsing with every
+`<param>` a direct child of `<step>` — which is what `WorkflowXmlParser` reads. **The same harness run
+against the pre-patch file fails 34 of them**, which is the reported defect stated as a test.

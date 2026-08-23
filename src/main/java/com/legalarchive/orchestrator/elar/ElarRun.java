@@ -143,6 +143,14 @@ public final class ElarRun {
 
         Batch batch = null;
         List<String> written = new ArrayList<String>();
+        // The .done rename is PER INPUT FILE, not per run. An input is renamed as soon as every batch
+        // IT contributed to has reached its final name - not once every batch of every file has.
+        // These two lists are what makes "its own batches" decidable:
+        //   contributors    the inputs that put at least one document into the batch currently open;
+        //   awaitingRename  the inputs fully read whose last documents are still in that open batch.
+        // A batch closing flushes the intersection. See §5 of ELAR_XML_EXECUTOR.md.
+        List<File> contributors = new ArrayList<File>();
+        List<File> awaitingRename = new ArrayList<File>();
         try {
             for (int fi = 0; fi < inputs.size(); fi++) {
                 File in = inputs.get(fi);
@@ -171,11 +179,15 @@ public final class ElarRun {
                         BatchPolicy.Decision dec = policy.decide(estimate);
                         if (dec.oversizeDocument) counters.documentsOversize++;
                         if (dec.action != BatchPolicy.Action.APPEND && batch != null) {
-                            batch.close(indx, pull, counters, written, log);
+                            closeBatch(batch, indx, pull, counters, written, log,
+                                    contributors, awaitingRename, o.renameProcessed);
                             batch = null;
                             policy.rolled();
                         }
                         if (batch == null) batch = Batch.open(naming, o, indx, log);
+                        // recorded BEFORE the write, so a document that closes its own batch
+                        // (ROLL_THEN_ALONE) still counts this input as one of that batch's producers
+                        if (!contributors.contains(in)) contributors.add(in);
 
                         long actual = batch.writeDocument(indx, tags, content, contentTag, dsakTag, hashTag);
                         counters.wrote(tags.size(), actual);
@@ -186,7 +198,8 @@ public final class ElarRun {
                                     + "; the byte budget is rolling at the wrong point");
                         }
                         if (dec.action == BatchPolicy.Action.ROLL_THEN_ALONE) {
-                            batch.close(indx, pull, counters, written, log);
+                            closeBatch(batch, indx, pull, counters, written, log,
+                                    contributors, awaitingRename, o.renameProcessed);
                             batch = null;
                             policy.rolled();
                         }
@@ -194,8 +207,17 @@ public final class ElarRun {
                 } finally {
                     r.close();
                 }
+                // This input has been read to the end. If none of its documents is in the open batch
+                // - it produced none, or the last one closed its batch - there is nothing left to
+                // wait for and it is renamed now. Otherwise it waits for that batch to be committed.
+                if (contributors.contains(in)) awaitingRename.add(in);
+                else renameDone(in, o.renameProcessed, log);
             }
-            if (batch != null) { batch.close(indx, pull, counters, written, log); batch = null; }
+            if (batch != null) {
+                closeBatch(batch, indx, pull, counters, written, log,
+                        contributors, awaitingRename, o.renameProcessed);
+                batch = null;
+            }
         } finally {
             // an exception anywhere leaves the open batch unpublished rather than half-delivered
             if (batch != null) batch.abort();
@@ -203,21 +225,51 @@ public final class ElarRun {
 
         if (validator != null) log.accept("elarxml: " + validator.message());
 
-        // the .done rename happens only once every batch has reached its final name
-        if (o.renameProcessed) {
-            for (int i = 0; i < inputs.size(); i++) {
-                File in = inputs.get(i);
-                File done = new File(in.getParentFile(), in.getName() + ".done");
-                if (!in.renameTo(done)) {
-                    log.accept("elarxml: could not rename " + in.getName() + " to .done; the output is complete"
-                            + " and delivered, but this file will be picked up again unless it is moved by hand");
-                }
-            }
+        // Invariant: an input only ever enters awaitingRename while a batch is open, and the close
+        // above is unconditional, so on this path the list is empty. If it is not, something closed a
+        // batch without going through closeBatch - say so rather than rename on a guess.
+        if (!awaitingRename.isEmpty()) {
+            log.accept("elarxml: " + awaitingRename.size() + " input file(s) finished the run still waiting"
+                    + " for a batch to be committed and were NOT renamed to .done; they will be picked up"
+                    + " again. This should not be reachable - report it.");
         }
 
         log.accept("elarxml: " + counters.summary());
         for (int i = 0; i < written.size(); i++) log.accept("elarxml: wrote " + written.get(i));
         return counters;
+    }
+
+    /**
+     * Commits a batch and then renames every input that was only waiting for THAT batch.
+     *
+     * The rename is deliberately downstream of {@link Batch#close}: close renames the temp files to
+     * their final deliverable names, so an input marked {@code .done} always corresponds to output
+     * that has actually been delivered. If close throws, nothing is renamed and the whole set is
+     * reprocessed - which is the correct outcome, because none of it was delivered.
+     */
+    private static void closeBatch(Batch batch, IndxTemplate indx, PullTemplate pull, ElarCounters counters,
+                                   List<String> written, Consumer<String> log,
+                                   List<File> contributors, List<File> awaitingRename,
+                                   boolean renameProcessed) throws Exception {
+        batch.close(indx, pull, counters, written, log);
+        for (int i = 0; i < contributors.size(); i++) {
+            File c = contributors.get(i);
+            if (awaitingRename.remove(c)) renameDone(c, renameProcessed, log);
+        }
+        contributors.clear();
+    }
+
+    /**
+     * Renames one processed input to {@code .done}. A failure is logged and non-fatal: the output is
+     * already delivered, so failing the step here would be worse than the duplicate it warns about.
+     */
+    static void renameDone(File in, boolean renameProcessed, Consumer<String> log) {
+        if (!renameProcessed) return;
+        File done = new File(in.getParentFile(), in.getName() + ".done");
+        if (!in.renameTo(done)) {
+            log.accept("elarxml: could not rename " + in.getName() + " to .done; every batch it produced is"
+                    + " delivered, but this file will be picked up again unless it is moved by hand");
+        }
     }
 
     /** Input files, in a stable order, skipping the legacy intermediates and anything already done. */

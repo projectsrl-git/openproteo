@@ -1883,5 +1883,47 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   name guaranteed to be taken. * 63 + 15 assertions, `--release 8`; `USAGE.md` verified through
   `docs.html`'s own `render()` (20 paragraphs, zero fragments). * **Not verified**: `mvn clean package`,
   and nothing has run against a real INDX — matching ELAR's reported line/record numbers still needs
-  the known-bad file. Designer has the dropdown but NO config panel, same gap as `elarxml`; use
-  `+ param`, only `inputDir` is required.
+  the known-bad file. Designer has the dropdown but NO config panel, the gap `elarxml` had; use
+  `+ param`, only `inputDir` is required. (That gap is now `elarcheck`'s alone: the section below
+  gives `elarxml` its panel, and it is the model to copy.)
+
+## elarxml: designer panel, and the `.done` rename per file
+* **The `.done` rename ran once at the end of the run.** `ElarRun` renamed the inputs after the LAST
+  batch of the LAST file, so a run of three CSVs whose third failed left the first two **delivered
+  but not renamed** and the next run reprocessed them: colliding filenames with `output.start_time`
+  set, silent duplicates without it, which is the live configuration. §5 already said "only after
+  every batch that input produced" — the implementation read that as *every* batch, the correct
+  reading is *its own*. Now two lists: the inputs contributing to the batch currently open, and the
+  inputs read to the end whose last documents are still in it; closing a batch flushes the
+  intersection, an input contributing to no open batch is renamed as soon as it is read. The
+  contributor is recorded BEFORE the write, so `ROLL_THEN_ALONE` still attributes the batch. Every
+  close goes through one `closeBatch` helper and the rename sits downstream of it, so `.done`
+  continues to mean *delivered*. **Both directions are tested**: an input wholly inside a committed
+  batch is renamed while later files are unread, and an input straddling two batches is NOT renamed
+  when the second is aborted. 33 assertions running the real executor on real files; the mid-run
+  failure is an unencodable metadata value, a WRITING failure and therefore invisible to the
+  pre-scan.
+* **The executor had no designer panel.** It was in the dropdown but had no branch, so it fell
+  through to the generic external one — `＋ param` rows and a disabled Script field. Dedicated branch
+  on the `sqlreport` model: six required parameters plus three subsections covering every optional
+  one of §8, defaults as placeholders. `clientValidate` names all six missing in ONE message (as the
+  executor does) and refuses a multi-character `separator`/`quoteChar`, both read with `charAt(0)`.
+  `maxBytesPerBatch`/`oversizeDocumentPolicy` stay VISIBLE under `batchBy=DOCUMENTS` labelled "NOT in
+  effect" — hiding them would contradict the rule the step log already follows. A field at its
+  default writes no param at all, so defaults live in the executor and are not frozen into the XML.
+  * **`buildXml` needed NO change** — every field is a `<param>`, which it already emits generically;
+  not the `reportQuery` case. Checked, not assumed: those assertions pass against the unpatched file
+  too. `variables.html` gained the matching `PARAM_OPTIONS` entries so a designer dropdown is not a
+  free-text box in the mass editor. 88 jsdom assertions against the real template; the same harness
+  fails 34 of them pre-patch.
+* **Build check learned**: the duplicate top-level `function`/`var` scan must be **brace-depth
+  aware**. The indentation-based version used on the standalone single-file pages flags every local
+  variable in every function body of a Thymeleaf template, because there top level sits at four
+  spaces.
+* **OPEN, deliberately not changed**: `max.line.length` from the properties file is read, LOGGED and
+  ignored. `ElarRun:104` resolves it, but `Batch.open` and the PULL writer recompute the width as
+  `o.maxLineLength > 0 ? o.maxLineLength : 20000` without the config, so every INDX wraps at 20000
+  whatever the family declares — measured: a family declaring 25000 logs 25000 and delivers 20000.
+  The log states a width the bytes do not have. §8b's 25000 fallback never reached the code either.
+  One line to fix, but it moves the line breaks of every delivered INDX on the first run after
+  deploy, so it needs its own batch and an explicit decision.

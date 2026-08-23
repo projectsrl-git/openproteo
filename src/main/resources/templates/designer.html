@@ -1228,6 +1228,69 @@
                     h += '<button class="ghost-btn" onclick="addRq(' + i + ')">＋ Add query</button></div>';
                     h += '<div class="dim small" style="margin-top:6px">Every statement must be a single <b>SELECT</b> or <b>WITH</b>: it is checked before anything runs and the connection is opened read-only. That is a net against mistakes, <b>not</b> a guarantee — the real guarantee is the rights of the database account. No CSV is produced. Outputs: <b>${reportFile}</b>, <b>${queriesExecuted}</b>, <b>${rowsTotal}</b>.</div>';
                     h += '<div class="dim small" style="margin-top:4px"><b>Collect</b> publishes result columns as run variables: a single row gives a scalar <code>${COL}</code>, several rows a <code>;</code>-separated list usable as <code>${COL[N]}</code>. Add a <b>Key column</b> and each collected column also gets its <code>${COL.keys}</code> companion, so <code>${COL@key}</code> returns the value on the row with that key (an absent key gives an empty string, never a neighbouring row). Column names must be plain identifiers — use a SQL alias such as <code>AS N</code>. Collected values become run variables, which are shown in OUTPUT DATA and written to the audit trail: collect counts, sums, statuses and keys, <b>not personal data</b>.</div>';
+                } else if (ex === 'elarxml') {
+                    var elarBy = nodeParam(n, 'batchBy') === 'BYTES' ? 'BYTES' : 'DOCUMENTS';
+                    var elarInCs = nodeParam(n, 'inputCharset');
+                    var elarOutCs = nodeParam(n, 'outputCharset');
+                    var elarInList = [ '', 'UTF-8', 'windows-1252', 'ISO-8859-1', 'ISO-8859-15', 'UTF-16LE' ];
+                    var elarOutList = [ '', 'ISO-8859-1', 'windows-1252', 'UTF-8' ];
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Input directory *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'inputDir')) + '" placeholder="${landingOut}" title="The flat source CSVs. Files starting with the skip prefix, and files already renamed to .done, are ignored." oninput="setNodeParam(' + i + ',\'inputDir\',this.value)"></div>' +
+                        '<div class="field wide"><label>Output directory *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'outputDir')) + '" placeholder="${landingOut}/elar" title="Where the INDX/PULL pairs are delivered. Each is written under a temp name and renamed only after a clean close." oninput="setNodeParam(' + i + ',\'outputDir\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Properties file *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'propertiesPath')) + '" placeholder="G:/elar/config_clict.properties" title="The family mapping file. Every key is read family-prefixed." oninput="setNodeParam(' + i + ',\'propertiesPath\',this.value)"></div>' +
+                        '<div class="field"><label>Family type *</label><input value="' + attresc(nodeParam(n, 'familyType')) + '" placeholder="CLICT@DT" title="The prefix of every key in the properties file. A value matching no key fails at once, naming the families the file does contain." oninput="setNodeParam(' + i + ',\'familyType\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>INDX template *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'indexTemplatePath')) + '" placeholder="G:/elar/CLICT@DT.INDX.xml" title="The per-document block is DISCOVERED from this template, never assumed: the container must hold exactly one element child." oninput="setNodeParam(' + i + ',\'indexTemplatePath\',this.value)"></div>' +
+                        '<div class="field wide"><label>PULL template *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'pullTemplatePath')) + '" placeholder="G:/elar/CLICT@DT.PULL.xml" oninput="setNodeParam(' + i + ',\'pullTemplatePath\',this.value)"></div></div>';
+
+                    h += subHead('Reading the source CSV');
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Input charset</label><select onchange="setNodeParam(' + i + ',\'inputCharset\',this.value)">';
+                    elarInList.forEach(function (cs) {
+                        h += '<option value="' + attresc(cs) + '"' + (elarInCs === cs ? ' selected' : '') + '>' + (cs === '' ? 'UTF-8 (default)' : cs) + '</option>';
+                    });
+                    h += '</select></div>' +
+                        '<div class="field"><label>Undecodable byte</label><select onchange="setNodeParam(' + i + ',\'onMalformedInput\',this.value)" title="REPLACE restores the legacy behaviour, which put a substitution character inside an archived document without saying so.">' +
+                        '<option value=""' + (nodeParam(n, 'onMalformedInput') !== 'REPLACE' ? ' selected' : '') + '>FAIL — report the file, line and offset (default)</option>' +
+                        '<option value="REPLACE"' + (nodeParam(n, 'onMalformedInput') === 'REPLACE' ? ' selected' : '') + '>REPLACE — substitute silently (legacy)</option></select></div>' +
+                        '<div class="field" style="max-width:90px"><label>Separator</label><input maxlength="1" value="' + attresc(nodeParam(n, 'separator')) + '" placeholder=";" oninput="setNodeParam(' + i + ',\'separator\',this.value)"></div>' +
+                        '<div class="field" style="max-width:90px"><label>Quote char</label><input maxlength="1" value="' + attresc(nodeParam(n, 'quoteChar')) + '" placeholder="(none)" title="Empty = the legacy plain split. Set it only if a value can contain the separator." oninput="setNodeParam(' + i + ',\'quoteChar\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Row with the wrong field count</label><select onchange="setNodeParam(' + i + ',\'onMalformedRow\',this.value)">' +
+                        '<option value=""' + (nodeParam(n, 'onMalformedRow') !== 'SKIP' ? ' selected' : '') + '>FAIL — refuse the run before writing anything (default)</option>' +
+                        '<option value="SKIP"' + (nodeParam(n, 'onMalformedRow') === 'SKIP' ? ' selected' : '') + '>SKIP — count and report it, deliver the rest</option></select></div>' +
+                        '<div class="field" style="max-width:110px"><label>List separator</label><input maxlength="3" value="' + attresc(nodeParam(n, 'listSeparator')) + '" placeholder="," title="Splits not_duplicated_tags_list in the properties file." oninput="setNodeParam(' + i + ',\'listSeparator\',this.value)"></div>' +
+                        '<div class="field"><label>Skip prefix</label><input value="' + attresc(nodeParam(n, 'skipPrefix')) + '" placeholder="out_" title="Compatibility only: leftover legacy out_*.csv intermediates in the input directory are ignored." oninput="setNodeParam(' + i + ',\'skipPrefix\',this.value)"></div>' +
+                        '<div class="field wide"><label></label><span class="dim small">Every input is scanned for field-count mismatches <b>and for missing content files</b> before a single byte of output exists, so a refusal leaves the output directory untouched and no input renamed.</span></div></div></div>';
+
+                    h += subHead('Writing the INDX');
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Output charset</label><select onchange="setNodeParam(' + i + ',\'outputCharset\',this.value)" title="The XML declaration is GENERATED from this value, never copied from the template, so the declaration and the bytes cannot diverge.">';
+                    elarOutList.forEach(function (cs) {
+                        h += '<option value="' + attresc(cs) + '"' + (elarOutCs === cs ? ' selected' : '') + '>' + (cs === '' ? 'ISO-8859-1 (default)' : cs) + '</option>';
+                    });
+                    h += '</select></div>' +
+                        '<div class="field"><label>Max line length</label><input type="number" min="0" value="' + attresc(nodeParam(n, 'maxLineLength')) + '" placeholder="(max.line.length)" title="A MAXIMUM, not an exact width. Empty or 0 takes max.line.length from the properties file. Breaks land only between elements or on a Base64 quad boundary, never inside a value." oninput="setNodeParam(' + i + ',\'maxLineLength\',this.value)"></div>' +
+                        '<div class="field"><label>Descriptors element</label><input value="' + attresc(nodeParam(n, 'descriptorsElement')) + '" placeholder="DocumentDescriptors" title="The container looked for in the IDMS namespace. It must hold exactly one element child, which becomes the per-document block." oninput="setNodeParam(' + i + ',\'descriptorsElement\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label><input type="checkbox"' + (nodeParam(n, 'renameProcessed') !== 'false' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'renameProcessed\',this.checked?\'\':\'false\')"> Rename each processed input to <code>.done</code></label><span class="dim small">Renamed per file, as soon as every batch THAT file produced has reached its final name. Unticking it means the same input is picked up again on the next run.</span></div>' +
+                        '<div class="field"><label><input type="checkbox"' + (nodeParam(n, 'overwriteExisting') === 'true' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'overwriteExisting\',this.checked?\'true\':\'\')"> Overwrite an existing output file</label></div>' +
+                        '<div class="field"><label><input type="checkbox"' + (nodeParam(n, 'validate') === 'true' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'validate\',this.checked?\'true\':\'\')"> Run the duplicate checks</label></div></div>';
+
+                    h += subHead('Batching');
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Batch by</label><select onchange="setNodeParam(' + i + ',\'batchBy\',this.value)">' +
+                        '<option value=""' + (elarBy === 'DOCUMENTS' ? ' selected' : '') + '>DOCUMENTS — output.max_index_docs per INDX (default)</option>' +
+                        '<option value="BYTES"' + (elarBy === 'BYTES' ? ' selected' : '') + '>BYTES — roll on a size budget</option></select></div>' +
+                        '<div class="field"><label>Max bytes per batch' + (elarBy === 'BYTES' ? '' : ' — NOT in effect') + '</label><input type="number" min="0" value="' + attresc(nodeParam(n, 'maxBytesPerBatch')) + '" placeholder="209715200" oninput="setNodeParam(' + i + ',\'maxBytesPerBatch\',this.value)"></div>' +
+                        '<div class="field"><label>Document over the budget' + (elarBy === 'BYTES' ? '' : ' — NOT in effect') + '</label><select onchange="setNodeParam(' + i + ',\'oversizeDocumentPolicy\',this.value)">' +
+                        '<option value=""' + (nodeParam(n, 'oversizeDocumentPolicy') !== 'FAIL' ? ' selected' : '') + '>WRITE_ALONE — deliver it in a batch of its own (default)</option>' +
+                        '<option value="FAIL"' + (nodeParam(n, 'oversizeDocumentPolicy') === 'FAIL' ? ' selected' : '') + '>FAIL — it can never be written, so refuse</option></select></div></div>';
+                    h += '<div class="form-row"><div class="field wide"><span class="dim small">One rule is selected and the other limit is <b>not read at all</b>. Under BYTES, <code>output.max_index_docs</code> stays in the properties file and stops mattering &mdash; the step log names it with its value so it cannot mislead. Both fields stay visible here for the same reason.</span></div></div></div>';
+
+                    h += '<div class="dim small" style="margin-top:6px">Builds one INDX and one PULL per batch from the flat source CSV, embedding each document as Base64 with its SHA-256 over the RAW file bytes. Nothing accumulates: peak memory is independent of the batch size and of the size of the embedded files. Outputs: <b>${filesProcessed}</b>, <b>${documentsWritten}</b>, <b>${batchesWritten}</b>, <b>${bytesEmbedded}</b>, <b>${rowsMalformed}</b>, <b>${documentsSkippedNoPath}</b>, <b>${documentsSkippedFileMissing}</b>, <b>${sameDayPairsFound}</b>.</div>';
+                    h += '<div class="dim small" style="margin-top:4px">The <code>C152100</code> segment of the filename is a <b>synthetic clock</b> &mdash; it starts at <code>output.start_time</code> or at the wall clock and advances 60s per batch. It is neither a timestamp nor a sequence: two runs on the same day with the same explicit <code>start_time</code> produce colliding names, and without it they produce new ones, so duplicates accumulate rather than overwrite. The step reports how many pairs for today already sit in the output directory.</div>';
                 } else if (ex === 'split') {
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Input file *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${anonymize.outputFile} | ${landingOut}/data.csv" oninput="updNode(' + i + ',\'source\',this.value)"></div></div>';
@@ -1555,6 +1618,16 @@
                             if (cn && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(cn)) errs.push(label + ' (' + n.id + '): query #' + (qi + 1) + ': "' + cn + '" is not a usable variable name — give the column a SQL alias');
                         });
                     });
+                }
+                if (ex === 'elarxml') {
+                    // the executor names every missing required parameter in ONE message; so does this
+                    var elarReq = [ 'inputDir', 'outputDir', 'propertiesPath', 'familyType', 'indexTemplatePath', 'pullTemplatePath' ];
+                    var elarMissing = [];
+                    elarReq.forEach(function (rp) { if (!String(nodeParam(n, rp) || '').trim()) elarMissing.push(rp); });
+                    if (elarMissing.length) errs.push(label + ' (' + n.id + '): elarxml needs ' + elarMissing.join(', '));
+                    // both are read with charAt(0), so a longer value would be truncated in silence
+                    if (String(nodeParam(n, 'separator') || '').length > 1) errs.push(label + ' (' + n.id + '): the field separator must be a single character');
+                    if (String(nodeParam(n, 'quoteChar') || '').length > 1) errs.push(label + ' (' + n.id + '): the quote character must be a single character, or empty to disable quoting');
                 }
                 if (ex === 'safecopy' && (!n.source || !n.dest)) errs.push(label + ' (' + n.id + '): source and dest directories are required');
                 if (ex === 'dequote' && !n.source) errs.push(label + ' (' + n.id + '): input CSV (source) is required');
