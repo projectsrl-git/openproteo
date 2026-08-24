@@ -71,6 +71,11 @@ public final class ElarRun {
          * units so none of them is touched, and the content payload stays attached to its own tags.
          */
         public boolean formatOutput = true;
+        /**
+         * Where the {@code <ELAR:Content>} payload is read from. Null means the local filesystem under
+         * the family's {@code documentPath}, which is what every existing workflow gets.
+         */
+        public ContentStore contentStore;
         public boolean validate = false;
         public boolean renameProcessed = true;
         public boolean overwriteExisting = false;
@@ -106,7 +111,11 @@ public final class ElarRun {
         String dsakTag = cfg.dsakTag();
         String hashTag = cfg.hashTag();
         String docIdTag = cfg.docIdTag(mapping);
-        File docDir = new File(cfg.documentPath());
+        // Where the payload comes from. LOCAL is the only implementation in this batch and reproduces
+        // exactly what the executor has always done; an IFS store slots in here without this class
+        // learning anything about JTOpen. Supplied by the caller when it is not local.
+        ContentStore store = o.contentStore != null ? o.contentStore
+                : new LocalContentStore(new File(cfg.documentPath()));
 
         String idms = cfg.opt("idms.namespace", null);
         if (idms == null) {
@@ -167,7 +176,7 @@ public final class ElarRun {
 
         // ---- the blocking pre-scan, before a single byte of output exists ----
         ElarPreScan.Report scan = ElarPreScan.scan(inputs, cfg, o.inputCharset, o.failOnMalformedInput,
-                o.separator, o.quoteChar);
+                o.separator, o.quoteChar, store);
         log.accept("elarxml: " + scan.message());
         // Two problems, two policies. A malformed row means the input is broken and re-running will
         // not help; a missing content file usually means staging has not finished, and the rows that
@@ -237,14 +246,14 @@ public final class ElarRun {
                             if (o.writeSkippedRows) skipped.add(row.raw);
                             continue;
                         }
-                        File content = ElarPreScan.resolveContentFile(docDir, raw.trim());
-                        if (!content.isFile()) {
+                        String content = store.resolve(raw.trim());
+                        if (!store.exists(content)) {
                             counters.skipped(ElarCounters.Skip.FILE_MISSING);
                             if (o.writeSkippedRows) skipped.add(row.raw);
                             continue;
                         }
 
-                        long estimate = ContentEmbedder.encodedLength(content.length()) + PER_DOCUMENT_OVERHEAD;
+                        long estimate = ContentEmbedder.encodedLength(store.length(content)) + PER_DOCUMENT_OVERHEAD;
                         BatchPolicy.Decision dec = policy.decide(estimate);
                         if (dec.oversizeDocument) counters.documentsOversize++;
                         if (dec.action != BatchPolicy.Action.APPEND && batch != null) {
@@ -258,11 +267,11 @@ public final class ElarRun {
                         // (ROLL_THEN_ALONE) still counts this input as one of that batch's producers
                         if (!contributors.contains(in)) contributors.add(in);
 
-                        long actual = batch.writeDocument(indx, tags, content, contentTag, dsakTag, hashTag);
+                        long actual = batch.writeDocument(indx, tags, store, content, contentTag, dsakTag, hashTag);
                         counters.wrote(tags.size(), actual);
                         policy.appended(estimate);
                         if (BatchPolicy.estimateDrifted(estimate, actual + PER_DOCUMENT_OVERHEAD)) {
-                            log.accept("elarxml: the size estimate for " + content.getName() + " was " + estimate
+                            log.accept("elarxml: the size estimate for " + store.fileName(content) + " was " + estimate
                                     + " and it wrote " + (actual + PER_DOCUMENT_OVERHEAD)
                                     + "; the byte budget is rolling at the wrong point");
                         }
@@ -295,6 +304,11 @@ public final class ElarRun {
             if (batch != null) batch.abort();
             for (SkippedRows s : discards.values()) s.abort();
             discards.clear();
+            // The executor owns the store for the duration of the run and releases it here, on every
+            // path including the failing ones. A store may hold a connection - an AS/400 one does - and
+            // a run that throws must not leave it open; leaking one per failed run is the kind of
+            // problem that only shows up after a week of retries.
+            try { store.close(); } catch (IOException ignored) { }
         }
 
         if (validator != null) log.accept("elarxml: " + validator.message());
@@ -410,22 +424,23 @@ public final class ElarRun {
             return new Batch(n, a, x, o);
         }
 
-        long writeDocument(IndxTemplate indx, Map<String, String> tags, File content,
+        long writeDocument(IndxTemplate indx, Map<String, String> tags, ContentStore store, String content,
                            String contentTag, String dsakTag, String hashTag) throws Exception {
             if (!prologueWritten) { indx.writePrologue(xml); prologueWritten = true; }
             long[] bytes = new long[1];
-            indx.writeDocument(xml, source(tags, content, contentTag, dsakTag, hashTag, bytes));
+            indx.writeDocument(xml, source(tags, store, content, contentTag, dsakTag, hashTag, bytes));
             docs++;
             return bytes[0];
         }
 
-        private IndxTemplate.DocSource source(final Map<String, String> tags, final File content,
-                                              final String contentTag, final String dsakTag,
-                                              final String hashTag, final long[] bytesOut) throws Exception {
-            final String hash = ContentEmbedder.sha256Hex(content);
-            final ContentEmbedder.Stamp stamp = ContentEmbedder.stamp(content);
+        private IndxTemplate.DocSource source(final Map<String, String> tags, final ContentStore store,
+                                              final String content, final String contentTag,
+                                              final String dsakTag, final String hashTag,
+                                              final long[] bytesOut) throws Exception {
+            final String hash = ContentEmbedder.sha256Hex(store, content);
+            final ContentEmbedder.Stamp stamp = ContentEmbedder.stamp(store, content);
             final Map<String, String> values = new LinkedHashMap<String, String>(tags);
-            values.put(dsakTag, extensionUpper(content.getName()));
+            values.put(dsakTag, extensionUpper(store.fileName(content)));
             return new IndxTemplate.DocSource() {
                 public String value(String qname) {
                     if (hashTag.equals(qname)) return hash;
@@ -433,7 +448,7 @@ public final class ElarRun {
                 }
                 public boolean isContentTag(String qname) { return contentTag.equals(qname); }
                 public void writeContent(WrappingXmlOut out, String qname) throws IOException {
-                    bytesOut[0] = ContentEmbedder.encodeBase64(out, qname, content, stamp);
+                    bytesOut[0] = ContentEmbedder.encodeBase64(out, qname, store, content, stamp);
                 }
             };
         }

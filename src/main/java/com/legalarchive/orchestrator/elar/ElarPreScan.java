@@ -86,11 +86,10 @@ public final class ElarPreScan {
      * disagree with the reader after it would be worse than no pre-scan at all.
      */
     public static Report scan(List<File> inputs, ElarConfig cfg, String charsetName, boolean failOnMalformed,
-                              char separator, char quoteChar) throws Exception {
+                              char separator, char quoteChar, ContentStore store) throws Exception {
         Report rep = new Report();
         Map<String, String> mapping = cfg.tagNameMapping();
         String contentTag = cfg.contentTag();
-        File docDir = new File(cfg.documentPath());
 
         // the column whose value is the content path: the one mapped to the content tag
         String contentColumn = null;
@@ -124,13 +123,13 @@ public final class ElarPreScan {
                     if (contentIdx < 0) continue;
                     String raw = contentIdx < row.fields.length ? row.fields[contentIdx] : "";
                     if (raw == null || raw.trim().isEmpty()) continue;   // counted as a skip at write time, not here
-                    File target = resolveContentFile(docDir, raw.trim());
-                    if (!target.isFile()) {
+                    String target = store.resolve(raw.trim());
+                    if (!store.exists(target)) {
                         rep.missingFileCount++;
                         if (rep.missingFiles.size() < MAX_LISTED) {
                             // the file NAME is a document identifier, not a customer identifier, and
                             // without it the operator cannot act; the directory is already known
-                            rep.missingFiles.add(new Problem(f.getName(), row.lineNo, target.getName()));
+                            rep.missingFiles.add(new Problem(f.getName(), row.lineNo, store.fileName(target)));
                         }
                     }
                 }
@@ -141,15 +140,4 @@ public final class ElarPreScan {
         return rep;
     }
 
-    /**
-     * Re-roots a content path under the family's document directory, as the legacy
-     * {@code updateFilePath} did: only the file name is taken from the CSV value.
-     * That also means a value carrying a directory traversal cannot escape the directory.
-     */
-    public static File resolveContentFile(File docDir, String csvValue) {
-        String v = csvValue.replace('\\', '/');
-        int slash = v.lastIndexOf('/');
-        String name = slash >= 0 ? v.substring(slash + 1) : v;
-        return new File(docDir, name);
-    }
 }

@@ -69,9 +69,33 @@ public interface ContentStore extends Closeable {
 }
 ```
 
-Name resolution stays **exactly** as it is: the CSV value is trimmed and reduced to its last path
-segment, so subdirectories in the value are discarded and a value cannot escape the base directory.
-One rule for both stores. Section 8 raises a question about whether that is still right over IFS.
+```java
+public interface ContentStore extends Closeable {
+    String resolve(String csvValue);          // the store's own reading of the column
+    boolean exists(String resolved);
+    long length(String resolved);
+    long lastModified(String resolved);
+    InputStream open(String resolved) throws IOException;
+    String fileName(String resolved);         // last segment, for the DSAK
+    String describe(String resolved);         // for messages: something a human can act on
+}
+```
+
+**Resolution belongs to the store, and the two stores resolve differently.** Section 8a is answered:
+the CSV column carries a **full IFS path**. So:
+
+- `LocalContentStore` keeps today's rule exactly - trim, take the last path segment, join it to the
+  family's `documentPath`. Unchanged, including that a traversal cannot escape the directory.
+- `IfsContentStore` takes the value **as given**. An absolute path is used as it stands; a value with no
+  leading `/` is joined to `contentIfsPath`, which is what makes that parameter worth having.
+
+The asymmetry looks wrong until you see why it is right: **it is the same CSV serving two topologies.**
+Under LOCAL the documents have been copied down by an `ifscopy` step, which flattens whatever tree they
+came from into one directory - so only the file name can still be meaningful, and taking the last
+segment of the IFS path is exactly correct. Under IFS the tree is still there and the path is the only
+thing that finds the file. One column, two readings, both faithful to what is actually on disk.
+
+Nothing outside the store sees either rule. `ElarPreScan` and `ElarRun` hold an opaque resolved handle.
 
 ## 4. The pre-scan: one listing, not one round trip per row
 
@@ -84,16 +108,26 @@ and its javadoc says why: the destination there is a step working directory and 
 first problem. It also says why ELAR is different - *unlike the ELAR delivery, where a partial set
 beside an unmarked input is unrecoverable*. So for this executor the pre-scan has to stay.
 
-**The resolution: list the IFS directory once.** `IFSFile.listFiles()` on the base path is a single
-round trip and returns name, size and modification time for every entry. From that, existence, length
-and DSAK are all local lookups, the pre-scan costs nothing extra, and the byte-budget estimate gets
-real sizes instead of a stat per document.
+**Revised, now that 8a is answered.** Listing one base directory no longer works: with a full path per
+row the documents may be spread over many directories, and a single listing would not cover them.
 
-The bound has to be declared rather than discovered: the listing is held in memory for the whole run,
-at roughly a hundred bytes an entry - a hundred thousand documents is about ten megabytes, a million is
-about a hundred. A cap (`contentIfsMaxListing`, proposed default 500000) with a clear failure past it
-is better than an OutOfMemoryError in the middle of a delivery, which is the failure mode this whole
-rewrite exists to remove.
+**The resolution: list the distinct parent directories, once each.** The parents are derivable from the
+CSV itself - collect them while scanning the rows, then list each one and key the map by full path. If
+the documents live in a handful of directories, that is a handful of round trips for a feed of
+thousands of rows, and existence, length and the DSAK extension all become local lookups.
+
+The degenerate case has to be handled rather than hoped away: if the paths are scattered one document
+per directory, listing every parent is *worse* than asking per file, because each listing returns one
+entry. So the store counts distinct parents first and **falls back to a per-file `exists()` when the
+parents outnumber a set fraction of the rows** - proposed: more than half. Which strategy was chosen,
+and how many round trips it cost, belongs in the step log; a run that silently took the slow path is a
+run nobody can explain afterwards.
+
+The memory bound still has to be declared rather than discovered: the map is held for the whole run, at
+roughly a hundred bytes an entry. A hundred thousand documents is about ten megabytes; a million about a
+hundred. A cap (`contentIfsMaxListing`, proposed default 500000) with a clear failure past it is better
+than an OutOfMemoryError in the middle of a delivery, which is the failure mode this whole rewrite
+exists to remove.
 
 ## 5. Two passes over a network file, and what to do about it
 
@@ -127,8 +161,9 @@ Two new step parameters plus one attribute:
 
 - `contentSource` - `LOCAL` (default) or `IFS`. **LOCAL is the default and no existing workflow changes
   behaviour**, which is the conservative-default rule and there is no reason to make an exception here.
-- `contentIfsPath` - the IFS base directory, e.g. `/home/elar/docs/cliac`. Required when
-  `contentSource=IFS`; refused when it is set and the source is LOCAL, rather than silently ignored.
+- `contentIfsPath` - **optional**, and only a fallback: the base joined to a CSV value that has no
+  leading `/`. Since the column carries a full path, a feed that always does needs it never. Refused
+  when set with `contentSource=LOCAL`, rather than silently ignored.
 - `contentIfsMaxListing` - the cap from section 4.
 
 The **datasource is a `<step>` attribute, not a param.** `runIfsCopy` reads `step.datasource` and looks
@@ -162,13 +197,15 @@ skipped by default and copied to the discards file. No new policy.
 
 ## 8. Decisions that are not mine to take
 
-**8a. Does the CSV column carry a bare file name, or a full IFS path?** Today the value is reduced to
-its last path segment, so `sub/dir/x.pdf` resolves to `<documentPath>/x.pdf` and subdirectories are
-discarded. Locally that mirrors the legacy `updateFilePath`. Over IFS a full absolute path in the
-column is far more plausible - and if the feed carries one, the current rule throws away the only part
-that matters and every row lands in the discards file with the file sitting right there. This is the
-question whose answer changes the most code, and it should be answered from a real feed rather than
-assumed.
+**8a. ANSWERED: the CSV column carries a full IFS path.** Sections 3, 4 and 6 are revised accordingly:
+resolution moves into the store, the two stores read the column differently and for good reason, the
+pre-scan lists distinct parent directories instead of one base directory, and `contentIfsPath` demotes
+to an optional fallback for a value that is not absolute.
+
+The answer also removes a trap that would have been silent: under the old shared rule an IFS run would
+have reduced every full path to its file name, looked for it under a base directory it is not in, and
+sent **every row** to the discards file with the documents sitting untouched on the IFS. The run would
+have reported itself as a clean skip of everything.
 
 **8b. One mode per step, or IFS as a fallback for what is not local?** A fallback is easy to write and
 would be wrong here: with two possible sources, nothing in the delivered INDX or in the log says which
@@ -206,3 +243,41 @@ slow reads, missing files and mid-stream failures - but a fake store proves the 
 
 The first real evidence will be a field run, and the honest sequence is: batch 1 deployed and proved a
 no-op on a real feed first, then IFS enabled on one family with a small input, then volume.
+
+---
+
+## Batch 1 — DELIVERED: the `ContentStore` seam
+
+A pure refactor. `ContentStore` and `LocalContentStore` in `elar`, and every use of the content file
+routed through the interface: the pre-scan's existence check, the byte-budget size, the DSAK name, the
+digest pass, the encode pass and the change stamp. `ElarPreScan.resolveContentFile` is gone; its rule
+now lives in `LocalContentStore.resolve` where the other store can differ from it.
+
+**Proved a no-op the only way that means anything: byte for byte.** The same fixture — 50 documents,
+full IFS paths in the column, accented metadata — delivered before and after, and the SHA-256 of the
+delivered INDX and PULL compared, with formatting on and off:
+
+```
+format=true   INDX 41a586ac772c5524…  PULL f3e2f4e4ab9d5289…
+format=false  INDX 4da3f4426296fc70…  PULL 1e35b4ef7af53ce3…
+```
+
+Identical on both sides. All five existing suites (19 + 31 + 15 + 36 + 33) pass unchanged.
+
+**A fake store proves the seam**, which is what batch 2 depends on: 23 assertions covering that the
+store's own resolution rule is the one used and a full path is kept whole; that `LocalContentStore`
+still takes only the last segment, from a bare name, a full IFS path, a Windows path and a traversal;
+that a document the store does not have is skipped and copied to the discards file; that length,
+lastModified and two separate streams are all asked of the store; and that a read failing part-way
+through — a dropped connection — aborts the batch with no INDX delivered, no temp file, no `.done`
+rename and no discards file published.
+
+`documentPath` in that fixture points at `/nowhere/at/all` on purpose: a run driven by another store
+must never touch it.
+
+**One defect found by the seam test rather than by review**: nothing closed the store. With a local
+store that is harmless, with an `AS400` inside it is a connection leaked per run — the kind that only
+surfaces after a week of retries. `ElarRun` now closes it in the `finally`, on every path including the
+failing ones, and the interface documents that the executor owns the store for the duration of a run.
+
+Batch 2 needs no further change to `elar`.

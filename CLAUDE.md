@@ -2148,3 +2148,30 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * **No AS/400 in the sandbox.** A fake store can prove the seam under slow reads, missing files and
   mid-stream failure; it cannot prove JTOpen. Honest sequence: batch 1 deployed and proved a no-op on a
   real feed first, then IFS on one family with a small input, then volume.
+
+## elarxml IFS content: 8a answered (FULL PATH), spec revised, and batch 1 delivered
+* **The CSV column carries a FULL IFS path.** That revises three sections of the spec, not one.
+* **Resolution moves INTO the store, and the two stores deliberately disagree.** `LocalContentStore`
+  keeps today's rule (last path segment, joined to `documentPath`); an IFS store takes the value as
+  given. The asymmetry is right because **it is one CSV serving two topologies**: under LOCAL an
+  `ifscopy` step has already flattened the tree into one directory, so only the file name can still be
+  meaningful; under IFS the tree is still there and the path is the only thing that finds the file.
+* **The trap the answer removed**: under a shared last-segment rule an IFS run would have reduced every
+  full path to a name, looked for it under a base directory it is not in, and sent EVERY row to the
+  discards file with the documents sitting untouched on the IFS — reporting itself as a clean skip of
+  everything.
+* **One base listing no longer works** either: with a path per row the documents can be spread over many
+  directories. Revised to listing the distinct PARENT directories, derived from the CSV itself — a
+  handful of round trips for thousands of rows. With a guard for the degenerate case: if parents
+  outnumber half the rows, fall back to per-file `exists()`, and **log which strategy was chosen**, or a
+  run that silently took the slow path is one nobody can explain afterwards.
+* **Batch 1 delivered as a pure refactor, proved byte for byte**: same fixture before and after, SHA-256
+  of the delivered INDX and PULL identical with formatting on and off. Assertions alone would not have
+  been enough for a no-op claim; digests are.
+* **A fake store proves the seam** — resolution honoured, full path kept whole, missing document skipped
+  and recorded, length/mtime/two streams all asked of the store, and a mid-read failure landing in the
+  same abort path as any write failure: no INDX, no temp, no `.done`, no discards file.
+* **Defect the seam test found, not review: nothing closed the store.** Harmless locally, a connection
+  leaked per run with an `AS400` inside. `ElarRun` closes it in the `finally` on every path, and the
+  interface now documents that the executor owns the store for the run. **A `Closeable` in an interface
+  is a claim; something has to call it.**

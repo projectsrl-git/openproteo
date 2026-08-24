@@ -1,7 +1,5 @@
 package com.legalarchive.orchestrator.elar;
 
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.security.MessageDigest;
@@ -47,20 +45,22 @@ public final class ContentEmbedder {
 
     private ContentEmbedder() { }
 
-    public static Stamp stamp(File f) { return new Stamp(f.length(), f.lastModified()); }
+    public static Stamp stamp(ContentStore store, String resolved) throws IOException {
+        return new Stamp(store.length(resolved), store.lastModified(resolved));
+    }
 
     /**
      * Pass one: the digest, in hex lower case, as {@code FileHashSHA256} produced it.
      * Reads in blocks and never holds the file.
      */
-    public static String sha256Hex(File f) throws IOException {
+    public static String sha256Hex(ContentStore store, String resolved) throws IOException {
         MessageDigest md;
         try {
             md = MessageDigest.getInstance("SHA-256");
         } catch (Exception e) {
             throw new IOException("SHA-256 is not available in this JVM", e);
         }
-        InputStream in = new FileInputStream(f);
+        InputStream in = store.open(resolved);
         try {
             byte[] buf = new byte[CHUNK];
             int r;
@@ -81,10 +81,10 @@ public final class ContentEmbedder {
      *         INDX carrying a digest that does not match its own embedded content is worse than a
      *         failed one. Detected during the pass rather than after it, so the failure is immediate.
      */
-    public static long encodeBase64(WrappingXmlOut out, String qname, File f, Stamp before)
-            throws IOException {
+    public static long encodeBase64(WrappingXmlOut out, String qname, ContentStore store,
+                                    String resolved, Stamp before) throws IOException {
         Base64.Encoder enc = Base64.getEncoder();
-        InputStream in = new FileInputStream(f);
+        InputStream in = store.open(resolved);
         long total = 0;
         try {
             byte[] buf = new byte[CHUNK];
@@ -93,8 +93,8 @@ public final class ContentEmbedder {
                 if (filled <= 0) break;
                 total += filled;
                 if (before != null && total > before.length) {
-                    throw new ContentChangedException(changed(f, before, "it has grown past " + before.length
-                            + " bytes while being read"));
+                    throw new ContentChangedException(changed(store, resolved, before,
+                            "it has grown past " + before.length + " bytes while being read"));
                 }
                 if (filled == buf.length) {
                     // a whole number of 3-byte groups: complete quads, no padding, no carried state
@@ -109,16 +109,17 @@ public final class ContentEmbedder {
         } finally {
             in.close();
         }
-        if (before != null && (total != before.length || f.lastModified() != before.modified)) {
-            throw new ContentChangedException(changed(f, before,
+        if (before != null && (total != before.length || store.lastModified(resolved) != before.modified)) {
+            throw new ContentChangedException(changed(store, resolved, before,
                     "it was " + before.length + " bytes when the digest was taken and " + total
                     + " bytes when it was encoded"));
         }
         return total;
     }
 
-    private static String changed(File f, Stamp before, String what) {
-        return "the content file " + f.getName() + " changed while the batch was being written: " + what
+    private static String changed(ContentStore store, String resolved, Stamp before, String what) {
+        return "the content file " + store.fileName(resolved) + " changed while the batch was being"
+                + " written: " + what
                 + ". The hash was already written, so this batch cannot be completed and is discarded;"
                 + " nothing is left under a deliverable name. Re-run once the source is stable.";
     }
