@@ -98,7 +98,8 @@ public final class ElarCheckRun {
         long lineNo = 0, record = 0, nextProgress = System.currentTimeMillis() + 5000;
         long bytesApprox = 0;
         String prev = null;
-        boolean prevInTag = false, prevInPayload = false;
+        boolean prevInTag = false, prevInPayload = false, prevAfterStartTag = false;
+        String prevStartLocal = "";
         try {
             String line;
             while ((line = r.readLine()) != null) {
@@ -114,6 +115,29 @@ public final class ElarCheckRun {
                             prevInTag ? ElarCheckReport.Kind.MarkupLineBreak
                                       : ElarCheckReport.Kind.TextLineBreak,
                             "", prevInTag ? "line ends inside a tag" : "line ends inside a value");
+                }
+
+                // A line ending in '>' was treated as safe, always. It is not, when that '>' closed a
+                // START tag: the next character is the first of the element's content, so a break
+                // there gives the value a LEADING line feed. Well-formed, invisible to a parser, and
+                // invisible to the repair script too - it has the same fast path. It is the class the
+                // generator itself produced (43 documents in 1000), caught only by comparing values
+                // against a reference.
+                //
+                // What follows decides it. Markup means the element has children and the break was
+                // between elements; anything else is character data, and the value is wrong. A value
+                // can never begin with '<' - it would be escaped - so the test is exact rather than a
+                // heuristic. Leading whitespace is skipped because an indented file is the normal
+                // case now, not the exception.
+                if (prevAfterStartTag && !prevInPayload
+                        && !prevStartLocal.equals(o.contentElement)) {
+                    int q = 0;
+                    while (q < line.length() && Character.isWhitespace(line.charAt(q))) q++;
+                    if (q < line.length() && line.charAt(q) != '<') {
+                        rep.add(fr, lineNo - 1, record, ElarCheckReport.Kind.TextLineBreak,
+                                prevStartLocal, "line ends just after the start tag, so the value"
+                                + " begins with a line break");
+                    }
                 }
 
                 record += countStarts(line, o.docElement);
@@ -139,6 +163,8 @@ public final class ElarCheckRun {
                 // payload is wrapped on purpose and its breaks are whitespace to any decoder
                 prevInTag = st.inTag;
                 prevInPayload = st.inPayload;
+                prevAfterStartTag = st.endsAfterStartTag;
+                prevStartLocal = st.startTagLocal;
                 prev = st.endsInsideSomething ? line : null;
 
                 if (System.currentTimeMillis() > nextProgress) {
@@ -155,6 +181,14 @@ public final class ElarCheckRun {
     /** Where a line leaves the scanner: inside a tag, inside the payload, inside a value. */
     static final class State {
         boolean inTag, inPayload, endsInsideSomething;
+        /**
+         * The line ended immediately after the {@code >} of a START tag, and the local name of that
+         * tag. That position is NOT between elements: it is the first character of the element's
+         * content. Whether the break there is harmless depends on what comes next, so it cannot be
+         * decided here - see the caller.
+         */
+        boolean endsAfterStartTag;
+        String startTagLocal = "";
     }
 
     /**
@@ -165,6 +199,8 @@ public final class ElarCheckRun {
         State s = new State();
         boolean tag = inTag, payload = inPayload;
         boolean afterClosingTag = false;
+        boolean afterStartTag = false;
+        String startLocal = "";
         int i = 0;
         while (i < line.length()) {
             char c = line.charAt(i);
@@ -172,6 +208,9 @@ public final class ElarCheckRun {
                 if (c == '>') {
                     tag = false;
                     afterClosingTag = true;
+                    // a tag carried over from the previous line: its kind is unknown here, so it is
+                    // not treated as a start tag. The break it belongs to was already reported.
+                    afterStartTag = false;
                 }
                 i++;
                 continue;
@@ -197,14 +236,19 @@ public final class ElarCheckRun {
                     if (selfClosed && local.equals(contentLocal)) payload = false;
                     i = k + 1;
                     afterClosingTag = true;
+                    afterStartTag = !closing && !selfClosed;
+                    startLocal = afterStartTag ? local : "";
                 }
                 continue;
             }
             afterClosingTag = false;
+            afterStartTag = false;
             i++;
         }
         s.inTag = tag;
         s.inPayload = payload;
+        s.endsAfterStartTag = afterStartTag;
+        s.startTagLocal = startLocal;
         // ends inside a tag, or inside character content (not straight after a '>')
         s.endsInsideSomething = tag || (!afterClosingTag && line.length() > 0);
         return s;

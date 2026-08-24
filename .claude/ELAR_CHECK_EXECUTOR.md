@@ -445,3 +445,45 @@ costs one scan of the first fragment and nothing after it.
 characters and the same payload wrapped over many lines are no longer reported, while a genuinely empty
 and a whitespace-only content element **still are**. A fix that silenced those too would have replaced
 a false positive with a false negative, which is worse in an archive.
+
+### Blind spot closed: a break at the HEAD of a value
+
+A line ending in `>` was treated as safe, always — the fast path that makes a half-gigabyte scan cheap.
+It is not safe when that `>` closed a **start tag**: the next character is the first of the element's
+content, so a break there gives the value a **leading** line feed.
+
+This is not hypothetical. It is the class the generator itself produced — 43 documents in 1 000, on
+`ClientAdvisor`, `RecordDescr`, `AccountID` and `ClientID` — and this executor reported none of them.
+Neither did `Repair-ElarIndxLineBreaks.ps1`, which carries the same fast path and states it in its own
+description: *a line ending in '>' ends between elements and is classified with no further analysis*.
+Only `Compare-ElarIndx.ps1` saw it, because it compares values against a reference rather than reading
+bytes. Running the repair script with `-Fix` over such a file would have rewritten the corruption
+unchanged and declared the file sound.
+
+The decision cannot be taken on the line that ends; it needs the one that follows. Markup means the
+element has children and the break was genuinely between elements; anything else is character data,
+and the value is wrong. **A value can never begin with `<`** — it would be escaped — so the test is
+exact rather than a heuristic. Leading whitespace is skipped, because with `formatOutput` on an
+indented file is now the normal case rather than the exception.
+
+The content element is excluded: a break after `<ELAR:Content>` is inside the payload, where whitespace
+is ignored by every decoder.
+
+**Verified** by 11 assertions. Half of them are the defect; the other half are the false positives that
+would matter more, because a checker that fires on every document is worse than one that misses:
+an indented file, an unindented multi-line file, a break after the content start tag, after a
+self-closing tag, after an end tag, and after a start tag whose child follows — **none reported**.
+
+Cross-checked end to end as well: 300 documents written by `elarxml` at a 300-character line limit,
+run through this executor with six mandatory tags including `Content` and `verifyHash` on, **with
+formatting on and off**. No findings of any kind either way.
+
+### What this executor does and does not replace
+
+It **detects** everything `Repair-ElarIndxLineBreaks.ps1` detects — `TextLineBreak`,
+`MarkupLineBreak`, `InvalidSpaceAfterAngle` — plus well-formedness, both line-length thresholds,
+mandatory tags, name reuse, PULL pairing and the digest. Since this change it detects one class
+**more** than the script does.
+
+It **repairs** nothing, by construction, and the build scan asserts there is no write API anywhere in
+the package. For a file that is already corrupt, the script remains the only thing that fixes it.

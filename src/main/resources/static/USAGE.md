@@ -701,6 +701,10 @@ The payload of each document is checked against the **source file itself** rathe
 
 Why it is worth its runtime: ELAR validates an INDX in full and rejects it in full, so one bad character produces a validation failure with zero business records and eighteen hundred good documents are lost because of one. The cost of a rejection is a whole regeneration and redelivery cycle.
 
+**What it does and does not replace.** It *detects* everything `Repair-ElarIndxLineBreaks.ps1` detects - a line break inside a value, a line break inside a tag, whitespace after a tag opener - plus well-formedness, both line-length thresholds, the mandatory tags, name reuse, the PULL pairing and the digest. It *repairs* nothing, and no write API exists anywhere in its code, so for a file that is already corrupt the repair script remains the only thing that fixes it. Running the script merely to find out whether a file is sound is redundant; running it to mend one is not.
+
+**A line break at the head of a value.** Both tools used to treat a line ending in `>` as safe without looking further, which is the fast path that makes scanning a half-gigabyte file cheap. That is wrong in one case: when the `>` closed a **start tag**, the next character is the first of the element's content, so the break gives the value a leading line feed. `elarcheck` now decides that case on the line that follows - markup means the element has children and the break was between elements, anything else is character data and the value is wrong. A value can never begin with `<`, since it would be escaped, so the test is exact. The repair script still has the blind spot: it will neither report nor mend that break.
+
 ### Parameters
 
 `inputDir` is the only required one.

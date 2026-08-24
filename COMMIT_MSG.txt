@@ -1,108 +1,74 @@
-ELAR: atomic start tag, formatOutput, and elarcheck's always-empty Content
+elarcheck: report a line break at the head of a value, not just inside one
 
-Two defects reported from the field on the same delivered file, plus the
-formatting option and a log line that would have saved a round trip.
+Asked whether this executor replaces Repair-ElarIndxLineBreaks.ps1, since the
+script takes half an hour against a few seconds. Checking the answer properly
+turned up a defect in both.
 
-1. ELARCHECK REPORTED EVERY MANDATORY CONTENT AS EMPTY
+THE BOUNDARY, FOR THE RECORD
 
-With Content in mandatoryTags, every document of every file came back
-TagEmpty, on a file whose payloads are megabytes, and the verdict was
-CORRUPTED on files that were fine.
+elarcheck DETECTS everything the script detects - a break inside a value, a
+break inside a tag, whitespace after a tag opener - plus well-formedness, both
+line-length thresholds, the mandatory tags, name reuse, the PULL pairing and
+the digest. It REPAIRS nothing, by construction, and the build scan asserts
+there is no write API anywhere in the package. For a file that is already
+corrupt the script remains the only thing that fixes it. Detection and repair
+are different questions and the answers differ.
 
-The payload is streamed rather than assembled, deliberately, so a
-half-gigabyte INDX costs no memory. The branch that records "this tag has
-content" sat on the other side of that if, so nonEmpty was never set for the
-content element and checkMandatory concluded it was empty every time.
+THE DEFECT THE QUESTION EXPOSED
 
-This is the worst shape a checker defect can take, because it is systematic: a
-thousand documents produce a thousand identical false alarms, and the noise
-buries whatever is real, which is the opposite of what the executor exists to
-do.
+Probing every class of break the script handles turned up one this executor
+reported nothing for: a break at the START of a value, where the line ends
+with the start tag and the value begins on the next line.
 
-Fixed by marking the element non-empty on the first non-whitespace character
-of the payload: one scan of the first fragment, nothing after it. The
-complement is what keeps the fix honest, and is asserted: a genuinely empty
-and a whitespace-only content element are STILL reported. A fix that silenced
-those too would have swapped a false positive for a false negative, which in
-an archive is the worse trade.
+A line ending in '>' was treated as safe, always - the fast path that makes a
+half-gigabyte scan cheap. It is not safe when that '>' closed a START tag: the
+next character is the first of the element's content, so the break gives the
+value a LEADING line feed.
 
-2. A LINE COULD END INSIDE A START TAG
+This is not hypothetical. It is exactly the class the generator itself
+produced, 43 documents in 1000 on ClientAdvisor, RecordDescr, AccountID and
+ClientID, and this executor reported none of them. Neither did the repair
+script, which carries the same fast path and states it in its own description:
+a line ending in '>' ends between elements and is classified with no further
+analysis. Only Compare-ElarIndx.ps1 saw them, because it compares values
+against a reference rather than reading bytes. Run with -Fix over such a file,
+the script would have rewritten the corruption unchanged and declared the file
+sound. So the half hour was not buying that coverage: it was a gap in both
+tools.
 
-Two MarkupLineBreak findings, "line ends inside a tag", in 1000 delivered
-documents. Same shape as the value-edge defect, one level further out: a start
-tag was written in three independent pieces, the name, each attribute, then
-the closing angle, and each could break on its own. closeStartTag called
-fit(1), so when the column landed exactly on the limit the closing angle alone
-was pushed to the next line. One column in every maxLineLength per element:
-fifteen elements a document and a thousand documents makes two occurrences the
-expected order of magnitude.
+THE FIX
 
-The equivalence comparator called the same file fully equivalent, and was
-right. A start tag split that way is valid XML that any conformant parser
-forgives; only a byte-level reader sees it. The two tools were not
-contradicting each other, they were measuring different things. That also
-bounds the severity: to a conformant parser this is nothing. But ELAR's ingest
-is not known to be one, and the legacy produced the same class of break, so it
-gets fixed.
+The decision cannot be taken on the line that ends; it needs the one that
+follows. Markup means the element has children and the break was genuinely
+between elements; anything else is character data, and the value is wrong.
 
-startTag(qname, attrs) now writes the whole tag, measured before it is begun,
-with the break taken before the opening angle. emptyTag and endTag join it,
-and the piecewise startElement, attribute, closeStartTag, selfClose and
-endElement are REMOVED from the API rather than merely left unused: leaving a
-way to place the pieces independently is what let this recur after the value
-fix.
-
-3. FORMATOUTPUT, ON BY DEFAULT
-
-One element per line, indented by depth. On by default, decided explicitly: it
-changes the bytes of every family on the first run after deploy, and buys a
-file an operator can check by eye, which is what a feed being validated
-against a legacy one is for.
-
-Nothing about the content changes, and that is asserted rather than argued.
-Whitespace between elements is insignificant in XML, every element carrying a
-value is written as one unbreakable unit, and the payload stays attached to
-its own tags: the content start tag is immediately followed by the first quad
-and the end tag immediately follows the last, exactly as an unformatted file
-has it. endTagAttached exists for that one case.
-
-Two properties that bound the risk. Formatting only ever makes lines SHORTER,
-so it cannot push a line past the receiver's limit; checked by running the
-same feed both ways and comparing the longest line. And formatting never
-causes a refusal: when the indent and an element together would not fit a
-line, the indent is dropped rather than the element rejected, so the refusal
-threshold still depends on the element alone.
-
-4. THE NAME PATTERNS ARE IN THE STEP LOG
-
-output.index_name_pattern and output.pull_name_pattern, with output.start_time
-and whether formatting is on. The filenames come entirely from those two
-patterns, since nothing in the executor adds an extension, a counter or a
-suffix, so "where did this .xml come from" is now a log lookup instead of a
-hunt through a properties file on a share.
+A value can never begin with '<', since it would be escaped, so the test is
+exact rather than a heuristic. Leading whitespace is skipped, because with
+formatOutput on an indented file is now the normal case rather than the
+exception. The content element is excluded: a break after the content start
+tag is inside the payload, where whitespace is ignored by every decoder.
 
 VERIFIED
-- 19 assertions for the tag unit and formatting, --release 8. The decisive one
-  is exhaustive again: a start tag written at EVERY starting column of a line,
-  and no column ends a line inside a tag. Plus the exact column that used to
-  split it; the indent shape line by line; the payload's attachment checked on
-  the characters either side of its tags; and the same 40 documents run with
-  the option on and off, where no value differs, none gains a line break, and
-  the payload decodes to the same bytes.
-- 5 assertions for the checker, including the complement that a genuinely
-  empty and a whitespace-only content element are still reported.
-- The value-edge suite, 31 assertions, the naming suite, 15, the discards
-  suite, 36, the .done rename suite, 33, and the elarcheck pair suite, 6,
-  re-run unchanged. Designer panel suites green at 94 and 67.
-- elar and elarcheck rule scans clean, elarcheck still read-only by scan,
-  template scans clean, and the new USAGE.md section written one paragraph per
-  line for the docs.html renderer.
+- 11 assertions. Half are the defect: the break itself, and the element named
+  in the finding. The other half are the FALSE POSITIVES, and that half
+  matters more, because a checker that fires on every document is worse than
+  one that misses. An indented file, an unindented multi-line file, a break
+  after the content start tag, after a self-closing tag, after an end tag, and
+  after a start tag whose child follows: none reported.
+- Cross-package and end to end: 300 documents written by elarxml at a
+  300-character line limit, run through elarcheck with six mandatory tags
+  including Content and verifyHash on, with formatting ON and OFF. No findings
+  of any kind either way.
+- The mandatory-Content suite, 5 assertions, and the pair suite, 6, re-run
+  unchanged. Package rule scans clean, and the read-only scan still clean: the
+  change reads two lines instead of one and writes nothing.
 
 NOT VERIFIED
 - mvn clean package: Maven Central is unreachable from the chat sandbox, so
-  the build on the target machine remains the only final proof. Both packages
-  compile and run standalone in full; InternalSteps and designer.html were
-  checked structurally and under jsdom.
-- Whether ELAR's ingest tolerates the formatted file. Whitespace between
-  elements is insignificant to any XML parser, but the receiving team has not
-  confirmed it, and this is the first delivery where the option is on.
+  the build on the target machine remains the only final proof. The elarcheck
+  package compiles and runs standalone in full.
+- TextLineBreak detection has still never been run against a genuinely corrupt
+  legacy file, only against files this project generated. MarkupLineBreak has
+  been proven in the field, since it found the two breaks Compare-ElarIndx.ps1
+  could not see. Running both tools once over a known-bad INDX and comparing
+  the counts would settle it permanently.

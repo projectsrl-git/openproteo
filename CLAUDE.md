@@ -2086,3 +2086,28 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   filenames come ENTIRELY from those patterns — nothing adds an extension or a counter — so "where did
   this `.xml` come from" is a log lookup instead of a hunt through a properties file on a share. That
   question cost a round trip; this is the cheapest possible answer to it.
+
+## elarcheck: a break at the HEAD of a value was invisible to BOTH tools
+* **The fast path was wrong in one case.** A line ending in `>` was treated as safe, always. It is not
+  when that `>` closed a **start tag**: the next character is the first of the element's content, so a
+  break there gives the value a LEADING line feed.
+* **Not hypothetical — it is the class the generator produced**: 43 documents in 1000 on
+  `ClientAdvisor`, `RecordDescr`, `AccountID`, `ClientID`. elarcheck reported none of them, and
+  neither did `Repair-ElarIndxLineBreaks.ps1`, which carries the SAME fast path and says so in its own
+  description. Only `Compare-ElarIndx.ps1` saw it, because it compares values against a reference
+  instead of reading bytes. **Running the repair script with `-Fix` over such a file would have
+  rewritten the corruption unchanged and declared the file sound.**
+* **The decision needs the NEXT line**, not the one that ends. Markup means the element has children
+  and the break was between elements; anything else is character data. **A value can never begin with
+  `<`** — it would be escaped — so the test is exact, not a heuristic. Leading whitespace is skipped
+  because with `formatOutput` on an indented file is now the normal case. Content excluded: a break
+  after `<ELAR:Content>` is payload.
+* **Half the assertions are the false positives**, and that is the half that matters: a checker firing
+  on every document is worse than one that misses. Indented file, unindented multi-line file, break
+  after the content start tag / a self-closing tag / an end tag / a start tag whose child follows —
+  none reported. Plus a cross-package run: 300 documents written by `elarxml` at a 300-char limit,
+  checked with six mandatory tags and verifyHash, formatting on AND off — no findings either way.
+* **The tool boundary, for the record**: elarcheck DETECTS everything the repair script detects, and
+  since this change one class more. It REPAIRS nothing, by construction, asserted by scan. For a file
+  already corrupt the script is still the only thing that fixes it. "Detects" and "repairs" are not
+  the same question and the answer differs.
