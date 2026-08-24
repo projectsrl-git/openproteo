@@ -1,7 +1,9 @@
 # JSON to CSV executor (`json2csv`) — specification
 
-Status: **Batch 2 delivered** — the executor is wired and selectable. §14 records batch 1, §15 records
-batch 2 and the three things this specification got wrong. Batches 3–4 remain (§12).
+Status: **Batch 3 delivered** — the mapper panel and the two catalogue endpoints. §14–§16 record what
+was built and what the suites proved. Batch 4 (`USAGE.md`, a run on real files) remains.
+
+**This feed is Transarch, not ELAR.** Corrected throughout; the executor is unaffected.
 Revised after Gate 0 was answered (§3). **The answers removed more of this than they added**, and the
 removals are recorded here rather than deleted: §6.3–§6.5 stay on the page, marked DEFERRED, because
 they are the design for the day the deferred half comes back.
@@ -211,7 +213,7 @@ that multi-row flattening is not implemented.
 
 Refusing beats the two alternatives. Reading it as `[0]` would silently deliver a feed that is short
 by every element after the first, with nothing in the output saying so. Ignoring the column would
-deliver it empty. Both are discovered in ELAR, months later; this is discovered when the step is
+deliver it empty. Both are discovered in Transarch, months later; this is discovered when the step is
 saved.
 
 The catalogue of §8 still **shows** array paths, marked unavailable with that reason. Hiding them
@@ -290,7 +292,7 @@ exponent, ever, because a CSV consumer reading `1E3` as text is a support call).
 
 The decimal separator is `.` and there is no grouping. Non-numeric text under `type="Number"` follows
 `onNonScalar`. **`Number` is a validation as much as a format**: it is the difference between finding
-a bad value here and finding it in ELAR.
+a bad value here and finding it in Transarch.
 
 ### 7.3 Date (requirement 6.3)
 
@@ -397,7 +399,7 @@ MIME                         [ —                              ▼ ]  [MIMEType
 - **An array path is shown and not selectable**, with the reason (§6.2). Picking it in the dropdown is
   refused there rather than at save, so the message arrives where the mistake is made.
 - A dataschema column left unmapped is written as an empty column. It is not dropped: the CSV keeps
-  the schema's shape, which is what ELAR is given.
+  the schema's shape, which is what Transarch is given.
 
 ### 8.1 Where the catalogue comes from
 
@@ -747,3 +749,77 @@ word.
   rules — no literal `\n` or `\r` in the added JS, no `[[` or `[(` — but not rendered. Batch 3 brings
   the panel and its assertions.
 - **`ApiController.toDto`**, whose four new lines are the one edit no harness here reaches.
+
+---
+
+## 16. Batch 3 delivered — the mapper
+
+**104 assertions green** in two new suites (56 on the catalogue, 48 on the panel), on top of the 267
+from batches 1 and 2. Eight further mutations, all caught.
+
+### 16.1 What the real sample changed
+
+Three answers closed without touching code — RFC-4180 quoting is what `CsvWriter` already does,
+`ObjectName` already writes the file name, and `recordBusinessDateFormat` is already the output mask.
+The sample changed the **catalogue**, not the executor:
+
+- **Keys contain dots.** `VM.CAP.DATE.CHARGE`, `VM.ALT.ACCT.TYPE`, `VM.ACCR.CR.CATEG` are single keys
+  with dots inside, not nesting. Emitted bare, `VM.CAP.DATE.CHARGE` parses as **four nested keys** and
+  resolves to nothing at all — on a path the dropdown itself handed over. The catalogue emits
+  `['VM.CAP.DATE.CHARGE']`, and the suite asserts both halves: that the quoted form is produced, and
+  that the bare form parses to four segments and resolves to nothing.
+- **Arrays hold exactly one object.** `"VM.ALT.ACCT.TYPE":[{"ALT_ACCT_TYPE":"OLD-ID",…}]`. The
+  catalogue therefore lists **two** things per array: the unbounded `[]`, shown and **disabled** with
+  its reason, and the first element's members under `[0]`, which are selectable. Listing only `[]`
+  would leave those values unreachable; offering `[0]` as though it were the whole array is the
+  mistake §6.2 exists to prevent. This is what `[0]` was added for at the Gate 0 review.
+- **The two vocabularies are the same one**, over about a hundred columns. Hence **"map by exact
+  name"**, and hence the dataschema's declared type preselecting `Number`: choosing a type a hundred
+  times by hand is how a mistake gets made out of boredom. Both are suggestions and stay editable, and
+  **map-by-name never overwrites a column already mapped** — the ones a person set deliberately are
+  exactly the ones a bulk action must not touch.
+
+### 16.2 A sample is not a schema, and the panel says so
+
+Every catalogue entry carries `seenIn` against `scanned`. **Seen in 3 of 20 is not the same as seen in
+20 of 20**, and only the person mapping the column can say which is expected. The dropdown shows the
+count; it does not decide. The panel repeats the caveat in words, because an attribute missing from
+the catalogue may exist in the feed all the same.
+
+The catalogue is held **per node in the browser and never in the workflow**. It is a picture of what
+some sample files happened to contain, not part of the feed definition; persisting it would let a
+stale snapshot decide a mapping months later.
+
+### 16.3 The panel is RUN, not inspected
+
+`tests/panel.js` extracts the `json2csv` branch from `designer.html`, wraps it in the helpers it leans
+on, and **executes it** to produce real HTML — the same technique that verified the `USAGE.md`
+renderer. It then asserts tag balance, that unavailable paths render disabled and not hidden, that the
+counts appear, that a quoted dotted path round-trips verbatim through the attribute, and that **every
+handler the panel emits names a function that actually exists**.
+
+A regex over the source would not have caught the mutation that matters: an extra `</div>`, which is
+the panel defect CLAUDE.md records, where the rest of a section was silently eaten. Rendering catches
+it in four assertions.
+
+### 16.4 Two assertions that were wrong, and one mutation that lied
+
+- **X8 was my mistake, not a defect.** It asserted that apostrophes in a path must be escaped inside
+  an attribute. They need not be: inside a double-quoted attribute an apostrophe is legal HTML, and
+  the value round-trips verbatim. Replaced with the assertion that matters — the path survives exactly
+  — plus a new one proving a **double** quote *is* escaped, since that one would end the attribute.
+- **Two mutations came back green and neither was a pass.** One had a `sed` that matched nothing; the
+  other had shell quoting that never applied the edit. Rewritten in Python with an anchor assertion,
+  both are caught — the first by seven assertions. **A mutation that stays green is a claim about the
+  mutation before it is a claim about the suite**, and the only way to tell is to look.
+
+### 16.5 Not verified
+
+- `mvn clean package`, and the executor against real files.
+- The panel's **network calls**. Rendering is exercised; `fetch` is not. The three functions are
+  reachable and their handlers resolve, but no request has been made to either endpoint.
+- **The two endpoints themselves.** They are Spring controllers and cannot run here — the logic they
+  wrap (`PathCatalog`, `Json2CsvRun.list`) is tested, the wiring is not.
+- The real `dataschema.json`. The catalogue suite is built on the sample's shape read from
+  photographs, so the column NAMES are not the real ones. Nothing depends on them — the panel reads
+  the dataschema at run time — but the exact-match test is a shape test, not a data test.

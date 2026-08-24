@@ -2423,3 +2423,47 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   a skipped file marked processed; a case-insensitive mask; `?` matching nothing.
 * NOT verified: `mvn clean package`; the executor against real files; the designer changes rendered
   (checked only for the two UBS rules); and `ApiController.toDto`, the one edit no harness reaches.
+
+## json2csv — Batch 3 delivered: the mapper, and a panel that is RUN rather than inspected
+* **104 assertions green** in two new suites (56 catalogue, 48 panel) on top of the 267 from batches 1
+  and 2. Eight further mutations, all caught. **This feed is Transarch, not ELAR** — corrected in the
+  spec and in `MappingValidator`; the executor is unaffected.
+* **Three answers closed WITHOUT touching code**: RFC-4180 quoting is what `CsvWriter` already does;
+  `ObjectName` already writes the file name; `recordBusinessDateFormat` is already the output mask.
+  The real sample changed the CATALOGUE, not the executor.
+* **KEYS CONTAIN DOTS.** `VM.CAP.DATE.CHARGE`, `VM.ALT.ACCT.TYPE` are single keys with dots inside,
+  not nesting. Emitted bare, `VM.CAP.DATE.CHARGE` parses as **four nested keys and resolves to
+  nothing** — on a path the dropdown itself handed over. The catalogue emits `['VM.CAP.DATE.CHARGE']`,
+  and the suite asserts both halves: that the quoted form is produced, and that the bare form parses
+  to four segments and resolves to nothing.
+* **Arrays hold exactly one object**, so the catalogue lists TWO things per array: the unbounded `[]`,
+  shown and **disabled** with its reason, and the first element's members under `[0]`, selectable.
+  Listing only `[]` would leave those values unreachable; offering `[0]` as if it were the whole array
+  is the mistake the refusal exists to prevent. This is what `[0]` was added for at Gate 0.
+* **The dataschema and the JSON share one vocabulary** over ~100 columns, hence "map by exact name"
+  and the declared type preselecting Number. Both are suggestions and stay editable, and
+  **map-by-name never overwrites a column already mapped**: the ones a person set deliberately are
+  exactly the ones a bulk action must not touch. Matching is exact and case-sensitive, because JSON
+  keys are and because a near-match offered as a match would be accepted without being read.
+* **`seenIn` against `scanned` is shown on every path.** Seen in 3 of 20 is not the same as seen in 20
+  of 20, and only the person mapping the column can say which is expected. The catalogue is held per
+  node in the browser and **never in the workflow**: it is a picture of what some sample files
+  happened to contain, and persisting it would let a stale snapshot decide a mapping months later.
+* **THE PANEL IS EXECUTED, NOT INSPECTED.** `tests/panel.js` extracts the branch from `designer.html`,
+  wraps it in its helpers and runs it to produce real HTML — the technique that verified the
+  `USAGE.md` renderer. It asserts tag balance, that unavailable paths render disabled rather than
+  hidden, that a quoted dotted path round-trips verbatim through the attribute, and that **every
+  handler the panel emits names a function that exists**. A regex would not have caught the mutation
+  that matters: an extra `</div>`, the panel defect recorded above, caught here by four assertions.
+* **An assertion of mine was wrong, not the code.** X8 claimed apostrophes in a path must be escaped
+  inside an attribute. They need not be — inside a double-quoted attribute an apostrophe is legal HTML
+  and the value round-trips verbatim. Replaced with the assertion that matters, plus a new one proving
+  a DOUBLE quote *is* escaped, since that one would end the attribute.
+* **TWO MUTATIONS CAME BACK GREEN AND NEITHER WAS A PASS**: one `sed` matched nothing, one had shell
+  quoting that never applied the edit. Rewritten in Python with an anchor assertion, both are caught —
+  the first by seven assertions. **A mutation that stays green is a claim about the mutation before it
+  is a claim about the suite**, and the only way to tell is to look.
+* NOT verified: `mvn clean package`; the executor on real files; the panel's `fetch` calls (rendering
+  is exercised, the network is not); the two endpoints themselves, which are Spring controllers — the
+  logic they wrap is tested, the wiring is not; and the real `dataschema.json`, so the exact-match
+  test is a shape test, not a data test.

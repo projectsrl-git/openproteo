@@ -47,7 +47,7 @@ public final class MappingValidator {
             // The refusal of [] — the one this whole design turns on. Never read as [0], never
             // ignored: reading it as [0] would deliver a feed short by every element after the first
             // with nothing saying so, and ignoring the column would deliver it empty. Both are found
-            // in ELAR months later. This is found when the step is saved.
+            // in Transarch months later. This is found when the step is saved.
             if (c.path != null && c.path.hasAnyIndex()) {
                 out.add("column '" + c.as + "' maps '" + c.src + "': '[]' asks for one row per array"
                         + " element, and multi-row flattening is not implemented."

@@ -338,6 +338,154 @@ public class ApiController {
         }
     }
 
+    /**
+     * json2csv: the dataschema, for the LEFT column of the mapper.
+     *
+     * <p>Returns the column names in dataschema order — the order the CSV is written in, and the whole
+     * point of requirement 1 — with the declared type beside each. The panel uses the type only to
+     * PRESELECT Number where the schema says long/integer/double: with about a hundred columns,
+     * choosing the type a hundred times by hand is how a mistake gets made out of boredom. The
+     * preselection is a suggestion and stays editable.
+     */
+    @GetMapping("/api/workflows/{feedId}/json2csv/columns")
+    public ResponseEntity<Map<String, Object>> json2csvColumns(@PathVariable String feedId,
+                                                               @RequestParam("schema") String schema) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        WorkflowDef def = registry.get(feedId);
+        if (def == null) return badRequest(out, "Unknown workflow: " + feedId);
+        Map<String, String> fv = feedVars(def, feedId);
+        String resolved = com.legalarchive.orchestrator.engine.VarResolver.resolve(schema, fv);
+        if (resolved == null || resolved.trim().isEmpty()) return badRequest(out, "schema is required");
+        resolved = rebaseRel(resolved, fv);
+        java.io.File f = new java.io.File(resolved);
+        if (!f.isFile()) return badRequest(out, "dataschema not found: " + resolved);
+        try {
+            Object root = new com.fasterxml.jackson.databind.ObjectMapper().readValue(f, Object.class);
+            java.util.List<?> cols = null;
+            if (root instanceof java.util.List) cols = (java.util.List<?>) root;
+            else if (root instanceof Map) {
+                Object c = ((Map<?, ?>) root).get("columns");
+                if (c instanceof java.util.List) cols = (java.util.List<?>) c;
+            }
+            java.util.List<Map<String, Object>> outCols = new java.util.ArrayList<Map<String, Object>>();
+            if (cols != null) for (Object o : cols) {
+                Map<String, Object> e = new LinkedHashMap<String, Object>();
+                if (o instanceof Map) {
+                    Map<?, ?> m = (Map<?, ?>) o;
+                    Object nm = m.get("name"); if (nm == null) nm = m.get("ColumnName"); if (nm == null) nm = m.get("COLUMN_NAME");
+                    if (nm == null) continue;
+                    e.put("name", String.valueOf(nm).trim());
+                    Object ty = m.get("type");
+                    e.put("type", ty == null ? "" : String.valueOf(ty).trim());
+                    Object nu = m.get("nullable");
+                    e.put("nullable", nu == null ? Boolean.TRUE : nu);
+                } else if (o instanceof String) {
+                    e.put("name", ((String) o).trim()); e.put("type", ""); e.put("nullable", Boolean.TRUE);
+                } else continue;
+                outCols.add(e);
+            }
+            if (outCols.isEmpty()) return badRequest(out, "dataschema has no columns: " + resolved);
+            out.put("ok", true); out.put("columns", outCols); out.put("path", resolved);
+            return ResponseEntity.ok(out);
+        } catch (Throwable t) {
+            return badRequest(out, t.getMessage() == null ? t.toString() : t.getMessage());
+        }
+    }
+
+    /**
+     * json2csv: the attribute path catalogue, for the RIGHT dropdown of the mapper.
+     *
+     * <p>Built from an uploaded sample and/or by scanning the first N input files, merged. Scanning
+     * several exists because <b>a sample is not a schema</b>: an instance only reveals what is present
+     * in it, an empty array hides everything under it, and a field absent from one record is absent
+     * from the catalogue. Every entry therefore carries how many of the scanned documents contained
+     * it, against the total — seen in 3 of 20 is a different thing from seen in 20 of 20, and only the
+     * person mapping the column can say which is expected.
+     *
+     * <p>Paths that cannot be mapped are returned too, carrying the reason, rather than hidden: an
+     * operator hunting for an attribute that is plainly in the sample is worse served by silence.
+     */
+    @GetMapping("/api/workflows/{feedId}/json2csv/paths")
+    public ResponseEntity<Map<String, Object>> json2csvPaths(@PathVariable String feedId,
+                                                             @RequestParam(value = "schema", required = false) String schema,
+                                                             @RequestParam(value = "dir", required = false) String dir,
+                                                             @RequestParam(value = "pattern", required = false) String pattern,
+                                                             @RequestParam(value = "max", required = false) Integer max,
+                                                             @RequestParam(value = "columns", required = false) String columns) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        WorkflowDef def = registry.get(feedId);
+        if (def == null) return badRequest(out, "Unknown workflow: " + feedId);
+        Map<String, String> fv = feedVars(def, feedId);
+        int limit = (max == null || max <= 0) ? 20 : Math.min(max.intValue(), 200);
+
+        com.legalarchive.orchestrator.json2csv.PathCatalog cat =
+                new com.legalarchive.orchestrator.json2csv.PathCatalog();
+        com.legalarchive.orchestrator.engine.JsonDocumentReader reader =
+                new com.legalarchive.orchestrator.engine.JsonDocumentReader(16, null);
+        java.util.List<String> sources = new java.util.ArrayList<String>();
+        java.util.List<String> problems = new java.util.ArrayList<String>();
+
+        try {
+            String s = com.legalarchive.orchestrator.engine.VarResolver.resolve(schema, fv);
+            if (s != null && !s.trim().isEmpty()) {
+                java.io.File sf = new java.io.File(rebaseRel(s, fv));
+                if (sf.isFile()) {
+                    try { cat.add(reader.read(sf)); sources.add(sf.getName()); }
+                    catch (Exception e) { problems.add(sf.getName() + ": " + e.getMessage()); }
+                } else {
+                    problems.add("sample not found: " + sf.getPath());
+                }
+            }
+            String d = com.legalarchive.orchestrator.engine.VarResolver.resolve(dir, fv);
+            if (d != null && !d.trim().isEmpty()) {
+                java.io.File dd = new java.io.File(rebaseRel(d, fv));
+                String pat = com.legalarchive.orchestrator.engine.VarResolver.resolve(pattern, fv);
+                if (pat == null || pat.trim().isEmpty()) pat = "*.json";
+                java.util.List<java.io.File> files =
+                        com.legalarchive.orchestrator.json2csv.Json2CsvRun.list(dd, pat);
+                for (int i = 0; i < files.size() && i < limit; i++) {
+                    try { cat.add(reader.read(files.get(i))); sources.add(files.get(i).getName()); }
+                    catch (Exception e) { problems.add(files.get(i).getName() + ": " + e.getMessage()); }
+                }
+                out.put("filesAvailable", files.size());
+            }
+            if (cat.scanned() == 0) {
+                return badRequest(out, problems.isEmpty()
+                        ? "nothing to scan: give a sample file or an input directory"
+                        : ("nothing could be read - " + problems.get(0)));
+            }
+
+            java.util.List<Map<String, Object>> paths = new java.util.ArrayList<Map<String, Object>>();
+            for (com.legalarchive.orchestrator.json2csv.PathCatalog.Entry e : cat.entries()) {
+                Map<String, Object> m = new LinkedHashMap<String, Object>();
+                m.put("path", e.path);
+                m.put("kind", e.kind());
+                m.put("seenIn", Integer.valueOf(e.seenIn));
+                m.put("container", Boolean.valueOf(e.container));
+                if (e.unavailable != null) m.put("unavailable", e.unavailable);
+                paths.add(m);
+            }
+            out.put("ok", true);
+            out.put("scanned", Integer.valueOf(cat.scanned()));
+            out.put("sources", sources);
+            out.put("paths", paths);
+            if (!problems.isEmpty()) out.put("problems", problems);
+
+            // "Map by exact name": the dataschema and the JSON share one vocabulary in these feeds,
+            // and there are about a hundred columns. Exact and case-sensitive, because JSON keys are,
+            // and because a near-match offered as a match would be accepted without being read.
+            if (columns != null && !columns.trim().isEmpty()) {
+                java.util.List<String> want = java.util.Arrays.asList(columns.split(","));
+                java.util.List<String> trimmed = new java.util.ArrayList<String>();
+                for (String w : want) if (w != null && !w.trim().isEmpty()) trimmed.add(w.trim());
+                out.put("exactMatches", cat.exactMatches(trimmed));
+            }
+            return ResponseEntity.ok(out);
+        } catch (Throwable t) {
+            return badRequest(out, t.getMessage() == null ? t.toString() : t.getMessage());
+        }
+    }
+
     @GetMapping("/api/workflows/{feedId}/xlsx/sheets")
     public ResponseEntity<Map<String, Object>> xlsxSheets(@PathVariable String feedId,
                                                           @RequestParam("path") String path) {

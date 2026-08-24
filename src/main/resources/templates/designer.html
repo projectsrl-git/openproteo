@@ -501,6 +501,84 @@
     function addInput(i) { var n = wf.nodes[i]; n.inputs = n.inputs || []; n.inputs.push({ csv: '', table: '' }); renderNodes(); }
     function delInput(i, ii) { wf.nodes[i].inputs.splice(ii, 1); renderNodes(); preview(); }
     function updInput(i, ii, f, v) { wf.nodes[i].inputs[ii][f] = v; preview(); }
+    // ------------------------------------------------------------- json2csv
+    // The catalogue is held per node and NOT in the workflow: it is a picture of what some sample
+    // files happened to contain, not part of the feed definition. Persisting it would let a stale
+    // snapshot decide a mapping months later.
+    window.j2cPaths = window.j2cPaths || {};
+
+    function j2cLoadColumns(i) {
+        var n = wf.nodes[i], schema = nodeParam(n, 'columnsSchema');
+        if (!String(schema || '').trim()) { alert('Set the dataschema path first.'); return; }
+        fetch('/api/workflows/' + encodeURIComponent(wf.feedId) + '/json2csv/columns?schema=' + encodeURIComponent(schema))
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d.ok) { alert(d.error || 'Could not read the dataschema'); return; }
+                var existing = {};
+                (n.columns || []).forEach(function (c) { if (c && c.as) existing[c.as] = c; });
+                // Rebuilt in DATASCHEMA ORDER, which is the order the CSV is written in. An existing
+                // mapping is carried over by name, so pressing this twice does not undo the work.
+                n.columns = d.columns.map(function (c) {
+                    if (existing[c.name]) return existing[c.name];
+                    var t = 'String', ty = String(c.type || '').toLowerCase();
+                    // Preselecting Number from the declared type is a suggestion, not a decision:
+                    // with about a hundred columns, choosing the type a hundred times by hand is how
+                    // a mistake gets made out of boredom. It stays editable.
+                    if (ty === 'long' || ty === 'integer' || ty === 'int' || ty === 'double' || ty === 'float' || ty === 'decimal') t = 'Number';
+                    return { as: c.name, src: '', type: t };
+                });
+                renderNodes(); preview();
+            })
+            .catch(function (e) { alert('Could not read the dataschema: ' + e); });
+    }
+
+    function j2cLoadPaths(i) {
+        var n = wf.nodes[i];
+        var q = [];
+        if (String(nodeParam(n, 'jsonSchema') || '').trim()) q.push('schema=' + encodeURIComponent(nodeParam(n, 'jsonSchema')));
+        if (String(nodeParam(n, 'inputDir') || '').trim()) q.push('dir=' + encodeURIComponent(nodeParam(n, 'inputDir')));
+        if (String(nodeParam(n, 'filePattern') || '').trim()) q.push('pattern=' + encodeURIComponent(nodeParam(n, 'filePattern')));
+        if (!q.length) { alert('Set a JSON sample or an input directory first.'); return; }
+        q.push('max=20');
+        fetch('/api/workflows/' + encodeURIComponent(wf.feedId) + '/json2csv/paths?' + q.join('&'))
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d.ok) { alert(d.error || 'Could not build the attribute catalogue'); return; }
+                window.j2cPaths[n.id] = d;
+                renderNodes();
+                if (d.problems && d.problems.length) alert(d.problems.length + ' file(s) could not be read:' + String.fromCharCode(10) + d.problems.join(String.fromCharCode(10)));
+            })
+            .catch(function (e) { alert('Could not build the attribute catalogue: ' + e); });
+    }
+
+    function j2cMapByName(i) {
+        var n = wf.nodes[i], cat = window.j2cPaths[n.id];
+        if (!cat) { alert('Load the attributes from a sample first.'); return; }
+        var names = (n.columns || []).map(function (c) { return c && c.as ? c.as : ''; }).filter(function (x) { return x; });
+        if (!names.length) { alert('Load the columns from the dataschema first.'); return; }
+        var q = [];
+        if (String(nodeParam(n, 'jsonSchema') || '').trim()) q.push('schema=' + encodeURIComponent(nodeParam(n, 'jsonSchema')));
+        if (String(nodeParam(n, 'inputDir') || '').trim()) q.push('dir=' + encodeURIComponent(nodeParam(n, 'inputDir')));
+        if (String(nodeParam(n, 'filePattern') || '').trim()) q.push('pattern=' + encodeURIComponent(nodeParam(n, 'filePattern')));
+        q.push('max=20');
+        q.push('columns=' + encodeURIComponent(names.join(',')));
+        fetch('/api/workflows/' + encodeURIComponent(wf.feedId) + '/json2csv/paths?' + q.join('&'))
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d.ok) { alert(d.error || 'Could not match'); return; }
+                var m = d.exactMatches || {}, hit = 0;
+                // Only EMPTY columns are filled. A mapping already made by hand is never overwritten:
+                // the ones a person set deliberately are exactly the ones a bulk action must not touch.
+                (n.columns || []).forEach(function (c) {
+                    if (c && c.as && m[c.as] && !String(c.src || '').trim()) { c.src = m[c.as]; hit++; }
+                });
+                window.j2cPaths[n.id] = d;
+                renderNodes(); preview();
+                alert('Mapped ' + hit + ' column(s) by exact name. ' + (names.length - hit) + ' left for you: the head columns and anything the JSON does not carry under the same name.');
+            })
+            .catch(function (e) { alert('Could not match: ' + e); });
+    }
+
     function addCol(i) { var n = wf.nodes[i]; n.columns = n.columns || []; n.columns.push({ src: '', as: '' }); renderNodes(); }
     function delCol(i, ci) { wf.nodes[i].columns.splice(ci, 1); renderNodes(); preview(); }
     function updCol(i, ci, f, v) { wf.nodes[i].columns[ci][f] = v; preview(); }
@@ -1357,6 +1435,95 @@
                     h += '<div class="dim small" style="margin-top:6px"><b>Read-only by construction</b> &mdash; no write API exists anywhere in the package and a build scan asserts it, which is what makes this safe against a live delivery folder. It never repairs: repair stays in the PowerShell scripts, run as ordinary <code>powershell</code> steps in the same workflow.</div>';
                     h += '<div class="dim small" style="margin-top:4px">Each file gets <b>OK</b>, <b>CORRUPTED</b> or <b>MALFORMED</b>, which is the decision the operator needs: send, or regenerate. <b>CORRUPTED</b> is the one that matters &mdash; well-formed but wrong, so ELAR <i>accepts</i> it and archives a wrong value with nothing downstream to flag it. A file that is both is reported MALFORMED, since it has to be regenerated either way.</div>';
                     h += '<div class="dim small" style="margin-top:4px">Writes <code>elarcheck_findings.tsv</code> into the <b>step</b> directory, never into the inspected one, published as <b>${findingsFile}</b>. <b>No field value appears in it or in any log line</b>: findings carry element names, positions and counts only. Counters: <b>${filesScanned}</b>, <b>${filesWellFormed}</b>, <b>${filesRejectedLikely}</b>, <b>${filesCorrupted}</b>, <b>${documentsTotal}</b>, <b>${whitespaceAfterAngle}</b>, <b>${valueLineBreaks}</b>, <b>${markupLineBreaks}</b>, <b>${linesOverLimit}</b>, <b>${linesOverReceiverLimit}</b>, <b>${longestLine}</b>, <b>${tagsMissing}</b>, <b>${tagsDuplicate}</b>, <b>${tagsEmpty}</b>, <b>${nameAlreadyDelivered}</b>, <b>${pullMissing}</b>, <b>${pullUnreferenced}</b>, <b>${hashMismatches}</b>, <b>${findingsTotal}</b>.</div>';
+                } else if (ex === 'json2csv') {
+                    var jTypes = ['String', 'Number', 'Date', 'MIMEType', 'Serial', 'ObjectName'];
+                    var jPaths = (window.j2cPaths && window.j2cPaths[n.id]) || null;
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Input directory (JSON files) *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'inputDir')) + '" placeholder="${landingIn}/json" oninput="setNodeParam(' + i + ',\'inputDir\',this.value)"></div>' +
+                        '<div class="field"><label>File pattern</label><input value="' + attresc(nodeParam(n, 'filePattern')) + '" placeholder="*.json" title="Wildcards * and ? only, matched on the file name. CASE-SENSITIVE on every platform: a mask that behaved differently on Windows and on the server would make the same workflow read a different set of files depending on where it ran." oninput="setNodeParam(' + i + ',\'filePattern\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Output CSV *</label><input class="sugin" list="pathsug" value="' + attresc(n.csvFile) + '" placeholder="${landingOut}/flat.csv" oninput="updNode(' + i + ',\'csvFile\',this.value)"></div>' +
+                        '<div class="field"><label>Split rows</label><input type="number" min="0" value="' + (n.csvSplitRows || '') + '" oninput="updNode(' + i + ',\'csvSplitRows\',this.value)"></div>' +
+                        '<div class="field"><label>Split MB</label><input type="number" min="0" value="' + (n.csvSplitMb || '') + '" oninput="updNode(' + i + ',\'csvSplitMb\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Dataschema (decides the CSV columns and their order)</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'columnsSchema')) + '" placeholder="${feedDir}/dataschema.json" oninput="setNodeParam(' + i + ',\'columnsSchema\',this.value)"></div>' +
+                        '<div class="field wide"><label>JSON sample (fills the attribute dropdown)</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'jsonSchema')) + '" placeholder="${feedDir}/jsonschema.json" oninput="setNodeParam(' + i + ',\'jsonSchema\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<button class="btn" onclick="j2cLoadColumns(' + i + ')">Load columns from dataschema</button>&nbsp;' +
+                        '<button class="btn" onclick="j2cLoadPaths(' + i + ')">Load attributes from sample</button>&nbsp;' +
+                        '<button class="btn" onclick="j2cMapByName(' + i + ')" title="Maps every dataschema column whose name matches a JSON attribute EXACTLY. Case-sensitive, because JSON keys are: a near-match offered as a match would be accepted without being read.">Map by exact name</button></div>';
+                    if (jPaths) {
+                        h += '<div class="dim small" style="margin-top:4px">Catalogue built from <b>' + jPaths.scanned + '</b> document(s). <b>A sample is not a schema</b>: it only shows attributes present in what was scanned, so an attribute missing here may still exist. The count beside each path is how many of the scanned documents contained it &mdash; 3 of 20 is not the same as 20 of 20.</div>';
+                    }
+                    var jcols = n.columns || [];
+                    h += '<table class="grid" style="margin-top:6px"><tr><th>CSV column (dataschema)</th><th>JSON attribute</th><th>Type</th><th>Extra</th><th></th></tr>';
+                    for (var jc = 0; jc < jcols.length; jc++) {
+                        var col = jcols[jc] || {}, ct = col.type || 'String';
+                        h += '<tr><td><input value="' + attresc(col.as) + '" style="width:100%" oninput="updCol(' + i + ',' + jc + ',\'as\',this.value)"></td>';
+                        h += '<td>';
+                        if (jPaths) {
+                            h += '<select onchange="updCol(' + i + ',' + jc + ',\'src\',this.value);renderNodes()" style="width:100%"><option value="">&mdash;</option>';
+                            for (var jp = 0; jp < jPaths.paths.length; jp++) {
+                                var pe = jPaths.paths[jp];
+                                var lbl = pe.path + '  (' + pe.seenIn + '/' + jPaths.scanned + (pe.kind ? ', ' + pe.kind : '') + ')';
+                                if (pe.unavailable) {
+                                    h += '<option value="" disabled title="' + attresc(pe.unavailable) + '">' + esc(lbl) + ' \u2014 ' + esc(pe.unavailable) + '</option>';
+                                } else {
+                                    h += '<option value="' + attresc(pe.path) + '"' + (col.src === pe.path ? ' selected' : '') + '>' + esc(lbl) + '</option>';
+                                }
+                            }
+                            h += '</select>';
+                        }
+                        h += '<input value="' + attresc(col.src) + '" style="width:100%" placeholder="ndg | customer.name | [\'VM.ALT.ACCT.TYPE\'][0].ALT_ACCT_TYPE" title="Free text as well as the dropdown, because a sample only reveals what is in it. A key containing a dot is written [\'like.this\'] &mdash; the catalogue emits that form for you." oninput="updCol(' + i + ',' + jc + ',\'src\',this.value)">';
+                        h += '</td>';
+                        h += '<td><select onchange="updCol(' + i + ',' + jc + ',\'type\',this.value);renderNodes()">';
+                        for (var jt = 0; jt < jTypes.length; jt++) {
+                            h += '<option value="' + jTypes[jt] + '"' + (ct === jTypes[jt] ? ' selected' : '') + '>' + jTypes[jt] + '</option>';
+                        }
+                        h += '</select></td><td>';
+                        if (ct === 'Date') {
+                            h += '<input value="' + attresc(col.from) + '" placeholder="(YYYY/MM/DD, YYYYMMDD, YYYY-MM-DD)" title="The INPUT mask. Left empty, those three are tried in order, which is safe only because their shapes are disjoint: eight digits, or ten with slashes, or ten with dashes. The OUTPUT is always ${recordBusinessDateFormat}." oninput="updCol(' + i + ',' + jc + ',\'from\',this.value)">';
+                        } else if (ct === 'MIMEType') {
+                            h += '<select onchange="updCol(' + i + ',' + jc + ',\'mode\',this.value);renderNodes()">' +
+                                 '<option value="FIXED"' + ((col.mode || 'FIXED') === 'FIXED' ? ' selected' : '') + '>fixed value</option>' +
+                                 '<option value="SOURCE_EXTENSION"' + (col.mode === 'SOURCE_EXTENSION' ? ' selected' : '') + '>file extension</option></select>';
+                            if ((col.mode || 'FIXED') === 'FIXED') {
+                                h += '<input value="' + attresc(col.value) + '" placeholder=".json" oninput="updCol(' + i + ',' + jc + ',\'value\',this.value)">';
+                            }
+                        } else if (ct === 'String') {
+                            h += '<input value="' + attresc(col.value) + '" placeholder="(constant, if no attribute)" oninput="updCol(' + i + ',' + jc + ',\'value\',this.value)">';
+                        } else if (ct === 'Serial') {
+                            h += '<span class="dim small">row number in the CSV</span>';
+                        } else if (ct === 'ObjectName') {
+                            h += '<span class="dim small">the JSON file name</span>';
+                        }
+                        h += '</td><td><button class="btn danger" onclick="delCol(' + i + ',' + jc + ')">&times;</button></td></tr>';
+                    }
+                    h += '</table><button class="btn" onclick="addCol(' + i + ')">+ column</button>';
+                    h += '<div class="form-row" style="margin-top:6px">' +
+                        '<div class="field"><label>Serial start</label><input type="number" value="' + attresc(nodeParam(n, 'serialStart')) + '" placeholder="1" oninput="setNodeParam(' + i + ',\'serialStart\',this.value)"></div>' +
+                        '<div class="field"><label>Serial pad</label><input type="number" value="' + attresc(nodeParam(n, 'serialPad')) + '" placeholder="0" oninput="setNodeParam(' + i + ',\'serialPad\',this.value)"></div>' +
+                        '<div class="field"><label>Object name</label><select onchange="setNodeParam(' + i + ',\'objectNameValue\',this.value)">' +
+                        ['FILENAME', 'FILENAME_NOEXT', 'RELATIVE_PATH', 'ABSOLUTE_PATH'].map(function (v) {
+                            return '<option value="' + v + '"' + ((nodeParam(n, 'objectNameValue') || 'FILENAME') === v ? ' selected' : '') + '>' + v + '</option>';
+                        }).join('') + '</select></div>' +
+                        '<div class="field"><label>Max file MB</label><input type="number" value="' + attresc(nodeParam(n, 'maxFileMB')) + '" placeholder="16" title="A file over this is refused WITHOUT being read, so the message names the size instead of arriving as an OutOfMemoryError halfway through a delivery. Deliberately close to reality: a guard set far above anything real cannot catch a whole export dropped into the input directory by mistake." oninput="setNodeParam(' + i + ',\'maxFileMB\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>On a bad value</label><select onchange="setNodeParam(' + i + ',\'onNonScalar\',this.value)" title="A value that cannot be used as the column type: a path landing on an object or an array, a Number that will not parse, a date matching no mask. NOT an absent value, which is data and writes empty.">' +
+                        ['FAIL', 'EMPTY', 'JSON'].map(function (v) {
+                            return '<option value="' + v + '"' + ((nodeParam(n, 'onNonScalar') || 'FAIL') === v ? ' selected' : '') + '>' + v + '</option>';
+                        }).join('') + '</select></div>' +
+                        '<div class="field"><label>On a malformed file</label><select onchange="setNodeParam(' + i + ',\'onBadFile\',this.value)">' +
+                        ['FAIL', 'SKIP'].map(function (v) {
+                            return '<option value="' + v + '"' + ((nodeParam(n, 'onBadFile') || 'FAIL') === v ? ' selected' : '') + '>' + v + '</option>';
+                        }).join('') + '</select></div>' +
+                        '<div class="field"><label>Rename inputs to .done</label><select onchange="setNodeParam(' + i + ',\'renameProcessed\',this.value)" title="Off by default. When on, the rename happens only after the CSV is closed: every input feeds ONE output, so nothing is processed until the whole step is.">' +
+                        ['', 'true'].map(function (v) {
+                            return '<option value="' + v + '"' + ((nodeParam(n, 'renameProcessed') || '') === v ? ' selected' : '') + '>' + (v === '' ? 'no' : 'yes') + '</option>';
+                        }).join('') + '</select></div>' +
+                        '<div class="field"><label>Delimiter</label><input value="' + attresc(n.delimiter) + '" placeholder=";" maxlength="1" oninput="updNode(' + i + ',\'delimiter\',this.value)"></div></div>';
+                    h += '<div class="dim small" style="margin-top:6px"><b>One JSON file is one document is one row.</b> The step log says so explicitly &mdash; <code>filesRead = rowsWritten</code> &mdash; because it is the cheapest assertion that the executor did what it claims, and the one number a gate can branch on. Multi-row flattening (one row per array element, outer values repeated) is <b>not implemented</b>: a path containing <code>[]</code> is refused before a file is opened, never read as <code>[0]</code> and never ignored.</div>';
+                    h += '<div class="dim small" style="margin-top:4px">A dataschema column left unmapped is written <b>empty, not dropped</b>: the CSV keeps the schema shape. Counters: <b>${rowCount}</b>, <b>${csvParts}</b>, <b>${csvFile}</b>, <b>${csvFiles}</b>, <b>${filesRead}</b>, <b>${filesFailed}</b>, <b>${rowsWritten}</b>, <b>${valuesMissing}</b>, <b>${valuesNonScalar}</b>.</div>';
                 } else if (ex === 'split') {
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Input file *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${anonymize.outputFile} | ${landingOut}/data.csv" oninput="updNode(' + i + ',\'source\',this.value)"></div></div>';
