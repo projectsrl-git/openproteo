@@ -1,87 +1,98 @@
-elarxml IFS content batch 1: the ContentStore seam, proved a no-op
+elarxml IFS content batch 2: IfsContentStore, JTOpen behind its own seam
 
-Answers section 8a of the specification and delivers the refactor it was
-blocking. The CSV column carries a FULL IFS path, so sections 3, 4 and 6 are
-revised and batch 1 is written against the corrected design.
+The store that reads the Content payload from an AS/400 IFS directory, in the
+engine layer where JTOpen and the datasource registry already are. Not yet
+wired into runElarXml: that is batch 3, and nothing here or in elar needs to
+change for it.
 
-RESOLUTION MOVES INTO THE STORE, AND THE TWO STORES DELIBERATELY DISAGREE
+A SEAM INSIDE THE SEAM
 
-LocalContentStore keeps today's rule exactly: trim, take the last path
-segment, join it to the family's documentPath, so a traversal still cannot
-escape. An IFS store will take the value as given, joining contentIfsPath only
-when the value is not absolute.
+Everything that touches JTOpen is behind IfsContentStore.Ifs - four methods,
+implemented once in Jt400Ifs, about sixty lines with no decisions in them.
+Everything with a decision in it - resolution, when to list, the staging, the
+size check, the cap, the lifetime - lives in IfsContentStore and is driven in
+tests by a fake IFS that is a Map. A fake cannot prove JTOpen. It proves
+everything built on top of it, which is where a mistake would otherwise sit
+unseen until a field run.
 
-The asymmetry looks wrong until you see why it is right: it is one CSV serving
-two topologies. Under LOCAL an ifscopy step has already copied the documents
-down, flattening whatever tree they came from into a single directory, so only
-the file name can still be meaningful and taking the last segment of the IFS
-path is exactly correct. Under IFS the tree is still there and the path is the
-only thing that finds the file.
+RESOLUTION
 
-The answer also removed a trap that would have been silent. Under a shared
-last-segment rule an IFS run would have reduced every full path to its file
-name, looked for it under a base directory it is not in, and sent every row to
-the discards file with the documents sitting untouched on the IFS - reporting
-itself as a clean skip of everything.
+The value is taken as it stands, since the column carries a full path; a value
+that is not absolute joins contentIfsPath. Backslashes are normalised,
+repeated slashes collapse, dot and double-dot resolve textually. Explicitly
+NOT the local last-segment rule, and there is an assertion that says so by
+name, because that inversion is the one that would look for every document
+under a single directory it is not in and send every row to the discards file
+with the documents sitting untouched on the IFS.
 
-Section 4 is revised too: listing one base directory no longer works, since
-with a path per row the documents can be spread over many directories. The
-pre-scan will list the distinct PARENT directories instead, derived from the
-CSV itself, which is a handful of round trips for a feed of thousands of rows.
-With a guard for the degenerate case: if the parents outnumber half the rows,
-listing each is worse than asking per file, so the store falls back to
-per-file existence and logs which strategy it chose. A run that silently took
-the slow path is one nobody can explain afterwards.
+THE EAGER-PARENTS PLAN WAS SIMPLIFIED, AND THE FALLBACK DELETED
 
-BATCH 1
+The specification had the store collect the distinct parent directories up
+front, plus a guard falling back to per-file existence checks when the parents
+outnumbered half the rows, on the grounds that documents scattered one per
+directory would make listing worse than statting.
 
-ContentStore and LocalContentStore in the elar package, JDK only, and every
-use of the content file routed through the interface: the pre-scan's existence
-check, the byte-budget size, the DSAK name, the digest pass, the encode pass
-and the change stamp. ElarPreScan.resolveContentFile is gone; its rule now
-lives in LocalContentStore.resolve, where the other store can differ from it.
+That guard turned out to be unnecessary. A directory holding one document
+returns a listing of one entry, which costs exactly what the stat it replaces
+would have cost. The shape of the feed decides by itself, no threshold has to
+be guessed, and the row count no longer has to be known before the pre-scan
+starts. So: listing is lazy and per parent, cached for the run, with a direct
+check for a file that appeared after its directory was listed - one extra
+round trip for a miss, worth paying on a live share.
 
-The seam is inside elar on purpose. That package is free of Spring and
-compiles standalone under --release 8, which is what allows the whole executor
-to be executed against real files in a test rather than only inspected, and it
-is what caught the .done rename defect, the value-edge breaks, the split start
-tag and the counter that counted twice. IfsSupport is a Spring component, so
-the IFS implementation will live in the engine layer and be passed in.
+Measured on the fake: 80 documents in 2 directories cost 2 listings and 0
+stats; 20 documents scattered one per directory cost 20 listings returning 20
+entries in total. The cap fails with a message naming the cap, the directory
+that tripped it, and why it exists.
 
-DEFECT FOUND BY THE SEAM TEST, NOT BY REVIEW
+STAGING
 
-Nothing closed the store. With a local store that is harmless; with an AS400
-connection inside it is one leaked per run, which is the kind of problem that
-only surfaces after a week of retries. ElarRun now closes it in the finally,
-on every path including the failing ones, and the interface documents that the
-executor owns the store for the duration of a run. A Closeable in an interface
-is a claim; something has to call it.
+One transit per document to a single temp file, then the digest pass and the
+encode pass both read local disk. Peak local disk is one document, because the
+temp is replaced as soon as another document is asked for and deleted when the
+run ends. Buffering the payload to avoid the second read would have been the
+ByteArrayOutputStream that caused the OutOfMemoryError this rewrite removed.
+
+Measured end to end: 30 documents, 30 transits - not 60 - and the staging
+directory clean afterwards.
+
+THE SIZE GUARDS; THE MODIFICATION TIME DOES NOT
+
+lastModified comes from the directory listing and is therefore stable for the
+whole run, which makes the embedder's timestamp comparison inert over IFS.
+Saying so is better than implying a guard that is not guarding.
+
+What does guard is the length, in two independent places: the staging step
+compares the bytes it actually downloaded against the size the listing
+reported, and the embedder separately compares the bytes it encoded against
+the same figure. A document rewritten on the IFS while the run is in progress
+is caught by its length, twice, before anything reaches a deliverable name,
+and the message gives both sizes.
 
 VERIFIED
-- Proved a NO-OP the only way that means anything: byte for byte. The same
-  fixture - 50 documents, full IFS paths in the column, accented metadata -
-  delivered before and after the refactor, and the SHA-256 of the delivered
-  INDX and PULL compared with formatting on and off. Identical on both sides.
-  Assertions alone would not have carried a no-op claim; digests do.
-- All five existing elar suites pass unchanged: 19, 31, 15, 36 and 33
-  assertions.
-- 23 new assertions with a fake store, which is what batch 2 depends on: the
-  store's own resolution rule is the one used and a full path is kept whole;
-  LocalContentStore still takes only the last segment from a bare name, a full
-  IFS path, a Windows path and a traversal; a document the store does not have
-  is skipped and copied to the discards file; length, lastModified and two
-  separate streams are all asked of the store; and a read failing part-way
-  through, as a dropped connection would, aborts the batch with no INDX
-  delivered, no temp file, no .done rename and no discards file published.
-  documentPath in that fixture points at /nowhere/at/all on purpose, so a run
-  driven by another store must never touch it.
-- Package rule scans clean.
+- 142 assertions on the store with a fake IFS: resolution in six shapes
+  including that the last segment is NOT taken; the listing economics above; a
+  file created since the listing found by a direct check; the payload staged
+  once and read twice with one transit; a document that changed size refused
+  with both sizes in the message and no staged file left behind; the cap; and
+  close releasing both the connection and the staged document and reporting
+  what the run cost.
+- The proof that matters most: the same 30 documents delivered from local disk
+  and from the IFS store produce a byte-for-byte identical INDX, same SHA-256.
+  Where a document came from does not change what is archived, and that is now
+  a measurement rather than an intention.
+- All six existing elar suites pass unchanged. Rule scans clean on the elar
+  package and on both new files.
 
 NOT VERIFIED
-- mvn clean package: Maven Central is unreachable from the chat sandbox, so
-  the build on the target machine remains the only final proof. The elar
-  package compiles and runs standalone in full.
-- There is no AS/400 in the sandbox and there is no IFS code in this commit. A
-  fake store proves the seam; it cannot prove JTOpen. The honest sequence
-  stands: this batch deployed and proved a no-op on a real feed first, then
-  IFS on one family with a small input, then volume.
+- Jt400Ifs has never been executed, and it will not compile in the chat
+  sandbox without JTOpen on the classpath. It has been reviewed, not run. Its
+  JTOpen surface is deliberately tiny - the AS400 constructor, IFSFile exists,
+  isDirectory, listFiles, getPath, length and lastModified,
+  IFSFileInputStream, and disconnectAllServices - and every one of those calls
+  is already used by IfsSupport in production, which is the strongest evidence
+  available without a machine.
+- mvn clean package: Maven Central is unreachable from the sandbox, so the
+  build on the target machine remains the only final proof. IfsContentStore
+  was compiled and executed against the elar package; the engine package as a
+  whole cannot be compiled here.

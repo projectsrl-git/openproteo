@@ -2175,3 +2175,32 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   leaked per run with an `AS400` inside. `ElarRun` closes it in the `finally` on every path, and the
   interface now documents that the executor owns the store for the run. **A `Closeable` in an interface
   is a claim; something has to call it.**
+
+## elarxml IFS content batch 2: IfsContentStore, with JTOpen behind its own seam
+* **A seam inside the seam.** All JTOpen contact is behind `IfsContentStore.Ifs` - four methods,
+  implemented once in `Jt400Ifs`, no decisions in it. Everything WITH a decision (resolution, when to
+  list, staging, the size check, the cap, the lifetime) is in `IfsContentStore` and driven in tests by a
+  fake IFS that is a `Map`. **A fake cannot prove JTOpen; it proves everything built on top of it**,
+  which is where a mistake would otherwise sit unseen until a field run.
+* **The eager-parents plan was simplified while implementing, and the fallback deleted.** The spec had
+  the store collect distinct parent directories up front plus a guard falling back to per-file `exists()`
+  when parents outnumbered half the rows. Unnecessary: **a directory holding one document returns a
+  listing of one entry, which costs exactly what the stat it replaces would have cost.** The shape of
+  the feed decides by itself, no threshold has to be guessed, and the row count no longer has to be
+  known before the pre-scan. Lazy per-parent listing, cached, plus a direct check for a file that
+  appeared after its directory was listed. Measured: 80 docs in 2 dirs = 2 listings, 0 stats; 20 docs in
+  20 dirs = 20 listings returning 20 entries total.
+* **Staging: one transit per document.** Measured end to end — **30 documents, 30 transits, not 60** —
+  and the staging directory clean afterwards. Peak local disk is one document. Buffering to avoid the
+  second read would have been the `ByteArrayOutputStream` that caused the OOM.
+* **The size guards; the modification time does not, and it is said rather than implied.**
+  `lastModified` comes from the listing so it is stable for the run, which makes the embedder's timestamp
+  comparison inert over IFS. **Length guards in two independent places**: staging compares downloaded
+  bytes against the listing, and the embedder compares encoded bytes against the same figure. A document
+  rewritten mid-run is caught by its length before anything reaches a deliverable name.
+* **The proof that matters most**: the same 30 documents delivered from local disk and from the IFS store
+  give a **byte-for-byte identical INDX**, same SHA-256. Where a document came from must not change what
+  is archived, and now that is a measurement rather than an intention.
+* **`Jt400Ifs` has never been executed** and will not compile without JTOpen on the classpath. Reviewed,
+  not run. Its JTOpen surface is deliberately tiny and **every call in it is already used by
+  `IfsSupport` in production** — the strongest evidence available without a machine.

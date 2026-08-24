@@ -111,17 +111,24 @@ beside an unmarked input is unrecoverable*. So for this executor the pre-scan ha
 **Revised, now that 8a is answered.** Listing one base directory no longer works: with a full path per
 row the documents may be spread over many directories, and a single listing would not cover them.
 
-**The resolution: list the distinct parent directories, once each.** The parents are derivable from the
-CSV itself - collect them while scanning the rows, then list each one and key the map by full path. If
-the documents live in a handful of directories, that is a handful of round trips for a feed of
-thousands of rows, and existence, length and the DSAK extension all become local lookups.
+**The resolution: list each parent directory lazily, on first demand, and cache it for the run.** The
+first row that needs a directory pays for listing it; every later row in the same directory is a local
+lookup, and existence, length and the DSAK extension all come free.
 
-The degenerate case has to be handled rather than hoped away: if the paths are scattered one document
-per directory, listing every parent is *worse* than asking per file, because each listing returns one
-entry. So the store counts distinct parents first and **falls back to a per-file `exists()` when the
-parents outnumber a set fraction of the rows** - proposed: more than half. Which strategy was chosen,
-and how many round trips it cost, belongs in the step log; a run that silently took the slow path is a
-run nobody can explain afterwards.
+**Revised again while implementing batch 2, and simplified.** The earlier plan was to collect the
+distinct parents up front and add a fallback to per-file `exists()` when the parents outnumbered half
+the rows, on the grounds that documents scattered one per directory would make listing worse than
+statting. That guard turned out to be unnecessary: a directory holding one document returns a listing of
+one entry, which costs exactly what the stat it replaces would have cost. **The shape of the feed
+decides by itself, and nothing has to guess a threshold.** It also removes the need to know the row
+count before the pre-scan starts, which the collected-parents design required.
+
+One case the lazy scheme has to handle and the eager one did not: a file created between the listing and
+the row that needs it. After a listing has been cached and the path is still not in it, the store asks
+directly - one extra round trip for a miss, which on a live share is worth paying.
+
+The listing count, the entries held, the documents staged and the bytes transferred all go in the step
+log at close, so what a run cost is on the record rather than inferred.
 
 The memory bound still has to be declared rather than discovered: the map is held for the whole run, at
 roughly a hundred bytes an entry. A hundred thousand documents is about ten megabytes; a million about a
@@ -281,3 +288,55 @@ surfaces after a week of retries. `ElarRun` now closes it in the `finally`, on e
 failing ones, and the interface documents that the executor owns the store for the duration of a run.
 
 Batch 2 needs no further change to `elar`.
+
+---
+
+## Batch 2 — DELIVERED: `IfsContentStore` and `Jt400Ifs`
+
+**A seam inside the seam.** Everything that touches JTOpen is behind `IfsContentStore.Ifs` - four
+methods, implemented once in `Jt400Ifs`, about sixty lines with no decisions in them. Everything with a
+decision - resolution, when to list, the staging, the size check, the cap, the lifetime - is in
+`IfsContentStore` and is driven in tests by a fake IFS that is a `Map`. A fake cannot prove JTOpen; it
+proves everything built on top of it, which is where a mistake would otherwise sit unseen until a field
+run.
+
+**Resolution** takes the value as it stands, since the column carries a full path; a value that is not
+absolute joins `contentIfsPath`. Backslashes are normalised, repeated slashes collapse, `.` and `..`
+resolve textually. Explicitly *not* the local last-segment rule, and there is an assertion that says so
+by name - that inversion is the one that would send every row to the discards file with the documents
+sitting untouched on the IFS.
+
+**Listing** is lazy and per parent, cached for the run, with a direct check for a file that appeared
+after its directory was listed. Measured on the fake: 80 documents in 2 directories cost **2 listings
+and 0 stats**; 20 documents scattered one per directory cost 20 listings returning 20 entries total,
+which is what 20 stats would have cost. The cap fails with a message that names the cap, the directory
+that tripped it, and why it exists.
+
+**Staging.** One transit per document to a single temp file, then both the digest and the encode pass
+read local disk. Peak local disk is one document. Measured end to end: **30 documents, 30 transits** -
+not 60 - and the staging directory clean afterwards.
+
+**The size check is what guards here, and the modification time is not.** `lastModified` comes from the
+listing and is therefore stable for the run, which makes the embedder's timestamp comparison inert over
+IFS; saying so is better than implying a guard that is not guarding. What does guard is length, in two
+independent places: the staging step compares the bytes it downloaded against the size the listing
+reported, and the embedder compares the bytes it encoded against the same figure. A document rewritten
+on the IFS mid-run is caught by its length before anything reaches a deliverable name, and the message
+gives both sizes.
+
+**The proof that matters most**: the same 30 documents delivered from local disk and from the IFS store
+produce a **byte-for-byte identical INDX** - same SHA-256. Where a document came from does not change
+what is archived.
+
+**Verified**: 142 assertions on the store with a fake IFS, plus the end-to-end identity above. All six
+existing `elar` suites unchanged.
+
+**Not verified, and it cannot be here**: `Jt400Ifs` has never been executed. There is no AS/400 in the
+sandbox and it will not compile without JTOpen on the classpath, so it has been reviewed and not run.
+The JTOpen surface it uses is small and deliberately so: `AS400(host,user,password)`,
+`IFSFile.exists/isDirectory/listFiles/getPath/length/lastModified`, `IFSFileInputStream(system,path)`,
+`disconnectAllServices()` - every one of them already used by `IfsSupport` in production, which is the
+strongest evidence available without a machine.
+
+Batch 3 is the wiring: the parameters, `datasource` on an `elarxml` step in the parser, `buildXml`, the
+designer panel and `clientValidate`. Nothing in `elar` or in these two classes needs to change for it.
