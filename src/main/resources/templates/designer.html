@@ -1244,6 +1244,24 @@
                         '<div class="field wide"><label>INDX template *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'indexTemplatePath')) + '" placeholder="G:/elar/CLICT@DT.INDX.xml" title="The per-document block is DISCOVERED from this template, never assumed: the container must hold exactly one element child." oninput="setNodeParam(' + i + ',\'indexTemplatePath\',this.value)"></div>' +
                         '<div class="field wide"><label>PULL template *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'pullTemplatePath')) + '" placeholder="G:/elar/CLICT@DT.PULL.xml" oninput="setNodeParam(' + i + ',\'pullTemplatePath\',this.value)"></div></div>';
 
+                    h += subHead('Where the document comes from');
+                    var elarSrc = nodeParam(n, 'contentSource') === 'IFS' ? 'IFS' : 'LOCAL';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Content source</label><select onchange="setNodeParam(' + i + ',\'contentSource\',this.value)" title="LOCAL reads the payload from the family documentPath on this machine. IFS reads it straight from the AS/400, so the documents need not be copied down first.">' +
+                        '<option value=""' + (elarSrc === 'LOCAL' ? ' selected' : '') + '>LOCAL &mdash; the family documentPath on this machine (default)</option>' +
+                        '<option value="IFS"' + (elarSrc === 'IFS' ? ' selected' : '') + '>IFS &mdash; read in place from the AS/400</option></select></div>' +
+                        (elarSrc === 'IFS' ? dsSelect(i, n.datasource) : '') +
+                        '</div>';
+                    if (elarSrc === 'IFS') {
+                        h += '<div class="form-row">' +
+                            '<div class="field wide"><label>IFS base path (only for a column value that is not absolute)</label><input value="' + attresc(nodeParam(n, 'contentIfsPath')) + '" placeholder="/home/elar/docs/cliac" title="The column carries a full IFS path and is used as it stands. This is joined only to a value with no leading slash." oninput="setNodeParam(' + i + ',\'contentIfsPath\',this.value)"></div>' +
+                            '<div class="field"><label>Max listing entries</label><input type="number" min="0" value="' + attresc(nodeParam(n, 'contentIfsMaxListing')) + '" placeholder="500000" title="Directory listings are cached for the run. Past this many entries the run fails rather than risking an OutOfMemoryError mid-delivery." oninput="setNodeParam(' + i + ',\'contentIfsMaxListing\',this.value)"></div>' +
+                            '<div class="field wide"><label></label><span class="dim small">One listing per parent directory, cached. Each document crosses the network <b>once</b>: it is staged to a single temp file in the step directory and both the digest and the Base64 pass read local disk. <code>documentPath</code> is not read at all.</span></div></div>';
+                    } else {
+                        h += '<div class="form-row"><div class="field wide"><span class="dim small">The payload is read from the family\'s <code>documentPath</code>, and only the last segment of the column value is used &mdash; an <code>ifscopy</code> step has already flattened the tree into one directory, so the file name is the only part that can still be meaningful.</span></div></div>';
+                    }
+                    h += '</div>';
+
                     h += subHead('Reading the source CSV');
                     h += '<div class="form-row">' +
                         '<div class="field"><label>Input charset</label><select onchange="setNodeParam(' + i + ',\'inputCharset\',this.value)">';
@@ -1683,6 +1701,13 @@
                     var tgt = parseInt(nodeParam(n, 'maxLineLength'), 10);
                     var rcv = parseInt(nodeParam(n, 'receiverLineLimit'), 10);
                     if (!isNaN(tgt) && !isNaN(rcv) && tgt > rcv) errs.push(label + ' (' + n.id + '): the target line length (' + tgt + ') is above the receiver limit (' + rcv + '), so the two findings would swap meaning');
+                }
+                if (ex === 'elarxml' && nodeParam(n, 'contentSource') === 'IFS' && !n.datasource) {
+                    // without it the step fails at run time on a registry miss; better to say so at save
+                    errs.push(label + ' (' + n.id + '): reading the content from IFS needs a datasource');
+                }
+                if (ex === 'elarxml' && nodeParam(n, 'contentSource') !== 'IFS' && nodeParam(n, 'contentIfsPath')) {
+                    errs.push(label + ' (' + n.id + '): contentIfsPath is set but the content source is LOCAL, where it has no effect');
                 }
                 if (ex === 'safecopy' && (!n.source || !n.dest)) errs.push(label + ' (' + n.id + '): source and dest directories are required');
                 if (ex === 'dequote' && !n.source) errs.push(label + ' (' + n.id + '): input CSV (source) is required');

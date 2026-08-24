@@ -2204,3 +2204,25 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * **`Jt400Ifs` has never been executed** and will not compile without JTOpen on the classpath. Reviewed,
   not run. Its JTOpen surface is deliberately tiny and **every call in it is already used by
   `IfsSupport` in production** — the strongest evidence available without a machine.
+
+## elarxml IFS content batch 3: the wiring, and two batch-0 predictions that were wrong
+* `contentSource` (LOCAL default / IFS), `contentIfsPath`, `contentIfsMaxListing`; `runElarXml` builds an
+  `IfsContentStore` over `Jt400Ifs` from the step's datasource; panel subsection; `clientValidate`
+  refuses IFS without a datasource.
+* **I predicted two changes in batch 0 that were not needed, both in the same direction.** `buildXml`
+  already emits `datasource` in the generic run of step attributes beside `script` and `exec`; and
+  `WorkflowXmlParser` reads `datasource` unconditionally for EVERY step, not per executor kind. **The
+  `reportQuery` comparison was wrong**: that was a new child ELEMENT, which nothing emitted, whereas an
+  attribute that already exists for other executors comes for free. The `<param>`-versus-attribute
+  distinction was real; the conclusion drawn from it was not, and I drew it without reading the
+  emission. **Read the emission before predicting work on it.**
+* **A leak the batch 1 seam did not cover**: `ElarRun` closes the store on every path IT REACHES, but it
+  validates the config before entering that try/finally, so an exception there returned without
+  releasing the connection. `runElarXml` now closes it in a `finally` of its own; `close()` is
+  idempotent so the two do not fight. **Second instance of the same lesson: a `Closeable` is a claim,
+  and every path out has to honour it** — including the ones that leave before the owner's try.
+* **A setting that cannot take effect is refused, not ignored**: `contentIfsPath` under LOCAL fails
+  designer validation and is reported in the step log.
+* 106 designer assertions (from 94): IFS fields absent under LOCAL and present when switched, datasource
+  required, `buildXml` carrying it as an attribute, and a leftover base path refused after switching
+  back. 144 store assertions including that closing twice neither logs nor disconnects twice.

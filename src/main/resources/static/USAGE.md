@@ -570,6 +570,8 @@ The rest are optional and default to what the legacy tool did, with the three de
 - `onMissingFile` - `SKIP` (default) or `FAIL`. A referenced content file that is not on disk. Separate from `onMalformedRow` on purpose: see the pre-scan section.
 - `writeSkippedRows` - default `true`. Copy every skipped row to `<input>.skipped`. See the section on discarded rows.
 - `formatOutput` - default `true`. Write one element per line, indented. See the section on formatting below.
+- `contentSource` - `LOCAL` (default) or `IFS`. Where the embedded document is read from. See the section below.
+- `contentIfsPath`, `contentIfsMaxListing` - only under `IFS`.
 - `validate` - `false` by default. See the validation section.
 - `renameProcessed` - `true` by default; the input is renamed to `.done` after its output is delivered.
 - `overwriteExisting` - `false` by default; a final output name that already exists fails the run rather than being replaced.
@@ -588,6 +590,16 @@ A malformed row is governed by `onMalformedRow`, `FAIL` by default: the run stop
 This is deliberate and it is a change from the legacy tool, which dropped such rows silently and delivered the feed short. Checking first rather than mid-file matters: by the time a bad row is reached during processing, some batches have already been renamed to their final deliverable names, so the output directory would hold a partial set with nothing to say so, and a re-run would then re-deliver what had already gone out. Scanning first makes the refusal complete - either everything is written or nothing is.
 
 Set `onMalformedRow=SKIP` for a feed where the source cannot be corrected. That restores the legacy behaviour with one difference: the loss is counted and reported instead of being invisible.
+
+### Where the embedded document comes from
+
+`contentSource=LOCAL`, the default, reads the payload from the family's `documentPath` on the machine running the step, and uses **only the last segment** of the column value. That is right for a local run: an `ifscopy` step has already copied the documents down and flattened whatever tree they came from into a single directory, so the file name is the only part that can still be meaningful.
+
+`contentSource=IFS` reads each document **in place from the AS/400**, so they need not be copied down at all - for a feed of a hundred thousand scanned PDFs that is the difference between staging half a terabyte and staging nothing. The column value is used **as it stands**, because it carries a full IFS path; `contentIfsPath` is joined only to a value with no leading slash, and the family's `documentPath` is not read at all, which the step log says outright rather than leaving it looking effective. The step needs a **datasource**, the same AS/400 one an `ifscopy` step uses, and the designer refuses to save without it.
+
+Two things about the IFS mode are worth knowing before turning it on. Directory listings are cached for the run - one listing per parent directory, on first demand - so existence, size and the DSAK extension all come without a round trip per row; `contentIfsMaxListing` (default 500 000) fails the run rather than risking an OutOfMemoryError if a feed spans far more documents than expected. And each document crosses the network **once**: it is staged to a single temp file in the step directory and both the digest pass and the Base64 pass read local disk, so peak local disk is one document rather than one batch.
+
+A document rewritten on the IFS while the run is in progress is caught by its length, in two independent places: the staging step compares what it downloaded against the size the listing reported, and the writer compares what it encoded against the same figure. Modification times come from the listing and are stable for the run, so it is the length that guards here, not the timestamp.
 
 ### Formatting the INDX
 

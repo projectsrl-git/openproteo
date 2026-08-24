@@ -62,6 +62,7 @@ public final class IfsContentStore implements ContentStore {
 
     private String stagedPath;              // the document currently on local disk
     private File stagedFile;
+    private boolean closed;
 
     public IfsContentStore(Ifs ifs, String basePath, File stagingDir, int maxListing, Consumer<String> log) {
         if (ifs == null) throw new IllegalArgumentException("an IFS accessor is required");
@@ -241,6 +242,10 @@ public final class IfsContentStore implements ContentStore {
      * the failing ones, so a run that throws does not leak either.
      */
     public void close() throws IOException {
+        // idempotent: both the executor and whoever constructed the store may close it, and the second
+        // call must not disconnect twice or log the summary twice
+        if (closed) return;
+        closed = true;
         discardStaged();
         if (log != null) {
             log.accept("elarxml: IFS content - " + listings + " directory listing(s), " + known.size()

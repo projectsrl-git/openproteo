@@ -1817,6 +1817,37 @@ public class InternalSteps {
         o.overwriteExisting = "true".equalsIgnoreCase(params.get("overwriteExisting"));
         o.descriptorsElement = xStr(params.get("descriptorsElement"), "DocumentDescriptors");
 
+        // Where the payload is read from. LOCAL keeps every existing workflow exactly as it is.
+        String contentSource = xStr(VarResolver.resolve(params.get("contentSource"), vars), "LOCAL");
+        if ("IFS".equalsIgnoreCase(contentSource)) {
+            publishDataSource(step, res);
+            DataSourceDef ds = dataSources.get(step.datasource);
+            if (ds == null) {
+                line.accept("elarxml: contentSource=IFS needs a datasource; '" + step.datasource
+                        + "' is not one of the configured ones");
+                res.exitCode = 2;
+                return;
+            }
+            String ifsBase = blankToNull(VarResolver.resolve(params.get("contentIfsPath"), vars));
+            int maxListing = intParam(params.get("contentIfsMaxListing"), 500000);
+            // the step directory: one document at a time lands here and is deleted as the run goes on
+            String stepDir = blankToNull(vars.get("stepDir"));
+            java.io.File staging = stepDir != null ? new java.io.File(stepDir) : o.outputDir;
+            o.contentStore = new IfsContentStore(new Jt400Ifs(ds), ifsBase, staging, maxListing, line);
+            line.accept("elarxml: content read from IFS via datasource " + step.datasource
+                    + (ifsBase == null ? " (column values must be absolute paths)"
+                                       : ", base " + ifsBase + " for values that are not absolute")
+                    + "; the family documentPath is NOT read");
+        } else if (!"LOCAL".equalsIgnoreCase(contentSource)) {
+            line.accept("elarxml: contentSource must be LOCAL or IFS, not '" + contentSource + "'");
+            res.exitCode = 2;
+            return;
+        } else if (blankToNull(params.get("contentIfsPath")) != null) {
+            // a setting that can be read but has no effect is worse than one that is absent
+            line.accept("elarxml: contentIfsPath is set to '" + params.get("contentIfsPath")
+                    + "' but contentSource is LOCAL, so it is NOT read");
+        }
+
         try {
             com.legalarchive.orchestrator.elar.ElarCounters c =
                     com.legalarchive.orchestrator.elar.ElarRun.run(o, line);
@@ -1827,6 +1858,14 @@ public class InternalSteps {
         } catch (Exception ex) {
             line.accept("elarxml: " + ex.getMessage());
             res.exitCode = 2;
+        } finally {
+            // ElarRun closes the store on every path it reaches, but it validates the configuration
+            // BEFORE that try/finally is entered - a missing idms.namespace, say - and an exception
+            // from there would return without ever releasing the connection. Whoever constructs it
+            // closes it too; close is idempotent so the two do not fight.
+            if (o.contentStore != null) {
+                try { o.contentStore.close(); } catch (Exception ignored) { }
+            }
         }
     }
 

@@ -179,9 +179,11 @@ credentials live - but it means:
 
 - `WorkflowXmlParser` must carry `datasource` for an `elarxml` step, which today it does only for
   `sql`, `ifscopy` and their kin;
-- **`buildXml` needs a change this time.** Every previous elarxml field was a `<param>`, which
-  `buildXml` emits generically; a step attribute is not. This is the `reportQuery` case, and the
-  earlier note that `buildXml` needed no change does not extend to it;
+- ~~**`buildXml` needs a change this time.**~~ **WRONG, and corrected in batch 3.** `buildXml` emits
+  `datasource` already, in the generic run of step attributes beside `script` and `exec`, and
+  `WorkflowXmlParser` reads it unconditionally for every step rather than per executor. Neither needed
+  touching. The `reportQuery` comparison was wrong: that was a new child ELEMENT, which nothing emitted;
+  a step attribute that already exists for other executors is emitted for this one too, for free;
 - `clientValidate` must require the datasource when `contentSource=IFS`, or the step fails at run time
   with a lookup miss instead of at save time with a message.
 
@@ -340,3 +342,46 @@ strongest evidence available without a machine.
 
 Batch 3 is the wiring: the parameters, `datasource` on an `elarxml` step in the parser, `buildXml`, the
 designer panel and `clientValidate`. Nothing in `elar` or in these two classes needs to change for it.
+
+---
+
+## Batch 3 — DELIVERED: the wiring
+
+`contentSource` (`LOCAL` default, `IFS`), `contentIfsPath` and `contentIfsMaxListing` on the step;
+`runElarXml` builds an `IfsContentStore` over a `Jt400Ifs` from the step's datasource when the source is
+IFS; the designer panel grows a subsection for it; `clientValidate` refuses IFS without a datasource.
+
+**Two claims from batch 0 turned out to be wrong, and both were wrong in the same direction — I had
+predicted work that did not exist.**
+
+- **`buildXml` needed no change.** It already emits `datasource` in the generic run of step attributes
+  beside `script` and `exec`. The `reportQuery` comparison was wrong: that was a new child *element*,
+  which nothing emitted; an attribute that already exists for other executors comes for free.
+- **The parser needed no change either.** `WorkflowXmlParser` reads `datasource` unconditionally for
+  every step, not per executor kind, so an `elarxml` step already carried it.
+
+Worth recording because the reasoning that produced both was plausible and still wrong: I inferred from
+"this is an attribute, not a param" that the emission must be per-executor, without reading the
+emission. The `<param>`-versus-attribute distinction is real; the conclusion drawn from it was not.
+
+**A leak the batch 1 seam did not cover.** `ElarRun` closes the store on every path *it reaches*, but it
+validates the configuration before entering that try/finally - a missing `idms.namespace`, say - and an
+exception from there returns without ever releasing the connection. `runElarXml` now closes the store in
+a `finally` of its own: whoever constructs it closes it too, and `close()` is idempotent so the two do
+not fight. This is the second instance of the same lesson: a `Closeable` is a claim, and every path out
+has to honour it.
+
+**Settings that cannot take effect are refused, not ignored.** `contentIfsPath` set with
+`contentSource=LOCAL` fails validation in the designer and is reported in the step log at run time,
+rather than sitting in the XML looking effective.
+
+**Verified**: 106 designer assertions (up from 94), including that the IFS fields are absent under LOCAL
+and appear when the source is switched, that IFS without a datasource is refused, that `buildXml` carries
+the datasource as an attribute, and that a base path left behind after switching back to LOCAL is
+refused. 144 store assertions, including that closing twice neither logs nor disconnects twice. All six
+`elar` suites and the `elarcheck` panel unchanged.
+
+**Not verified**: `Jt400Ifs` still has never been executed, and `runElarXml` cannot be compiled here -
+the engine package needs Spring from the internal Nexus. The wiring was checked structurally and the
+store it constructs is fully tested behind its fake. The next evidence has to be a field run: one family,
+`contentSource=IFS`, a small input.

@@ -1,98 +1,67 @@
-elarxml IFS content batch 2: IfsContentStore, JTOpen behind its own seam
+elarxml IFS content batch 3: the wiring, and two batch-0 predictions undone
 
-The store that reads the Content payload from an AS/400 IFS directory, in the
-engine layer where JTOpen and the datasource registry already are. Not yet
-wired into runElarXml: that is batch 3, and nothing here or in elar needs to
-change for it.
+contentSource (LOCAL by default, or IFS), contentIfsPath and
+contentIfsMaxListing on the step; runElarXml builds an IfsContentStore over a
+Jt400Ifs from the step's datasource when the source is IFS; a subsection for
+it in the designer panel; and clientValidate refusing IFS without a
+datasource.
 
-A SEAM INSIDE THE SEAM
+TWO CLAIMS FROM BATCH 0 WERE WRONG, BOTH IN THE SAME DIRECTION
 
-Everything that touches JTOpen is behind IfsContentStore.Ifs - four methods,
-implemented once in Jt400Ifs, about sixty lines with no decisions in them.
-Everything with a decision in it - resolution, when to list, the staging, the
-size check, the cap, the lifetime - lives in IfsContentStore and is driven in
-tests by a fake IFS that is a Map. A fake cannot prove JTOpen. It proves
-everything built on top of it, which is where a mistake would otherwise sit
-unseen until a field run.
+buildXml needed no change. It already emits datasource in the generic run of
+step attributes, beside script and exec. And the parser needed no change
+either: WorkflowXmlParser reads datasource unconditionally for every step
+rather than per executor kind, so an elarxml step already carried it.
 
-RESOLUTION
+Worth recording because the reasoning that produced both was plausible and
+still wrong. I inferred from "this is an attribute, not a param" that the
+emission must be per-executor, without reading the emission. The reportQuery
+comparison was the wrong one: that was a new child element, which nothing
+emitted, whereas an attribute that already exists for other executors is
+emitted for this one too, for free. The param-versus-attribute distinction was
+real; the conclusion drawn from it was not.
 
-The value is taken as it stands, since the column carries a full path; a value
-that is not absolute joins contentIfsPath. Backslashes are normalised,
-repeated slashes collapse, dot and double-dot resolve textually. Explicitly
-NOT the local last-segment rule, and there is an assertion that says so by
-name, because that inversion is the one that would look for every document
-under a single directory it is not in and send every row to the discards file
-with the documents sitting untouched on the IFS.
+A LEAK THE BATCH 1 SEAM DID NOT COVER
 
-THE EAGER-PARENTS PLAN WAS SIMPLIFIED, AND THE FALLBACK DELETED
+ElarRun closes the store on every path IT REACHES, but it validates the
+configuration before entering that try/finally - a missing idms.namespace, say
+- and an exception from there returns without ever releasing the connection.
+runElarXml now closes the store in a finally of its own: whoever constructs it
+closes it too, and close() is idempotent so the two do not fight.
 
-The specification had the store collect the distinct parent directories up
-front, plus a guard falling back to per-file existence checks when the parents
-outnumbered half the rows, on the grounds that documents scattered one per
-directory would make listing worse than statting.
+This is the second instance of the same lesson in three batches. A Closeable
+is a claim, and every path out has to honour it, including the ones that leave
+before the owner's try block is entered.
 
-That guard turned out to be unnecessary. A directory holding one document
-returns a listing of one entry, which costs exactly what the stat it replaces
-would have cost. The shape of the feed decides by itself, no threshold has to
-be guessed, and the row count no longer has to be known before the pre-scan
-starts. So: listing is lazy and per parent, cached for the run, with a direct
-check for a file that appeared after its directory was listed - one extra
-round trip for a miss, worth paying on a live share.
+SETTINGS THAT CANNOT TAKE EFFECT ARE REFUSED, NOT IGNORED
 
-Measured on the fake: 80 documents in 2 directories cost 2 listings and 0
-stats; 20 documents scattered one per directory cost 20 listings returning 20
-entries in total. The cap fails with a message naming the cap, the directory
-that tripped it, and why it exists.
-
-STAGING
-
-One transit per document to a single temp file, then the digest pass and the
-encode pass both read local disk. Peak local disk is one document, because the
-temp is replaced as soon as another document is asked for and deleted when the
-run ends. Buffering the payload to avoid the second read would have been the
-ByteArrayOutputStream that caused the OutOfMemoryError this rewrite removed.
-
-Measured end to end: 30 documents, 30 transits - not 60 - and the staging
-directory clean afterwards.
-
-THE SIZE GUARDS; THE MODIFICATION TIME DOES NOT
-
-lastModified comes from the directory listing and is therefore stable for the
-whole run, which makes the embedder's timestamp comparison inert over IFS.
-Saying so is better than implying a guard that is not guarding.
-
-What does guard is the length, in two independent places: the staging step
-compares the bytes it actually downloaded against the size the listing
-reported, and the embedder separately compares the bytes it encoded against
-the same figure. A document rewritten on the IFS while the run is in progress
-is caught by its length, twice, before anything reaches a deliverable name,
-and the message gives both sizes.
+contentIfsPath set while contentSource is LOCAL fails validation in the
+designer and is reported in the step log at run time, rather than sitting in
+the workflow XML looking effective. An unrecognised contentSource fails the
+step naming the value instead of falling back to a default.
 
 VERIFIED
-- 142 assertions on the store with a fake IFS: resolution in six shapes
-  including that the last segment is NOT taken; the listing economics above; a
-  file created since the listing found by a direct check; the payload staged
-  once and read twice with one transit; a document that changed size refused
-  with both sizes in the message and no staged file left behind; the cap; and
-  close releasing both the connection and the staged document and reporting
-  what the run cost.
-- The proof that matters most: the same 30 documents delivered from local disk
-  and from the IFS store produce a byte-for-byte identical INDX, same SHA-256.
-  Where a document came from does not change what is archived, and that is now
-  a measurement rather than an intention.
-- All six existing elar suites pass unchanged. Rule scans clean on the elar
-  package and on both new files.
+- 106 designer assertions, up from 94: the IFS fields are absent under LOCAL
+  and appear when the source is switched; the LOCAL panel explains why only
+  the file name is used; IFS without a datasource is refused; buildXml carries
+  the datasource as a step attribute; and a base path left behind after
+  switching back to LOCAL is refused rather than ignored.
+- 144 assertions on the store, up from 142, the two new ones being that
+  closing twice neither logs the summary twice nor disconnects twice.
+- The end-to-end identity still holds: the same 30 documents delivered from
+  local disk and from the IFS store give a byte-for-byte identical INDX, same
+  SHA-256.
+- All six elar suites and the elarcheck panel suite unchanged. Template scans
+  clean.
 
 NOT VERIFIED
-- Jt400Ifs has never been executed, and it will not compile in the chat
-  sandbox without JTOpen on the classpath. It has been reviewed, not run. Its
-  JTOpen surface is deliberately tiny - the AS400 constructor, IFSFile exists,
-  isDirectory, listFiles, getPath, length and lastModified,
-  IFSFileInputStream, and disconnectAllServices - and every one of those calls
-  is already used by IfsSupport in production, which is the strongest evidence
-  available without a machine.
-- mvn clean package: Maven Central is unreachable from the sandbox, so the
-  build on the target machine remains the only final proof. IfsContentStore
-  was compiled and executed against the elar package; the engine package as a
-  whole cannot be compiled here.
+- Jt400Ifs has still never been executed, and runElarXml cannot be compiled in
+  the chat sandbox because the engine package needs Spring from the internal
+  Nexus. The wiring was checked structurally; the store it constructs is fully
+  tested behind its fake.
+- mvn clean package: the build on the target machine remains the only final
+  proof, and it matters more for this batch than for the previous two, because
+  this is the first one whose code path cannot be compiled here at all.
+- The next evidence has to be a field run: one family, contentSource=IFS, a
+  small input, and the step log checked for the listing count, the transit
+  count and the confirmation that documentPath is not read.
