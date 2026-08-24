@@ -1,67 +1,73 @@
-elarxml IFS content batch 3: the wiring, and two batch-0 predictions undone
+elarxml: a disk guard that cuts the input where the run stopped
 
-contentSource (LOCAL by default, or IFS), contentIfsPath and
-contentIfsMaxListing on the step; runElarXml builds an IfsContentStore over a
-Jt400Ifs from the step's datasource when the source is IFS; a subsection for
-it in the designer panel; and clientValidate refusing IFS without a
-datasource.
+Asked for because it is not hypothetical: the output disk fills regularly and
+the repair afterwards is done by hand.
 
-TWO CLAIMS FROM BATCH 0 WERE WRONG, BOTH IN THE SAME DIRECTION
+Filling it mid-INDX is not a clean failure. That batch aborts and nothing of
+it goes out, but the batches before it have reached their final names and are
+on the share, while the input still carries its own name. The next run
+therefore reads it from the top and delivers those documents a second time,
+which is why the CSV has been split by hand first.
 
-buildXml needed no change. It already emits datasource in the generic run of
-step attributes, beside script and exec. And the parser needed no change
-either: WorkflowXmlParser reads datasource unconditionally for every step
-rather than per executor kind, so an elarxml step already carried it.
+Under batchBy=BYTES, before each new INDX is opened, the free space on the
+output directory is checked against twice maxBytesPerBatch plus a tenth.
+Between batches is the only place where the question of which rows are done
+has one answer: every INDX opened so far has reached its final name, so the
+rows before this one are delivered and this one is not. A check inside a batch
+would have to answer it holding a half-written file.
 
-Worth recording because the reasoning that produced both was plausible and
-still wrong. I inferred from "this is an attribute, not a param" that the
-emission must be per-executor, without reading the emission. The reportQuery
-comparison was the wrong one: that was a new child element, which nothing
-emitted, whereas an attribute that already exists for other executors is
-emitted for this one too, for free. The param-versus-attribute distinction was
-real; the conclusion drawn from it was not.
+When the space is not there the run stops before the file exists and the input
+becomes three. The original is kept as .failed, renamed and otherwise
+untouched, so what arrived survives as it arrived. The rows already dealt with
+go to .done_before_failure, deliberately not a .csv so no later run picks it
+up. Everything from the row that was not processed goes to .remaining.csv,
+which the next run reads as an ordinary input with nothing to rename by hand.
 
-A LEAK THE BATCH 1 SEAM DID NOT COVER
+The invariant that makes it trustworthy is checked rather than assumed: the
+rows of the two halves add up to the rows of the original, exactly, and a
+mismatch fails with nothing renamed instead of leaving a split nobody can
+reconcile. The rename comes last, so a failure while writing leaves the
+original under its own name. The discards file for the delivered part is
+published, because that part really was delivered, unlike an aborted run where
+it would be an account of nothing.
 
-ElarRun closes the store on every path IT REACHES, but it validates the
-configuration before entering that try/finally - a missing idms.namespace, say
-- and an exception from there returns without ever releasing the connection.
-runElarXml now closes the store in a finally of its own: whoever constructs it
-closes it too, and close() is idempotent so the two do not fight.
+The input is re-read to produce the two halves rather than buffered as it went
+by. A million-row CSV would be a couple of hundred megabytes held for a case
+that almost never happens, on the exact path where the machine has just run
+out of resources.
 
-This is the second instance of the same lesson in three batches. A Closeable
-is a claim, and every path out has to honour it, including the ones that leave
-before the owner's try block is entered.
-
-SETTINGS THAT CANNOT TAKE EFFECT ARE REFUSED, NOT IGNORED
-
-contentIfsPath set while contentSource is LOCAL fails validation in the
-designer and is reported in the step log at run time, rather than sitting in
-the workflow XML looking effective. An unrecognised contentSource fails the
-step naming the value instead of falling back to a default.
+The guard does nothing under batchBy=DOCUMENTS, where there is no size to
+reason from, and nothing when the filesystem returns zero for its free space,
+since refusing every run on a share that will not answer would be worse than
+not checking. checkFreeDisk=false turns it off.
 
 VERIFIED
-- 106 designer assertions, up from 94: the IFS fields are absent under LOCAL
-  and appear when the source is switched; the LOCAL panel explains why only
-  the file name is used; IFS without a datasource is refused; buildXml carries
-  the datasource as a step attribute; and a base path left behind after
-  switching back to LOCAL is refused rather than ignored.
-- 144 assertions on the store, up from 142, the two new ones being that
-  closing twice neither logs the summary twice nor disconnects twice.
-- The end-to-end identity still holds: the same 30 documents delivered from
-  local disk and from the IFS store give a byte-for-byte identical INDX, same
-  SHA-256.
-- All six elar suites and the elarcheck panel suite unchanged. Template scans
-  clean.
+- 29 assertions for the guard, --release 8. The one that closes the loop: a
+  run cut short by the disk, then a second run over the remainder, and 20
+  documents delivered exactly once between the two with nothing renamed by
+  hand. Plus the threshold arithmetic; that ample space changes nothing; the
+  three files and their contents; that the halves add up, are disjoint and
+  preserve the original order, and that both carry the header; that the
+  delivered half is not a .csv; and that neither DOCUMENTS batching nor an
+  unreportable filesystem stops a run.
+- The free-space figure is the one thing behind a seam. A disk cannot be
+  filled on demand in a test, and a safeguard never seen to fire is not a
+  safeguard, so the figure is injected and everything built on it is exercised
+  for real.
+- 108 designer assertions, up from 106, the new ones covering the guard's own
+  field.
+- 144 IFS store assertions, the end-to-end identity between a local and an IFS
+  delivery still byte for byte, all six elar suites and the elarcheck panel
+  unchanged, scans clean.
+- A defect caught by the panel suite rather than by review: the first
+  insertion of the guard's checkbox left an extra closing div, and the
+  malformed HTML silently truncated everything after it in the panel - the
+  whole content-source subsection vanished and nine assertions fired. An
+  unbalanced tag in a string-built panel does not throw; it eats the rest.
 
 NOT VERIFIED
-- Jt400Ifs has still never been executed, and runElarXml cannot be compiled in
-  the chat sandbox because the engine package needs Spring from the internal
-  Nexus. The wiring was checked structurally; the store it constructs is fully
-  tested behind its fake.
-- mvn clean package: the build on the target machine remains the only final
-  proof, and it matters more for this batch than for the previous two, because
-  this is the first one whose code path cannot be compiled here at all.
-- The next evidence has to be a field run: one family, contentSource=IFS, a
-  small input, and the step log checked for the listing count, the transit
-  count and the confirmation that documentPath is not read.
+- mvn clean package: Maven Central is unreachable from the chat sandbox, so
+  the build on the target machine remains the only final proof. The elar
+  package compiles and runs standalone in full; the one line added to
+  runElarXml cannot be compiled here, since the engine package needs Spring
+  from the internal Nexus.

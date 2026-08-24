@@ -572,6 +572,7 @@ The rest are optional and default to what the legacy tool did, with the three de
 - `formatOutput` - default `true`. Write one element per line, indented. See the section on formatting below.
 - `contentSource` - `LOCAL` (default) or `IFS`. Where the embedded document is read from. See the section below.
 - `contentIfsPath`, `contentIfsMaxListing` - only under `IFS`.
+- `checkFreeDisk` - default `true`, and only under `batchBy=BYTES`. See the section on running out of disk.
 - `validate` - `false` by default. See the validation section.
 - `renameProcessed` - `true` by default; the input is renamed to `.done` after its output is delivered.
 - `overwriteExisting` - `false` by default; a final output name that already exists fails the run rather than being replaced.
@@ -590,6 +591,18 @@ A malformed row is governed by `onMalformedRow`, `FAIL` by default: the run stop
 This is deliberate and it is a change from the legacy tool, which dropped such rows silently and delivered the feed short. Checking first rather than mid-file matters: by the time a bad row is reached during processing, some batches have already been renamed to their final deliverable names, so the output directory would hold a partial set with nothing to say so, and a re-run would then re-deliver what had already gone out. Scanning first makes the refusal complete - either everything is written or nothing is.
 
 Set `onMalformedRow=SKIP` for a feed where the source cannot be corrected. That restores the legacy behaviour with one difference: the loss is counted and reported instead of being invisible.
+
+### Running out of disk part-way through
+
+Under `batchBy=BYTES` the executor checks the free space on the output directory **before opening each new INDX**, and refuses to start one the disk could not hold: it wants twice `maxBytesPerBatch` plus a tenth. Between batches is the only place where that question has an unambiguous answer, because every INDX opened so far has already reached its final name.
+
+Without the check, filling the disk in the middle of an INDX is not a clean failure. That batch aborts and nothing of it goes out, but the batches before it are already on the share and the input still carries its own name - so the next run reads it from the top and delivers those documents a second time, unless somebody splits the CSV by hand first.
+
+When the space is not there the run stops **before the file exists** and the input becomes three files. The original is kept as `<name>.failed`, untouched, so the evidence of what arrived survives exactly as it arrived. The rows the run already dealt with go to `<name>.done_before_failure`, which is deliberately not a `.csv` so no later run picks it up. Everything from the row that was not processed goes to `<name>.remaining.csv`, which the next run reads as an ordinary input with nothing to rename by hand.
+
+The rows of the two halves add up to the rows of the original exactly, and that is checked rather than assumed: if it did not add up, nothing would be renamed and the run would say so instead of leaving a split nobody can reconcile. The discards file for the delivered part is published as usual, because that part really was delivered.
+
+The check does nothing under `batchBy=DOCUMENTS`, where there is no size to reason from, and nothing when the filesystem declines to report its free space, since refusing every run on a share that does not answer would be worse than not checking. Set `checkFreeDisk=false` to turn it off.
 
 ### Where the embedded document comes from
 

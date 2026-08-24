@@ -1139,3 +1139,50 @@ together with `output.start_time` and whether formatting is on. The filenames co
 those two patterns — nothing in the executor adds an extension, a counter or a suffix — so a question
 like *where did this `.xml` come from* is now a log lookup instead of a hunt through a properties file
 on a share.
+
+### The disk guard: stop before the INDX exists, and cut the input where it stopped
+
+**Asked for because it is not hypothetical**: the output disk fills regularly, and the repair afterwards
+is done by hand.
+
+Filling it mid-INDX is not a clean failure. The batch aborts and nothing of *it* goes out - but the
+batches before it have reached their final names and are on the share, while the input still carries its
+own name. The next run therefore reads it from the top and delivers those documents a second time, which
+is why somebody has been splitting the CSV by hand first.
+
+**Under `batchBy=BYTES`, before each new INDX is opened**, the free space on the output directory is
+checked against twice `maxBytesPerBatch` plus a tenth. Between batches is the only place where the
+question *which rows are done* has one answer: every INDX opened so far has reached its final name, so
+the rows before this one are delivered and this one is not. A check inside a batch would have to answer
+it holding a half-written file.
+
+When the space is not there the run stops **before the file exists**, and the input becomes three:
+
+- `<name>.failed` - the original, renamed and otherwise untouched, so what arrived survives as it arrived;
+- `<name>.done_before_failure` - the header and the rows already dealt with. Deliberately not a `.csv`;
+- `<name>.remaining.csv` - the header and the rest, read by the next run as an ordinary input.
+
+**The invariant that makes it trustworthy is checked, not assumed**: the rows of the two halves add up to
+the rows of the original, exactly, and a mismatch fails with nothing renamed rather than leaving a split
+nobody can reconcile. The rename comes last, so a failure while writing leaves the original under its own
+name. The discards file for the delivered part is published, because that part really was delivered -
+unlike an aborted run, where it would be an account of nothing.
+
+The input is re-read to produce the two halves rather than buffered as it went by. A million-row CSV is a
+couple of hundred megabytes to hold for a case that almost never happens, on the exact path where the
+machine has just run out of resources.
+
+Off under `batchBy=DOCUMENTS`, where there is no size to reason from, and off when the filesystem
+declines to report - refusing every run on a share that will not answer is worse than not checking.
+`checkFreeDisk=false` disables it.
+
+**Verified** by 29 assertions, `--release 8`. The one that closes the loop: a run cut short, then a second
+run over the remainder, and **20 documents delivered exactly once between the two** with nothing renamed
+by hand. Plus the threshold arithmetic; that ample space changes nothing; the three files and their
+contents; that the halves add up, are disjoint and preserve the original order, and that both carry the
+header; that the delivered half is not a `.csv`; and that neither DOCUMENTS batching nor an unreportable
+filesystem stops a run.
+
+**Not simulated, injected**: a disk cannot be filled on demand in a test, and a safeguard never seen to
+fire is not a safeguard - so the free-space figure is the one thing behind a seam, and everything built
+on it is exercised for real.

@@ -76,6 +76,21 @@ public final class ElarRun {
          * the family's {@code documentPath}, which is what every existing workflow gets.
          */
         public ContentStore contentStore;
+        /**
+         * Refuse to open a new INDX when the output disk could not hold two more of them.
+         *
+         * Only under {@code batchBy=BYTES}, because only there is there a figure to reason from. On by
+         * default: running out of disk part-way through a delivery is not a hypothetical here, and the
+         * manual repair afterwards is the thing this exists to remove.
+         */
+        public boolean checkFreeDisk = true;
+        /**
+         * Where the free-space figure comes from. Null means ask the filesystem, which is what a real
+         * run does. It exists because a disk cannot be filled on demand in a test, and a safeguard that
+         * has never been seen to fire is not a safeguard - so the one thing that cannot be simulated is
+         * the one thing that is injected.
+         */
+        public java.util.function.ToLongFunction<File> freeSpaceProbe;
         public boolean validate = false;
         public boolean renameProcessed = true;
         public boolean overwriteExisting = false;
@@ -262,7 +277,15 @@ public final class ElarRun {
                             batch = null;
                             policy.rolled();
                         }
-                        if (batch == null) batch = Batch.open(naming, o, indx, log);
+                        if (batch == null) {
+                            // The check belongs HERE and nowhere else. Between batches the question of
+                            // which rows are done has one answer: every batch opened so far has reached
+                            // its final name, so the rows before this one are delivered and this one is
+                            // not. A check anywhere inside a batch would have to answer it with a
+                            // half-written INDX in hand.
+                            checkDisk(o, policy, in, r, row, log, counters, discards);
+                            batch = Batch.open(naming, o, indx, log);
+                        }
                         // recorded BEFORE the write, so a document that closes its own batch
                         // (ROLL_THEN_ALONE) still counts this input as one of that batch's producers
                         if (!contributors.contains(in)) contributors.add(in);
@@ -325,6 +348,66 @@ public final class ElarRun {
         log.accept("elarxml: " + counters.summary());
         for (int i = 0; i < written.size(); i++) log.accept("elarxml: wrote " + written.get(i));
         return counters;
+    }
+
+    /** The headroom demanded before a new INDX is opened: two more of them, plus a tenth. */
+    static long requiredFree(long maxBytesPerBatch) {
+        return maxBytesPerBatch * 2 + maxBytesPerBatch / 10;
+    }
+
+    /**
+     * Refuses to start an INDX the disk could not hold, and leaves the input in a state the next run can
+     * simply pick up.
+     *
+     * Filling the disk mid-INDX is not a clean failure. The batch aborts, so nothing of it is delivered -
+     * but the batches before it ARE delivered, and the input still carries its original name, so the next
+     * run reprocesses it from the top and sends those documents a second time. Someone then splits the
+     * CSV by hand. That is the operation this removes.
+     *
+     * So the run stops here, before the INDX exists, and the input is cut at exactly this row: what was
+     * delivered goes to {@code .done_before_failure}, the rest to {@code .remaining.csv}, and the
+     * original is kept as {@code .failed}. The discards file is published too, because the delivered part
+     * really was delivered and its dropped rows are a real account of it - unlike an aborted run, where
+     * it would be an account of nothing.
+     */
+    private static void checkDisk(Options o, BatchPolicy policy, File in, FlatCsvReader r,
+                                  FlatCsvReader.Row row, Consumer<String> log, ElarCounters counters,
+                                  Map<File, SkippedRows> discards) throws IOException {
+        if (!o.checkFreeDisk || policy.by() != BatchPolicy.By.BYTES) return;
+
+        long required = requiredFree(o.maxBytesPerBatch);
+        long free = o.freeSpaceProbe != null ? o.freeSpaceProbe.applyAsLong(o.outputDir)
+                                             : o.outputDir.getUsableSpace();
+        // 0 means the filesystem would not say. Refusing on that would stop every run on a share that
+        // does not report, which is worse than not checking.
+        if (free <= 0 || free > required) return;
+
+        log.accept("elarxml: " + free + " byte(s) free on " + o.outputDir.getAbsolutePath()
+                + ", and a new INDX needs " + required + " free before it is safe to start"
+                + " (twice maxBytesPerBatch plus a tenth). Stopping before the file exists.");
+
+        // the delivered part is real, so its record of what it dropped is real too
+        SkippedRows s = discards.remove(in);
+        if (s != null) {
+            File f = s.commit();
+            if (f != null) {
+                counters.skippedFilesWritten++;
+                log.accept("elarxml: " + s.rows() + " skipped row(s) of the delivered part were written to "
+                        + f.getName());
+            }
+        }
+        try { r.close(); } catch (IOException ignored) { }   // the splitter re-reads the file
+
+        InputSplitter.Result split = InputSplitter.split(in, o.inputCharset, row.lineNo);
+        log.accept("elarxml: " + in.getName() + " was cut at line " + row.lineNo + " - "
+                + split.rowsDone + " row(s) already delivered are in " + split.doneBefore.getName()
+                + ", the remaining " + split.rowsRemaining + " are in " + split.remaining.getName()
+                + " ready for the next run, and the original is kept as " + split.failed.getName());
+
+        throw new IOException("the output disk is full: " + free + " byte(s) free where a new INDX needs "
+                + required + ". Everything delivered so far is delivered and " + in.getName()
+                + " has been split, so the next run continues from " + split.remaining.getName()
+                + " instead of starting over. Free space before re-running.");
     }
 
     /**

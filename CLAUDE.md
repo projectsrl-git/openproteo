@@ -2226,3 +2226,32 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * 106 designer assertions (from 94): IFS fields absent under LOCAL and present when switched, datasource
   required, `buildXml` carrying it as an attribute, and a leftover base path refused after switching
   back. 144 store assertions including that closing twice neither logs nor disconnects twice.
+
+## elarxml: the disk guard — stop before the INDX exists, and cut the input where it stopped
+* **Asked for because it is not hypothetical**: the output disk fills regularly and the repair is done
+  by hand. Filling it mid-INDX is not a clean failure — that batch aborts, but the batches before it are
+  on the share while the input still carries its own name, so the next run delivers those documents a
+  SECOND time unless somebody splits the CSV first.
+* **Under `batchBy=BYTES`, before each new INDX**: free space on the output dir must exceed
+  `2 x maxBytesPerBatch + 10%`. **Between batches is the only place the question "which rows are done"
+  has one answer** — every INDX opened so far has reached its final name. A check inside a batch would
+  answer it holding a half-written file.
+* On failure the input becomes three: `.failed` (the original, untouched), `.done_before_failure` (the
+  delivered rows, deliberately NOT a `.csv`), `.remaining.csv` (the rest, an ordinary input next run).
+* **The invariant is checked, not assumed**: rows(.failed) = rows(.done_before_failure) +
+  rows(.remaining.csv), exactly; a mismatch fails with NOTHING renamed. The rename comes last, so a
+  failure while writing leaves the original under its own name. The discards file for the delivered part
+  IS published — that part really was delivered, unlike an aborted run where it would account for nothing.
+* **Re-read, not buffered.** Holding the rows as they went by would be a couple of hundred megabytes for
+  a million-row CSV, held for a case that almost never happens, **on the exact path where the machine has
+  just run out of resources.**
+* Off under DOCUMENTS (no size to reason from) and off when the filesystem returns 0 for free space —
+  refusing every run on a share that will not answer is worse than not checking.
+* **The free-space figure is injected, and only that.** A disk cannot be filled on demand in a test, and
+  a safeguard never seen to fire is not a safeguard; everything built on the figure is exercised for
+  real. 29 assertions, the closing one being a cut-short run then a second run over the remainder with
+  **20 documents delivered exactly once between the two**.
+* **Defect caught by the panel suite, not by review**: my first insertion of the checkbox left an extra
+  `</div>`, and the malformed HTML silently truncated everything after it in the panel — the whole
+  content-source subsection vanished. Nine assertions fired. An unbalanced tag in a string-built panel
+  does not throw; it just eats the rest.
