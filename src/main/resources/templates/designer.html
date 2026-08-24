@@ -850,6 +850,7 @@
                     '<option value="sqlreport"' + (ex === 'sqlreport' ? ' selected' : '') + '>sqlreport (read-only queries → Markdown report)</option>' +
                     '<option value="elarxml"' + (ex === 'elarxml' ? ' selected' : '') + '>elarxml (ELAR \u2014 build INDX/PULL from a flat CSV)</option>' +
                     '<option value="elarcheck"' + (ex === 'elarcheck' ? ' selected' : '') + '>elarcheck (ELAR \u2014 validate delivered INDX, read-only)</option>' +
+                    '<option value="json2csv"' + (ex === 'json2csv' ? ' selected' : '') + '>json2csv (JSON files \u2192 one flat CSV, one file per row)</option>' +
                     '</select></div>';
                 h += '<div class="field wide"><label>Script / executable (relative to scripts dir or absolute)' + (isExternal(ex) ? ' *' : '') + '</label>' +
                     '<input value="' + attresc(n.script) + '" placeholder="' + (isExternal(ex) ? 'Prepare-Feed.ps1 | tool.bat | app.jar' : '(not used for this executor)') + '" oninput="updNode(' + i + ',\'script\',this.value)"' + (isExternal(ex) ? '' : ' disabled') + '></div>' +
@@ -1693,6 +1694,28 @@
                     // both are read with charAt(0), so a longer value would be truncated in silence
                     if (String(nodeParam(n, 'separator') || '').length > 1) errs.push(label + ' (' + n.id + '): the field separator must be a single character');
                     if (String(nodeParam(n, 'quoteChar') || '').length > 1) errs.push(label + ' (' + n.id + '): the quote character must be a single character, or empty to disable quoting');
+                }
+                if (ex === 'json2csv') {
+                    if (!String(nodeParam(n, 'inputDir') || '').trim()) errs.push(label + ' (' + n.id + '): json2csv needs the directory holding the JSON files (inputDir)');
+                    if (!String(n.csvFile || '').trim()) errs.push(label + ' (' + n.id + '): json2csv needs an output CSV file');
+                    var jcols = n.columns || [];
+                    if (!jcols.length) errs.push(label + ' (' + n.id + '): json2csv needs at least one mapped column');
+                    var jseen = {};
+                    for (var jc = 0; jc < jcols.length; jc++) {
+                        var jcol = jcols[jc] || {}, jas = String(jcol.as || '').trim(), jsrc = String(jcol.src || '').trim();
+                        var jtype = String(jcol.type || 'String');
+                        if (!jas) { errs.push(label + ' (' + n.id + '): a json2csv column has no CSV column name'); continue; }
+                        if (jseen[jas]) errs.push(label + ' (' + n.id + '): json2csv maps the column ' + jas + ' more than once');
+                        jseen[jas] = 1;
+                        // The refusal this executor turns on, repeated here so it arrives where the
+                        // mistake is made rather than when the step is run. Reading [] as [0] would
+                        // deliver a feed short by every element after the first, with nothing in the
+                        // output saying so.
+                        if (jsrc.indexOf('[]') >= 0) errs.push(label + ' (' + n.id + '): json2csv column ' + jas + ' maps ' + jsrc + ' \u2014 [] asks for one row per array element and multi-row flattening is not implemented; use an explicit index such as ' + jsrc.replace('[]', '[0]'));
+                        if ((jtype === 'Serial' || jtype === 'ObjectName' || jtype === 'MIMEType') && jsrc) errs.push(label + ' (' + n.id + '): json2csv column ' + jas + ' is a ' + jtype + ' and takes no JSON path');
+                        if ((jtype === 'Date' || jtype === 'Number') && !jsrc) errs.push(label + ' (' + n.id + '): json2csv column ' + jas + ' is a ' + jtype + ' but maps no JSON path');
+                        if (jtype === 'MIMEType' && String(jcol.mode || 'FIXED') === 'FIXED' && !String(jcol.value || '').trim()) errs.push(label + ' (' + n.id + '): json2csv column ' + jas + ' is a FIXED MIMEType with no value to write');
+                    }
                 }
                 if (ex === 'elarcheck') {
                     if (!String(nodeParam(n, 'inputDir') || '').trim()) errs.push(label + ' (' + n.id + '): elarcheck needs the directory to inspect (inputDir)');

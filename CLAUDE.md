@@ -2377,3 +2377,49 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   committed spec; the designer label in batch 3 will say what it means rather than repeat what it is
   called.
 * The suite is NOT committed, as the `elar` suites are not. It can be, with a runner, on request.
+
+## json2csv — Batch 2 delivered: the executor, and three things the spec got wrong
+* `json2csv` registered in all six places and running. **267 assertions green** across two suites, plus
+  the no-op proof and a compile check of the assembly code. Batch 3 is the mapper panel; until then a
+  step is configured with `+ param` and hand-written `<column>` entries, as `elarxml` was.
+* **THE NO-OP PROOF AS SPECIFIED PROVED NOTHING.** Batch 0 promised "every workflow XML in the repo
+  read, written back and compared by SHA-256". Run, it returned the SHA of the empty string for every
+  file: **no workflow in this repo contains a single `<column>` element**, so the test could not have
+  failed. And comparing writer output to the hand-written original was never going to work either —
+  the writer re-indents through a `Transformer`. What proves the claim is **pre-batch output against
+  post-batch output on a workflow that uses the feature**: the real parser and writer compiled from a
+  clean clone and from the patched tree, run over the 15 repo workflows *and* a synthetic `xlsx2csv`
+  step with four `<column>` elements. Identical both ways. The same harness shows `json2csv` refused
+  by the pre-batch parser and accepted by the patched one.
+* **`JsonDocumentReader` could NOT live in the json2csv package**, where §1 put it. Maven Central is
+  unreachable here, so one Jackson import would have made the package uncompilable in the sandbox —
+  costing twelve classes their test bench for the sake of one. It moved to `engine`. It also carries
+  its **own** `ObjectMapper`: `InternalSteps.jsonMapper` has four other call sites, and enabling
+  `USE_BIG_DECIMAL_FOR_FLOATS` on the shared instance would silently change how each reads a number.
+* **"Case-insensitive on Windows" was wrong.** It would make the same workflow select a different set
+  of files on a developer's machine and on the server. `FileMask` is case-sensitive everywhere, which
+  is also what `elarcheck` already does.
+* **The run loop moved out of `InternalSteps`**, which is Spring-coupled and therefore untestable
+  here. Reading and writing became seams — `DocumentReader` is Jackson in production and hand-built
+  trees in the suite, `RowSink` is `CsvWriter` in production and a list in the suite — so the order
+  files are visited, what the counters do when one fails, and when the rename may happen are all
+  tested. `InternalSteps` keeps only the assembly.
+* **`renameProcessed` is deliberately NOT an option on `Json2CsvRun`.** The rename belongs to the
+  caller, after it closes the sink; a flag on the run object could not be honoured without renaming
+  too early. A setting that cannot take effect is worse than one that does not exist — the same rule
+  that refuses a fixed `value` on a `SOURCE_EXTENSION` column.
+* **`FileMask` is a second implementation of something `elarcheck` has**, because json2csv must not
+  depend on another executor's package. Two implementations that quietly disagree are worse than one,
+  so the suite **lifts elarcheck's matcher from its source at build time** and compares them over 90
+  name-and-pattern combinations. Zero disagreements — and making `FileMask` case-insensitive is caught
+  by that comparison as well as by its own assertions.
+* **The 183 new lines in `InternalSteps` were compiled, not just written.** They are lifted verbatim
+  at build time and compiled against the real `StepDef`, `VarResolver`, `StepExecutor.Result`,
+  `CsvWriter` and json2csv classes, all Spring-free; only `JsonDocumentReader` is stubbed. Syntax and
+  types checked, behaviour not.
+* **`ColumnSel`'s four new fields are written only when non-empty**, so an `xlsx2csv` `<column>`
+  serialises exactly as before — proved, not assumed, by the comparison above.
+* Six mutations, all caught: unsorted listing; rename inside the loop; a failed file counted as read;
+  a skipped file marked processed; a case-insensitive mask; `?` matching nothing.
+* NOT verified: `mvn clean package`; the executor against real files; the designer changes rendered
+  (checked only for the two UBS rules); and `ApiController.toDto`, the one edit no harness reaches.

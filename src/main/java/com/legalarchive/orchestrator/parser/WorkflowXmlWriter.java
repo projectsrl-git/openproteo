@@ -146,6 +146,12 @@ public class WorkflowXmlWriter {
                             org.w3c.dom.Element ce = doc.createElement("column");
                             ce.setAttribute("src", cs.src == null ? "" : cs.src);
                             if (cs.as != null && !cs.as.isEmpty()) ce.setAttribute("as", cs.as);
+                            // json2csv only, and emitted ONLY when non-empty: an xlsx2csv <column>
+                            // never carries these, so its serialisation is unchanged byte for byte.
+                            if (cs.type != null && !cs.type.isEmpty()) ce.setAttribute("type", cs.type);
+                            if (cs.from != null && !cs.from.isEmpty()) ce.setAttribute("from", cs.from);
+                            if (cs.mode != null && !cs.mode.isEmpty()) ce.setAttribute("mode", cs.mode);
+                            if (cs.value != null && !cs.value.isEmpty()) ce.setAttribute("value", cs.value);
                             s.appendChild(ce);
                         }
                         if (n.reportQueries != null) for (com.legalarchive.orchestrator.web.dto.WorkflowDto.NodeDto.ReportQueryDto rq : n.reportQueries) {

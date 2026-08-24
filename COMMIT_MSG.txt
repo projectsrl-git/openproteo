@@ -1,85 +1,94 @@
-json2csv batch 1: the core, and eight mutations to prove the suites bite
+json2csv batch 2: the executor, and a no-op proof that proved nothing
 
-Eleven classes in com.legalarchive.orchestrator.json2csv, free of Spring and
-free of Jackson, compiled with javac --release 8 and exercised in the sandbox.
-203 assertions, all green.
+json2csv is registered in all six places and runs. 267 assertions green across
+two suites, plus the no-op proof and a compile check of the assembly code.
+Batch 3 is the mapper panel; until then a step is configured with + param and
+hand-written <column> entries, as elarxml was.
 
-Nothing outside the new package is touched. There is no call site yet, so this
-batch cannot change the behaviour of any existing feed; the executor arrives
-in batch 2.
+THREE THINGS THE SPECIFICATION GOT WRONG
 
-THE SANDBOX CHECK IS STRONGER THAN THE PROJECT BUILD
+Recorded rather than quietly corrected, because the reasoning is the artefact.
 
-The pom sets maven.compiler.source and target to 1.8, which does not check the
-API surface. --release 8 does. Verified on the day rather than assumed:
-List.of fails to compile under the flag. mvn clean package on your machine
-remains the only final proof, because Maven Central is unreachable from here.
+The no-op proof as written proves nothing. Batch 0 promised every workflow XML
+in the repo read, written back and compared by SHA-256. Run, it returned the
+SHA of the empty string for every file: no workflow in this repo contains a
+single <column> element, so the test could not have failed. And comparing the
+writer's output to the hand-written original was never going to work either,
+because the writer re-indents through a Transformer and the two differ before
+any change of mine.
 
-ABSENT AND MISMATCH
+What proves the claim is pre-batch output against post-batch output, on a
+workflow that uses the feature. The real parser and the real writer are
+compiled from a clean clone and from the patched tree, and both are run over
+the 15 repo workflows and over a synthetic xlsx2csv step carrying four
+<column> elements. Identical, both hashes, both trees. The same harness shows
+json2csv refused by the pre-batch parser and accepted by the patched one.
 
-Implementing the spec's "absent is data, non-scalar is a wrong mapping" made
-the rule wider than the spec had it, and better. ABSENT is a key that is not
-there, an index past the end of an array, or an explicit null: the document
-does not have it, so the cell is empty and counted. MISMATCH is a key applied
-to something that is not an object, an index applied to something that is not
-an array, or a leaf that turned out to be an object or an array: the document
-is not shaped the way the path assumes, so onNonScalar decides, and it
-defaults to stopping.
+JsonDocumentReader cannot live in the json2csv package, where the spec put it.
+Maven Central is unreachable from the sandbox, so one Jackson import would
+have made the package uncompilable there, costing the other twelve classes
+their test bench for the sake of one. It moved to engine, where Jackson
+already lives. It also carries its own ObjectMapper: InternalSteps.jsonMapper
+has four other call sites, and enabling USE_BIG_DECIMAL_FOR_FLOATS on the
+shared instance would silently change how each of them reads a number.
 
-Folding the two together is the expensive mistake here. A mapping typo would
-deliver an empty column for the whole feed and look exactly like a customer
-who happens to have no value. The mutation that folds them is caught by
-thirteen assertions.
+Case-insensitive on Windows was wrong. It would make the same workflow select
+a different set of files on a developer's machine and on the server, and an
+input set that depends on which filesystem it lands on is not reproducible.
+FileMask is case-sensitive everywhere, which is also what elarcheck already
+does.
 
-A value that will not read as a Number, or as a date under any mask, takes the
-same route. That makes onNonScalar a slightly wrong name for what it now does.
-The name is kept because it is already in the committed spec, and the designer
-label in batch 3 will say what it means rather than repeat what it is called.
+THE RUN LOOP MOVED OUT OF INTERNALSTEPS
 
-THE DATE MASKS ARE MEASURED, NOT ARGUED
+Written first as a method there, it could not be exercised at all. Everything
+interesting about that loop - the order files are visited, what the counters
+do when one fails, whether the rename can happen before the CSV is closed - is
+exactly what is wrong the first time.
 
-The spec argues that trying YYYY/MM/DD, YYYYMMDD and YYYY-MM-DD in order is
-safe because no value parses under two of them. An argument is not a
-measurement, so the suite renders every day of a full year in all three forms
-- 1095 strings - and asserts each parses under exactly one mask. Overlaps
-found: zero. That test is the guard on the warning that a fourth mask is not
-automatically safe.
+So reading and writing became seams. DocumentReader is Jackson in production
+and a map of hand-built trees in the suite; RowSink is CsvWriter in production
+and a list in the suite. What is left is Spring-free, Jackson-free and tested,
+and InternalSteps keeps only the assembly.
 
-STRICT is exercised for real: 2026-02-30, 2026-13-01, 20260230 and 2026-02-29
-are refused, and 2024-02-29 is accepted.
+renameProcessed is deliberately not an option on Json2CsvRun. The rename
+belongs to the caller, after it closes the sink; a flag on the run object
+could not be honoured without renaming too early. A setting that cannot take
+effect is worse than one that does not exist - the same rule that refuses a
+fixed value on a SOURCE_EXTENSION column.
 
-THE TRANSLATOR IS EXTRACTED, NOT RETYPED
+TWO MASKS THAT MUST NOT DISAGREE
 
-The suite contains no copy of fmtToJavaPattern. It reads InternalSteps.java at
-build time and lifts the method and its JT_PASSTHROUGH constant verbatim, so
-"YYYYMMDD becomes uuuuMMdd" is a fact about the shipped translator and not
-about a copy that could drift. The core reaches it through a one-method
-MaskTranslator seam, because InternalSteps is Spring-coupled and this package
-has to compile with the JDK alone.
+FileMask is a second implementation of something elarcheck already has,
+because json2csv must not depend on another executor's package. Two
+implementations that quietly disagree are worse than one, so the suite lifts
+elarcheck's matcher from its source at build time and compares them across 90
+name-and-pattern combinations. Zero disagreements. Making FileMask
+case-insensitive is caught by that comparison as well as by its own
+assertions.
 
-THE SUITES WERE SEEN TO FAIL FIRST
+THE ASSEMBLY CODE WAS COMPILED, NOT JUST WRITTEN
 
-Eight mutations of the real source, each compiled and run: the [] refusal
-removed from the validator; [] resolved as [0] instead of refused; dates
-parsed SMART instead of STRICT; Serial restarting on every row; MISMATCH
-folded into ABSENT; Number going through double instead of BigDecimal; the
-output-mask probe removed; and describe() leaking the value into the finding.
-Every one was caught by named assertions, listed in the spec.
+InternalSteps is Spring-coupled and does not compile in the sandbox, so its
+183 new lines, four anonymous inner classes among them, would otherwise have
+shipped never having met a compiler. They are lifted verbatim at build time
+and compiled against the real StepDef, VarResolver, StepExecutor.Result,
+CsvWriter and json2csv classes, all of which are Spring-free. Only
+JsonDocumentReader is stubbed, because it is the one class that needs Jackson.
 
-The first run found a defect in the SUITE and not in the core: under the first
-mutation it died on probs.get(0) of an empty list and stopped reporting
-everything after it, which is the opposite of what MappingValidator does on
-purpose. The runner now turns an unexpected throw into a failure, and that
-mutation is caught by eight assertions instead of a stack trace.
+SIX MUTATIONS, ALL CAUGHT
+
+An unsorted listing; the rename moved inside the loop; a file that failed to
+parse counted as read; a skipped file marked processed anyway; a
+case-insensitive mask; and ? allowed to match nothing.
 
 VERIFIED / NOT VERIFIED
 
-Verified: the package compiles with javac --release 8 against the JDK alone,
-so brace balance and imports are proved by the compiler rather than by a
-counter; 203 assertions green; eight mutations caught; that no file outside
-the new package is touched.
+Verified: the json2csv package compiles with javac --release 8 against the JDK
+alone; 203 + 64 assertions green; six mutations caught; ColumnSel's four new
+fields leave an xlsx2csv <column> serialising exactly as before; the assembly
+code compiles against the real collaborators; no literal \n or \r and no [[ or
+[( in the added designer JS.
 
-Not verified: mvn clean package, for the reason above. Everything the executor
-does with files - reading, the wildcard mask, CsvWriter, the counters end to
-end - is batch 2. The suite is not committed, as the elar suites are not; say
-the word and it goes in with a runner.
+Not verified: mvn clean package; the executor against real files; the designer
+changes rendered; and ApiController.toDto, whose four new lines are the one
+edit no harness here reaches.

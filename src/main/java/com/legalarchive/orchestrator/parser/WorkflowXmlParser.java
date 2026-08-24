@@ -86,12 +86,12 @@ public class WorkflowXmlParser {
                     s.name = el.hasAttribute("name") ? el.getAttribute("name") : s.id;
                     s.exec = trimToNull(el.getAttribute("exec"));
                     if (s.exec != null && !java.util.Arrays.asList(
-                            "auto", "powershell", "cmd", "jar", "sql", "ifscopy", "filecopy", "setvar", "validate", "csvreplace", "encoding", "anonymize", "mask", "split", "safecopy", "dequote", "csvsql", "xlsx2csv", "diff", "sqlreport", "elarxml", "elarcheck")
+                            "auto", "powershell", "cmd", "jar", "sql", "ifscopy", "filecopy", "setvar", "validate", "csvreplace", "encoding", "anonymize", "mask", "split", "safecopy", "dequote", "csvsql", "xlsx2csv", "diff", "sqlreport", "elarxml", "elarcheck", "json2csv")
                             .contains(s.exec.toLowerCase())) {
-                        throw new IllegalArgumentException("Step '" + s.id + "': exec must be auto, powershell, cmd, jar, sql, ifscopy, filecopy, setvar, validate, csvreplace, encoding, anonymize, mask, split, safecopy, dequote, csvsql, xlsx2csv, diff, sqlreport, elarxml or elarcheck");
+                        throw new IllegalArgumentException("Step '" + s.id + "': exec must be auto, powershell, cmd, jar, sql, ifscopy, filecopy, setvar, validate, csvreplace, encoding, anonymize, mask, split, safecopy, dequote, csvsql, xlsx2csv, diff, sqlreport, elarxml, elarcheck or json2csv");
                     }
                     String ik = s.exec == null ? null : s.exec.toLowerCase();
-                    boolean internal = "sql".equals(ik) || "ifscopy".equals(ik) || "filecopy".equals(ik) || "setvar".equals(ik) || "validate".equals(ik) || "csvreplace".equals(ik) || "encoding".equals(ik) || "anonymize".equals(ik) || "mask".equals(ik) || "split".equals(ik) || "safecopy".equals(ik) || "dequote".equals(ik) || "csvsql".equals(ik) || "xlsx2csv".equals(ik) || "diff".equals(ik) || "sqlreport".equals(ik) || "elarxml".equals(ik) || "elarcheck".equals(ik);
+                    boolean internal = "sql".equals(ik) || "ifscopy".equals(ik) || "filecopy".equals(ik) || "setvar".equals(ik) || "validate".equals(ik) || "csvreplace".equals(ik) || "encoding".equals(ik) || "anonymize".equals(ik) || "mask".equals(ik) || "split".equals(ik) || "safecopy".equals(ik) || "dequote".equals(ik) || "csvsql".equals(ik) || "xlsx2csv".equals(ik) || "diff".equals(ik) || "sqlreport".equals(ik) || "elarxml".equals(ik) || "elarcheck".equals(ik) || "json2csv".equals(ik);
                     // script is required only for external (process) steps
                     s.script = internal ? trimToNull(el.getAttribute("script")) : req(el, "script", xmlFile);
                     // built-in step attributes
@@ -132,6 +132,12 @@ public class WorkflowXmlParser {
                         com.legalarchive.orchestrator.model.def.ColumnSel cs = new com.legalarchive.orchestrator.model.def.ColumnSel();
                         cs.src = col.getAttribute("src");
                         cs.as = col.hasAttribute("as") ? col.getAttribute("as") : col.getAttribute("src");
+                        // json2csv only. Left null when absent, so an xlsx2csv <column> is unchanged
+                        // and the writer, which emits these only when non-empty, writes it as before.
+                        cs.type = trimToNull(col.getAttribute("type"));
+                        cs.from = trimToNull(col.getAttribute("from"));
+                        cs.mode = trimToNull(col.getAttribute("mode"));
+                        cs.value = col.hasAttribute("value") ? col.getAttribute("value") : null;
                         s.columns.add(cs);
                     }
                     for (Element rqe : directChildren(el, "reportQuery")) {

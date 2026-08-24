@@ -1,7 +1,7 @@
 # JSON to CSV executor (`json2csv`) — specification
 
-Status: **Batch 1 delivered** — the core, compiled and exercised. §14 records what was built and
-what the suites proved. Batches 2–4 are still to come (§12).
+Status: **Batch 2 delivered** — the executor is wired and selectable. §14 records batch 1, §15 records
+batch 2 and the three things this specification got wrong. Batches 3–4 remain (§12).
 Revised after Gate 0 was answered (§3). **The answers removed more of this than they added**, and the
 removals are recorded here rather than deleted: §6.3–§6.5 stay on the page, marked DEFERRED, because
 they are the design for the day the deferred half comes back.
@@ -157,7 +157,7 @@ column it lands in.
 ### 5.1 `inputDir` + `filePattern`
 
 `filePattern` is a wildcard mask (`*.json`, `CUST_*.json`), `*` and `?` only, matched on the file name,
-case-insensitive on Windows. Directories are not descended into; `.done` and non-matching files are
+~~case-insensitive on Windows~~ **case-sensitive on every platform — see §15.1(c)**. Directories are not descended into; `.done` and non-matching files are
 ignored.
 
 **Files are processed in file-name order (`String.compareTo`, not locale-dependent).** Two runs over
@@ -533,9 +533,10 @@ is no chain analysis, no sibling check and no empty-array recursion to build or 
   and that a JSON number parses as `YYYYMMDD`**; `1.10` keeping its scale and `1e3` losing its
   exponent; Serial across a split boundary; a missing value against a non-scalar one. **Negative runs
   first**, against the pre-batch code, so it is known the suites bite.
-- **Batch 2** — the executor: `JsonDocumentReader` (the Jackson class, §1), the `CsvWriter` wiring,
-  `ColumnSel`'s four fields through parser / writer / DTO, and the six registrations. Opens with the
-  no-op proof: every workflow XML in the repo read, written back and compared by SHA-256.
+- **Batch 2** — ~~the executor, opening with the no-op proof: every workflow XML in the repo read,
+  written back and compared by SHA-256~~ **DELIVERED, and that proof was mis-specified — see §15.1(a).
+  No workflow in this repo has a `<column>` element, so the test could not have failed. Replaced by a
+  pre-batch versus post-batch comparison on a workflow that uses the feature.**
 - **Batch 3** — the designer panel and the two API endpoints. Panel assertions in the shape the
   elarxml and elarcheck panels established — including balanced tags, which is what caught the panel
   defect recorded in CLAUDE.md, where an extra `</div>` silently ate the rest of a section.
@@ -646,3 +647,103 @@ into a failure, and the mutation is caught by eight assertions instead of a stac
   word and it goes into the repo with a runner.
 - Everything the executor does with files: reading, the wildcard mask, `CsvWriter`, the counters end
   to end. That is batch 2.
+
+---
+
+## 15. Batch 2 delivered — the executor
+
+`json2csv` is registered in all six places and runs. **267 assertions green** across two suites, plus
+the no-op proof and a compile check of the assembly code. Batch 3 is the mapper panel; until then a
+step is configured with `+ param` and hand-written `<column>` entries, as `elarxml` was.
+
+### 15.1 Three things this specification got wrong
+
+Recorded rather than quietly corrected, because the reasoning is the artefact.
+
+**(a) The no-op proof as written proves nothing.** §12 promised "every workflow XML in the repo read,
+written back and compared by SHA-256". Run, it returned the SHA of the empty string for every file:
+**no workflow in this repo contains a single `<column>` element.** The test could not have failed. And
+comparing the writer's output to the hand-written original was never going to work either — the
+writer re-indents through a `Transformer`, so the two differ before any change of mine.
+
+What actually proves the claim is **pre-batch output against post-batch output**, on a workflow that
+uses the feature. So: the real parser and the real writer are compiled from a clean clone and from the
+patched tree, and both are run over the 15 repo workflows *and* over a synthetic `xlsx2csv` step
+carrying four `<column>` elements. Identical, both hashes, both trees. The same harness shows
+`json2csv` refused by the pre-batch parser and accepted by the patched one.
+
+**(b) `JsonDocumentReader` cannot live in the json2csv package.** §1 put it there, "the one class
+where Jackson appears". Maven Central is unreachable from the sandbox, so one Jackson import would
+have made the package uncompilable there — costing the other twelve classes their test bench for the
+sake of one. It moved to `engine`, where Jackson already lives. The seam is unchanged; only its side
+of the wall moved.
+
+It also carries its **own** `ObjectMapper`. `InternalSteps.jsonMapper` has four other call sites, and
+enabling `USE_BIG_DECIMAL_FOR_FLOATS` on the shared instance would silently change how each of them
+reads a number.
+
+**(c) "Case-insensitive on Windows" was wrong.** §5.1 said the file mask should be. That would make
+the same workflow select a different set of files on a developer's machine and on the server, and an
+input set that depends on which filesystem it lands on is not reproducible. `FileMask` is
+**case-sensitive everywhere**, which also matches what `elarcheck` already does.
+
+### 15.2 The run loop moved out of InternalSteps
+
+Written first as a method there, it could not be exercised at all. Everything interesting about that
+loop — the order files are visited, what the counters do when one fails, whether the rename can
+happen before the CSV is closed — is exactly what is wrong the first time.
+
+So reading and writing became seams: `Json2CsvRun.DocumentReader` is Jackson in production and a map
+of hand-built trees in the suite; `RowSink` is `CsvWriter` in production and a list in the suite. What
+is left is Spring-free, Jackson-free and tested. `InternalSteps` keeps only the assembly.
+
+**`renameProcessed` is deliberately not an option on `Json2CsvRun`.** The rename belongs to the
+caller, after it closes the sink. A flag on the run object could not be honoured without renaming too
+early, and a setting that cannot take effect is worse than one that does not exist — the same rule
+that refuses a fixed `value` on a `SOURCE_EXTENSION` column.
+
+### 15.3 What the suites cover
+
+`RunSuite`, 64 assertions: mask matching including backtracking and case; listing in name order,
+ignoring subdirectories and `.done`; one row per file; Serial across files; FAIL versus SKIP on a
+malformed file, with the counters and the log line each way; an empty directory writing a header and
+no error; numbers and dates end to end; and the rename — that `run()` does **not** do it, that the
+extension is appended rather than replaced, that a second run finds nothing, and that **a skipped file
+is never renamed** so it is still there to be looked at.
+
+`FileMask` is a second implementation of something `elarcheck` already has, since json2csv must not
+depend on another executor's package. Two implementations that quietly disagree are worse than one, so
+the suite **lifts elarcheck's matcher from its source at build time** and compares them across 90
+name-and-pattern combinations. Zero disagreements — and making `FileMask` case-insensitive is caught
+by that comparison as well as by its own assertions.
+
+### 15.4 The assembly code was compiled, not just written
+
+`InternalSteps` is Spring-coupled and does not compile in the sandbox, so its 183 new lines — four
+anonymous inner classes among them — would otherwise have shipped never having met a compiler.
+
+They are **lifted verbatim from `InternalSteps.java` at build time** and compiled against the real
+`StepDef`, `VarResolver`, `StepExecutor.Result`, `CsvWriter` and json2csv classes, all of which are
+Spring-free. Only `JsonDocumentReader` is stubbed, because it is the one class that needs Jackson.
+Syntax and types are therefore checked; behaviour is not, and `mvn clean package` remains the final
+word.
+
+### 15.5 Six mutations, all caught
+
+| mutation | caught by |
+|---|---|
+| `list()` no longer sorts by name | N2 O3 O4 O6 O24 O25 |
+| the rename happens inside the loop | O12–O17, P1 P2 P3 |
+| a file that failed to parse is counted as read | O15 O16 |
+| a skipped file is marked processed anyway | O19 P8 |
+| the file mask becomes case-insensitive | L16 L17 **M1** |
+| `?` is allowed to match nothing | L8 |
+
+### 15.6 Not verified
+
+- **`mvn clean package`**, and the executor running against real files. Nothing here has been through
+  Spring, a WAR or Tomcat.
+- **The designer changes.** The `<option>` and the `clientValidate` block were checked for the two UBS
+  rules — no literal `\n` or `\r` in the added JS, no `[[` or `[(` — but not rendered. Batch 3 brings
+  the panel and its assertions.
+- **`ApiController.toDto`**, whose four new lines are the one edit no harness here reaches.

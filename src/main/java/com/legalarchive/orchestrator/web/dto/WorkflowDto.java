@@ -74,7 +74,9 @@ public class WorkflowDto {
         public java.util.List<ReplacementDto> replacements;
         public static class CsvInputDto { public String csv; public String table; public String delimiter; public String index; }
         public java.util.List<CsvInputDto> inputs;
-        public static class ColumnSelDto { public String src; public String as; }
+        public static class ColumnSelDto { public String src; public String as;
+            // json2csv: null for every xlsx2csv column, and written back only when non-empty.
+            public String type; public String from; public String mode; public String value; }
         public java.util.List<ColumnSelDto> columns;
         public static class ReportQueryDto { public String title; public String sql; public String keyColumn; public String collect; public Integer maxRows; }
         public java.util.List<ReportQueryDto> reportQueries;

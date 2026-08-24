@@ -97,6 +97,8 @@ public class InternalSteps {
                 runElarXml(step, resolvedParams, vars, res, line);
             } else if ("elarcheck".equals(kind)) {
                 runElarCheck(step, resolvedParams, vars, res, line);
+            } else if ("json2csv".equals(kind)) {
+                runJson2Csv(step, resolvedParams, vars, res, line);
             } else if ("csvsql".equals(kind)) {
                 runCsvSql(step, resolvedParams, vars, res, line, control);
             } else if ("xlsx2csv".equals(kind)) {
@@ -844,6 +846,188 @@ public class InternalSteps {
         boolean q = v.indexOf(',') >= 0 || v.indexOf('"') >= 0 || v.indexOf('\n') >= 0 || v.indexOf('\r') >= 0;
         if (q) return "\"" + v.replace("\"", "\"\"") + "\"";
         return v;
+    }
+
+    // -------------------------------------------------------------- json2csv
+    /**
+     * JSON to CSV: read the JSON files matching a wildcard mask in a directory and write ONE flat CSV
+     * whose shape is the feed's dataschema, filling its columns from JSON attribute paths.
+     *
+     * <p><b>One file is one document is one row.</b> Multi-row flattening is specified in
+     * {@code .claude/JSON_TO_CSV_EXECUTOR.md} §6.3-§6.5 and not implemented; a path containing
+     * {@code []} is refused before a file is opened, never read as {@code [0]} and never ignored.
+     *
+     * <p>Everything decidable is decided here, before the first read: the mapping, the dataschema, the
+     * date masks. All of it fails as the step starts rather than on the first row of a delivery.
+     */
+    private void runJson2Csv(StepDef step, Map<String, String> params, Map<String, String> vars,
+                             StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        String inputDir = VarResolver.resolve(xStr(params.get("inputDir"), null), vars);
+        String csvFile = VarResolver.resolve(step.csvFile, vars);
+        if (inputDir == null || inputDir.trim().isEmpty()) { line.accept("json2csv: inputDir is required"); res.exitCode = 2; return; }
+        if (csvFile == null || csvFile.trim().isEmpty()) { line.accept("json2csv: csvFile (output) is required"); res.exitCode = 2; return; }
+        java.io.File dir = new java.io.File(rebaseRel(inputDir, vars));
+        if (!dir.isDirectory()) { line.accept("json2csv: inputDir is not a directory: " + inputDir); res.exitCode = 2; return; }
+
+        String filePattern = xStr(VarResolver.resolve(params.get("filePattern"), vars), "*.json");
+        char delim = (step.delimiter != null && !step.delimiter.isEmpty()) ? step.delimiter.charAt(0) : ';';
+        String onNonScalarS = xStr(params.get("onNonScalar"), "FAIL");
+        String onBadFile = xStr(params.get("onBadFile"), "FAIL").toUpperCase(java.util.Locale.ROOT);
+        int maxFileMB = xInt(params.get("maxFileMB"), 16);
+        long serialStart = xInt(params.get("serialStart"), 1);
+        int serialPad = xInt(params.get("serialPad"), 0);
+        String inputCharset = xStr(VarResolver.resolve(params.get("inputCharset"), vars), null);
+        boolean renameProcessed = "true".equalsIgnoreCase(params.get("renameProcessed"));
+        if (!"FAIL".equals(onBadFile) && !"SKIP".equals(onBadFile)) {
+            line.accept("json2csv: onBadFile must be FAIL or SKIP, not '" + onBadFile + "'"); res.exitCode = 2; return;
+        }
+
+        // 1) the dataschema decides the header and its order (requirement 1)
+        java.util.List<String> schemaCols = null;
+        String columnsSchema = VarResolver.resolve(params.get("columnsSchema"), vars);
+        if (columnsSchema != null && !columnsSchema.trim().isEmpty()) {
+            java.io.File sf = new java.io.File(rebaseRel(columnsSchema, vars));
+            if (!sf.isFile()) { line.accept("json2csv: columnsSchema not found: " + columnsSchema); res.exitCode = 2; return; }
+            schemaCols = readSchemaColumnNames(sf);
+            if (schemaCols.isEmpty()) { line.accept("json2csv: columnsSchema has no columns: " + columnsSchema); res.exitCode = 2; return; }
+        }
+
+        // 2) the mapping, placed at its dataschema position. A dataschema column nobody maps is
+        //    written EMPTY and not dropped: the CSV keeps the schema's shape, which is what ELAR gets.
+        java.util.List<com.legalarchive.orchestrator.json2csv.ColumnMapping> mapped =
+                new java.util.ArrayList<com.legalarchive.orchestrator.json2csv.ColumnMapping>();
+        try {
+            if (step.columns != null) for (com.legalarchive.orchestrator.model.def.ColumnSel c : step.columns) {
+                mapped.add(new com.legalarchive.orchestrator.json2csv.ColumnMapping(
+                        VarResolver.resolve(c.as, vars),
+                        VarResolver.resolve(c.src, vars),
+                        com.legalarchive.orchestrator.json2csv.ColumnType.parse(c.type),
+                        VarResolver.resolve(c.from, vars),
+                        com.legalarchive.orchestrator.json2csv.MimeMode.parse(c.mode),
+                        VarResolver.resolve(c.value, vars)));
+            }
+        } catch (com.legalarchive.orchestrator.json2csv.Json2CsvException e) {
+            line.accept("json2csv: " + e.getMessage()); res.exitCode = 2; return;
+        }
+        if (mapped.isEmpty()) { line.accept("json2csv: at least one <column> is required"); res.exitCode = 2; return; }
+
+        java.util.List<com.legalarchive.orchestrator.json2csv.ColumnMapping> columns;
+        if (schemaCols != null) {
+            java.util.Map<String, com.legalarchive.orchestrator.json2csv.ColumnMapping> byName =
+                    new java.util.HashMap<String, com.legalarchive.orchestrator.json2csv.ColumnMapping>();
+            for (com.legalarchive.orchestrator.json2csv.ColumnMapping m : mapped) byName.put(m.as, m);
+            columns = new java.util.ArrayList<com.legalarchive.orchestrator.json2csv.ColumnMapping>();
+            for (String name : schemaCols) {
+                com.legalarchive.orchestrator.json2csv.ColumnMapping m = byName.get(name);
+                columns.add(m != null ? m : com.legalarchive.orchestrator.json2csv.ColumnMapping.unmapped(name));
+            }
+        } else {
+            columns = mapped;
+        }
+
+        // 3) everything checkable without a file, reported all at once
+        try {
+            com.legalarchive.orchestrator.json2csv.MappingValidator.check(mapped, schemaCols);
+        } catch (com.legalarchive.orchestrator.json2csv.Json2CsvException e) {
+            line.accept("json2csv: " + e.getMessage()); res.exitCode = 2; return;
+        }
+
+        // 4) dates. The mask translator is InternalSteps.fmtToJavaPattern and NOT a second copy of it:
+        //    recordBusinessDateFormat is a MASK (YYYY/MM/DD, where DD is day-of-month), and a private
+        //    reimplementation is how businessDateNotBefore was silently broken for years.
+        com.legalarchive.orchestrator.json2csv.DateCoercion dates = null;
+        if (com.legalarchive.orchestrator.json2csv.MappingValidator.needsDates(mapped)) {
+            String outMask = VarResolver.resolve("${recordBusinessDateFormat}", vars);
+            try {
+                dates = com.legalarchive.orchestrator.json2csv.DateCoercion.create(
+                        new com.legalarchive.orchestrator.json2csv.MaskTranslator() {
+                            public String toJavaPattern(String mask) { return fmtToJavaPattern(mask); }
+                        },
+                        outMask,
+                        com.legalarchive.orchestrator.json2csv.MappingValidator.inputMasks(mapped));
+            } catch (com.legalarchive.orchestrator.json2csv.Json2CsvException e) {
+                line.accept("json2csv: " + e.getMessage()); res.exitCode = 2; return;
+            }
+        }
+
+        com.legalarchive.orchestrator.json2csv.OnNonScalar onNonScalar;
+        com.legalarchive.orchestrator.json2csv.ObjectNameValue objectNameValue;
+        try {
+            onNonScalar = com.legalarchive.orchestrator.json2csv.OnNonScalar.parse(onNonScalarS);
+            objectNameValue = com.legalarchive.orchestrator.json2csv.ObjectNameValue.parse(params.get("objectNameValue"));
+        } catch (com.legalarchive.orchestrator.json2csv.Json2CsvException e) {
+            line.accept("json2csv: " + e.getMessage()); res.exitCode = 2; return;
+        }
+
+        // 5) hand off to the run loop, which lives in json2csv precisely so it can be exercised
+        //    outside the application: reading and writing are seams, and everything between them -
+        //    the file order, what the counters do when one file fails, when the rename may happen -
+        //    is tested there against fakes.
+        com.legalarchive.orchestrator.json2csv.Json2CsvRun.Options o =
+                new com.legalarchive.orchestrator.json2csv.Json2CsvRun.Options();
+        o.inputDir = dir;
+        o.filePattern = filePattern;
+        o.failOnBadFile = "FAIL".equals(onBadFile);
+        o.columns = columns;
+        o.onNonScalar = onNonScalar;
+        o.objectNameValue = objectNameValue;
+        o.dates = dates;
+        o.serialStart = serialStart;
+        o.serialPad = serialPad;
+
+        java.io.File out = new java.io.File(rebaseRel(csvFile, vars));
+        if (out.getParentFile() != null) out.getParentFile().mkdirs();
+        long maxRows = step.csvSplitRows > 0 ? step.csvSplitRows : 0;
+        long maxBytes = step.csvSplitMb > 0 ? (long) step.csvSplitMb * 1024L * 1024L : 0;
+        final JsonDocumentReader reader = new JsonDocumentReader(maxFileMB, inputCharset);
+        final com.legalarchive.orchestrator.ds.CsvWriter cw =
+                new com.legalarchive.orchestrator.ds.CsvWriter(out, delim, false, maxRows, maxBytes);
+
+        com.legalarchive.orchestrator.json2csv.Json2CsvCounters counters;
+        try {
+            counters = com.legalarchive.orchestrator.json2csv.Json2CsvRun.run(o,
+                    new com.legalarchive.orchestrator.json2csv.Json2CsvRun.DocumentReader() {
+                        public Object read(java.io.File f) throws Exception { return reader.read(f); }
+                    },
+                    new com.legalarchive.orchestrator.json2csv.Json2CsvRun.RowSink() {
+                        public void header(String[] cols) throws Exception { cw.header(cols); }
+                        public void row(String[] cells) throws Exception { cw.row(cells); }
+                    },
+                    line);
+        } catch (com.legalarchive.orchestrator.json2csv.Json2CsvException e) {
+            line.accept("json2csv: " + e.getMessage());
+            res.exitCode = 2;
+            return;
+        } finally {
+            try { cw.close(); } catch (Exception ignored) { }
+        }
+
+        // 6) the rename, and only now: the CSV is closed above, in the finally.
+        if (renameProcessed) {
+            int renamed = com.legalarchive.orchestrator.json2csv.Json2CsvRun.renameProcessed(counters, line);
+            line.accept("json2csv: renamed " + renamed + " of " + counters.processed.size() + " input file(s) to .done");
+        }
+
+        line.accept("json2csv: " + counters.toString());
+        // The invariant, said out loud rather than left to be worked out: it is the cheapest possible
+        // assertion that the executor did what it claims, and the one number a gate can branch on.
+        if (counters.rowPerFileHolds()) {
+            line.accept("json2csv: one row per file (filesRead = rowsWritten = " + counters.rowsWritten + ")");
+        } else {
+            line.accept("json2csv: WARNING filesRead=" + counters.filesRead + " but rowsWritten="
+                    + counters.rowsWritten + " - one file should produce exactly one row");
+        }
+
+        res.outVars.put("rowCount", String.valueOf(cw.rows));
+        res.outVars.put("csvParts", String.valueOf(cw.parts));
+        if (!cw.files.isEmpty()) res.outVars.put("csvFile", cw.files.get(0));
+        res.outVars.put("csvFiles", String.join(step.delimiter == null ? ";" : step.delimiter, cw.files));
+        res.outVars.put("filesRead", String.valueOf(counters.filesRead));
+        res.outVars.put("filesFailed", String.valueOf(counters.filesFailed));
+        res.outVars.put("rowsWritten", String.valueOf(counters.rowsWritten));
+        res.outVars.put("valuesMissing", String.valueOf(counters.valuesMissing));
+        res.outVars.put("valuesNonScalar", String.valueOf(counters.valuesNonScalar));
+        res.exitCode = 0;
     }
 
     private void runXlsx2Csv(StepDef step, Map<String, String> params, Map<String, String> vars,

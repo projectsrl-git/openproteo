@@ -17,6 +17,9 @@ public final class Json2CsvCounters {
     public long valuesMissing;
     public long valuesNonScalar;
 
+    /** The inputs that produced a row, for a rename that may only happen once the CSV is closed. */
+    public java.util.List<java.io.File> processed;
+
     /** True when one row came out per file read, which is the invariant of this executor. */
     public boolean rowPerFileHolds() { return filesRead == rowsWritten; }
 

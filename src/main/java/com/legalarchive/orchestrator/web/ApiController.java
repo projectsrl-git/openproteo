@@ -2126,6 +2126,7 @@ public class ApiController {
                     for (com.legalarchive.orchestrator.model.def.ColumnSel cs : st.columns) {
                         WorkflowDto.NodeDto.ColumnSelDto cd = new WorkflowDto.NodeDto.ColumnSelDto();
                         cd.src = cs.src; cd.as = cs.as;
+                        cd.type = cs.type; cd.from = cs.from; cd.mode = cs.mode; cd.value = cs.value;
                         nd.columns.add(cd);
                     }
                 }
