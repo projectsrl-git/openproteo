@@ -103,6 +103,32 @@ public final class BatchNaming {
         return String.format("%02d%02d%02d", s / 3600, (s % 3600) / 60, s % 60);
     }
 
+    /** The token a deliverable INDX name carries, and what it becomes while the file is being written. */
+    public static final String INDX_TOKEN = "INDX";
+    public static final String INDX_PART = "I_PART";
+    public static final String PULL_TOKEN = "PULL";
+    public static final String PULL_PART = "P_PART";
+
+    /**
+     * The name a file carries while it is being written.
+     *
+     * A {@code .part} suffix on its own is not enough. Everything downstream that looks for deliverable
+     * files matches on the token - the reference PowerShell scripts default to {@code *INDX*}, and
+     * elarcheck's file pattern does the same - so a half-written {@code x.INDX.C152100.part} is still a
+     * match for anything scanning by token rather than by extension. Replacing the token as well means a
+     * file in flight cannot be picked up by a permissive pattern, whatever it matches on.
+     *
+     * The LAST occurrence is replaced, because the token appears late in these names and a family whose
+     * name happened to contain it would otherwise have the wrong one substituted. A name with no token
+     * at all still gets the suffix: the protection degrades rather than disappearing.
+     */
+    public static String partName(String finalName, String token, String replacement) {
+        int i = finalName.lastIndexOf(token);
+        String base = i < 0 ? finalName
+                : finalName.substring(0, i) + replacement + finalName.substring(i + token.length());
+        return base + AtomicOutput.PART;
+    }
+
     /**
      * The name the PULL references: the delivered INDX file name with a literal {@code .xml} suffix
      * removed if it has one.

@@ -85,6 +85,16 @@ public final class ElarRun {
          */
         public boolean checkFreeDisk = true;
         /**
+         * One log line per document, naming the INDX it went into, the document id from
+         * {@code input.doc_id_reference} and the content file name.
+         *
+         * On by default: without it, an INDX rejected by ELAR leaves no record on this side of WHICH
+         * documents were in it, and the file has to be reopened and parsed to find out. Only the two
+         * identifiers are logged - never a field value - which is the same line the pre-scan and the
+         * findings file already draw.
+         */
+        public boolean logDocuments = true;
+        /**
          * Where the free-space figure comes from. Null means ask the filesystem, which is what a real
          * run does. It exists because a disk cannot be filled on demand in a test, and a safeguard that
          * has never been seen to fire is not a safeguard - so the one thing that cannot be simulated is
@@ -290,6 +300,12 @@ public final class ElarRun {
                         // (ROLL_THEN_ALONE) still counts this input as one of that batch's producers
                         if (!contributors.contains(in)) contributors.add(in);
 
+                        if (o.logDocuments) {
+                            String id = tags.get(docIdTag);
+                            log.accept("elarxml: " + batch.names.indexFileName + " <- id="
+                                    + (id == null || id.isEmpty() ? "(none)" : id)
+                                    + " file=" + store.fileName(content));
+                        }
                         long actual = batch.writeDocument(indx, tags, store, content, contentTag, dsakTag, hashTag);
                         counters.wrote(tags.size(), actual);
                         policy.appended(estimate);
@@ -488,7 +504,7 @@ public final class ElarRun {
 
     /** One INDX being written, with its PULL produced on close. */
     static final class Batch {
-        private final BatchNaming.Pair names;
+        final BatchNaming.Pair names;
         private final AtomicOutput indexOut;
         private final WrappingXmlOut xml;
         private final Options opts;
@@ -501,7 +517,8 @@ public final class ElarRun {
 
         static Batch open(BatchNaming naming, Options o, IndxTemplate indx, Consumer<String> log) throws Exception {
             BatchNaming.Pair n = naming.next();
-            AtomicOutput a = new AtomicOutput(new File(o.outputDir, n.indexFileName), o.overwriteExisting);
+            AtomicOutput a = new AtomicOutput(new File(o.outputDir, n.indexFileName), o.overwriteExisting,
+                    BatchNaming.partName(n.indexFileName, BatchNaming.INDX_TOKEN, BatchNaming.INDX_PART));
             int maxLine = o.maxLineLength > 0 ? o.maxLineLength : 20000;
             WrappingXmlOut x = new WrappingXmlOut(a.stream(), o.outputCharset, maxLine, o.formatOutput);
             return new Batch(n, a, x, o);
@@ -543,7 +560,9 @@ public final class ElarRun {
             indexOut.commit();
             written.add(names.indexFileName + " (" + docs + " document(s))");
 
-            AtomicOutput pullOut = new AtomicOutput(new File(opts.outputDir, names.pullFileName), opts.overwriteExisting);
+            AtomicOutput pullOut = new AtomicOutput(new File(opts.outputDir, names.pullFileName),
+                    opts.overwriteExisting,
+                    BatchNaming.partName(names.pullFileName, BatchNaming.PULL_TOKEN, BatchNaming.PULL_PART));
             try {
                 int maxLine = opts.maxLineLength > 0 ? opts.maxLineLength : 20000;
                 WrappingXmlOut px = new WrappingXmlOut(pullOut.stream(), opts.outputCharset, maxLine, opts.formatOutput);
@@ -555,6 +574,11 @@ public final class ElarRun {
             }
             written.add(names.pullFileName);
             counters.batchesWritten++;
+            // the closing line of the per-document trace: what went in, and how many
+            if (opts.logDocuments) {
+                log.accept("elarxml: " + names.indexFileName + " delivered with " + docs
+                        + " document(s), paired with " + names.pullFileName);
+            }
         }
 
         void abort() {

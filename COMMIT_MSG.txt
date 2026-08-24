@@ -1,70 +1,61 @@
-json2csv batch 4: USAGE.md, rendered rather than proof-read
+elarxml: trace every document to its INDX, and hide files while in flight
 
-USAGE.md gains a json2csv section and an entry in the executor list. 23
-assertions green, bringing the total across four batches to 394. The feature
-is complete as specified.
+Two changes asked for together, both about what someone downstream can see.
 
-THE DOCUMENTATION IS RENDERED, NOT PROOF-READ
+THE PER-DOCUMENT TRACE
 
-docs.html turns every source line into its own paragraph - there is no
-soft-wrap merging. A paragraph wrapped at 100 columns in the file renders as
-five separate paragraph blocks: invisible in an editor, obvious on the page,
-and exactly the kind of defect that ships.
+logDocuments, on by default: one line per document naming the INDX it went
+into, the document id from input.doc_id_reference and the content file name,
+then a total when the INDX is delivered together with the PULL it is paired
+with.
 
-So tests/docs.js extracts render() from docs.html at build time and runs it
-over the real USAGE.md. It asserts that no Markdown leaks outside code blocks,
-that the section and its subsections arrived, and - the one that matters -
-that no paragraph in the added section is a wrapped continuation of the one
-above it.
+ELAR validates an INDX in full and rejects it in full, so the first question
+after a rejection is always which documents were in that file. Answering it
+used to mean reopening the INDX and parsing it.
 
-89 wrapped paragraphs already exist elsewhere in USAGE.md. They are reported
-by the harness and not fixed: rewrapping 700 lines of prose inside a patch
-about an executor is the kind of unrelated churn that makes a diff
-unreviewable. The assertion is scoped to what this batch added, and a second
-assertion confirms the batch did not make the count worse.
+Only those two identifiers are logged, never a field value. That is the same
+line the pre-scan and the findings file already draw: a document id and a file
+name identify a document, whereas the metadata beside them identifies a
+customer. A feed of two hundred thousand documents produces two hundred
+thousand lines, so logDocuments=false exists for a feed where that is more
+than the step log should carry.
 
-A GREEN MUTATION FOUND A REAL GAP
+THE IN-FLIGHT NAME CHANGES ITS TOKEN, NOT JUST ITS SUFFIX
 
-Two mutations of USAGE.md came back green. Following the rule from batch 3 - a
-green mutation is a claim about the mutation before it is a claim about the
-suite - both were opened up rather than filed.
+An INDX is written as x.I_PART.C152100.part and a PULL as
+x.P_PART.C152100.part, taking their deliverable names only once complete.
 
-One was a bad mutation: changing ### to #### is not a defect. The other was a
-real hole. The wrap check keyed on what the NEXT line started with, and
-skipped it when that was a dash, reading it as a new bullet. A paragraph split
-so that its continuation happened to begin with a dash therefore slipped past
-both the source check and the rendered one.
+The .part suffix on its own was not enough, and that is the point of the
+change. Everything downstream that looks for deliverable files matches on the
+TOKEN rather than the extension: the reference PowerShell scripts default to
+*INDX*, and elarcheck's filePattern defaults to *INDX* as well. A half-written
+x.INDX.C152100.part is a match for both. Replacing the token means a file in
+flight cannot be picked up by a permissive pattern whatever it matches on,
+which is a stronger guarantee than asking every consumer to be careful.
 
-The check now keys on the line that ends: a source line that does not end a
-sentence, followed by more text, is a wrapped paragraph, whatever the
-continuation happens to start with. That mutation is now caught, and realistic
-wraps of a paragraph and of a bullet are caught by three assertions each.
+The last occurrence of the token is replaced, so a family whose own name
+contained it keeps it. A name with no token at all still gets the suffix: the
+protection degrades rather than disappearing.
 
-WHAT THE SECTION DOCUMENTS
+VERIFIED
+- 33 assertions. The naming: both substitutions, the last-occurrence rule, a
+  name without the token, and one with an extension after it.
+- The behaviour rather than the arithmetic: the output directory is watched
+  WHILE a run is in progress, and every file seen in flight is checked to
+  match neither *INDX* nor *PULL* while carrying the part marker. Asserting
+  the final names only would have proved nothing about the window this change
+  exists to close. Then that the delivered names are untouched and nothing is
+  left as .part.
+- The trace: all six documents traced to the INDX that received them, every id
+  and content file name present, the total and the PULL pairing reported, no
+  metadata value anywhere in the log, and the switch silencing it without
+  changing what the run delivers.
+- 110 designer assertions, up from 108, covering the new field. All seven elar
+  suites and both panel suites unchanged, scans clean.
 
-Beyond the parameter list: why [] is refused rather than read as [0]; why a
-bracket-quoted key matters, since VM.CAP.DATE.CHARGE written bare parses as
-four nested keys and silently resolves to nothing; why trying three input date
-masks in order is safe here, and the warning that a fourth is not
-automatically safe; that filesRead = rowsWritten is the number to check; that
-an unmapped dataschema column is written empty rather than dropped; and that
-an empty input directory is not an error.
-
-The most useful line of the first-run list is that a high valuesMissing
-usually means a path is mapped one level off, because a wrong path resolves to
-absent rather than to an error - which is precisely why the catalogue shows
-how often each attribute was actually seen.
-
-VERIFIED / NOT VERIFIED
-
-Verified: the real render() from docs.html run over the real USAGE.md, 23
-assertions green; three mutations of the documentation caught after the check
-was strengthened.
-
-Not verified, and it is the same gap as every batch: mvn clean package, and a
-run against real files. Nothing in four batches has been through Spring, a
-WAR, Tomcat, or a single real document. On that first run, in order: that the
-log prints one row per file with filesRead = rowsWritten = N; that
-valuesMissing is not a multiple of the row count, which would mean a path
-mapped one level off; and that the CSV header is the dataschema in dataschema
-order, including the columns nothing maps.
+NOT VERIFIED
+- mvn clean package: Maven Central is unreachable from the chat sandbox, so
+  the build on the target machine remains the only final proof. The elar
+  package compiles and runs standalone in full; the two lines added to
+  runElarXml cannot be compiled here, since the engine package needs Spring
+  from the internal Nexus.

@@ -2494,3 +2494,23 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   first run, in order: that the log prints `one row per file (filesRead = rowsWritten = N)`; that
   `${valuesMissing}` is not a multiple of the row count, which would mean a path mapped one level off;
   and that the CSV header is the dataschema in dataschema order, including the unmapped columns.
+
+## elarxml: per-document trace, and in-flight files that no permissive pattern can match
+* **`logDocuments`, on by default**: one line per document with the INDX it went into, the id from
+  `input.doc_id_reference` and the content file name; then a total per INDX with the PULL it is paired
+  with. **ELAR validates an INDX in full and rejects it in full**, so the first question after a
+  rejection is always which documents were in that file — and answering it used to mean reopening and
+  parsing it.
+* **Identifiers only, never a field value.** Same line the pre-scan and the findings file already draw:
+  a document id and a file name identify a DOCUMENT, the metadata beside them identifies a CUSTOMER.
+  200k documents = 200k lines, so the switch exists.
+* **The in-flight name changes its TOKEN, not just its suffix**: `x.INDX.C152100` is written as
+  `x.I_PART.C152100.part`, PULL likewise `P_PART`. **`.part` alone was not enough** — everything
+  downstream matches on the token, not the extension: the reference PowerShell scripts default to
+  `*INDX*` and elarcheck's `filePattern` does too, so a half-written `x.INDX.C152100.part` matched both.
+  Replacing the token is a stronger guarantee than asking every consumer to be careful.
+* The **last** occurrence is replaced, so a family whose own name contains the token keeps it; a name
+  with no token still gets the suffix — the protection degrades rather than disappearing.
+* **The naming test watches the output directory WHILE the run is in progress** and checks every file
+  seen in flight against `*INDX*` and `*PULL*`. Asserting the final names only would have proved
+  nothing about the window this change exists to close. 33 assertions.

@@ -574,6 +574,7 @@ The rest are optional and default to what the legacy tool did, with the three de
 - `contentSource` - `LOCAL` (default) or `IFS`. Where the embedded document is read from. See the section below.
 - `contentIfsPath`, `contentIfsMaxListing` - only under `IFS`.
 - `checkFreeDisk` - default `true`, and only under `batchBy=BYTES`. See the section on running out of disk.
+- `logDocuments` - default `true`. One log line per document, naming the INDX it went into.
 - `validate` - `false` by default. See the validation section.
 - `renameProcessed` - `true` by default; the input is renamed to `.done` after its output is delivered.
 - `overwriteExisting` - `false` by default; a final output name that already exists fails the run rather than being replaced.
@@ -592,6 +593,20 @@ A malformed row is governed by `onMalformedRow`, `FAIL` by default: the run stop
 This is deliberate and it is a change from the legacy tool, which dropped such rows silently and delivered the feed short. Checking first rather than mid-file matters: by the time a bad row is reached during processing, some batches have already been renamed to their final deliverable names, so the output directory would hold a partial set with nothing to say so, and a re-run would then re-deliver what had already gone out. Scanning first makes the refusal complete - either everything is written or nothing is.
 
 Set `onMalformedRow=SKIP` for a feed where the source cannot be corrected. That restores the legacy behaviour with one difference: the loss is counted and reported instead of being invisible.
+
+### Knowing what went into each INDX
+
+With `logDocuments` on, which it is by default, every document produces one line naming the INDX it went into, the document id taken from `input.doc_id_reference` and the content file name; each INDX then reports its own total and the PULL it is paired with when it is delivered. ELAR validates an INDX in full and rejects it in full, so when one comes back rejected the first question is always which documents were in it - and without this the file has to be reopened and parsed to answer it.
+
+Only those two identifiers are logged, never a field value. That is the same line the pre-scan and the findings file already draw: a document id and a file name are document identifiers, whereas the metadata beside them is customer data.
+
+A feed of two hundred thousand documents produces two hundred thousand lines, so `logDocuments=false` turns it off for a feed where that is more than the step log should carry.
+
+### Files while they are being written
+
+An INDX or PULL only exists under its deliverable name once it is complete. While it is being written it carries a `.part` suffix **and** a different token: `INDX` becomes `I_PART` and `PULL` becomes `P_PART`, so `RZ2.ELA.FTP.CLIAC@DT.D26236.INDX.C152100` is written as `RZ2.ELA.FTP.CLIAC@DT.D26236.I_PART.C152100.part`.
+
+The suffix alone would not be enough. Everything downstream that looks for deliverable files matches on the token rather than the extension - the reference PowerShell scripts default to `*INDX*` and the `elarcheck` file pattern does the same - so a half-written file would still be a match for anything scanning that way. Replacing the token means a file in flight cannot be picked up by a permissive pattern, whatever it matches on. A name whose pattern contains no such token still gets the suffix: the protection degrades rather than disappearing.
 
 ### Running out of disk part-way through
 

@@ -1186,3 +1186,39 @@ filesystem stops a run.
 **Not simulated, injected**: a disk cannot be filled on demand in a test, and a safeguard never seen to
 fire is not a safeguard - so the free-space figure is the one thing behind a seam, and everything built
 on it is exercised for real.
+
+### The per-document trace, and files that cannot be mistaken for deliverables while in flight
+
+**Two changes asked for together, both about what someone downstream can see.**
+
+**`logDocuments`, on by default.** One line per document naming the INDX it went into, the id from
+`input.doc_id_reference` and the content file name; then a total when the INDX is delivered, with the
+PULL it is paired with. ELAR validates an INDX in full and rejects it in full, so the first question
+after a rejection is always *which documents were in that file* - and without this the answer required
+reopening and parsing it.
+
+Only the two identifiers are logged, never a field value. That is the same line the pre-scan and the
+findings file already draw: a document id and a file name identify a document, the metadata beside them
+identifies a customer. A feed of two hundred thousand documents produces two hundred thousand lines, so
+the switch exists.
+
+**The in-flight name changes its token, not just its suffix.** `x.INDX.C152100` is written as
+`x.I_PART.C152100.part`, and the PULL likewise as `P_PART`.
+
+`.part` on its own was not enough, and this is the point of the change: everything downstream that looks
+for deliverable files matches on the **token**, not the extension. The reference PowerShell scripts
+default to `*INDX*`; `elarcheck`'s `filePattern` defaults to `*INDX*` too. A half-written
+`x.INDX.C152100.part` is a match for both. Replacing the token means a file in flight cannot be picked
+up by a permissive pattern whatever it matches on - which is a stronger guarantee than asking every
+consumer to be careful.
+
+The **last** occurrence is replaced, so a family whose own name contained the token keeps it. A name
+with no token at all still gets the suffix: the protection degrades rather than disappearing.
+
+**Verified** by 33 assertions. The naming: both substitutions, the last-occurrence rule, a name without
+the token, and one with an extension after it. The behaviour: the output directory is watched **while a
+run is in progress**, and every file seen in flight is checked to match neither `*INDX*` nor `*PULL*`
+while carrying the part marker - then that the delivered names are untouched and nothing is left as
+`.part`. The trace: all six documents traced to the INDX that received them, each id and file name
+present, the total and the PULL pairing reported, **no metadata value in the log**, and the switch
+silencing it without changing the run.

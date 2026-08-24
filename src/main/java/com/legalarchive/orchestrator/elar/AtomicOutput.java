@@ -18,6 +18,8 @@ import java.io.OutputStream;
  */
 public final class AtomicOutput implements AutoCloseable {
 
+    public static final String PART = ".part";
+
     private final File target;
     private final File temp;
     private final OutputStream out;
@@ -29,6 +31,18 @@ public final class AtomicOutput implements AutoCloseable {
      *                          before anything is written rather than replacing a delivered file
      */
     public AtomicOutput(File target, boolean overwriteExisting) throws IOException {
+        this(target, overwriteExisting, target.getName() + PART);
+    }
+
+    /**
+     * @param tempName the name the file carries while it is being written. Given by the caller rather
+     *                 than derived here, because only the caller knows which token in the name marks
+     *                 the file as deliverable. A {@code .part} suffix alone is not enough protection:
+     *                 anything downstream matching on {@code *INDX*} - and the reference scripts do
+     *                 exactly that - would still pick up a half-written file, because the token is
+     *                 still in the name. So the token is replaced as well as the suffix added.
+     */
+    public AtomicOutput(File target, boolean overwriteExisting, String tempName) throws IOException {
         this.target = target;
         if (target.exists() && !overwriteExisting) {
             throw new IOException("output file already exists: " + target.getAbsolutePath()
@@ -39,7 +53,7 @@ public final class AtomicOutput implements AutoCloseable {
         if (dir != null && !dir.isDirectory() && !dir.mkdirs()) {
             throw new IOException("cannot create the output directory: " + dir.getAbsolutePath());
         }
-        this.temp = new File(dir, target.getName() + ".part");
+        this.temp = new File(dir, tempName);
         if (temp.exists() && !temp.delete()) {
             throw new IOException("a leftover temporary file could not be removed: " + temp.getAbsolutePath()
                     + " - it is from an interrupted run and must be cleared before this one can write.");

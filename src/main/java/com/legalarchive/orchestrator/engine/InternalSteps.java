@@ -1997,6 +1997,7 @@ public class InternalSteps {
         o.writeSkippedRows = !"false".equalsIgnoreCase(xStr(params.get("writeSkippedRows"), "true"));
         o.formatOutput = !"false".equalsIgnoreCase(xStr(params.get("formatOutput"), "true"));
         o.checkFreeDisk = !"false".equalsIgnoreCase(xStr(params.get("checkFreeDisk"), "true"));
+        o.logDocuments = !"false".equalsIgnoreCase(xStr(params.get("logDocuments"), "true"));
         o.validate = "true".equalsIgnoreCase(params.get("validate"));
         o.renameProcessed = !"false".equalsIgnoreCase(params.get("renameProcessed"));
         o.overwriteExisting = "true".equalsIgnoreCase(params.get("overwriteExisting"));
