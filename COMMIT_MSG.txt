@@ -1,107 +1,78 @@
-json2csv, batch 0: specification, and the sandbox decides the shape
+json2csv batch 0 revised: Gate 0 answered, and it removed parameters
 
-Specification committed at .claude/JSON_TO_CSV_EXECUTOR.md, self-contained. No
-code in this commit.
+Specification updated at .claude/JSON_TO_CSV_EXECUTOR.md. Still no code.
 
-The executor reads the JSON files matching a wildcard mask in a directory and
-writes ONE flat CSV whose shape is the feed's dataschema, filling its columns
-from JSON attribute paths chosen against a JSON schema. Nested objects and
-arrays are flattened: the row count follows the cardinality of the innermost
-MAPPED array, and everything outside it repeats on each row it covers.
+WHAT THE ANSWERS DID
 
-NO GATE 0 ON NEXUS
+Six questions answered, four of them deleting a parameter each: documentsPath,
+onSiblingArrays, onEmptyArray, checkNullable with onNullViolation and the
+${nullViolations} counter, COLUMN_EXTENSION, and epoch milliseconds from the
+date defaults. A parameter specified for a case that does not exist is a thing
+to misconfigure, so they are gone rather than left switched off.
 
-jackson-databind already arrives with spring-boot-starter-web, and
-ApiController, DataSourceStore and InternalSteps already use ObjectMapper. No
-new dependency, no question to ask.
+ONE FILE, ONE ROW
 
-THE CONSTRAINT THAT SHAPES THE DESIGN
+Each JSON is a serialised database row. One file is one document is one CSV
+row, and multi-row flattening - one row per array element with outer values
+repeated - is deferred. ${filesRead} must equal ${rowsWritten}, and the step
+log says so rather than leaving it to be worked out: it is the cheapest
+possible assertion that the executor did what it claims, and the one number a
+gate can branch on.
 
-The elar package is free of Spring and compiles standalone with javac
---release 8. That is what has let every suite in that subsystem run the real
-code against real files in the sandbox, and it is what caught the .done rename
-defect, the value-edge breaks and the split start tag.
+The deferred design stays on the page, marked DEFERRED, not deleted. The
+refusal below is only defensible if what is being refused is written down, and
+the chain rule is the design for the day it returns.
 
-Maven Central is not reachable from the sandbox - verified,
-repo.maven.apache.org answers 403. A core that imported com.fasterxml.jackson
-could not be compiled here at all, and the flattening rules, which are the
-part of this executor that is genuinely easy to get wrong, would ship
-unexercised.
+[] IS REFUSED, NOT GUESSED AT
 
-So the split is at the only place where it is free. The tree is Map, List,
-BigDecimal, String, Boolean and null - precisely what
-ObjectMapper.readValue(file, Object.class) already returns, and precisely what
-InternalSteps.readSchemaColumnNames already reads the dataschema as today. The
-core is pure over that tree and runs here against trees built by hand. Jackson
-appears in exactly one class, JsonDocumentReader, whose whole body is the read
-call, the USE_BIG_DECIMAL_FOR_FLOATS setting and the size guard. That class is
-the only part that cannot be exercised in the sandbox, and the delivery says
-so.
+An unbounded [] fails static validation, before a file is opened. It is never
+read as [0] and never ignored. Reading it as [0] would deliver a feed short by
+every element after the first, with nothing in the output saying so; ignoring
+the column would deliver it empty. Both are discovered in ELAR months later.
+This is discovered when the step is saved.
 
---release 8, not -source 8 -target 8: only the former checks the API surface.
+The path catalogue still SHOWS array paths, marked unavailable with that
+reason. Hiding them would leave an operator hunting for an attribute that is
+plainly in the sample.
 
-NOTHING NEW WHERE SOMETHING EXISTS
+conti[0], an explicit index, is added, and it is the one place this design
+goes past Gate 0: a file may carry arrays while only one row comes out, and an
+explicit index reaches into one without asking for the deferred half. It is
+flagged in the spec as veto-able at this gate.
 
-CsvWriter already does UTF-8, CRLF, RFC-4180 quoting and split-by-rows /
-split-by-MB for sql, csvsql and xlsx2csv, so requirement 7 is a wiring job and
-the output conventions are byte-identical by construction. columnsSchema is
-reused as the parameter name because the sql executor already calls the path
-to a dataschema JSON exactly that.
+DATES
 
-THE DATE FORMAT IS A MASK
+Three masks tried in order - YYYY/MM/DD, YYYYMMDD, YYYY-MM-DD - and the spec
+says why order is safe here rather than assuming it. The three are disjoint by
+shape: eight digits, or ten with slashes, or ten with dashes, so no value
+parses as two of them. A format list tried in order is a dangerous idea in
+general - DD/MM/YYYY then MM/DD/YYYY reads 03/04 as two different days and
+never says so - and is safe only when the shapes are disjoint. A fourth mask
+added later is not automatically safe and must be checked against the other
+three.
 
-recordBusinessDateFormat carries forms like YYYY/MM/DD, where DD is
-day-of-month and not day-of-year. Feeding it to DateTimeFormatter.ofPattern is
-the defect recorded in CLAUDE.md under "the date MASK is not a java.time
-pattern", which silently broke businessDateNotBefore for the life of the
-product. Date columns go through InternalSteps.fmtToJavaPattern, both for
-output and for input masks. Reimplementing it here would reintroduce the bug.
+Parsing is STRICT, on the uuuu that fmtToJavaPattern already produces:
+20260230 is refused rather than quietly resolved to the 28th. A Date column
+exists to validate as much as to reformat, and a resolver that repairs
+impossible dates gives the validation away. A JSON number needs no special
+case: 20260824 is written plain and parses under YYYYMMDD.
 
-THE FLATTENING RULE
+SMALLER GUARDS, CLOSER TO REALITY
 
-S is the set of array prefixes of the mapped paths that have a src. An array
-nobody reads from does not multiply rows, which is what requirement 4 means by
-"ovviamente se tali elementi sono mappati". If S is a chain, rows come from
-nested iteration over it; outer values repeat because reading at the current
-index is what repeating means.
+maxFileMB drops from 64 to 16. A guard set far above anything real cannot
+catch a whole export dropped into the input directory by mistake, which is
+most of what it is for.
 
-Sibling arrays - accounts[] and notes[], neither containing the other - are
-refused by default. The product is silent: a run that should write 400 rows
-writes 4000, each value repeated, with nothing in the output saying which
-repetitions are real. CROSS is available per step, in the open. The check is
-static, on the mapping, so it fires before a file is opened.
-
-An empty or absent array yields ONE row and not none, recursively at every
-level: a LEFT JOIN rather than an INNER one. The default must not lose a
-document in silence.
-
-DECISIONS WORTH ARGUING WITH AT THE GATE
-
-ObjectName is a column TYPE and not a parameter naming a column - the same
-dropdown as Serial, the other column whose value does not come from the JSON.
-Serial restarts neither per input file nor per split part, because the parts
-are one delivery and a Serial that restarted would give two rows the same
-number. <column> is reused rather than a hundred params: ColumnSel gains four
-optional fields, written only when non-empty, so an xlsx2csv step round-trips
-byte-identically - asserted in batch 2 by reading and rewriting every workflow
-XML in the repo and comparing SHA-256, before anything else is touched.
-
-GATE 0 - SIX QUESTIONS THAT GATE BATCH 1
-
-All about the data, none answerable from here: the largest JSON file and how
-many per run, which decides tree against streaming; whether one file is one
-document or holds an array of them; whether two independent arrays ever need
-mapping together; what dates look like inside the JSON; whether MIMEType wants
-.json or application/json, and of which file; and whether the dataschema's
-nullable:false should be enforced, which is specified and off.
+renameProcessed can only ever fire at the end here, unlike elarxml where it is
+per file as soon as that file's batches have reached their final names: every
+input feeds one output, so nothing is processed until the step is. Renaming
+earlier would be the elarxml .done defect reintroduced from the other side.
 
 VERIFIED / NOT VERIFIED
 
-Verified: Jackson is on the classpath; Maven Central is unreachable (403);
-CsvWriter's split contract; that readSchemaColumnNames reads both dataschema
-dialects; that fmtToJavaPattern exists and what it translates; that ColumnSel
-is shared with xlsx2csv and carries only src and as today; the six
-registration points, read from the elarcheck registration.
+Verified: that the previous batch 0 is committed at f3831bb and this revises
+it rather than duplicating it; that no removed parameter survives anywhere in
+the spec except in the sentence recording its removal.
 
-Not verified: nothing is implemented, so there is nothing to run. The claims
-about behaviour are design intent and become assertions in batches 1 to 3.
+Not verified: nothing is implemented. The claims about behaviour are design
+intent and become assertions in batches 1 to 3.

@@ -1,12 +1,18 @@
 # JSON to CSV executor (`json2csv`) — specification
 
 Status: **Batch 0 — specification only. No implementation.**
+Revised after Gate 0 was answered (§3). **The answers removed more of this than they added**, and the
+removals are recorded here rather than deleted: §6.3–§6.5 stay on the page, marked DEFERRED, because
+they are the design for the day the deferred half comes back.
 
 Reads the JSON files matching a wildcard mask in a directory and writes ONE flat CSV whose shape is
 the feed's **dataschema**, filling its columns from JSON attribute paths chosen against a **JSON
-schema** (an uploaded sample, or a real JSON Schema). Nested objects and arrays are flattened: the
-row count follows the cardinality of the innermost **mapped** array, and everything outside it is
-repeated on each row it covers.
+schema** (an uploaded sample, or a real JSON Schema).
+
+**One JSON file is one document and produces exactly one CSV row.** Each file is a serialised
+database row: an object of scalars, possibly with nested objects, possibly carrying arrays that
+nothing maps into. Multi-row flattening — one row per element of an array, outer values repeated — is
+**specified but not implemented**, and a path that asks for it is refused rather than guessed at.
 
 Self-contained: everything needed to implement is here.
 
@@ -57,59 +63,53 @@ flag that catches a Java 9+ method before the user's build does.
   `InternalSteps.fmtToJavaPattern` already translates it. **Date columns go through that translator,
   both for output and for input masks.** Reimplementing it here would reintroduce the bug.
 
-## 3. Gate 0 — questions that gate batch 1
+## 3. Gate 0 — ANSWERED
 
-These are about the data, not about the code, and the sandbox cannot answer them. Batch 1 does not
-start until they are answered here.
+Answered by the feed owner. Kept with the reasoning intact: what the questions were for is why the
+design is the shape it is, and half of them removed code rather than adding it.
 
-### Q1 — How large is the largest JSON file, and how many are there per run?
+### Q1 — size — ANSWERED: small
 
-The reader of §1 holds one document in memory as a tree. A tree costs roughly 8–15× the file size in
-heap. At a few MB per file that is free; at 500 MB it is not, and the design changes to a streaming
-reader that is a different and much larger piece of work.
+Each JSON is one row of one database entity. The tree reader of §1 is right and streaming is not
+needed. `maxFileMB` drops from 64 to **16** (§9.3): the guard exists to catch a file that is not what
+this feed thinks it is, and a limit set far above anything real cannot do that.
 
-`maxFileMB` (§9.3) refuses a file over the limit instead of dying on it, so a wrong answer here fails
-loudly rather than at 3 a.m. with an `OutOfMemoryError` in the middle of a batch. But the answer
-decides whether the default is comfortable or whether streaming is needed from the start.
+### Q2 — one file, one document — ANSWERED: yes, and one CSV row
 
-### Q2 — Is one file one document, or does a file hold an array of documents?
+**One file is one document is one row.** `documentsPath`, which would have let one file hold an array
+of documents, is **removed**: it was specified for a case that does not exist here, and an unused
+parameter is a thing to misconfigure.
 
-`documentsPath` (§5.2) covers both. The question is which one the real files are, because it decides
-what `original_object_name` means when 10 000 documents share one filename.
+A file may *contain* arrays. Nothing maps into them: only a header-like set of scalars is taken out,
+and it fits on one row. This is what makes §6.3–§6.5 deferred rather than wrong.
 
-### Q3 — Do two INDEPENDENT arrays ever need to be mapped at the same time?
+### Q3 — sibling arrays — ANSWERED: no
 
-`accounts[].iban` and `notes[].text` are siblings: neither contains the other. Flattening both into
-one CSV is a cartesian product — 3 accounts and 4 notes give 12 rows, each account repeated 4 times
-and each note 3 times, with no column saying so.
+They never occur, and with array mapping deferred they cannot. `onSiblingArrays` is **removed**; the
+static check it guarded is subsumed by the flat refusal of §6.2.
 
-This is refused by default (§6.4). If the real mapping needs it, say so and the answer is `CROSS`,
-per step, in the open. If it does not, the check is an alarm that never rings — which is what it is
-meant to be.
+### Q4 — dates in the JSON — ANSWERED: `YYYY/MM/DD`, `YYYYMMDD`, `YYYY-MM-DD`
 
-### Q4 — What do dates look like INSIDE the JSON?
+Three masks in the product's own dialect, and — this is the part that matters — **mutually
+unambiguous by shape**. Eight digits, or ten with two slashes, or ten with two dashes: no value can
+parse as two of them. So trying all three in order is safe here, where trying `DD/MM/YYYY` and
+`MM/DD/YYYY` in order would silently read the third of April as the fourth of March. §7.3.
 
-The output format is settled (`recordBusinessDateFormat`, requirement 6.3). The input is not. ISO-8601
-`2026-08-24`, ISO with a time and a zone, epoch milliseconds and `24/08/2026` are four different
-parses and the executor must not guess between them silently.
+Epoch milliseconds is **removed** from the defaults: it was a guess, and guessing at a value that
+parses as a date either way is exactly the failure this executor should not have.
 
-The design tries ISO-8601 then epoch milliseconds when no input mask is given, and takes an explicit
-per-column mask otherwise. **A sample of the real values settles which default is right.**
+### Q5 — MIMEType — ANSWERED: `.json`
 
-### Q5 — MIMEType: the extension, or a real media type?
+The file extension, dot included. `COLUMN_EXTENSION` — the extension of a document named by another
+attribute — is **removed**: it was speculation about an attachment model this feed does not have.
+`FIXED` and `SOURCE_EXTENSION` remain and, for a `*.json` input, produce the same string; §7.4 says
+why both are kept anyway.
 
-Requirement 6.1 gives the example `.json`, which is a file extension. ELAR's own table calls the
-column MIMEType and wants `application/json`. Both are one line of code and they are not the same
-value; a run that writes the wrong one is not detected by anything downstream.
+### Q6 — `nullable:false` — ANSWERED: not here
 
-And: the extension **of what**? The source JSON file, or a document named by an attribute inside it?
-§7.4 supports both; the question is which the feed needs.
-
-### Q6 — Should the dataschema's `nullable:false` be enforced?
-
-The dataschema carries it and nothing in this product reads it today. `checkNullable` (§9.5) is
-specified and **off**, so this changes nothing unless asked for. Worth a yes or no while the schema is
-in front of us.
+Checked by later steps in the workflow, not by this one. `checkNullable` and `onNullViolation` are
+**removed** along with the `${nullViolations}` counter. The dataschema is read here for column names
+and order, and for nothing else.
 
 ---
 
@@ -125,14 +125,14 @@ in front of us.
   <param name="columnsSchema" value="${feedDir}/dataschema.json"/>
   <param name="jsonSchema"    value="${feedDir}/jsonschema.json"/>
 
-  <column as="NDG"                  src="ndg"                            type="String"/>
-  <column as="NOMINATIVO"           src="customer.name"                  type="String"/>
-  <column as="DATA_KYC"             src="customer.kycDate"               type="Date" from="YYYY-MM-DD"/>
-  <column as="IBAN"                 src="accounts[].iban"                type="String"/>
-  <column as="IMPORTO"              src="accounts[].movements[].amount"  type="Number"/>
-  <column as="PROGRESSIVO"                                               type="Serial"/>
-  <column as="ORIGINAL_OBJECT_NAME"                                      type="ObjectName"/>
-  <column as="MIME"                                                      type="MIMEType" mode="SOURCE_EXTENSION"/>
+  <column as="NDG"                  src="ndg"                type="String"/>
+  <column as="NOMINATIVO"           src="customer.name"      type="String"/>
+  <column as="DATA_KYC"             src="kycDate"            type="Date"/>
+  <column as="IMPORTO"              src="saldo"              type="Number"/>
+  <column as="IBAN"                 src="conti[0].iban"      type="String"/>
+  <column as="PROGRESSIVO"                                   type="Serial"/>
+  <column as="ORIGINAL_OBJECT_NAME"                          type="ObjectName"/>
+  <column as="MIME"                                          type="MIMEType" value=".json"/>
 </step>
 ```
 
@@ -167,36 +167,28 @@ Serial column quietly non-reproducible.
 Zero matching files is **not** an error: 0 rows, `${rowCount}=0`, the step succeeds. A feed with no
 input that day is normal, and failing it would wake somebody for nothing.
 
-### 5.2 `documentsPath` — what counts as one document
+### 5.2 One file, one row
 
-Empty (default): the file is one document, and the root is the tree.
+Gate 0 Q2. The root of the file is the document, the document is one row, and `${rowCount}` equals the
+number of files successfully read. `documentsPath` is removed; §3 Q2 says why.
 
-Set to a path ending in `[]` (`data.records[]`): each element of that array is a document, and the
-same file yields many. The path is resolved before any mapping; array markers inside `documentsPath`
-do not take part in the flattening of §6.
-
-`original_object_name` is the file name either way (§7.5) — under `documentsPath` many documents share
-it, which is correct if it identifies the attachment and misleading if it is meant to be a key. Q2.
+`original_object_name` is therefore a genuine key and not just a label — one file name, one row.
 
 ### 5.3 Charset
 
 `inputCharset`, default **UTF-8**. JSON is UTF-8 by specification and Jackson auto-detects UTF-8/16/32
 from the BOM, so the default is right and the parameter exists for a source that is neither.
 
-## 6. Flattening — the rule, stated exactly
-
-This is requirement 4 and it is the part worth being pedantic about.
+## 6. Paths, and the array line
 
 ### 6.1 Path syntax
 
-Dot-separated keys, `[]` for an array level:
+Dot-separated keys, with an **explicit index** for an array element:
 
 ```
 ndg
 customer.name
-accounts[].iban
-accounts[].movements[].amount
-tags[]                              a scalar array, the element itself
+conti[0].iban                       the first element, chosen by hand
 data['odd.key'].value               a key containing a dot or a bracket
 ```
 
@@ -204,78 +196,80 @@ Keys are matched **case-sensitively and exactly**, as JSON keys are. A key conta
 written in the bracket-quoted form; the catalogue of §8 emits that form automatically when it meets
 such a key, so it is never typed by hand.
 
-### 6.2 Array prefixes
+`conti[0]` is a decision taken rather than asked for, and it is the one place this design goes past
+Gate 0: Q2 says a file may carry arrays while only one row comes out, and an explicit index is how you
+reach into one without asking for the deferred half. It is five lines of parser and it does exactly
+what it says — element 0, or empty if there is no element 0. **Veto it at this gate if you would
+rather not have arrays reachable at all**; after batch 2 it is a mapping that exists in workflow XML.
+
+### 6.2 `[]` is refused, not guessed at
+
+An unbounded `[]` — `conti[].iban` — asks for one row per element, which is the deferred half. It
+fails **static validation** (§9.1), before a file is opened, naming the column and the path and saying
+that multi-row flattening is not implemented.
+
+Refusing beats the two alternatives. Reading it as `[0]` would silently deliver a feed that is short
+by every element after the first, with nothing in the output saying so. Ignoring the column would
+deliver it empty. Both are discovered in ELAR, months later; this is discovered when the step is
+saved.
+
+The catalogue of §8 still **shows** array paths, marked unavailable with that reason. Hiding them
+would leave an operator hunting for an attribute that is plainly in the sample.
+
+### 6.3 DEFERRED — the chain
+
+> Not implemented. Recorded because it is the design for when array mapping arrives, and because the
+> refusal of §6.2 is only defensible if what is being refused is written down.
 
 For a path `p`, `arrayPrefixes(p)` is every prefix of `p` ending in `[]`, shortest first.
 `accounts[].movements[].amount` gives `accounts[]`, then `accounts[].movements[]`.
 
-`S` is the union of `arrayPrefixes` over **the mapped columns that have a `src`**. Requirement 4's
-"ovviamente se tali elementi sono mappati" is exactly this: an array nobody reads from does not
-multiply rows. Dropping the mapping of `IMPORTO` in the §4 example takes the run from three rows per
-customer to two, and that is the intended behaviour, not a side effect.
-
-### 6.3 The chain
-
-Order `S` by length. If every element is a prefix of the next, `S` is a **chain**
-`a1 ⊂ a2 ⊂ … ⊂ ak` and rows are generated by nested iteration over it, outermost first.
-
-A column whose deepest array prefix is `ai` reads at the current index of `ai`. A column with no array
-prefix is constant for the document. **Repetition of the outer values is not a step — it is what
-reading at the current index does.**
-
-Worked, from §4:
+`S` is the union of `arrayPrefixes` over **the mapped columns that have a `src`** — an array nobody
+reads from does not multiply rows. Order `S` by length; if every element is a prefix of the next it is
+a **chain** `a1 ⊂ a2 ⊂ … ⊂ ak`, and rows come from nested iteration over it, outermost first. A column
+whose deepest array prefix is `ai` reads at the current index of `ai`; a column with no array prefix is
+constant for the document. **Repetition of the outer values is not a step — it is what reading at the
+current index does.**
 
 ```json
 { "ndg": "12345",
-  "customer": { "name": "Rossi" },
   "accounts": [
     { "iban": "IT01", "movements": [ {"amount": 10}, {"amount": 20} ] },
     { "iban": "IT02", "movements": [ {"amount": 30} ] } ] }
 ```
 
 ```
-NDG   ; NOMINATIVO ; IBAN ; IMPORTO
-12345 ; Rossi      ; IT01 ; 10
-12345 ; Rossi      ; IT01 ; 20
-12345 ; Rossi      ; IT02 ; 30
+NDG   ; IBAN ; IMPORTO
+12345 ; IT01 ; 10
+12345 ; IT01 ; 20
+12345 ; IT02 ; 30
 ```
 
-### 6.4 Siblings are refused
+### 6.4 DEFERRED — siblings
 
-If `S` holds two paths and neither is a prefix of the other — `accounts[]` and `notes[]` — the
-combination is a cartesian product. `onSiblingArrays` defaults to **`FAIL`**.
+Two paths in `S` where neither contains the other, `accounts[]` and `notes[]`, are a cartesian
+product: 3 accounts and 4 notes give 12 rows, each account repeated 4 times, with nothing in the
+output saying which repetitions are real. It would default to refusing, with `CROSS` available per
+step.
 
-The check is **static, on the mapping**, so it fires when the step starts, before a single file is
-opened and before anything is written. It names both paths and the columns that introduced them.
+Gate 0 Q3 answered that this never occurs, so the parameter is not carried into the implementation.
 
-`CROSS` is available per step and produces the product, iterating in declaration order. It is not the
-default because the failure mode is silent: a run that should have written 400 rows writes 4 000, each
-value repeated, and nothing in the output says which repetitions are real. Refusing costs a
-configuration round trip; the product costs an archive full of duplicated documents that look
-delivered.
+### 6.5 DEFERRED — an empty array
 
-### 6.5 An empty or absent array
-
-`onEmptyArray` defaults to **`ONE_ROW`**: at each array level, an array that is empty, absent, or not
-an array yields **one** iteration in which everything at or below that level is empty.
-
-The rule is recursive, so in the §4 example an `IT03` account with no movements still gets its row,
-with `IMPORTO` empty — a LEFT JOIN, not an INNER one.
-
-`NO_ROWS` yields zero iterations, dropping the document from the output. It exists because for some
-feeds a customer with no movements is not a record. It is not the default, because **the default must
-not lose a document in silence**: `${documentsWithNoRows}` counts them either way, and under
-`ONE_ROW` they are in the file where they can be seen.
+At each array level, an array that is empty, absent, or not an array would yield **one** iteration in
+which everything at or below that level is empty — a LEFT JOIN, not an INNER one, recursively. The
+alternative, dropping the document, must not be the default: **the default must not lose a document in
+silence.**
 
 ### 6.6 A leaf that is not a scalar
 
-A `src` resolving to an object or an array where a value is expected: `onNonScalar` defaults to
-**`FAIL`**, naming the column, the path and the file. `EMPTY` writes nothing and counts it; `JSON`
-writes the compact JSON text of the node.
+Live, and now the main way a mapping can be wrong. A `src` resolving to an object or an array where a
+value is expected: `onNonScalar` defaults to **`FAIL`**, naming the column, the path and the file.
+`EMPTY` writes nothing and counts it; `JSON` writes the compact JSON text of the node.
 
 A missing intermediate node is **not** this case — that is an absent value, which is empty and counted
 in `${valuesMissing}`. The two have different causes: absent is data, non-scalar is a wrong mapping,
-and a wrong mapping found on row one is worth a stop.
+and a wrong mapping found on the first file is worth a stop.
 
 ## 7. Column types (requirement 6)
 
@@ -300,31 +294,48 @@ a bad value here and finding it in ELAR.
 ### 7.3 Date (requirement 6.3)
 
 Output is **always** `${recordBusinessDateFormat}`, translated by `InternalSteps.fmtToJavaPattern` —
-see §2. There is no per-column output format: requirement 6.3 says the feed has one date format, and
-offering a second place to set it would guarantee the two disagree.
+see §2. There is no per-column output format: requirement 6.3 says the feed has one date format, and a
+second place to set it would guarantee the two disagree.
 
-Input: `from` on the column, in the same mask dialect, translated by the same function. With no `from`,
-ISO-8601 is tried (date, then date-time with optional zone), then epoch milliseconds if the value is an
-integer. A value that parses by none of these follows `onNonScalar`. Q4 decides whether that default
-is the right one.
+Input, with no `from` on the column, is tried against the three masks of Gate 0 Q4 **in this order**:
 
-A `recordBusinessDateFormat` that is unset, or still contains `${`, is reported as an **undefined
-variable** and fails the step — the wording the validate step already uses for the same condition, for
-the same reason: it is a different problem from a bad mask and needs a different fix.
+```
+YYYY/MM/DD      YYYYMMDD      YYYY-MM-DD
+```
+
+Order is safe here and it is worth being explicit about why: eight digits, or ten with two slashes, or
+ten with two dashes — **no value can parse as two of them.** A list of formats tried in order is a
+dangerous idea in general (`DD/MM/YYYY` then `MM/DD/YYYY` reads 03/04 as two different days and never
+says so); it is safe when the shapes are disjoint, which these are. Adding a fourth mask to this list
+later is not automatically safe and must be checked against the other three.
+
+`from` on the column overrides the list with a single mask, same dialect, same translator.
+
+- **Parsing is STRICT** (`ResolverStyle.STRICT`, on `uuuu` which `fmtToJavaPattern` already produces).
+  `20260230` is refused, not quietly resolved to the 28th. A Date column exists to validate as much as
+  to reformat, and a resolver that repairs impossible dates gives away the validation.
+- **A JSON number works.** `20260824` arrives as `BigDecimal`, is written plain as `20260824`, and
+  parses under `YYYYMMDD`. No special case needed.
+- **Empty or null is empty**, not a parse failure. An absent date is data; an unparseable one is not.
+- A value matching none of the masks follows `onNonScalar`, whose default is `FAIL`.
+- A `recordBusinessDateFormat` that is unset, or still contains `${`, is reported as an **undefined
+  variable** and fails the step — the wording the validate step already uses for the same condition,
+  because it is a different problem from a bad mask and needs a different fix.
 
 ### 7.4 MIMEType (requirement 6.1)
 
-`mode`:
+Gate 0 Q5: the value wanted is `.json`, the file extension with its dot. `mode`:
 
-- `FIXED` (default) — the literal in `value`, e.g. `.json` or `application/json`.
-- `SOURCE_EXTENSION` — from the name of the JSON file being read, `report.json` → `.json`.
-- `COLUMN_EXTENSION` — from the value of another column, named in `value`; that column must be
-  declared **before** this one. Cross-references and forward references are refused at start-up, not
-  resolved.
+- `FIXED` (default) — the literal in `value`.
+- `SOURCE_EXTENSION` — from the name of the JSON file being read, `report.json` → `.json`,
+  lower-cased, dot included, empty if the name has no dot.
 
-The extension **includes the dot** and is lower-cased; a name with no dot yields empty. Q5 decides
-whether `.json` or `application/json` is what the feed wants — the executor writes what it is told and
-has no opinion.
+`COLUMN_EXTENSION` is removed (§3 Q5).
+
+For a `*.json` input the two produce the same string, which is a fair question to ask of a design.
+Both are kept because they fail differently: `FIXED` keeps writing `.json` if the mask is widened to
+`*.txt` one day, and `SOURCE_EXTENSION` follows it. Neither is more correct — but the step should say
+which one it meant, and a single mode would let it say nothing.
 
 ### 7.5 Serial (requirement 6.2)
 
@@ -365,11 +376,12 @@ CSV column (dataschema)      JSON attribute (json schema)          Type        E
 ---------------------------  ------------------------------------  ----------  -----------------
 NDG                          [ ndg                            ▼ ]  [String ▼]
 NOMINATIVO                   [ customer.name                  ▼ ]  [String ▼]
-DATA_KYC                     [ customer.kycDate               ▼ ]  [Date   ▼]  from: YYYY-MM-DD
-IBAN                         [ accounts[].iban                ▼ ]  [String ▼]
-IMPORTO                      [ accounts[].movements[].amount  ▼ ]  [Number ▼]
+DATA_KYC                     [ kycDate                        ▼ ]  [Date   ▼]
+IMPORTO                      [ saldo                          ▼ ]  [Number ▼]
+IBAN                         [ conti[0].iban                  ▼ ]  [String ▼]
 PROGRESSIVO                  [ —                              ▼ ]  [Serial ▼]
 ORIGINAL_OBJECT_NAME         [ —                              ▼ ]  [ObjectName ▼]
+MIME                         [ —                              ▼ ]  [MIMEType ▼]  value: .json
 ```
 
 - **Left is loaded from the dataschema**, by `[Load columns from dataschema]`, reading
@@ -379,7 +391,10 @@ ORIGINAL_OBJECT_NAME         [ —                              ▼ ]  [ObjectNa
   convenience; the field is the escape hatch for a path the catalogue does not have, which is not a
   rare case — see §8.2.
 - **Type** is the dropdown of requirement 6. **Extra** appears only for the types that need it: `from`
-  for Date, `value`/`mode` for MIMEType, `value` for a constant String.
+  for Date (empty = the three masks of §7.3), `value`/`mode` for MIMEType, `value` for a constant
+  String.
+- **An array path is shown and not selectable**, with the reason (§6.2). Picking it in the dropdown is
+  refused there rather than at save, so the message arrives where the mistake is made.
 - A dataschema column left unmapped is written as an empty column. It is not dropped: the CSV keeps
   the schema's shape, which is what ELAR is given.
 
@@ -418,8 +433,8 @@ source system can produce it.
 ### 9.1 Static validation, before any file is opened
 
 `inputDir` exists; `csvFile` set; every `as` present in the dataschema when `columnsSchema` is set; no
-duplicate `as`; every path parses; `S` is a chain unless `CROSS`; `COLUMN_EXTENSION` refers to an
-earlier column; `recordBusinessDateFormat` resolved if any Date column exists.
+duplicate `as`; every path parses; **no path contains an unbounded `[]`** (§6.2);
+`recordBusinessDateFormat` resolved if any Date column exists.
 
 All of it fails **before** the first read. The elarxml pre-scan earned its place by refusing a run
 rather than half-delivering it; this is the cheap version of the same idea, and it costs nothing
@@ -436,9 +451,13 @@ counted and reported rather than invisible.
 
 ### 9.3 `maxFileMB`
 
-Default **64**. A file larger than this is refused by `onBadFile` **without being read**, so the
-message is "this file is 900 MB, over the 64 MB limit" and not an `OutOfMemoryError` two batches into
-a delivery. See Q1: the number is a placeholder until the real sizes are known.
+Default **16** (Gate 0 Q1: each file is one database row). A file larger than this is refused by
+`onBadFile` **without being read**, so the message is "this file is 900 MB, over the 16 MB limit" and
+not an `OutOfMemoryError` halfway through a delivery.
+
+The limit is deliberately close to reality rather than far above it. A guard set at 64 MB for files
+that are kilobytes would pass anything that is not what this feed thinks it is — a whole export
+dropped into the input directory by mistake, say — and catching that is most of what the guard is for.
 
 ### 9.4 Output
 
@@ -447,33 +466,40 @@ dataschema column names in dataschema order. All of it is `CsvWriter`'s and none
 
 `csvSplitRows` / `csvSplitMb` on the step split it into `<stem>_001.<ext>`, as for `sql`.
 
-**A document's rows may straddle two parts.** The split is by row, the parts are one delivery, and
-keeping documents whole would mean parts of uneven size for a property nothing downstream uses. Stated
-here so it is a decision and not a discovery.
+One document is one row (§5.2), so a part boundary never falls inside a document and there is nothing
+to decide about straddling. That changes if the deferred half of §6 arrives, and the decision then is
+to let rows straddle: the parts are one delivery.
 
-### 9.5 `checkNullable`
+### 9.5 `checkNullable` — removed
 
-**Off.** When on, an empty value in a column the dataschema marks `nullable:false` is a finding;
-`onNullViolation` is `WARN` (count and continue) or `FAIL`. Nothing in the product reads `nullable`
-today, so on-by-default would change behaviour for every existing feed on the day it deploys. Q6.
+Gate 0 Q6: the dataschema's `nullable:false` is enforced by later steps in the workflow, not here.
+`checkNullable`, `onNullViolation` and `${nullViolations}` are gone. The dataschema is read for column
+names and order, and for nothing else.
 
 ### 9.6 `renameProcessed`
 
 **Off.** When on, each input is renamed to `.done` once the CSV is closed, so the next run does not
-re-read it. Off by default because unlike elarxml — where each input maps to its own INDX files — here
-every input feeds one output, and "processed" only becomes true at the end of the whole step.
+re-read it.
+
+Off by default, and — unlike elarxml, where the rename is per file as soon as that file's batches have
+reached their final names — the rename here can only ever happen at the end. Every input feeds one
+output, so no input is "processed" until the whole step is. That is not a limitation to work around:
+renaming a file whose row sits in a CSV that has not been closed would be the elarxml `.done` defect,
+reintroduced from the other direction.
 
 ## 10. Step outputs
 
 `${csvFile}`, `${csvFiles}`, `${csvParts}`, `${rowCount}` — the names `sql` and `split` already
 publish, so a LOOP over the parts is written the same way as for those.
 
-`${filesRead}`, `${filesFailed}`, `${documentsRead}`, `${documentsWithNoRows}`, `${rowsWritten}`,
-`${valuesMissing}`, `${valuesNonScalar}`, `${nullViolations}`, `${maxRowsPerDocument}`.
+`${filesRead}`, `${filesFailed}`, `${rowsWritten}`, `${valuesMissing}`, `${valuesNonScalar}`.
 
-`${maxRowsPerDocument}` is there for one reason: it is the number that tells you the flattening did
-what you thought. A feed where it reads 1 has no array mapped; one where it reads 4 000 has a
-cartesian product that got approved.
+`${documentsWithNoRows}`, `${nullViolations}` and `${maxRowsPerDocument}` are removed with the features
+that produced them.
+
+**`${filesRead}` and `${rowsWritten}` must be equal**, one row per file, and the step log says so
+explicitly rather than leaving it to be worked out. It is the cheapest possible assertion that the
+executor did what §5.2 says it does, and it is the one number a gate can branch on.
 
 **No value ever appears in a log line or a counter.** These are JSON documents from a banking source;
 the elarcheck rule holds — findings carry names, paths and counts.
@@ -494,17 +520,20 @@ attributes are the only addition it needs.
 
 ## 12. Delivery
 
-Confirmation gate between each.
+Confirmation gate between each. **Gate 0 shrank batch 1 considerably**: with flattening deferred there
+is no chain analysis, no sibling check and no empty-array recursion to build or to test.
 
-- **Batch 0** — this specification. No code.
-- **Batch 1** — `json2csv` core, Spring-free and Jackson-free: path parser, array-chain analysis, row
-  generator, the six column types. Compiled with `javac --release 8` and run in the sandbox against
-  hand-built trees. Suites: the chain and the sibling refusal, empty arrays at every level, scalar
-  arrays, a document that yields no rows, Serial across a split boundary, the date mask in both
-  directions, and every path form of §6.1. **Negative runs first**, against the pre-batch code, so it
-  is known the suites bite.
+- **Batch 0** — this specification, revised against the Gate 0 answers. No code.
+- **Batch 1** — `json2csv` core, Spring-free and Jackson-free: the path parser (dotted keys,
+  bracket-quoted keys, explicit `[n]`, and the refusal of `[]`), the value resolver over
+  `Map`/`List`/scalars, and the six column types. Compiled with `javac --release 8` and run in the
+  sandbox against trees built by hand. Suites: every path form of §6.1; `[]` refused with the path
+  named; all three date masks in both directions, **including that `20260230` is refused under STRICT
+  and that a JSON number parses as `YYYYMMDD`**; `1.10` keeping its scale and `1e3` losing its
+  exponent; Serial across a split boundary; a missing value against a non-scalar one. **Negative runs
+  first**, against the pre-batch code, so it is known the suites bite.
 - **Batch 2** — the executor: `JsonDocumentReader` (the Jackson class, §1), the `CsvWriter` wiring,
-  `ColumnSel`'s four fields through parser / writer / DTO, and the six registrations. Opens for the
+  `ColumnSel`'s four fields through parser / writer / DTO, and the six registrations. Opens with the
   no-op proof: every workflow XML in the repo read, written back and compared by SHA-256.
 - **Batch 3** — the designer panel and the two API endpoints. Panel assertions in the shape the
   elarxml and elarcheck panels established — including balanced tags, which is what caught the panel
@@ -516,7 +545,10 @@ Confirmation gate between each.
 - **One CSV per input file.** One aggregated CSV is what requirement 5 implies and what requirement 7
   splits. Per-file output is a different step and would want a different name.
 - **Writing JSON.** This reads only.
-- **Streaming very large files.** §1 and Q1. The reader is behind one class precisely so this can be
-  answered later without touching the core.
+- **Multi-row flattening.** §6.3–§6.5 hold the design; §6.2 refuses the paths that would need it. The
+  path parser already understands `[]`, so the day it arrives the mapping format does not change.
+- **Streaming very large files.** §1 and Q1: files are one database row each. The reader is behind one
+  class precisely so this can be answered later without touching the core.
+- **Enforcing `nullable`.** Gate 0 Q6: later steps in the workflow do it.
 - **Repairing malformed JSON.** As with elarcheck: repair stays in PowerShell, run as ordinary
   `powershell` steps in the same workflow.

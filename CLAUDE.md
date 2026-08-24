@@ -2303,3 +2303,39 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   whether two independent arrays ever need mapping together; what dates look like *inside* the JSON;
   whether MIMEType wants `.json` or `application/json`, and of which file; whether the dataschema's
   `nullable:false` should be enforced (specified and off).
+
+## json2csv — Batch 0 revised: Gate 0 answered, and it removed more than it added
+* Spec updated at `.claude/JSON_TO_CSV_EXECUTOR.md`. **Still no code.** Six questions answered, four of
+  them deleting a parameter each: `documentsPath`, `onSiblingArrays`, `onEmptyArray`, `checkNullable`
+  / `onNullViolation` / `${nullViolations}`, `COLUMN_EXTENSION`, and epoch-millis from the date
+  defaults. A parameter specified for a case that does not exist is a thing to misconfigure.
+* **One JSON file is one document is one CSV row.** Each file is a serialised database row. Multi-row
+  flattening — one row per array element, outer values repeated — is **deferred**, and `${filesRead}`
+  must equal `${rowsWritten}`, said explicitly in the step log because it is the cheapest possible
+  assertion that the executor did what it claims and the one number a gate can branch on.
+* **The deferred design stays on the page, marked DEFERRED (§6.3–§6.5), not deleted.** The refusal is
+  only defensible if what is being refused is written down, and the chain rule is the design for the
+  day it returns. Same discipline as a struck-through wrong prediction: the reasoning is the artefact.
+* **`[]` is refused at static validation, before a file is opened** — never read as `[0]`, never
+  ignored. Reading it as `[0]` would deliver a feed short by every element after the first with
+  nothing saying so; ignoring the column would deliver it empty. Both are found in ELAR months later.
+  This is found when the step is saved. The catalogue still SHOWS array paths, marked unavailable with
+  the reason — hiding them leaves an operator hunting for an attribute plainly in the sample.
+* **`conti[0]` — an explicit index — is added, and it is the one place the design goes past Gate 0.**
+  A file may carry arrays while one row comes out, and an explicit index reaches into one without
+  asking for the deferred half. Flagged in the spec as veto-able at this gate.
+* **Three date masks tried in order, and why order is safe HERE**: `YYYY/MM/DD`, `YYYYMMDD`,
+  `YYYY-MM-DD` are disjoint by shape — eight digits, or ten with slashes, or ten with dashes — so no
+  value parses as two of them. A format list tried in order is a dangerous idea in general
+  (`DD/MM/YYYY` then `MM/DD/YYYY` reads 03/04 as two different days and never says so); it is safe
+  when the shapes are disjoint. **A fourth mask added later is not automatically safe.**
+* **Parsing is STRICT**, on the `uuuu` that `fmtToJavaPattern` already produces: `20260230` is refused
+  rather than quietly resolved to the 28th. A Date column exists to validate as much as to reformat,
+  and a resolver that repairs impossible dates gives the validation away. A JSON number needs no
+  special case: `20260824` is written plain and parses under `YYYYMMDD`.
+* **`maxFileMB` drops 64 -> 16**, deliberately close to reality. A guard set far above anything real
+  cannot catch a whole export dropped into the input directory by mistake, which is most of what it
+  is for.
+* **`renameProcessed` can only ever fire at the end here**, unlike elarxml where it is per file as
+  soon as that file's batches are named: every input feeds one output, so nothing is processed until
+  the step is. Renaming earlier would be the elarxml `.done` defect reintroduced from the other side.
