@@ -131,6 +131,7 @@ OpenProteo deliberately **ships no database driver**. Bundling one per vendor wo
   the dataschema JSON path (param `columnsSchema`, e.g. `${feedDir}/dataschema.json`); at run
   time `{{columns}}` is replaced by that schema's column names (optionally double-quoted).
   Can also split the export into parts by row count and/or size (see Splitting below).
+- **json2csv** — read the JSON files matching a wildcard mask in a directory and write one flat CSV whose shape is the feed's dataschema, one row per file. A mapper pairs each dataschema column with a JSON attribute path, with per-column types (String, Number, Date, MIMEType, Serial, ObjectName). Splits by rows and/or MB like the SQL export. See The json2csv step below.
 - **split** — split an **existing file** into parts by rows and/or MB, using the same logic
   as the SQL export. Use it to run a LOOP only over the final steps, after validation and
   anonymization (see Splitting and Loops).
@@ -787,3 +788,63 @@ The findings list is capped by `maxFindingsPerFile` while the counters stay exac
 Repair happens through the PowerShell scripts that already exist, run as ordinary `powershell` exec steps in the same workflow. Read-only is what makes this step safe to run against a live delivery folder, and a single write anywhere in it would turn a verifiable property into a conditional promise.
 
 That makes the natural workflow shape **check, then repair only if the check found something**, which is what the counters in `run.vars` are for and why `failOnFindings` defaults to `false`: a step that always failed could not drive a conditional. Set it to `true` only when you want the run to stop rather than branch.
+
+## The json2csv step
+
+`json2csv` reads the JSON files matching a wildcard mask in a directory and writes **one flat CSV** whose shape is the feed's dataschema, filling its columns from JSON attribute paths you choose in a mapper. It exists for feeds whose source system exports one file per database row - Transarch account extracts, for instance - where the CSV that the archive expects has to be reassembled from a directory of documents.
+
+**One JSON file is one document is one row.** The step log says so explicitly - `filesRead = rowsWritten` - because it is the cheapest possible assertion that the executor did what it claims, and the one number a gate can branch on. Multi-row flattening, meaning one row per element of an array with the outer values repeated, is **not implemented**: a path containing `[]` is refused before a single file is opened. It is never read as `[0]` and never quietly ignored, because either of those would deliver a feed that looks complete and is not - short by every element after the first, or with a column empty for the whole run - and both are found in Transarch months later rather than when the step is saved.
+
+### The mapper
+
+The panel's left-hand column is the **dataschema**, loaded by **Load columns from dataschema**, in dataschema order. That order is the order the CSV is written in and it is not editable: the whole point of driving the shape from the schema is that the schema decides it. A dataschema column you leave unmapped is written **empty, not dropped**, so the CSV always keeps the schema's shape.
+
+The right-hand side is a dropdown over the **attribute catalogue**, built by **Load attributes from sample** from an uploaded sample file and/or the first twenty files in the input directory, merged. There is a free-text field beside the dropdown, and it is not decoration: **a sample is not a schema**. An instance only reveals attributes present in it, an empty array hides everything under it, and a field absent from one record is absent from the catalogue. Every path therefore shows how many of the scanned documents contained it - seen in 3 of 20 is a different thing from seen in 20 of 20, and only you can say which is expected.
+
+**Map by exact name** fills every column whose name matches a JSON attribute exactly. Matching is case-sensitive, because JSON keys are, and because a near-match offered as a match would be accepted without being read. It only fills columns that are still **empty**: a mapping you made by hand is never overwritten, since the ones set deliberately are exactly the ones a bulk action must not touch. Where the dataschema declares `long`, `integer` or `double`, the type dropdown is preselected to Number - a suggestion to save you choosing a hundred times, and editable like everything else.
+
+### Attribute paths
+
+A path is dot-separated keys, with an explicit index for an array element: `ndg`, `customer.name`, `conti[0].iban`.
+
+A key that itself **contains a dot** is written in bracket-quoted form: `['VM.CAP.DATE.CHARGE']`. This matters more than it looks. Written bare, `VM.CAP.DATE.CHARGE` parses as four nested keys and resolves to nothing at all, and it would do so silently. The catalogue emits the quoted form for you, so you never type it.
+
+An array is listed twice in the dropdown: the unbounded `[]`, shown **disabled** with the reason, and the members of its first element under `[0]`, which are selectable. When an array holds exactly one object - a common shape in these extracts - `['VM.ALT.ACCT.TYPE'][0].ALT_ACCT_TYPE` is how you reach the value inside it.
+
+### Column types
+
+- **String** - the value as text. With a fixed value and no path, it is a constant column.
+- **Number** - validated as much as formatted. Scale is preserved, so `1.10` stays `1.10`, and exponents are expanded, so `1e3` is written `1000` and no consumer ever meets `1E+3`.
+- **Date** - the output is **always** `${recordBusinessDateFormat}`, the feed's own variable. There is deliberately no per-column output format: the feed has one date format, and a second place to set it would guarantee the two disagree. For input, leave the mask empty and `YYYY/MM/DD`, `YYYYMMDD` and `YYYY-MM-DD` are tried in order; set it to read something else. Parsing is strict, so `20260230` is refused rather than quietly resolved to the 28th.
+- **MIMEType** - a fixed literal such as `.json`, or the extension of the file being read.
+- **Serial** - the row number in the CSV. It restarts neither per input file nor per split part: the parts are one delivery, and a Serial that restarted would give two rows the same number.
+- **ObjectName** - the name of the JSON file the row came from, which is what identifies the attachment.
+
+**Trying three input date masks in order is safe here, and it is worth knowing why.** The three are disjoint by shape - eight digits, or ten with slashes, or ten with dashes - so no value can parse under two of them and the order cannot change an answer. That is a property of these three masks and not of the technique: a list of formats tried in order is a dangerous idea in general, since `DD/MM/YYYY` followed by `MM/DD/YYYY` reads the third of April as the fourth of March and never says so. If you add a fourth default one day, check it for overlap against the other three first.
+
+### Parameters
+
+`inputDir` and the output CSV are the only required ones.
+
+- `filePattern` - default `*.json`. Wildcards `*` and `?` only, matched on the file name, **case-sensitive on every platform**. A mask that behaved differently on Windows and on the server would make the same workflow read a different set of files depending on where it ran.
+- `columnsSchema` - the dataschema JSON, e.g. `${feedDir}/dataschema.json`. It decides the CSV header and its order.
+- `jsonSchema` - a sample JSON document for the catalogue, e.g. `${feedDir}/jsonschema.json`. Optional: the catalogue can be built from the input directory instead.
+- `onNonScalar` - default `FAIL`. What to do when a value cannot be used as its column's type: a path landing on an object or an array, a Number that will not parse, a date matching no mask. `EMPTY` writes nothing and counts it; `JSON` writes the node as compact JSON. An **absent** value is not this case - that is data, and it writes empty and is counted separately.
+- `onBadFile` - default `FAIL`. A malformed JSON file stops the run, because the output is a single CSV about to be delivered and a short delivery that looks complete is worse than a run that stops. `SKIP` counts it, logs the name, and carries on.
+- `maxFileMB` - default `16`. A larger file is refused **without being read**, so the message names the size and the limit instead of arriving as an `OutOfMemoryError` halfway through a delivery. The limit is deliberately close to reality: a guard set far above anything real cannot catch a whole export dropped into the input directory by mistake.
+- `serialStart` and `serialPad` - default `1` and no padding. Step-level, not per column: two Serial columns disagreeing about their width is not a feature.
+- `objectNameValue` - default `FILENAME`; also `FILENAME_NOEXT`, `RELATIVE_PATH`, `ABSOLUTE_PATH`.
+- `inputCharset` - default is auto-detection. JSON is UTF-8 by specification and the BOM is read, so set this only for a source that is neither.
+- `renameProcessed` - default off. When on, each input that produced a row is renamed to `.done` **after the CSV is closed**. It cannot happen sooner: every input feeds one output, so nothing is processed until the whole step is, and renaming earlier would mark inputs done for a delivery that never finished. A file that was skipped is never renamed, so it is still there to be looked at.
+
+The step splits its output by rows and/or MB exactly as the SQL export does, and publishes the same variables, so a LOOP over the parts is written the same way: `${csvFile}`, `${csvFiles}`, `${csvParts}`, `${rowCount}`. It also publishes `${filesRead}`, `${filesFailed}`, `${rowsWritten}`, `${valuesMissing}` and `${valuesNonScalar}`.
+
+### Things worth checking on a first run
+
+An input directory with no matching files is **not** an error: the CSV is written with its header and zero rows, because a feed with no input on a given day is normal and failing it would wake somebody for nothing.
+
+Files are read in **file-name order**, so two runs over the same directory produce byte-identical output and the Serial column means something stable.
+
+`${valuesMissing}` counts values the documents did not have. A number far higher than you expect usually means a path is mapped one level off, since a wrong path resolves to absent rather than to an error - which is exactly why the catalogue shows how often each attribute was actually seen.
+
+The output is RFC-4180: a value containing the delimiter is quoted rather than mangled. If a downstream reader cannot take quoted fields, strip the character upstream rather than relying on it being dropped.

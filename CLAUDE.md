@@ -2467,3 +2467,30 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   is exercised, the network is not); the two endpoints themselves, which are Spring controllers — the
   logic they wrap is tested, the wiring is not; and the real `dataschema.json`, so the exact-match
   test is a shape test, not a data test.
+
+## json2csv — Batch 4 delivered: USAGE.md, rendered rather than proof-read
+* `USAGE.md` gains a `json2csv` section and an executor-list entry. **23 assertions green**, total
+  across four batches **394**. The feature is complete as specified; the one thing outstanding is a
+  run on real files, which the sandbox cannot do.
+* **`docs.html` turns EVERY SOURCE LINE into its own paragraph** — no soft-wrap merging. A paragraph
+  wrapped at 100 columns renders as five `<p>` blocks: invisible in an editor, obvious on the page.
+  So `tests/docs.js` extracts `render()` from `docs.html` at build time and runs it over the real
+  `USAGE.md`, asserting no Markdown leaks outside code blocks and **no paragraph in the added section
+  is a wrapped continuation of the one above it**.
+* **89 wrapped paragraphs already exist elsewhere in `USAGE.md`.** Reported by the harness and **not
+  fixed**: rewrapping 700 lines of prose inside a patch about an executor is the unrelated churn that
+  makes a diff unreviewable. The assertion is scoped to what this batch added, plus one confirming the
+  batch did not make the count worse. Same pattern as the duplicate `CLAUDE.md` lines left alone.
+* **A GREEN MUTATION FOUND A REAL GAP, for the second time in this feature.** Two `USAGE.md` mutations
+  came back green; both were opened up rather than filed. One was a bad mutation (`###` to `####` is
+  not a defect). The other was a genuine hole: the wrap check keyed on what the NEXT line started
+  with and skipped it when that was `-`, reading it as a new bullet — so a paragraph split whose
+  continuation happened to begin with a dash slipped past both the source and the rendered check.
+  **The check now keys on the line that ENDS**: a source line that does not end a sentence, followed
+  by more text, is a wrapped paragraph whatever the continuation starts with. Realistic wraps of a
+  paragraph and of a bullet are each caught by three assertions.
+* NOT verified, and it is the same gap as every batch: `mvn clean package`, and a run against real
+  files. Nothing in four batches has been through Spring, a WAR, Tomcat, or one real document. On the
+  first run, in order: that the log prints `one row per file (filesRead = rowsWritten = N)`; that
+  `${valuesMissing}` is not a multiple of the row count, which would mean a path mapped one level off;
+  and that the CSV header is the dataschema in dataschema order, including the unmapped columns.

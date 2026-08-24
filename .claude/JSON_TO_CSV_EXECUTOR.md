@@ -1,7 +1,8 @@
 # JSON to CSV executor (`json2csv`) — specification
 
-Status: **Batch 3 delivered** — the mapper panel and the two catalogue endpoints. §14–§16 record what
-was built and what the suites proved. Batch 4 (`USAGE.md`, a run on real files) remains.
+Status: **Batch 4 delivered — the feature is complete as specified.** §14–§17 record what was built
+and what the suites proved. The one thing outstanding is a run on real files, which is yours: the
+sandbox has no access to them.
 
 **This feed is Transarch, not ELAR.** Corrected throughout; the executor is unaffected.
 Revised after Gate 0 was answered (§3). **The answers removed more of this than they added**, and the
@@ -823,3 +824,66 @@ it in four assertions.
 - The real `dataschema.json`. The catalogue suite is built on the sample's shape read from
   photographs, so the column NAMES are not the real ones. Nothing depends on them — the panel reads
   the dataschema at run time — but the exact-match test is a shape test, not a data test.
+
+---
+
+## 17. Batch 4 delivered — the documentation
+
+`USAGE.md` gains a `json2csv` section and an entry in the executor list. **23 assertions green**,
+bringing the total across four batches to **394**.
+
+### 17.1 The documentation is RENDERED, not proof-read
+
+`docs.html` turns **every source line into its own paragraph** — there is no soft-wrap merging. A
+paragraph wrapped at 100 columns in the file renders as five separate `<p>` blocks: invisible in an
+editor, obvious on the page, and exactly the kind of defect that ships.
+
+So `tests/docs.js` extracts `render()` from `docs.html` at build time and runs it over the real
+`USAGE.md`. It asserts that no Markdown leaks outside code blocks, that the section and its
+subsections arrived, and — the one that matters — that **no paragraph in the added section is a
+wrapped continuation of the one above it**.
+
+**89 wrapped paragraphs already exist elsewhere in `USAGE.md`.** They are reported by the harness and
+**not fixed**: rewrapping 700 lines of prose inside a patch about an executor is the kind of unrelated
+churn that makes a diff unreviewable. The assertion is scoped to what this batch added, and a second
+assertion confirms the batch did not make the count worse.
+
+### 17.2 A mutation came back green and had found a real gap
+
+Two mutations of `USAGE.md` came back green. Following the rule from batch 3 — a green mutation is a
+claim about the mutation before it is a claim about the suite — both were opened up.
+
+One was a bad mutation: changing `###` to `####` is not a defect. **The other was a real hole.** The
+wrap check keyed on what the NEXT line started with, and skipped it when that was `-`, reading it as
+a new bullet. A paragraph split so that its continuation happened to begin with a dash therefore
+slipped past both the source check and the rendered check.
+
+The check now keys on the line that ends: **a source line that does not end a sentence, followed by
+more text, is a wrapped paragraph, whatever the continuation happens to start with.** The mutation is
+now caught, and realistic wraps of a paragraph and of a bullet are caught by three assertions each.
+
+### 17.3 What the section documents
+
+Beyond the parameter list: why `[]` is refused rather than read as `[0]`; why a bracket-quoted key
+matters (`VM.CAP.DATE.CHARGE` written bare parses as four nested keys and silently resolves to
+nothing); why trying three input date masks in order is safe **here** and the warning that a fourth
+is not automatically safe; that `filesRead = rowsWritten` is the number to check; that an unmapped
+dataschema column is written empty rather than dropped; and that an empty input directory is not an
+error.
+
+Also a short "things worth checking on a first run" list, whose most useful line is that a high
+`${valuesMissing}` usually means a path is mapped one level off — a wrong path resolves to *absent*
+rather than to an error, which is precisely why the catalogue shows how often each attribute was
+actually seen.
+
+### 17.4 What is left, and it is not mine to do
+
+**A run against real files.** The sandbox has no access to the feed, so nothing in four batches has
+been through Spring, a WAR, Tomcat, or a single real document. `mvn clean package` and one run remain
+the only things that can confirm the executor works, as distinct from being correct where it was
+tested.
+
+What to look at on that first run, in order: that the step log prints
+`one row per file (filesRead = rowsWritten = N)`; that `${valuesMissing}` is what you expect rather
+than a multiple of the row count; and that the header of the CSV is the dataschema in dataschema
+order, including the columns nothing maps.
