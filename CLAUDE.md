@@ -2111,3 +2111,40 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   since this change one class more. It REPAIRS nothing, by construction, asserted by scan. For a file
   already corrupt the script is still the only thing that fixes it. "Detects" and "repairs" are not
   the same question and the answer differs.
+
+## elarxml: reading the Content payload from IFS — SPEC ONLY (batch 0)
+* Spec at `.claude/ELAR_XML_IFS_CONTENT.md`. No code. Four decisions listed there are the author's, not
+  mine, and batch 1 waits on 8a.
+* **No Gate 0 on Nexus**: JTOpen is already declared (`net.sf.jt400:jt400:20.0.7`) and `IfsSupport`
+  already uses `AS400`/`IFSFile`/`IFSFileInputStream`.
+* **The constraint that shapes the whole design**: the `elar` package is Spring-free and compiles
+  standalone with `--release 8`, which is what let every suite in this subsystem run the real executor
+  in a sandbox — and it is what caught the `.done` rename, the value edges, the split start tag and the
+  double count. `IfsSupport` is a Spring `@Component`. So: a JDK-only `ContentStore` interface INSIDE
+  `elar`, `LocalContentStore` beside it, and `IfsContentStore` in the engine layer where Spring and
+  JTOpen already are. `elar` stays standalone-testable; only the thin adapter is not, and that is
+  declared rather than implied.
+* **Two passes over a network file.** The template puts HashValue BEFORE Content, so the digest must be
+  known before the payload is written: locally two sequential passes, neither holding the file. Over IFS
+  that is two network transits. Buffering to get one pass is exactly the `ByteArrayOutputStream` that
+  caused the OOM — rejected. **Recommended: stage each document to a local temp file once**, then digest
+  and encode from local disk. One transit, invariant intact, peak disk one document — and the
+  size+mtime stamp becomes MEANINGFUL, because a local temp cannot change underneath us while an IFS
+  file can.
+* **The pre-scan stays, but as ONE listing.** A per-row `IFSFile.exists()` is a round trip each.
+  `IFSFile.listFiles()` on the base path is one round trip and yields name, size and mtime for every
+  entry, so existence, length and DSAK all become local lookups. `IfsSupport.copyListToLocal`'s own
+  javadoc already reasons about this and says why ELAR is the case where the pre-scan must be kept.
+  Listing memory needs a declared cap, not a discovered OutOfMemoryError.
+* **`buildXml` DOES need a change this time.** The datasource is a `<step>` ATTRIBUTE, not a `<param>` —
+  `runIfsCopy` reads `step.datasource`. Every previous elarxml field was a param, which buildXml emits
+  generically; this is the `reportQuery` case. The earlier "buildXml needed no change" does not extend
+  to it. The parser must also carry `datasource` for `elarxml`.
+* **Open question that changes the most code (8a)**: does the CSV column carry a bare file name or a
+  full IFS path? Today the value is reduced to its last path segment. Locally that mirrors the legacy
+  `updateFilePath`; over IFS a full path in the column is far more plausible, and if the feed carries
+  one the current rule throws away the only part that matters and every row lands in `.skipped` with the
+  file sitting right there. To be answered from a real feed, not assumed.
+* **No AS/400 in the sandbox.** A fake store can prove the seam under slow reads, missing files and
+  mid-stream failure; it cannot prove JTOpen. Honest sequence: batch 1 deployed and proved a no-op on a
+  real feed first, then IFS on one family with a small input, then volume.

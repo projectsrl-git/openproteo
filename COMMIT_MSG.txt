@@ -1,74 +1,81 @@
-elarcheck: report a line break at the head of a value, not just inside one
+elarxml IFS content, batch 0: specification, written from the existing code
 
-Asked whether this executor replaces Repair-ElarIndxLineBreaks.ps1, since the
-script takes half an hour against a few seconds. Checking the answer properly
-turned up a defect in both.
+Specification committed at .claude/ELAR_XML_IFS_CONTENT.md, self-contained. No
+code in this commit.
 
-THE BOUNDARY, FOR THE RECORD
+No Gate 0 on Nexus: JTOpen is already a declared dependency,
+net.sf.jt400:jt400:20.0.7, and IfsSupport already uses AS400, IFSFile and
+IFSFileInputStream.
 
-elarcheck DETECTS everything the script detects - a break inside a value, a
-break inside a tag, whitespace after a tag opener - plus well-formedness, both
-line-length thresholds, the mandatory tags, name reuse, the PULL pairing and
-the digest. It REPAIRS nothing, by construction, and the build scan asserts
-there is no write API anywhere in the package. For a file that is already
-corrupt the script remains the only thing that fixes it. Detection and repair
-are different questions and the answers differ.
+THE CONSTRAINT THAT SHAPES THE DESIGN
 
-THE DEFECT THE QUESTION EXPOSED
+The elar package is free of Spring and compiles standalone with javac
+--release 8. That is what has allowed every suite in this subsystem to run the
+real executor against real files in a sandbox, and it is what caught the .done
+rename defect, the value-edge breaks, the split start tag and the counter that
+counted twice. IfsSupport is a Spring component in the ds package. Making elar
+depend on it would leave the whole subsystem testable only against a live
+AS/400.
 
-Probing every class of break the script handles turned up one this executor
-reported nothing for: a break at the START of a value, where the line ends
-with the start tag and the value begins on the next line.
+So: a JDK-only ContentStore interface inside elar, LocalContentStore beside it
+reproducing today's behaviour, and IfsContentStore in the engine layer where
+Spring and JTOpen already live, constructed by runElarXml and passed in. elar
+stays standalone-testable in full; only the thin adapter is not, and that is
+declared rather than implied.
 
-A line ending in '>' was treated as safe, always - the fast path that makes a
-half-gigabyte scan cheap. It is not safe when that '>' closed a START tag: the
-next character is the first of the element's content, so the break gives the
-value a LEADING line feed.
+TWO PASSES OVER A NETWORK FILE
 
-This is not hypothetical. It is exactly the class the generator itself
-produced, 43 documents in 1000 on ClientAdvisor, RecordDescr, AccountID and
-ClientID, and this executor reported none of them. Neither did the repair
-script, which carries the same fast path and states it in its own description:
-a line ending in '>' ends between elements and is classified with no further
-analysis. Only Compare-ElarIndx.ps1 saw them, because it compares values
-against a reference rather than reading bytes. Run with -Fix over such a file,
-the script would have rewritten the corruption unchanged and declared the file
-sound. So the half hour was not buying that coverage: it was a gap in both
-tools.
+The template places the hash element before the content element, so the digest
+must be known before the payload is written. Locally that is two sequential
+passes, neither holding the file. Over IFS it is two network transits.
+Buffering the payload to get one pass is precisely the ByteArrayOutputStream
+that produced the 147 MB batches and the OutOfMemoryError, so it is rejected.
 
-THE FIX
+Recommended instead: stage each document to a local temp file once, then
+digest and encode from local disk. One transit, the streaming invariant
+intact, peak local disk one document rather than one batch - and the
+size-and-modification stamp becomes meaningful, because a local temp file
+cannot change underneath us while an IFS file can.
 
-The decision cannot be taken on the line that ends; it needs the one that
-follows. Markup means the element has children and the break was genuinely
-between elements; anything else is character data, and the value is wrong.
+THE PRE-SCAN
 
-A value can never begin with '<', since it would be escaped, so the test is
-exact rather than a heuristic. Leading whitespace is skipped, because with
-formatOutput on an indented file is now the normal case rather than the
-exception. The content element is excluded: a break after the content start
-tag is inside the payload, where whitespace is ignored by every decoder.
+It has to stay: IfsSupport.copyListToLocal decides against a pre-scan and its
+own javadoc says why ELAR is different, since a partial set beside an unmarked
+input is unrecoverable. But a per-row existence check is a network round trip
+each. Resolution: list the IFS base directory once, which yields name, size
+and modification time for every entry, so existence, length and the DSAK
+extension all become local lookups and the byte-budget estimate gets real
+sizes. The listing is held for the run, so it needs a declared cap rather than
+a discovered OutOfMemoryError.
+
+buildXml DOES NEED A CHANGE THIS TIME
+
+The datasource is a step ATTRIBUTE, not a param: runIfsCopy reads
+step.datasource and looks it up in the registry the sql steps use. Every
+previous elarxml field was a param, which buildXml emits generically. This is
+the reportQuery case, and the earlier note that buildXml needed no change does
+not extend to it. The parser must also carry datasource for an elarxml step,
+and clientValidate must require it when contentSource is IFS.
+
+OPEN, AND NOT MINE TO DECIDE
+
+Four decisions are listed in section 8. The one that changes the most code:
+does the CSV column carry a bare file name or a full IFS path? Today the value
+is reduced to its last path segment, mirroring the legacy updateFilePath. Over
+IFS a full absolute path is far more plausible, and if the feed carries one
+then the current rule discards the only part that matters and every row lands
+in the discards file with the file sitting right there. It should be answered
+from a real feed rather than assumed, and batch 1 waits on it.
 
 VERIFIED
-- 11 assertions. Half are the defect: the break itself, and the element named
-  in the finding. The other half are the FALSE POSITIVES, and that half
-  matters more, because a checker that fires on every document is worse than
-  one that misses. An indented file, an unindented multi-line file, a break
-  after the content start tag, after a self-closing tag, after an end tag, and
-  after a start tag whose child follows: none reported.
-- Cross-package and end to end: 300 documents written by elarxml at a
-  300-character line limit, run through elarcheck with six mandatory tags
-  including Content and verifyHash on, with formatting ON and OFF. No findings
-  of any kind either way.
-- The mandatory-Content suite, 5 assertions, and the pair suite, 6, re-run
-  unchanged. Package rule scans clean, and the read-only scan still clean: the
-  change reads two lines instead of one and writes nothing.
+- Nothing to verify: no code in this commit. The claims about the existing
+  code were read from it rather than recalled - the Spring-free elar package,
+  the JTOpen dependency and its version, IfsSupport's connection lifetime and
+  its javadoc on the pre-scan, step.datasource in runIfsCopy, and the two-pass
+  digest-then-encode in ContentEmbedder.
 
 NOT VERIFIED
-- mvn clean package: Maven Central is unreachable from the chat sandbox, so
-  the build on the target machine remains the only final proof. The elarcheck
-  package compiles and runs standalone in full.
-- TextLineBreak detection has still never been run against a genuinely corrupt
-  legacy file, only against files this project generated. MarkupLineBreak has
-  been proven in the field, since it found the two breaks Compare-ElarIndx.ps1
-  could not see. Running both tools once over a known-bad INDX and comparing
-  the counts would settle it permanently.
+- There is no AS/400 in the chat sandbox. IfsContentStore will be writable and
+  reviewable but not executable, and no assertion in any batch will have
+  touched a real IFS. A fake store can prove the seam under slow reads,
+  missing files and mid-stream failure; it cannot prove JTOpen.
