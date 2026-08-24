@@ -2339,3 +2339,41 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * **`renameProcessed` can only ever fire at the end here**, unlike elarxml where it is per file as
   soon as that file's batches are named: every input feeds one output, so nothing is processed until
   the step is. Renaming earlier would be the elarxml `.done` defect reintroduced from the other side.
+
+## json2csv — Batch 1 delivered: the core, Spring-free and Jackson-free
+* Eleven classes in `com.legalarchive.orchestrator.json2csv`. **203 assertions, all green.** Nothing
+  outside the new package is touched, so this batch cannot change any existing feed: there is no call
+  site yet. The executor is batch 2.
+* **`javac --release 8` here is STRONGER than the project's own build**, which sets
+  `maven.compiler.source/target 1.8` — the form that does NOT check the API surface. Verified on the
+  day rather than assumed: `List.of` fails to compile under the flag. `mvn clean package` remains the
+  only final proof and Maven Central is unreachable from the sandbox.
+* **ABSENT vs MISMATCH is the distinction the core turns on**, and implementing §6.6 made the rule
+  wider than the spec had it. ABSENT = a missing key, an index past the end, an explicit null: the
+  document does not have it, so empty and counted. MISMATCH = a key applied to a non-object, an index
+  applied to a non-array, or a leaf that is an object or an array: **the document is not shaped the
+  way the path assumes**, so `onNonScalar`, default FAIL. Folding them is the expensive mistake — a
+  mapping typo would deliver an empty column for the whole feed and look exactly like a customer with
+  no value. The mutation that folds them is caught by thirteen assertions.
+* **The disjointness of the three date masks is MEASURED, not argued.** Every day of a full year in
+  all three forms, 1 095 strings, each asserted to parse under exactly one mask. Overlaps: zero. That
+  test is the guard on the warning that a fourth mask is not automatically safe — add one and it says
+  at once whether it overlaps. STRICT is exercised for real: `2026-02-30`, `2026-13-01`, `20260230`
+  and `2026-02-29` refused, `2024-02-29` accepted.
+* **The mask translator is EXTRACTED from `InternalSteps.java` at build time, not retyped.** The suite
+  lifts `fmtToJavaPattern` and `JT_PASSTHROUGH` verbatim, so "`YYYYMMDD` becomes `uuuuMMdd`" is a fact
+  about the shipped translator and not about a copy that could drift. The core reaches it through a
+  one-method `MaskTranslator` seam because `InternalSteps` is Spring-coupled and this package must
+  compile with the JDK alone.
+* **Eight mutations of the real source, all caught by named assertions**: the `[]` refusal removed;
+  `[]` resolved as `[0]`; SMART instead of STRICT; Serial restarting per row; MISMATCH folded into
+  ABSENT; Number through `double`; the output-mask probe removed; `describe()` leaking the value.
+* **The first mutation run found a defect in the SUITE, not the core**: it died on `probs.get(0)` of
+  an empty list and stopped reporting everything after — the opposite of what `MappingValidator` does
+  on purpose. The runner now turns an unexpected throw into a failure, and that mutation is caught by
+  eight assertions instead of a stack trace.
+* **`onNonScalar` is now a slightly wrong name** for what it does — it covers "the value cannot be
+  used as this column's type", including a number that will not parse. Kept because it is in the
+  committed spec; the designer label in batch 3 will say what it means rather than repeat what it is
+  called.
+* The suite is NOT committed, as the `elar` suites are not. It can be, with a runner, on request.

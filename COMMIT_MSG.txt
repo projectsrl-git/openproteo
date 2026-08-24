@@ -1,78 +1,85 @@
-json2csv batch 0 revised: Gate 0 answered, and it removed parameters
+json2csv batch 1: the core, and eight mutations to prove the suites bite
 
-Specification updated at .claude/JSON_TO_CSV_EXECUTOR.md. Still no code.
+Eleven classes in com.legalarchive.orchestrator.json2csv, free of Spring and
+free of Jackson, compiled with javac --release 8 and exercised in the sandbox.
+203 assertions, all green.
 
-WHAT THE ANSWERS DID
+Nothing outside the new package is touched. There is no call site yet, so this
+batch cannot change the behaviour of any existing feed; the executor arrives
+in batch 2.
 
-Six questions answered, four of them deleting a parameter each: documentsPath,
-onSiblingArrays, onEmptyArray, checkNullable with onNullViolation and the
-${nullViolations} counter, COLUMN_EXTENSION, and epoch milliseconds from the
-date defaults. A parameter specified for a case that does not exist is a thing
-to misconfigure, so they are gone rather than left switched off.
+THE SANDBOX CHECK IS STRONGER THAN THE PROJECT BUILD
 
-ONE FILE, ONE ROW
+The pom sets maven.compiler.source and target to 1.8, which does not check the
+API surface. --release 8 does. Verified on the day rather than assumed:
+List.of fails to compile under the flag. mvn clean package on your machine
+remains the only final proof, because Maven Central is unreachable from here.
 
-Each JSON is a serialised database row. One file is one document is one CSV
-row, and multi-row flattening - one row per array element with outer values
-repeated - is deferred. ${filesRead} must equal ${rowsWritten}, and the step
-log says so rather than leaving it to be worked out: it is the cheapest
-possible assertion that the executor did what it claims, and the one number a
-gate can branch on.
+ABSENT AND MISMATCH
 
-The deferred design stays on the page, marked DEFERRED, not deleted. The
-refusal below is only defensible if what is being refused is written down, and
-the chain rule is the design for the day it returns.
+Implementing the spec's "absent is data, non-scalar is a wrong mapping" made
+the rule wider than the spec had it, and better. ABSENT is a key that is not
+there, an index past the end of an array, or an explicit null: the document
+does not have it, so the cell is empty and counted. MISMATCH is a key applied
+to something that is not an object, an index applied to something that is not
+an array, or a leaf that turned out to be an object or an array: the document
+is not shaped the way the path assumes, so onNonScalar decides, and it
+defaults to stopping.
 
-[] IS REFUSED, NOT GUESSED AT
+Folding the two together is the expensive mistake here. A mapping typo would
+deliver an empty column for the whole feed and look exactly like a customer
+who happens to have no value. The mutation that folds them is caught by
+thirteen assertions.
 
-An unbounded [] fails static validation, before a file is opened. It is never
-read as [0] and never ignored. Reading it as [0] would deliver a feed short by
-every element after the first, with nothing in the output saying so; ignoring
-the column would deliver it empty. Both are discovered in ELAR months later.
-This is discovered when the step is saved.
+A value that will not read as a Number, or as a date under any mask, takes the
+same route. That makes onNonScalar a slightly wrong name for what it now does.
+The name is kept because it is already in the committed spec, and the designer
+label in batch 3 will say what it means rather than repeat what it is called.
 
-The path catalogue still SHOWS array paths, marked unavailable with that
-reason. Hiding them would leave an operator hunting for an attribute that is
-plainly in the sample.
+THE DATE MASKS ARE MEASURED, NOT ARGUED
 
-conti[0], an explicit index, is added, and it is the one place this design
-goes past Gate 0: a file may carry arrays while only one row comes out, and an
-explicit index reaches into one without asking for the deferred half. It is
-flagged in the spec as veto-able at this gate.
+The spec argues that trying YYYY/MM/DD, YYYYMMDD and YYYY-MM-DD in order is
+safe because no value parses under two of them. An argument is not a
+measurement, so the suite renders every day of a full year in all three forms
+- 1095 strings - and asserts each parses under exactly one mask. Overlaps
+found: zero. That test is the guard on the warning that a fourth mask is not
+automatically safe.
 
-DATES
+STRICT is exercised for real: 2026-02-30, 2026-13-01, 20260230 and 2026-02-29
+are refused, and 2024-02-29 is accepted.
 
-Three masks tried in order - YYYY/MM/DD, YYYYMMDD, YYYY-MM-DD - and the spec
-says why order is safe here rather than assuming it. The three are disjoint by
-shape: eight digits, or ten with slashes, or ten with dashes, so no value
-parses as two of them. A format list tried in order is a dangerous idea in
-general - DD/MM/YYYY then MM/DD/YYYY reads 03/04 as two different days and
-never says so - and is safe only when the shapes are disjoint. A fourth mask
-added later is not automatically safe and must be checked against the other
-three.
+THE TRANSLATOR IS EXTRACTED, NOT RETYPED
 
-Parsing is STRICT, on the uuuu that fmtToJavaPattern already produces:
-20260230 is refused rather than quietly resolved to the 28th. A Date column
-exists to validate as much as to reformat, and a resolver that repairs
-impossible dates gives the validation away. A JSON number needs no special
-case: 20260824 is written plain and parses under YYYYMMDD.
+The suite contains no copy of fmtToJavaPattern. It reads InternalSteps.java at
+build time and lifts the method and its JT_PASSTHROUGH constant verbatim, so
+"YYYYMMDD becomes uuuuMMdd" is a fact about the shipped translator and not
+about a copy that could drift. The core reaches it through a one-method
+MaskTranslator seam, because InternalSteps is Spring-coupled and this package
+has to compile with the JDK alone.
 
-SMALLER GUARDS, CLOSER TO REALITY
+THE SUITES WERE SEEN TO FAIL FIRST
 
-maxFileMB drops from 64 to 16. A guard set far above anything real cannot
-catch a whole export dropped into the input directory by mistake, which is
-most of what it is for.
+Eight mutations of the real source, each compiled and run: the [] refusal
+removed from the validator; [] resolved as [0] instead of refused; dates
+parsed SMART instead of STRICT; Serial restarting on every row; MISMATCH
+folded into ABSENT; Number going through double instead of BigDecimal; the
+output-mask probe removed; and describe() leaking the value into the finding.
+Every one was caught by named assertions, listed in the spec.
 
-renameProcessed can only ever fire at the end here, unlike elarxml where it is
-per file as soon as that file's batches have reached their final names: every
-input feeds one output, so nothing is processed until the step is. Renaming
-earlier would be the elarxml .done defect reintroduced from the other side.
+The first run found a defect in the SUITE and not in the core: under the first
+mutation it died on probs.get(0) of an empty list and stopped reporting
+everything after it, which is the opposite of what MappingValidator does on
+purpose. The runner now turns an unexpected throw into a failure, and that
+mutation is caught by eight assertions instead of a stack trace.
 
 VERIFIED / NOT VERIFIED
 
-Verified: that the previous batch 0 is committed at f3831bb and this revises
-it rather than duplicating it; that no removed parameter survives anywhere in
-the spec except in the sentence recording its removal.
+Verified: the package compiles with javac --release 8 against the JDK alone,
+so brace balance and imports are proved by the compiler rather than by a
+counter; 203 assertions green; eight mutations caught; that no file outside
+the new package is touched.
 
-Not verified: nothing is implemented. The claims about behaviour are design
-intent and become assertions in batches 1 to 3.
+Not verified: mvn clean package, for the reason above. Everything the executor
+does with files - reading, the wildcard mask, CsvWriter, the counters end to
+end - is batch 2. The suite is not committed, as the elar suites are not; say
+the word and it goes in with a runner.

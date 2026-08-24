@@ -1,6 +1,7 @@
 # JSON to CSV executor (`json2csv`) — specification
 
-Status: **Batch 0 — specification only. No implementation.**
+Status: **Batch 1 delivered** — the core, compiled and exercised. §14 records what was built and
+what the suites proved. Batches 2–4 are still to come (§12).
 Revised after Gate 0 was answered (§3). **The answers removed more of this than they added**, and the
 removals are recorded here rather than deleted: §6.3–§6.5 stay on the page, marked DEFERRED, because
 they are the design for the day the deferred half comes back.
@@ -552,3 +553,96 @@ is no chain analysis, no sibling check and no empty-array recursion to build or 
 - **Enforcing `nullable`.** Gate 0 Q6: later steps in the workflow do it.
 - **Repairing malformed JSON.** As with elarcheck: repair stays in PowerShell, run as ordinary
   `powershell` steps in the same workflow.
+
+---
+
+## 14. Batch 1 delivered — the core
+
+Eleven classes in `com.legalarchive.orchestrator.json2csv`, **no Spring and no Jackson**, compiled
+with `javac --release 8` and run in the sandbox. **203 assertions, all green.**
+
+Nothing outside the new package is touched, so this batch cannot change the behaviour of any existing
+feed — there is no call site yet. The executor arrives in batch 2.
+
+| class | what |
+|---|---|
+| `JsonPath` | parses a path and resolves it against a `Map`/`List`/scalar tree; `Resolution` is FOUND / ABSENT / MISMATCH |
+| `ColumnMapping` | one `<column>`, with its path parsed once at construction |
+| `ColumnType`, `MimeMode`, `OnNonScalar`, `ObjectNameValue` | the dropdowns, each refusing an unknown value rather than defaulting quietly |
+| `DateCoercion` | the three input masks, STRICT parsing, output in `recordBusinessDateFormat` |
+| `MaskTranslator` | the one-method seam onto `InternalSteps.fmtToJavaPattern` |
+| `RowBuilder` | one document to one row; Serial, ObjectName, MIMEType, and the `onNonScalar` policy |
+| `MappingValidator` | everything checkable before a file is opened, reported all at once |
+| `DocumentContext`, `Json2CsvCounters`, `Json2CsvException` | the file a document came from, the counts, the refusals |
+
+### 14.1 ABSENT and MISMATCH, which is the distinction the whole core turns on
+
+§6.6 asked for "absent is data, non-scalar is a wrong mapping". Implementing it made the rule wider
+than the spec had it, and better:
+
+- **ABSENT** — a key that is not there, an index past the end of an array, or an explicit JSON null.
+  The document does not have it. Writes empty, counts `valuesMissing`.
+- **MISMATCH** — a key applied to something that is not an object, an index applied to something that
+  is not an array, or a leaf that turned out to be an object or an array. **The document is not
+  shaped the way the path assumes.** Follows `onNonScalar`, default FAIL.
+
+Folding them together is the expensive mistake: a mapping typo would deliver an empty column for the
+whole feed and look exactly like a customer who happens to have no value. The mutation that folds
+them is caught by thirteen assertions (§14.4).
+
+A value that will not read as a Number, or as a date under any mask, takes the same route. That makes
+`onNonScalar` a slightly wrong name for what it now does — it is really "the value cannot be used as
+this column's type". The name is kept because it is already in the committed spec; **the designer
+label in batch 3 will say what it means rather than repeat what it is called.**
+
+### 14.2 The date masks are disjoint, and that is measured rather than asserted
+
+The spec argues that trying `YYYY/MM/DD`, `YYYYMMDD`, `YYYY-MM-DD` in order is safe because no value
+parses under two of them. An argument is not a measurement, so the suite renders **every day of a
+full year in all three forms — 1 095 strings — and asserts each parses under exactly one mask.**
+Overlaps found: zero.
+
+That assertion is the guard on the sentence in §7.3 warning that a fourth mask is not automatically
+safe: add one, and this test tells you at once whether it overlaps.
+
+STRICT is exercised for real: `2026-02-30`, `2026-13-01`, `20260230` and `2026-02-29` are refused,
+`2024-02-29` is accepted.
+
+### 14.3 The translator is extracted from the real source, not retyped
+
+The suite does not contain a copy of `fmtToJavaPattern`. It **reads `InternalSteps.java` at build time
+and lifts the method and its `JT_PASSTHROUGH` constant verbatim** into a `MaskTranslator`. So
+"`YYYYMMDD` becomes `uuuuMMdd`" is a fact about the shipped translator and not about a copy of it
+that could drift.
+
+### 14.4 The suites were seen to fail first
+
+Eight mutations of the real source, each compiled and run against the suite. Every one was caught, by
+named assertions:
+
+| mutation | caught by |
+|---|---|
+| the `[]` refusal is removed from the validator | B6 B7 B8 B9 B10 H11 H11d H12 |
+| `[]` is resolved as `[0]` instead of refused | B5 B12 |
+| dates parse SMART instead of STRICT | D14 D16 D18 |
+| Serial restarts on every row | F2 F3 F4 F5 F8 |
+| MISMATCH is folded into ABSENT | C12–C19, I1 I3 I4 I5 I6 |
+| Number goes through `double` instead of `BigDecimal` | E1 E2 E4 E6 |
+| the output-mask probe is removed | D28 |
+| `describe()` leaks the value into the finding | C18 C20 |
+
+**The first run of the mutations found a defect in the suite, not in the core**: under the first
+mutation the suite died on `probs.get(0)` of an empty list and stopped reporting everything after it
+— the opposite of what `MappingValidator` does on purpose. The runner now turns an unexpected throw
+into a failure, and the mutation is caught by eight assertions instead of a stack trace.
+
+### 14.5 What is NOT verified
+
+- **`mvn clean package`.** Maven Central is unreachable from the sandbox. The package compiles
+  standalone with `javac --release 8` against the JDK alone, which is a **stronger** check than the
+  project's own build: the pom sets `maven.compiler.source/target 1.8`, which does not check the API
+  surface, while `--release 8` does. Verified on the day: `List.of` fails to compile under the flag.
+- **The suite itself is not committed.** It lives in the sandbox, as the `elar` suites do. Say the
+  word and it goes into the repo with a runner.
+- Everything the executor does with files: reading, the wildcard mask, `CsvWriter`, the counters end
+  to end. That is batch 2.
