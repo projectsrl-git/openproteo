@@ -2255,3 +2255,51 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   `</div>`, and the malformed HTML silently truncated everything after it in the panel — the whole
   content-source subsection vanished. Nine assertions fired. An unbalanced tag in a string-built panel
   does not throw; it just eats the rest.
+
+## json2csv executor — Batch 0 (spec only)
+* Specification at `.claude/JSON_TO_CSV_EXECUTOR.md`, self-contained. **No code in this commit.**
+* **What it does**: reads the JSON files matching a wildcard mask in a directory and writes ONE flat
+  CSV whose shape is the feed's **dataschema**, filling its columns from JSON attribute paths chosen
+  against a **JSON schema** (an uploaded sample or a real JSON Schema). Nested objects and arrays are
+  flattened: the row count follows the cardinality of the innermost **mapped** array, and everything
+  outside it repeats on each row it covers.
+* **No Gate 0 on Nexus, verified rather than assumed**: `jackson-databind` already arrives with
+  `spring-boot-starter-web` and three classes already use `ObjectMapper`. No new dependency.
+* **THE CONSTRAINT THAT SHAPES THE DESIGN.** `elar` is Spring-free and compiles with
+  `javac --release 8`, which is what has let every suite in that subsystem run the real code in the
+  sandbox. **Maven Central is unreachable from here (verified: 403)**, so a core importing Jackson
+  could not be compiled here at all and the flattening rules — the easy part to get wrong — would ship
+  unexercised. The split is therefore at the only place where it is free: the tree is `Map`/`List`/
+  `BigDecimal`/`String`/`Boolean`/`null`, which is exactly what `readValue(f, Object.class)` already
+  returns (`readSchemaColumnNames` reads the dataschema this way today). The core is pure over that
+  and runs here; **Jackson appears in one class**, `JsonDocumentReader`, which is the only part that
+  cannot be exercised in the sandbox and is declared as such.
+* **Nothing new is written where something exists.** `CsvWriter` already does UTF-8 / CRLF / RFC-4180
+  and split-by-rows / split-by-MB for `sql`, `csvsql`, `xlsx2csv`, so requirement 7 is a wiring job.
+  `readSchemaColumnNames` already reads both dataschema dialects, and `columnsSchema` is reused as the
+  parameter name because `sql` already calls it that.
+* **The date format is a MASK.** `recordBusinessDateFormat` carries `YYYY/MM/DD`, where `DD` is
+  day-of-month, and feeding it to `ofPattern` is the defect that silently broke `businessDateNotBefore`
+  for the life of the product. Date columns go through `fmtToJavaPattern`, **both directions**;
+  reimplementing it here would reintroduce the bug.
+* **The flattening rule, stated so it can be argued with**: `S` = the array prefixes of the mapped
+  paths *that have a `src`* — an array nobody reads from does not multiply rows, which is requirement
+  4's "ovviamente se tali elementi sono mappati". If `S` is a chain, nested iteration; outer values
+  repeat because reading at the current index is what repeating means. **Sibling arrays
+  (`accounts[]` and `notes[]`) are refused by default** — the product is silent, turning 400 rows into
+  4 000 with nothing saying which repetitions are real. `CROSS` is available per step, in the open.
+  The check is static, on the mapping, so it fires before a file is opened.
+* **An empty array yields ONE row, not none** (`onEmptyArray=ONE_ROW`), recursively at every level: a
+  LEFT JOIN, not an INNER one. The default must not lose a document in silence.
+* **`ObjectName` is a column TYPE, not a parameter naming a column** — the same dropdown as `Serial`,
+  the other column whose value does not come from the JSON. Same mechanism, same place.
+* **`Serial` restarts neither per input file nor per split part**: the parts are one delivery, and a
+  Serial that restarted would give two rows the same number.
+* **`<column>` reused, not a hundred params.** `ColumnSel` gains four optional fields written only when
+  non-empty, so an `xlsx2csv` step round-trips byte-identically — **asserted in batch 2 by reading and
+  rewriting every workflow XML in the repo and comparing SHA-256**, before anything else is touched.
+* **Gate 0, six questions that gate batch 1**, all about the data and none answerable here: largest
+  JSON file and count per run (decides tree vs streaming); one file = one document or an array of them;
+  whether two independent arrays ever need mapping together; what dates look like *inside* the JSON;
+  whether MIMEType wants `.json` or `application/json`, and of which file; whether the dataschema's
+  `nullable:false` should be enforced (specified and off).
