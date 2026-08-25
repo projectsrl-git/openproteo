@@ -2531,3 +2531,25 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * **Rule: drive a control through the handler the page wires to it, never around it.** Any step the
   harness performs on the page's behalf is a step the page is no longer tested for. Worth checking the
   other conditional panels the same way.
+
+## Designer: the same defect in `batchBy`, and an advisory scan for the class
+* **Audited the other conditional panels after the contentSource defect, with a scan rather than by
+  eye.** Thirteen hits, twelve of them fine: text inputs with `oninput` **cannot** redraw — doing it on
+  every keystroke takes the focus away mid-word, so there the redraw would BE the defect — and most
+  branches only set a `checked` or `selected` attribute, already correct when the value is written.
+* **One real case, milder than the first: `batchBy`.** It hides nothing (`maxBytesPerBatch` and
+  `oversizeDocumentPolicy` stay visible on purpose) but it decides whether three labels carry
+  "NOT in effect", so switching to BYTES left three fields wrongly labelled until something else
+  redrew. Same class: **a control that changes what the panel SAYS must not leave the old wording under
+  the new choice.** Now `elarSetBatchBy`.
+* **`tools/scan_panel_redraw.js`, ADVISORY, exit code always 0.** Deliberate: the first version flagged
+  13 of which 12 were fine, and **a check that cries wolf twelve times out of thirteen is switched off
+  within a week, at which point it protects nothing.** It stays diagnostic until calibrated against
+  panels written after it. Calibrated: 13 -> 0 with the two real defects fixed.
+* **The scan's own first run was a reassuring lie**: parameter names sit inside ESCAPED quotes in the
+  emitted strings (`setNodeParam(' + i + ',\'x\',...)`), so matching plain quotes found 3 parameters
+  instead of 118 and reported all-clear. **A scan that finds nothing must be checked for whether it can
+  find anything.**
+* **Proved it bites**: each defect re-introduced one at a time (helper deleted, handler reverted) and the
+  scan reports that one and only that one. The panel suite covers `batchBy` through its own handler and
+  fails 2 assertions against the reverted template.

@@ -1,44 +1,57 @@
-designer: redraw the elarxml panel when the content source changes
+designer: batchBy must redraw too, and an advisory scan for the class
 
-Reported from the designer with a screenshot that showed the contradiction
-plainly: IFS selected in the dropdown, and underneath it the LOCAL
-explanation, no IFS base path, no listing cap and no datasource selector. The
-step could not be configured for IFS through the interface at all.
+After the content-source defect, the other conditional panels were audited
+with a scan rather than by eye. Thirteen controls came back flagged and twelve
+of them were fine.
 
-The panel shows a different set of fields for LOCAL and for IFS, so changing
-the source has to redraw it. The pattern for exactly this is already in the
-file - diffSetMode and ifsSetListSource both set the parameter and then call
-renderNodes - and the batch 3 select called setNodeParam alone. The value was
-stored correctly; only the page contradicted itself. Now elarSetContentSource.
+Text inputs bound with oninput cannot redraw at all: doing it on every
+keystroke takes the focus away mid-word, so there the redraw would be the
+defect rather than the fix. Most of the rest branch only to set a checked or
+selected attribute, which is already correct at the moment the value is
+written.
 
-THE TEST HID IT, WHICH IS THE MORE USEFUL HALF
+ONE REAL CASE, MILDER THAN THE FIRST
 
-The jsdom suite set the parameter and then called renderNodes itself, which is
-doing by hand the step the page never did. Every assertion about the IFS
-fields then passed, because the harness performed the redraw. A test that
-supplies the missing step cannot fail on it.
+batchBy hides nothing - maxBytesPerBatch and oversizeDocumentPolicy stay
+visible on purpose, labelled NOT in effect - but it decides that labelling, so
+switching to BYTES left three fields wrongly labelled until something else
+redrew the panel. Same class as the content-source defect: a control that
+changes what the panel says must not leave the old wording under the new
+choice. Now elarSetBatchBy.
 
-The suite now finds the select in the rendered panel, asserts that its handler
-is not a bare setNodeParam, and executes the onchange attribute as a browser
-would. jsdom does not run inline handlers, so dispatching a change event does
-nothing and the attribute has to be evaluated directly. It then asserts the
-panel really changed: the LOCAL explanation is gone.
+THE SCAN, AND WHY IT IS NOT A GATE
 
-The rule this leaves: drive a control through the handler the page wires to
-it, never around it. Any step the harness performs on the page's behalf is a
-step the page is no longer being tested for. The other conditional panels are
-worth checking the same way.
+tools/scan_panel_redraw.js reports controls whose value decides the shape of
+the panel and whose handler only stores it. It is advisory and exits 0 by
+design. The first version flagged thirteen of which twelve were fine, and a
+check that cries wolf twelve times out of thirteen is switched off within a
+week, at which point it protects nothing. It stays diagnostic until it has
+been calibrated against panels written after it.
+
+Two things about the scan itself are worth keeping. Its own first run was a
+reassuring lie: parameter names sit inside escaped quotes in the emitted
+strings, so matching plain quotes found 3 parameters instead of 118 and
+reported a clean bill of health. A scan that finds nothing has to be checked
+for whether it can find anything at all. And it was proved to bite by
+re-introducing each defect separately, helper deleted and handler reverted,
+then confirming it reports that one and only that one.
 
 VERIFIED
-- 112 designer assertions, up from 110, the new ones being that the select is
-  reachable in the rendered panel, that its handler is not a bare
-  setNodeParam, and that executing it removes the LOCAL explanation.
-- Against the pre-fix template the same suite fails 6 assertions: the handler
-  check, the redraw, and the four IFS fields that never appeared.
+- The scan goes from 13 flagged to 0 with the two real defects fixed, and
+  reports contentSource alone or batchBy alone when either is re-introduced.
+- 116 designer assertions, up from 112: the batch-by select is reachable, its
+  handler is not a bare setNodeParam, the NOT-in-effect wording is present
+  under DOCUMENTS and gone after switching to BYTES, and the byte fields are
+  still there because they were never hidden. Against the reverted template
+  that suite fails 2 assertions.
 - The elarcheck panel suite and the template scans unchanged.
 
 NOT VERIFIED
 - mvn clean package: Maven Central is unreachable from the chat sandbox, so
-  the build on the target machine remains the only final proof. Only a
-  Thymeleaf template changed here, and it cannot be rendered without the
-  internal Nexus; it was checked structurally and under jsdom.
+  the build on the target machine remains the only final proof. A Thymeleaf
+  template and a standalone diagnostic script changed here; the template
+  cannot be rendered without the internal Nexus and was checked structurally
+  and under jsdom.
+- The scan's classifier has been calibrated against the panels that exist
+  today and against two re-introduced defects. It has never seen a panel
+  written after it, which is the whole reason it is advisory.

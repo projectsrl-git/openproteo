@@ -416,3 +416,31 @@ Against the pre-fix template that suite fails **6** assertions.
 
 **The rule this leaves**: drive a control through the handler the page wires to it, never around it. Any
 step the harness performs on the page's behalf is a step the page is no longer being tested for.
+
+### Follow-up: the audit of the other panels
+
+After the content-source defect, the other conditional panels were audited with a scan rather than by
+eye. Thirteen controls came back flagged and **twelve of them were fine**:
+
+- text inputs bound with `oninput` cannot redraw at all - doing it on every keystroke takes the focus
+  away mid-word, so there the redraw would be the defect rather than the fix;
+- most of the rest branch only to set a `checked` or `selected` attribute, which is already correct at
+  the moment the value is written.
+
+**One real case, milder than the first: `batchBy`.** It hides nothing - `maxBytesPerBatch` and
+`oversizeDocumentPolicy` stay visible on purpose, labelled *NOT in effect* - but it decides that
+labelling, so switching to BYTES left three fields wrongly labelled until something else redrew. Same
+class as the first defect: a control that changes what the panel *says* must not leave the old wording
+under the new choice. Now `elarSetBatchBy`.
+
+`tools/scan_panel_redraw.js` is **advisory and exits 0 by design**. A gate that cried wolf twelve times
+out of thirteen would be switched off within a week, and then it would protect nothing; it stays
+diagnostic until it has been calibrated against panels written after it.
+
+Two things about the scan itself worth keeping:
+
+- **its own first run was a reassuring lie.** Parameter names sit inside escaped quotes in the emitted
+  strings, so matching plain quotes found 3 parameters instead of 118 and reported a clean bill of
+  health. A scan that finds nothing has to be checked for whether it can find anything at all;
+- **it was proved to bite** by re-introducing each defect separately - helper deleted, handler reverted -
+  and confirming it reports that one and only that one.

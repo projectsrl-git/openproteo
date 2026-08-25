@@ -431,6 +431,11 @@
     // the elarxml content source shows a different set of fields for LOCAL and IFS, so changing it has
     // to redraw the panel - a select that only stores the value leaves the page contradicting itself
     function elarSetContentSource(i, v) { setNodeParam(i, 'contentSource', v); renderNodes(); }
+    // batchBy does not hide fields - maxBytesPerBatch and oversizeDocumentPolicy stay visible on
+    // purpose - but it decides whether three labels carry "NOT in effect", so it has to redraw for
+    // the same reason: a control that changes what the panel SAYS must not leave the old wording under
+    // the new choice. Milder than a missing field, the same class of defect.
+    function elarSetBatchBy(i, v) { setNodeParam(i, 'batchBy', v); renderNodes(); }
     function diffMatches(n) {
         var byIdx = {};
         if (n.params) n.params.forEach(function (p) {
@@ -1388,7 +1393,7 @@
 
                     h += subHead('Batching');
                     h += '<div class="form-row">' +
-                        '<div class="field"><label>Batch by</label><select onchange="setNodeParam(' + i + ',\'batchBy\',this.value)">' +
+                        '<div class="field"><label>Batch by</label><select onchange="elarSetBatchBy(' + i + ',this.value)">' +
                         '<option value=""' + (elarBy === 'DOCUMENTS' ? ' selected' : '') + '>DOCUMENTS — output.max_index_docs per INDX (default)</option>' +
                         '<option value="BYTES"' + (elarBy === 'BYTES' ? ' selected' : '') + '>BYTES — roll on a size budget</option></select></div>' +
                         '<div class="field"><label>Max bytes per batch' + (elarBy === 'BYTES' ? '' : ' — NOT in effect') + '</label><input type="number" min="0" value="' + attresc(nodeParam(n, 'maxBytesPerBatch')) + '" placeholder="209715200" oninput="setNodeParam(' + i + ',\'maxBytesPerBatch\',this.value)"></div>' +
