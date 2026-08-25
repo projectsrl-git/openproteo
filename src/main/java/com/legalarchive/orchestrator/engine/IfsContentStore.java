@@ -31,6 +31,24 @@ import com.legalarchive.orchestrator.elar.ContentStore;
  */
 public final class IfsContentStore implements ContentStore {
 
+    /**
+     * How a document's existence, size and modification time are found.
+     *
+     * <b>STAT</b> asks for each document, one round trip each, and holds one entry per document the feed
+     * actually references. <b>LISTING</b> lists each parent directory once and holds every entry in it.
+     *
+     * Which is right is decided by the shape of the store, not by preference, and the first real feed
+     * settled it: the documents live in two directories holding <b>three million files</b> between them,
+     * of which a run references a few thousand. Listing them would transfer three million entries to use
+     * a fraction of them and hold roughly 300 MB to do it - and would trip the entry cap on the first
+     * run. A stat per document is bounded by the feed instead of by the store.
+     *
+     * LISTING is still right for the opposite shape: a directory of a few thousand files that a feed
+     * references densely, where one round trip replaces thousands. It is no longer the default, because
+     * a default that fails on the only real feed we have is the wrong way round.
+     */
+    public enum Lookup { STAT, LISTING }
+
     /** The whole of the AS/400 dependency, so the rest of this class can be tested without one. */
     public interface Ifs extends java.io.Closeable {
         /** Every file in a directory. Empty when the directory does not exist - absence is not an error. */
@@ -53,6 +71,7 @@ public final class IfsContentStore implements ContentStore {
     private final String basePath;          // joined to a value that is not absolute; may be null
     private final File stagingDir;
     private final int maxListing;
+    private final Lookup lookup;
     private final Consumer<String> log;
 
     private final Map<String, Entry> known = new HashMap<String, Entry>();
@@ -65,12 +84,18 @@ public final class IfsContentStore implements ContentStore {
     private boolean closed;
 
     public IfsContentStore(Ifs ifs, String basePath, File stagingDir, int maxListing, Consumer<String> log) {
+        this(ifs, basePath, stagingDir, maxListing, Lookup.STAT, log);
+    }
+
+    public IfsContentStore(Ifs ifs, String basePath, File stagingDir, int maxListing, Lookup lookup,
+                           Consumer<String> log) {
         if (ifs == null) throw new IllegalArgumentException("an IFS accessor is required");
         if (stagingDir == null) throw new IllegalArgumentException("a staging directory is required");
         this.ifs = ifs;
         this.basePath = basePath == null || basePath.trim().isEmpty() ? null : trimSlash(basePath.trim());
         this.stagingDir = stagingDir;
         this.maxListing = maxListing > 0 ? maxListing : Integer.MAX_VALUE;
+        this.lookup = lookup == null ? Lookup.STAT : lookup;
         this.log = log;
     }
 
@@ -139,19 +164,23 @@ public final class IfsContentStore implements ContentStore {
         Entry cached = known.get(path);
         if (cached != null) return cached;
 
+        if (lookup == Lookup.STAT) {
+            // one round trip, and the map grows with the FEED rather than with the store behind it
+            Entry direct = ifs.stat(path);
+            if (direct != null) {
+                if (known.size() >= maxListing) throw tooMany(parentOf(path));
+                known.put(path, direct);
+            }
+            return direct;
+        }
+
         String dir = parentOf(path);
         if (!listedDirs.contains(dir)) {
             listedDirs.add(dir);
             List<Entry> entries = ifs.list(dir);
             listings++;
             for (int i = 0; i < entries.size(); i++) {
-                if (known.size() >= maxListing) {
-                    throw new IOException("the IFS listing has passed " + maxListing + " entries after "
-                            + listings + " directory listing(s), most recently " + dir + ". Holding more"
-                            + " would risk running the JVM out of memory in the middle of a delivery,"
-                            + " which is the failure this executor exists to avoid. Narrow the feed or"
-                            + " raise contentIfsMaxListing deliberately.");
-                }
+                if (known.size() >= maxListing) throw tooMany(dir);
                 Entry e = entries.get(i);
                 known.put(e.path, e);
             }
@@ -163,6 +192,20 @@ public final class IfsContentStore implements ContentStore {
         Entry direct = ifs.stat(path);
         if (direct != null) known.put(path, direct);
         return direct;
+    }
+
+    private IOException tooMany(String dir) {
+        return new IOException("the IFS lookup has passed " + maxListing + " cached entr(y/ies) after "
+                + listings + " directory listing(s), most recently under " + dir + ". Holding more would"
+                + " risk running the JVM out of memory in the middle of a delivery, which is the failure"
+                + " this executor exists to avoid."
+                + (lookup == Lookup.LISTING
+                    ? " Under LISTING the count is every file in the directories, not the ones this feed"
+                      + " uses: a store of millions listed to reach thousands will always trip this."
+                      + " contentIfsLookup=STAT asks per document instead and is bounded by the feed."
+                    : " Under STAT the count is the documents this feed references, so this means the"
+                      + " feed itself is larger than expected.")
+                + " Raise contentIfsMaxListing deliberately if the figure is right.");
     }
 
     // ------------------------------------------------------------------ the payload
@@ -248,7 +291,7 @@ public final class IfsContentStore implements ContentStore {
         closed = true;
         discardStaged();
         if (log != null) {
-            log.accept("elarxml: IFS content - " + listings + " directory listing(s), " + known.size()
+            log.accept("elarxml: IFS content via " + lookup + " - " + listings + " directory listing(s), " + known.size()
                     + " entr(y/ies) known, " + staged + " document(s) staged, " + stagedBytes
                     + " byte(s) transferred");
         }

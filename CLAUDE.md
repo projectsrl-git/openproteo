@@ -2553,3 +2553,24 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * **Proved it bites**: each defect re-introduced one at a time (helper deleted, handler reverted) and the
   scan reports that one and only that one. The panel suite covers `batchBy` through its own handler and
   fails 2 assertions against the reverted template.
+
+## elarxml IFS: the first real feed inverted the lookup default
+* **Measured: `/Proteo/DOC/PDF` and `/Proteo/DOC/TIFF` hold THREE MILLION files between them**, and a run
+  references a few thousand. The listing design would have transferred 3M entries to reach a few
+  thousand, held ~300 MB doing it, and tripped the 500000 cap on the first real run.
+* **§4 reasoned from the wrong axis.** It asked how many DIRECTORIES the paths spread over and concluded
+  that few directories meant few round trips — true and irrelevant, because **the cost of a listing is
+  not the round trip, it is everything in the directory**. The axis that matters is the RATIO: how much
+  of a directory a feed actually uses. STAT is bounded by the FEED; LISTING by the STORE behind it.
+* `contentIfsLookup`: **STAT is now the default** (one round trip and one cached entry per referenced
+  document — right whenever a feed touches a small fraction of a large store, which is what a document
+  archive is); LISTING stays for the opposite shape, a small directory used densely.
+* **Changing this default is NOT a conservative-defaults exception**, and the distinction is worth
+  keeping: IFS reading has never run in the field, so no delivered feed changes behaviour. **A default
+  that fails on the only real feed we have is simply the wrong way round.**
+* **The cap message now names the strategy**, because the same number means two different things: under
+  LISTING it counts every file in the store and points at STAT; under STAT it counts the feed's own
+  documents, so it means the feed is bigger than expected.
+* 162 assertions (from 144). The decisive one reproduces the reported shape and asserts 0 listings / 6
+  stats by default against 1 listing pulling 3000 entries to reach one. End to end, both strategies
+  deliver a **byte-identical INDX**.

@@ -2019,10 +2019,14 @@ public class InternalSteps {
             // the step directory: one document at a time lands here and is deleted as the run goes on
             String stepDir = blankToNull(vars.get("stepDir"));
             java.io.File staging = stepDir != null ? new java.io.File(stepDir) : o.outputDir;
-            o.contentStore = new IfsContentStore(new Jt400Ifs(ds), ifsBase, staging, maxListing, line);
+            String lk = xStr(VarResolver.resolve(params.get("contentIfsLookup"), vars), "STAT");
+            IfsContentStore.Lookup lookup = "LISTING".equalsIgnoreCase(lk)
+                    ? IfsContentStore.Lookup.LISTING : IfsContentStore.Lookup.STAT;
+            o.contentStore = new IfsContentStore(new Jt400Ifs(ds), ifsBase, staging, maxListing, lookup, line);
             line.accept("elarxml: content read from IFS via datasource " + step.datasource
                     + (ifsBase == null ? " (column values must be absolute paths)"
                                        : ", base " + ifsBase + " for values that are not absolute")
+                    + ", lookup " + lookup
                     + "; the family documentPath is NOT read");
         } else if (!"LOCAL".equalsIgnoreCase(contentSource)) {
             line.accept("elarxml: contentSource must be LOCAL or IFS, not '" + contentSource + "'");

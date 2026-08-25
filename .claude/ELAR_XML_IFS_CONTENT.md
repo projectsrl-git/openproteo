@@ -308,8 +308,9 @@ resolve textually. Explicitly *not* the local last-segment rule, and there is an
 by name - that inversion is the one that would send every row to the discards file with the documents
 sitting untouched on the IFS.
 
-**Listing** is lazy and per parent, cached for the run, with a direct check for a file that appeared
-after its directory was listed. Measured on the fake: 80 documents in 2 directories cost **2 listings
+~~**Listing** is lazy and per parent, cached for the run~~ - **superseded, see the section below**:
+the first real feed made it the wrong default. Listing remains available and is lazy and per parent,
+cached for the run, with a direct check for a file that appeared after its directory was listed. Measured on the fake: 80 documents in 2 directories cost **2 listings
 and 0 stats**; 20 documents scattered one per directory cost 20 listings returning 20 entries total,
 which is what 20 stats would have cost. The cap fails with a message that names the cap, the directory
 that tripped it, and why it exists.
@@ -444,3 +445,43 @@ Two things about the scan itself worth keeping:
   health. A scan that finds nothing has to be checked for whether it can find anything at all;
 - **it was proved to bite** by re-introducing each defect separately - helper deleted, handler reverted -
   and confirming it reports that one and only that one.
+
+---
+
+## The first real feed made LISTING the wrong default
+
+**Measured, and it inverts a design decision.** The documents for the first family live in
+`/Proteo/DOC/PDF` and `/Proteo/DOC/TIFF`, which hold **three million files between them**, and a run
+references a few thousand of them.
+
+Section 4 reasoned from the wrong axis. It asked how many *directories* the paths were spread over and
+concluded that few directories meant few round trips - true, and irrelevant, because the cost of a
+listing is not the round trip, it is **everything in the directory**. Three million entries would be
+transferred to reach a few thousand and held at roughly 300 MB to do it, and the entry cap of 500 000
+would have fired on the first real run. The failure would have been a clear message, which is
+something, but the design would still have been wrong.
+
+**The axis that matters is the ratio**: how much of a directory a feed actually uses. A stat per
+document is bounded by the **feed**; a listing is bounded by the **store behind it**.
+
+So `contentIfsLookup`:
+
+- **`STAT` (default)** - one round trip per document, one cached entry per document the feed references.
+  Right whenever a feed touches a small fraction of a large store, which is what a document archive is;
+- **`LISTING`** - each parent directory listed once and cached whole. Right for the opposite shape: a
+  small directory a feed uses densely, where one round trip replaces thousands.
+
+**Changing the default is not a conservative-defaults exception**, and the distinction is worth keeping:
+IFS reading has never run in the field, so no delivered feed changes behaviour. A default that fails on
+the only real feed we have is simply the wrong way round.
+
+The cap message now says **which** strategy tripped it and what that means, because the same number
+means two different things: under LISTING it counts every file in the store and points at
+`contentIfsLookup=STAT`; under STAT it counts the documents the feed references, so it means the feed
+itself is bigger than expected.
+
+**Verified** by 162 assertions, up from 144. The decisive one reproduces the reported shape - two
+directories of three thousand documents, six referenced - and asserts **0 listings and 6 stats** under
+the default, against **1 listing pulling 3 000 entries to reach one** under LISTING. Plus both cap
+messages, and end to end that the two strategies deliver a **byte-identical INDX**: 30 documents, 0
+listings and 30 stats one way, 3 listings and 0 stats the other, 30 network transits either way.

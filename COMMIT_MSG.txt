@@ -1,57 +1,60 @@
-designer: batchBy must redraw too, and an advisory scan for the class
+elarxml IFS: STAT becomes the lookup default, measured against a real store
 
-After the content-source defect, the other conditional panels were audited
-with a scan rather than by eye. Thirteen controls came back flagged and twelve
-of them were fine.
+The first real feed inverted a design decision. The documents live in
+/Proteo/DOC/PDF and /Proteo/DOC/TIFF, which hold three million files between
+them, and a run references a few thousand of them.
 
-Text inputs bound with oninput cannot redraw at all: doing it on every
-keystroke takes the focus away mid-word, so there the redraw would be the
-defect rather than the fix. Most of the rest branch only to set a checked or
-selected attribute, which is already correct at the moment the value is
-written.
+WHY THE LISTING DEFAULT WAS WRONG
 
-ONE REAL CASE, MILDER THAN THE FIRST
+The specification reasoned from the wrong axis. It asked how many directories
+the paths were spread over and concluded that few directories meant few round
+trips. True, and irrelevant: the cost of a listing is not the round trip, it
+is everything in the directory. Three million entries would have been
+transferred to reach a few thousand and held at roughly 300 MB to do it, and
+the entry cap of 500000 would have fired on the first real run. The failure
+would at least have carried a clear message, but the design would still have
+been wrong.
 
-batchBy hides nothing - maxBytesPerBatch and oversizeDocumentPolicy stay
-visible on purpose, labelled NOT in effect - but it decides that labelling, so
-switching to BYTES left three fields wrongly labelled until something else
-redrew the panel. Same class as the content-source defect: a control that
-changes what the panel says must not leave the old wording under the new
-choice. Now elarSetBatchBy.
+The axis that matters is the ratio, not the count: how much of a directory a
+feed actually uses. A stat per document is bounded by the feed; a listing is
+bounded by the store behind it.
 
-THE SCAN, AND WHY IT IS NOT A GATE
+contentIfsLookup=STAT, the new default, asks per document: one round trip and
+one cached entry for each document the feed references. It is right whenever a
+feed touches a small fraction of a large store, which is what a document
+archive is. LISTING remains for the opposite shape, a small directory that a
+feed uses densely, where one round trip replaces thousands.
 
-tools/scan_panel_redraw.js reports controls whose value decides the shape of
-the panel and whose handler only stores it. It is advisory and exits 0 by
-design. The first version flagged thirteen of which twelve were fine, and a
-check that cries wolf twelve times out of thirteen is switched off within a
-week, at which point it protects nothing. It stays diagnostic until it has
-been calibrated against panels written after it.
+Changing this default is not an exception to the conservative-default rule,
+and the distinction is worth keeping: IFS reading has never run in the field,
+so no delivered feed changes behaviour. A default that fails on the only real
+feed we have is simply the wrong way round.
 
-Two things about the scan itself are worth keeping. Its own first run was a
-reassuring lie: parameter names sit inside escaped quotes in the emitted
-strings, so matching plain quotes found 3 parameters instead of 118 and
-reported a clean bill of health. A scan that finds nothing has to be checked
-for whether it can find anything at all. And it was proved to bite by
-re-introducing each defect separately, helper deleted and handler reverted,
-then confirming it reports that one and only that one.
+The cap message now names the strategy, because the same number means two
+different things. Under LISTING it counts every file in the store and points
+at contentIfsLookup=STAT. Under STAT it counts the documents the feed
+references, so tripping it means the feed itself is larger than expected.
 
 VERIFIED
-- The scan goes from 13 flagged to 0 with the two real defects fixed, and
-  reports contentSource alone or batchBy alone when either is re-introduced.
-- 116 designer assertions, up from 112: the batch-by select is reachable, its
-  handler is not a bare setNodeParam, the NOT-in-effect wording is present
-  under DOCUMENTS and gone after switching to BYTES, and the byte fields are
-  still there because they were never hidden. Against the reverted template
-  that suite fails 2 assertions.
-- The elarcheck panel suite and the template scans unchanged.
+- 162 assertions on the store, up from 144. The decisive one reproduces the
+  reported shape - two directories of three thousand documents, six of them
+  referenced - and asserts 0 listings and 6 stats under the default, against 1
+  listing pulling 3000 entries to reach one under LISTING.
+- Both cap messages, each asserted to explain its own situation rather than
+  just refusing.
+- End to end, the two strategies deliver a byte-identical INDX: 30 documents
+  with 0 listings and 30 stats one way, 3 listings and 0 stats the other, and
+  30 network transits either way, so the staging still works under both.
+- 118 designer assertions, up from 116, covering the new field and that STAT
+  is the one selected by default. All seven elar suites, the elarcheck panel,
+  the template scans and the panel-redraw scan unchanged.
 
 NOT VERIFIED
 - mvn clean package: Maven Central is unreachable from the chat sandbox, so
-  the build on the target machine remains the only final proof. A Thymeleaf
-  template and a standalone diagnostic script changed here; the template
-  cannot be rendered without the internal Nexus and was checked structurally
-  and under jsdom.
-- The scan's classifier has been calibrated against the panels that exist
-  today and against two re-introduced defects. It has never seen a panel
-  written after it, which is the whole reason it is advisory.
+  the build on the target machine remains the only final proof.
+  IfsContentStore was compiled and executed against the elar package; the
+  lines added to runElarXml cannot be compiled here, since the engine package
+  needs Spring from the internal Nexus.
+- Jt400Ifs has still never been executed. Nothing in this commit touches it:
+  the strategy is decided above it, and both branches call methods it already
+  exposed.
