@@ -1222,3 +1222,54 @@ while carrying the part marker - then that the delivered names are untouched and
 `.part`. The trace: all six documents traced to the INDX that received them, each id and file name
 present, the total and the PULL pairing reported, **no metadata value in the log**, and the switch
 silencing it without changing the run.
+
+### Field defect: the drift check compared two quantities that were never comparable
+
+The first run on volume filled the step log with *the byte budget is rolling at the wrong point* - on
+**every single document**, at a fixed ratio of 1.330 between the two figures. That is 4/3, the Base64
+expansion, and it is the whole explanation.
+
+Three quantities are involved and only two of them are the same kind of thing:
+
+- the **estimate**, `encodedLength(length) + PER_DOCUMENT_OVERHEAD` - encoded characters;
+- what `writeDocument` returned - the **raw payload bytes** read from the document;
+- what the INDX actually **grew by** - which nothing measured.
+
+`estimateDrifted(estimate, raw + PER_DOCUMENT_OVERHEAD)` compared the first against the second, so it
+was always 4/3 apart and always fired. **A warning that always fires reports nothing**, and this is the
+one that exists to police `PER_DOCUMENT_OVERHEAD` - the only number in this executor that is not derived
+from something else. It had been blind since it was written.
+
+**A correction to what was said in the field, on the record.** It was first reported that the byte
+budget itself counted raw bytes, which would have made a 1.9 GB budget produce INDX files of about
+2.5 GB. That was wrong: `policy.appended(estimate)` accumulates the *encoded* estimate, so the budget
+was in the right units and the delivered files were the right size. The conclusion had been drawn from
+the warning rather than from the line that accumulates. Reading the line first would have cost nothing.
+
+The batch now measures its own growth - `charsWritten()` before and after the document - and that figure
+feeds both the budget and the drift check. Measured rather than derived, so it needs no assumption about
+encoding overhead and stays correct if the formatting changes. The counter keeps the raw payload, which
+is what `bytesEmbedded` means.
+
+**Verified** on the sizes from the real log - 236 KB, 310 KB, 1.08 MB, 1.89 MB, 2.13 MB: **5 warnings
+out of 5 before, 0 out of 5 after**, with the delivered INDX byte-identical, so what is written did not
+change - only what is compared.
+
+### Field defect: the staging file reused one name tens of thousands of times
+
+The same run failed after **27 668 documents and 9.3 GB** with
+`elarxml-content.part (Access is denied)`, on a disk with plenty of space free - confirmed.
+
+Every document was staged to the same path, deleted and recreated. On Windows that is precisely the
+shape that collides with a virus scanner or the indexer still holding the previous file: the failure is
+not a permissions problem, it is a race, which is why it took tens of thousands of iterations to appear.
+
+Each staged document now gets its own name, `elarxml-content-<n>.part`, so it cannot collide with the
+one before it; creation retries three times with a short back-off, because such a lock lasts fractions
+of a second; and because unique names never overwrite one another, the staging directory is swept once
+per run for anything a killed run left behind. The failure message now says the name was unique, so the
+next person is not sent looking for a leftover that cannot exist.
+
+**Verified**: consecutive documents get different paths, a planted leftover is swept, one staged file
+exists at a time and none after close. What could not be reproduced here is the lock itself - it needs
+Windows and a scanner - so this is a hypothesis with the mechanism removed, not a demonstrated cure.

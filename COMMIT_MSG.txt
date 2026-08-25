@@ -1,60 +1,76 @@
-elarxml IFS: STAT becomes the lookup default, measured against a real store
+elarxml: the drift check was blind, and staging reused one filename
 
-The first real feed inverted a design decision. The documents live in
-/Proteo/DOC/PDF and /Proteo/DOC/TIFF, which hold three million files between
-them, and a run references a few thousand of them.
+Two defects from the first run on volume, and a correction to what was said
+about the first of them.
 
-WHY THE LISTING DEFAULT WAS WRONG
+THE DRIFT CHECK COMPARED TWO QUANTITIES THAT WERE NEVER COMPARABLE
 
-The specification reasoned from the wrong axis. It asked how many directories
-the paths were spread over and concluded that few directories meant few round
-trips. True, and irrelevant: the cost of a listing is not the round trip, it
-is everything in the directory. Three million entries would have been
-transferred to reach a few thousand and held at roughly 300 MB to do it, and
-the entry cap of 500000 would have fired on the first real run. The failure
-would at least have carried a clear message, but the design would still have
-been wrong.
+The step log filled with "the byte budget is rolling at the wrong point", on
+every single document, at a fixed ratio of 1.330 between the two figures. That
+is 4/3, the Base64 expansion, and it is the whole explanation.
 
-The axis that matters is the ratio, not the count: how much of a directory a
-feed actually uses. A stat per document is bounded by the feed; a listing is
-bounded by the store behind it.
+Three quantities are involved and only two of them are the same kind of thing:
+the estimate, which is encoded characters; what writeDocument returned, which
+is the raw payload read from the document; and what the INDX actually grew by,
+which nothing measured. The check compared the first against the second, so it
+was always 4/3 apart and always fired. A warning that always fires reports
+nothing, and this is the one that exists to police PER_DOCUMENT_OVERHEAD, the
+only number in this executor that is not derived from something else. It had
+been blind since it was written.
 
-contentIfsLookup=STAT, the new default, asks per document: one round trip and
-one cached entry for each document the feed references. It is right whenever a
-feed touches a small fraction of a large store, which is what a document
-archive is. LISTING remains for the opposite shape, a small directory that a
-feed uses densely, where one round trip replaces thousands.
+A correction, on the record. It was first reported to the field that the byte
+budget itself counted raw bytes, which would have made a 1.9 GB budget produce
+INDX files of about 2.5 GB. That was wrong. policy.appended(estimate)
+accumulates the encoded estimate, so the budget was in the right units and the
+delivered files were the right size. The conclusion was drawn from the warning
+rather than from the line that accumulates, and reading that line first would
+have cost nothing.
 
-Changing this default is not an exception to the conservative-default rule,
-and the distinction is worth keeping: IFS reading has never run in the field,
-so no delivered feed changes behaviour. A default that fails on the only real
-feed we have is simply the wrong way round.
+The batch now measures its own growth, charsWritten before and after the
+document, and that figure feeds both the budget and the drift check. Measured
+rather than derived, so it needs no assumption about encoding overhead and
+stays correct if the formatting changes. The counter keeps the raw payload,
+which is what bytesEmbedded means.
 
-The cap message now names the strategy, because the same number means two
-different things. Under LISTING it counts every file in the store and points
-at contentIfsLookup=STAT. Under STAT it counts the documents the feed
-references, so tripping it means the feed itself is larger than expected.
+THE STAGING FILE REUSED ONE NAME TENS OF THOUSANDS OF TIMES
+
+The same run failed after 27668 documents and 9.3 GB with
+"elarxml-content.part (Access is denied)", on a disk with plenty of free
+space, confirmed.
+
+Every document was staged to the same path, deleted and recreated. On Windows
+that is precisely the shape that collides with a virus scanner or the indexer
+still holding the previous file. It is not a permissions problem, it is a
+race, which is why it took tens of thousands of iterations to appear.
+
+Each staged document now gets its own name, so it cannot collide with the one
+before it. Creation retries three times with a short back-off, because such a
+lock lasts fractions of a second. And because unique names never overwrite one
+another, the staging directory is swept once per run for anything a killed run
+left behind. The failure message now says the name was unique, so nobody is
+sent looking for a leftover that cannot exist.
 
 VERIFIED
-- 162 assertions on the store, up from 144. The decisive one reproduces the
-  reported shape - two directories of three thousand documents, six of them
-  referenced - and asserts 0 listings and 6 stats under the default, against 1
-  listing pulling 3000 entries to reach one under LISTING.
-- Both cap messages, each asserted to explain its own situation rather than
-  just refusing.
-- End to end, the two strategies deliver a byte-identical INDX: 30 documents
-  with 0 listings and 30 stats one way, 3 listings and 0 stats the other, and
-  30 network transits either way, so the staging still works under both.
-- 118 designer assertions, up from 116, covering the new field and that STAT
-  is the one selected by default. All seven elar suites, the elarcheck panel,
-  the template scans and the panel-redraw scan unchanged.
+- The drift check, on the document sizes taken from the real log, 236 KB to
+  2.13 MB: 5 warnings out of 5 before the change, 0 out of 5 after, with the
+  delivered INDX byte-identical. What is written did not change; only what is
+  compared.
+- 167 assertions on the IFS store, up from 162: consecutive documents get
+  different staging paths, a planted leftover is swept, one staged file exists
+  at a time and none after close.
+- The end-to-end identity still holds, both lookup strategies still deliver
+  the same file, and all seven elar suites pass unchanged. Rule scans clean.
 
 NOT VERIFIED
-- mvn clean package: Maven Central is unreachable from the chat sandbox, so
-  the build on the target machine remains the only final proof.
-  IfsContentStore was compiled and executed against the elar package; the
-  lines added to runElarXml cannot be compiled here, since the engine package
-  needs Spring from the internal Nexus.
-- Jt400Ifs has still never been executed. Nothing in this commit touches it:
-  the strategy is decided above it, and both branches call methods it already
-  exposed.
+- The Windows lock itself. It needs Windows and a scanner, neither of which
+  exists in the chat sandbox, so the staging change removes the mechanism
+  rather than demonstrating the cure. The next run on volume is the evidence.
+- mvn clean package: Maven Central is unreachable from the sandbox, so the
+  build on the target machine remains the only final proof.
+- The report that an elarcheck step will not expand in the designer could not
+  be reproduced. A four-step workflow with elarxml in IFS renders the last
+  card with its body present, 26 fields inside it, div-balanced and inside its
+  own card; the CSS rule and toggleNode are both correct. Three hypotheses
+  were ruled out by measurement and none remains. The panel suite was weak by
+  construction, asserting on innerHTML as a string, which passes on malformed
+  HTML, and now counts elements inside the card instead.

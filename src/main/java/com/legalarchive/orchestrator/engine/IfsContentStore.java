@@ -79,8 +79,14 @@ public final class IfsContentStore implements ContentStore {
     private int listings = 0;
     private long staged = 0, stagedBytes = 0;
 
+    private static final String PART_SUFFIX = ".part";
+    private static final String PART_PREFIX = "elarxml-content-";
+    private static final int CREATE_ATTEMPTS = 3;
+
     private String stagedPath;              // the document currently on local disk
     private File stagedFile;
+    private long stagedSeq = 0;
+    private boolean sweptStagingDir = false;
     private boolean closed;
 
     public IfsContentStore(Ifs ifs, String basePath, File stagingDir, int maxListing, Consumer<String> log) {
@@ -237,10 +243,50 @@ public final class IfsContentStore implements ContentStore {
         if (!stagingDir.isDirectory() && !stagingDir.mkdirs()) {
             throw new IOException("the staging directory cannot be created: " + stagingDir.getAbsolutePath());
         }
-        File tmp = new File(stagingDir, "elarxml-content.part");
-        if (tmp.exists() && !tmp.delete()) {
-            throw new IOException("a staged document from an interrupted run could not be removed: "
-                    + tmp.getAbsolutePath() + ". Remove it by hand so this run can start clean.");
+        // Unique names never overwrite one another, so anything a killed run left behind would simply
+        // accumulate. Swept once per run rather than per document.
+        if (!sweptStagingDir) {
+            sweptStagingDir = true;
+            File[] old = stagingDir.listFiles();
+            if (old != null) {
+                for (int i = 0; i < old.length; i++) {
+                    String n = old[i].getName();
+                    if (n.startsWith(PART_PREFIX) && n.endsWith(PART_SUFFIX) && !old[i].delete()) {
+                        old[i].deleteOnExit();
+                    }
+                }
+            }
+        }
+        // A UNIQUE name per document, not one reused for every one of them.
+        //
+        // The first run on volume failed with "Access is denied" after 27 668 documents and 9.3 GB, on a
+        // disk with plenty of space. Reusing a single path means delete-then-create tens of thousands of
+        // times at the same place, and on Windows that is the shape that collides with a virus scanner or
+        // the indexer still holding the previous incarnation. A fresh name cannot collide with the file
+        // before it; a short retry covers the rest, because such a lock lasts fractions of a second.
+        File tmp = new File(stagingDir, "elarxml-content-" + (++stagedSeq) + PART_SUFFIX);
+        IOException last = null;
+        for (int attempt = 1; attempt <= CREATE_ATTEMPTS; attempt++) {
+            try {
+                new FileOutputStream(tmp).close();
+                last = null;
+                break;
+            } catch (IOException ex) {
+                last = ex;
+                if (attempt < CREATE_ATTEMPTS) {
+                    try { Thread.sleep(200L * attempt); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }
+        if (last != null) {
+            throw new IOException("the staging file " + tmp.getAbsolutePath() + " could not be created"
+                    + " after " + CREATE_ATTEMPTS + " attempts: " + last.getMessage()
+                    + ". The name is unique per document, so this is not the previous one still being"
+                    + " held; check the free space and whether something is scanning that directory.",
+                    last);
         }
 
         long total = 0;

@@ -306,12 +306,18 @@ public final class ElarRun {
                                     + (id == null || id.isEmpty() ? "(none)" : id)
                                     + " file=" + store.fileName(content));
                         }
-                        long actual = batch.writeDocument(indx, tags, store, content, contentTag, dsakTag, hashTag);
-                        counters.wrote(tags.size(), actual);
-                        policy.appended(estimate);
-                        if (BatchPolicy.estimateDrifted(estimate, actual + PER_DOCUMENT_OVERHEAD)) {
+                        Batch.Written w = batch.writeDocument(indx, tags, store, content, contentTag, dsakTag, hashTag);
+                        // Three different quantities, and the drift check used to compare two of them
+                        // that were never comparable: the estimate is ENCODED, and it was checked
+                        // against the RAW payload, a fixed ratio of 4/3 apart. So it fired on every
+                        // document of every run - and a warning that always fires reports nothing. The
+                        // one number in this executor that is not derived from something,
+                        // PER_DOCUMENT_OVERHEAD, is exactly what that check exists to police.
+                        counters.wrote(tags.size(), w.raw);            // the documents, so: raw payload
+                        policy.appended(w.written);                    // the INDX, so: what it grew by
+                        if (BatchPolicy.estimateDrifted(estimate, w.written)) {
                             log.accept("elarxml: the size estimate for " + store.fileName(content) + " was " + estimate
-                                    + " and it wrote " + (actual + PER_DOCUMENT_OVERHEAD)
+                                    + " and the INDX grew by " + w.written
                                     + "; the byte budget is rolling at the wrong point");
                         }
                         if (dec.action == BatchPolicy.Action.ROLL_THEN_ALONE) {
@@ -524,13 +530,25 @@ public final class ElarRun {
             return new Batch(n, a, x, o);
         }
 
-        long writeDocument(IndxTemplate indx, Map<String, String> tags, ContentStore store, String content,
-                           String contentTag, String dsakTag, String hashTag) throws Exception {
+        /**
+         * Two sizes, because they are not the same thing and confusing them made the drift check useless:
+         * {@code raw} is the payload as it sits on disk, {@code written} is what the INDX actually grew by.
+         */
+        static final class Written {
+            final long raw, written;
+            Written(long raw, long written) { this.raw = raw; this.written = written; }
+        }
+
+        Written writeDocument(IndxTemplate indx, Map<String, String> tags, ContentStore store, String content,
+                              String contentTag, String dsakTag, String hashTag) throws Exception {
             if (!prologueWritten) { indx.writePrologue(xml); prologueWritten = true; }
+            long before = xml.charsWritten();
             long[] bytes = new long[1];
             indx.writeDocument(xml, source(tags, store, content, contentTag, dsakTag, hashTag, bytes));
             docs++;
-            return bytes[0];
+            // MEASURED, not derived: metadata, tags, Base64 and the breaks between them. It needs no
+            // assumption about the encoding overhead, so it stays correct if the formatting changes.
+            return new Written(bytes[0], xml.charsWritten() - before);
         }
 
         private IndxTemplate.DocSource source(final Map<String, String> tags, final ContentStore store,

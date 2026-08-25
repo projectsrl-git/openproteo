@@ -2574,3 +2574,30 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * 162 assertions (from 144). The decisive one reproduces the reported shape and asserts 0 listings / 6
   stats by default against 1 listing pulling 3000 entries to reach one. End to end, both strategies
   deliver a **byte-identical INDX**.
+
+## elarxml: the drift check was blind, and the staging file reused one name
+* **The drift warning fired on EVERY document, at a fixed ratio of 1.330 — 4/3, the Base64 expansion.**
+  Three quantities, only two comparable: the estimate is ENCODED, `writeDocument` returned the RAW
+  payload, and what the INDX actually grew by was never measured. **A warning that always fires reports
+  nothing** — and this is the one that exists to police `PER_DOCUMENT_OVERHEAD`, the only number in the
+  executor not derived from something else. Blind since it was written.
+* **CORRECTION, on the record**: I first told the field that the BUDGET counted raw bytes, so a 1.9 GB
+  budget would produce ~2.5 GB INDX files. **That was wrong.** `policy.appended(estimate)` accumulates
+  the encoded estimate; the budget was in the right units and the files were the right size. I drew the
+  conclusion from the warning instead of reading the line that accumulates. **Second time this session**
+  — after `buildXml` — that a plausible inference replaced reading the deciding line.
+* Fix: the batch measures its own growth with `charsWritten()` before and after, and that feeds both the
+  budget and the check. Measured, not derived, so it survives a formatting change. `bytesEmbedded` keeps
+  the raw payload, which is what it means. Verified on the real log's sizes: **5 warnings of 5 before,
+  0 of 5 after, delivered INDX byte-identical** — what is written did not change, only what is compared.
+* **`Access is denied` after 27 668 documents and 9.3 GB, disk not full (confirmed).** Every document
+  staged to the SAME path, delete-then-create. On Windows that is the shape that races a virus scanner
+  or the indexer still holding the previous file — not a permissions problem, which is why it took tens
+  of thousands of iterations to show. Now a unique name per document, 3 create attempts with back-off,
+  and a once-per-run sweep because unique names never overwrite leftovers. **The lock itself cannot be
+  reproduced here** — it needs Windows and a scanner — so this is a mechanism removed, not a cure shown.
+* **The elarcheck panel not opening could NOT be reproduced**: four-step workflow with elarxml in IFS,
+  last card's `.nc-body` present with 26 fields, div-balanced, inside its own card, CSS and `toggleNode`
+  both correct. Three hypotheses ruled out by measurement, none left. **The panel suite was weak by
+  construction** — it asserted on `innerHTML` as a string, which passes on malformed HTML — and now
+  counts elements INSIDE the card.
