@@ -428,6 +428,9 @@
     function diffSetMode(i, v) { setNodeParam(i, 'mode', v); renderNodes(); }
     /** ifscopy: switching between "directory + pattern" and "the files listed in a CSV" re-renders the card. */
     function ifsSetListSource(i, v) { setNodeParam(i, 'listSource', v); renderNodes(); }
+    // the elarxml content source shows a different set of fields for LOCAL and IFS, so changing it has
+    // to redraw the panel - a select that only stores the value leaves the page contradicting itself
+    function elarSetContentSource(i, v) { setNodeParam(i, 'contentSource', v); renderNodes(); }
     function diffMatches(n) {
         var byIdx = {};
         if (n.params) n.params.forEach(function (p) {
@@ -1326,7 +1329,7 @@
                     h += subHead('Where the document comes from');
                     var elarSrc = nodeParam(n, 'contentSource') === 'IFS' ? 'IFS' : 'LOCAL';
                     h += '<div class="form-row">' +
-                        '<div class="field"><label>Content source</label><select onchange="setNodeParam(' + i + ',\'contentSource\',this.value)" title="LOCAL reads the payload from the family documentPath on this machine. IFS reads it straight from the AS/400, so the documents need not be copied down first.">' +
+                        '<div class="field"><label>Content source</label><select onchange="elarSetContentSource(' + i + ',this.value)" title="LOCAL reads the payload from the family documentPath on this machine. IFS reads it straight from the AS/400, so the documents need not be copied down first.">' +
                         '<option value=""' + (elarSrc === 'LOCAL' ? ' selected' : '') + '>LOCAL &mdash; the family documentPath on this machine (default)</option>' +
                         '<option value="IFS"' + (elarSrc === 'IFS' ? ' selected' : '') + '>IFS &mdash; read in place from the AS/400</option></select></div>' +
                         (elarSrc === 'IFS' ? dsSelect(i, n.datasource) : '') +

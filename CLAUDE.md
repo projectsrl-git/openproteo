@@ -2514,3 +2514,20 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * **The naming test watches the output directory WHILE the run is in progress** and checks every file
   seen in flight against `*INDX*` and `*PULL*`. Asserting the final names only would have proved
   nothing about the window this change exists to close. 33 assertions.
+
+## Designer: a select that stored the value without redrawing, and the test that hid it
+* **The elarxml content-source select called `setNodeParam` alone.** The panel shows different fields
+  for LOCAL and IFS, so the page showed **IFS selected with the LOCAL fields still under it** — no base
+  path, no listing cap, no datasource selector. The step could not be configured for IFS through the
+  interface at all. The pattern was already in the file: `diffSetMode` and `ifsSetListSource` both set
+  the param and then call `renderNodes()`. Now `elarSetContentSource`.
+* **The jsdom suite hid it, and that is the more useful half.** It did `setNodeParam(...)` then
+  `renderNodes()` — **doing by hand the step the page never did** — so every assertion about the IFS
+  fields passed. **A test that supplies the missing step cannot fail on it.**
+* The suite now finds the select in the rendered panel, asserts its handler is NOT a bare
+  `setNodeParam`, and **executes the `onchange` attribute** as a browser would — jsdom does not run
+  inline handlers, so dispatching an event does nothing and the attribute has to be evaluated. Then it
+  asserts the panel actually changed. 6 assertions fail against the pre-fix template.
+* **Rule: drive a control through the handler the page wires to it, never around it.** Any step the
+  harness performs on the page's behalf is a step the page is no longer tested for. Worth checking the
+  other conditional panels the same way.

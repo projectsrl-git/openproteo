@@ -385,3 +385,34 @@ refused. 144 store assertions, including that closing twice neither logs nor dis
 the engine package needs Spring from the internal Nexus. The wiring was checked structurally and the
 store it constructs is fully tested behind its fake. The next evidence has to be a field run: one family,
 `contentSource=IFS`, a small input.
+
+---
+
+## Defect: the content-source select stored the value without redrawing
+
+Reported from the designer with a screenshot that showed the contradiction plainly: **IFS** selected in
+the dropdown, and underneath it the LOCAL explanation, no IFS base path, no listing cap, no datasource
+selector. The step could not be configured for IFS at all through the interface.
+
+The panel shows a different set of fields for LOCAL and IFS, so changing the source has to redraw it.
+The established pattern for exactly this is already in the file - `diffSetMode` and `ifsSetListSource`
+both set the parameter and then call `renderNodes()` - and the batch 3 select called `setNodeParam`
+alone. The value was stored correctly; only the page contradicted itself. Now `elarSetContentSource`.
+
+**The test hid it, and that is the more useful half of this.** The jsdom suite did:
+
+```js
+W.setNodeParam(0, 'contentSource', 'IFS');
+W.renderNodes();                     // <- doing by hand what the page never did
+```
+
+Every assertion about the IFS fields then passed, because the harness performed the redraw itself. A
+test that supplies the missing step cannot fail on it. The suite now finds the select in the rendered
+panel, asserts that its handler is **not** a bare `setNodeParam`, and executes the `onchange` attribute
+as a browser would - jsdom does not run inline handlers, so the attribute is evaluated directly rather
+than dispatched. It then asserts the panel actually changed: the LOCAL explanation is gone.
+
+Against the pre-fix template that suite fails **6** assertions.
+
+**The rule this leaves**: drive a control through the handler the page wires to it, never around it. Any
+step the harness performs on the page's behalf is a step the page is no longer being tested for.
