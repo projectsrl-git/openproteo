@@ -29,6 +29,17 @@ public final class ElarCounters {
     public long sameDayPairsFound;
     /** Inputs that produced a '.skipped' discards file. A gate can branch on it without parsing a log. */
     public long skippedFilesWritten;
+    /**
+     * Documents deleted from the local document directory after the INDX carrying them was delivered.
+     * Zero unless deleteContentAfterEmbed is on, which it is not by default.
+     */
+    public long documentsDeleted;
+    /**
+     * Documents that were embedded and delivered but could NOT be deleted afterwards - a file still
+     * held open, most often. Never a failure: the output is already delivered. It is counted so a gate
+     * can act on leftover staging without reading the log.
+     */
+    public long documentsDeleteFailed;
 
     /** Why a document was not written, or null when it was. */
     public enum Skip { NO_PATH, FILE_MISSING }
@@ -60,6 +71,8 @@ public final class ElarCounters {
         m.put("bytesEmbedded", String.valueOf(bytesEmbedded));
         m.put("sameDayPairsFound", String.valueOf(sameDayPairsFound));
         m.put("skippedFilesWritten", String.valueOf(skippedFilesWritten));
+        m.put("documentsDeleted", String.valueOf(documentsDeleted));
+        m.put("documentsDeleteFailed", String.valueOf(documentsDeleteFailed));
         return m;
     }
 
@@ -74,6 +87,12 @@ public final class ElarCounters {
                 + documentsSkippedFileMissing + " whose file was missing)"
                 + ", malformed rows " + rowsMalformed
                 + ", batches " + batchesWritten
-                + ", embedded " + bytesEmbedded + " byte(s)";
+                + ", embedded " + bytesEmbedded + " byte(s)"
+                // stated only when the option is on: a permanent ", deleted 0" on every feed that does
+                // not use it would train people to read past the one line that says a file was removed
+                + (documentsDeleted + documentsDeleteFailed > 0
+                        ? ", deleted " + documentsDeleted + " embedded document(s)"
+                          + (documentsDeleteFailed > 0 ? " (" + documentsDeleteFailed + " could not be deleted)" : "")
+                        : "");
     }
 }

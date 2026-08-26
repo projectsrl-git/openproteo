@@ -2601,3 +2601,40 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   both correct. Three hypotheses ruled out by measurement, none left. **The panel suite was weak by
   construction** — it asserted on `innerHTML` as a string, which passes on malformed HTML — and now
   counts elements INSIDE the card.
+
+## elarxml: deleting the staged copy, at the moment the INDX is delivered
+* **`deleteContentAfterEmbed`, OFF by default**: each embedded document is removed from the family's
+  `documentPath` once the INDX carrying it has reached its final name. The staged copies are what an
+  `ifscopy` step put there and the archive still holds the originals; the first real run left **9.3 GB**
+  of them behind after the feed had gone out.
+* **Both questions were asked, not inferred.** No two rows reference the same content file (so a
+  per-batch delete needs no seen-set), and that directory holds **only copies** (so deleting is safe
+  there and nowhere else).
+* **The moment is the whole design.** `writeDocument` writes into a batch under the in-flight
+  `I_PART`/`P_PART` names; the final name arrives only in `Batch.close`. Three paths discard everything
+  in between - an exception aborts, the disk guard cuts the input into `.remaining.csv`, an oversize
+  document rolls the batch - so deletion is anchored to `closeBatch`, **the same event as the `.done`
+  rename and the `.skipped` commit**. Deleting at write time would look identical on a good run and
+  leave `.remaining.csv` pointing at files that no longer exist, which the default `onMissingFile=SKIP`
+  would then drop **without failing the run**.
+* **`DeletableContentStore` is a separate interface, implemented only by `LocalContentStore`.** The ban
+  on deleting over IFS is in the TYPE: there is no method to call, so no later edit can move or invert a
+  condition and reach the archive. `IFS` + the flag is **refused** (`exitCode=2`) rather than warned
+  about - unlike `contentIfsPath` under LOCAL, which is merely inert. An operator who turns this on to
+  reclaim disk and gets silence is told nothing about the one thing they wanted.
+* A delete that fails is counted (`documentsDeleteFailed`), named in the log and **never fatal**: the
+  INDX is already delivered. One line per batch, ten names at most. `summary()` mentions deletion only
+  when the option is on, so the line that says a file was removed is not buried under a permanent
+  `deleted 0`.
+* **Chosen, not derived**: an INDX that commits while its PULL cannot be published deletes **nothing**,
+  including the documents already inside the delivered INDX. The staging stays full rather than being
+  reclaimed against half a pair.
+* **32 assertions standalone (INDX byte-identical with and without the option), 11 in jsdom.** Two
+  mutations fail the Java suite, two fail the panel suite.
+* **Two of my own scenarios were blind and are recorded as such.** One forced a mid-batch failure by
+  replacing a content file with a directory - the **pre-scan** catches that, so no batch was ever open
+  and a disjunctive assertion passed on nothing. The other occupied the second INDX name - `AtomicOutput`
+  refuses an existing final name in its **constructor**, so those documents were never written. What
+  discriminates is the **PULL**, built inside `Batch.close` after the INDX has been committed. **Stated
+  plainly: the disk-guard scenario cannot tell the two implementations apart**, because the guard only
+  fires between batches, when nothing is in flight.

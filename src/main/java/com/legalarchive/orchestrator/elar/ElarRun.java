@@ -77,6 +77,29 @@ public final class ElarRun {
          */
         public ContentStore contentStore;
         /**
+         * Delete each embedded document from the local document directory, once the INDX it went into
+         * has reached its final deliverable name.
+         *
+         * <b>OFF by default</b>, and it is the one option in this executor that destroys something. It
+         * exists because what sits under {@code documentPath} is a COPY, staged there by an
+         * {@code ifscopy} step, and a feed of a hundred thousand scanned documents leaves that copy
+         * behind after the INDX has been delivered - 9.3 GB on the first real run of CLIAC@DT.
+         *
+         * <b>Only under a {@link DeletableContentStore}</b>, which is the local one and only the local
+         * one. Reading from IFS is refused with the flag on rather than ignored: an operator who asked
+         * for space to be freed and got silence would be worse served than one who got an error.
+         *
+         * <b>The moment matters more than the option.</b> Deletion happens where the {@code .done}
+         * rename and the {@code .skipped} commit already happen - after {@link Batch#close} has renamed
+         * the INDX and PULL to their final names - so all three mean exactly the same thing. Deleting at
+         * {@code writeDocument} instead would look identical on a good run and lose documents on every
+         * path that discards an open batch: an exception aborts it, the disk guard cuts the input into
+         * {@code .remaining.csv} for the next run, and an oversize document rolls it. The rows in
+         * {@code .remaining.csv} would then reference files that no longer exist, and with the default
+         * {@code onMissingFile=SKIP} the next run would drop every one of them and stay green.
+         */
+        public boolean deleteContentAfterEmbed = false;
+        /**
          * Refuse to open a new INDX when the output disk could not hold two more of them.
          *
          * Only under {@code batchBy=BYTES}, because only there is there a figure to reason from. On by
@@ -184,6 +207,22 @@ public final class ElarRun {
         for (String s : naming.describe()) log.accept("elarxml: " + s);
         log.accept("elarxml: output charset " + o.outputCharset + ", max line " + maxLine
                 + ", input charset " + o.inputCharset);
+        // said once, at the top, and not only when the first batch closes: this is the option that
+        // removes files, and an operator reading the log from the start should meet it before the
+        // first deletion rather than after it
+        if (o.deleteContentAfterEmbed) {
+            if (store instanceof DeletableContentStore) {
+                log.accept("elarxml: deleteContentAfterEmbed is ON - each embedded document is DELETED"
+                        + " from the local document directory once the INDX carrying it has reached its"
+                        + " final name. Nothing is deleted for a batch that is not delivered.");
+            } else {
+                // unreachable from the step, which refuses the combination before getting here; a
+                // standalone caller building its own store deserves the same answer rather than silence
+                throw new IllegalArgumentException("deleteContentAfterEmbed is set but the content store"
+                        + " does not allow deletion. It is meant for the local copies staged by an"
+                        + " ifscopy step, never for documents read in place from the archive.");
+            }
+        }
 
         counters.sameDayPairsFound = naming.countSameDayPairs(o.outputDir);
         if (counters.sameDayPairsFound > 0) {
@@ -235,6 +274,10 @@ public final class ElarRun {
         // A batch closing flushes the intersection. See §5 of ELAR_XML_EXECUTOR.md.
         List<File> contributors = new ArrayList<File>();
         List<File> awaitingRename = new ArrayList<File>();
+        // The documents written into the batch currently open, held until it is committed. Bounded by
+        // one batch, not by the run: it is cleared on every close and dropped on every abort. Empty
+        // unless deleteContentAfterEmbed is on.
+        List<String> embeddedPendingDelete = new ArrayList<String>();
         // One discards file per input, keyed by input, finalised on the SAME event as the .done
         // rename: a '.skipped' file therefore means exactly what '.done' means.
         Map<File, SkippedRows> discards = new LinkedHashMap<File, SkippedRows>();
@@ -283,7 +326,8 @@ public final class ElarRun {
                         if (dec.oversizeDocument) counters.documentsOversize++;
                         if (dec.action != BatchPolicy.Action.APPEND && batch != null) {
                             closeBatch(batch, indx, pull, counters, written, log,
-                                    contributors, awaitingRename, o.renameProcessed, discards);
+                                    contributors, awaitingRename, o.renameProcessed, discards,
+                                    store, embeddedPendingDelete);
                             batch = null;
                             policy.rolled();
                         }
@@ -313,6 +357,9 @@ public final class ElarRun {
                         // document of every run - and a warning that always fires reports nothing. The
                         // one number in this executor that is not derived from something,
                         // PER_DOCUMENT_OVERHEAD, is exactly what that check exists to police.
+                        // AFTER the write returned, so a document whose write threw is not queued for
+                        // deletion; the batch holding it is aborted anyway
+                        if (o.deleteContentAfterEmbed) embeddedPendingDelete.add(content);
                         counters.wrote(tags.size(), w.raw);            // the documents, so: raw payload
                         policy.appended(w.written);                    // the INDX, so: what it grew by
                         if (BatchPolicy.estimateDrifted(estimate, w.written)) {
@@ -322,7 +369,8 @@ public final class ElarRun {
                         }
                         if (dec.action == BatchPolicy.Action.ROLL_THEN_ALONE) {
                             closeBatch(batch, indx, pull, counters, written, log,
-                                    contributors, awaitingRename, o.renameProcessed, discards);
+                                    contributors, awaitingRename, o.renameProcessed, discards,
+                                    store, embeddedPendingDelete);
                             batch = null;
                             policy.rolled();
                         }
@@ -338,7 +386,8 @@ public final class ElarRun {
             }
             if (batch != null) {
                 closeBatch(batch, indx, pull, counters, written, log,
-                        contributors, awaitingRename, o.renameProcessed, discards);
+                        contributors, awaitingRename, o.renameProcessed, discards,
+                        store, embeddedPendingDelete);
                 batch = null;
             }
         } finally {
@@ -347,6 +396,10 @@ public final class ElarRun {
             // file for an input that was never delivered would read as a complete account of what
             // was dropped, which is exactly what it would not be
             if (batch != null) batch.abort();
+            // The queue belongs to the batch that was open. That batch is not delivered, so its
+            // documents are not deleted - they are still on disk for the next run, which is what
+            // .remaining.csv and the un-renamed input both assume.
+            embeddedPendingDelete.clear();
             for (SkippedRows s : discards.values()) s.abort();
             discards.clear();
             // The executor owns the store for the duration of the run and releases it here, on every
@@ -443,8 +496,12 @@ public final class ElarRun {
     private static void closeBatch(Batch batch, IndxTemplate indx, PullTemplate pull, ElarCounters counters,
                                    List<String> written, Consumer<String> log,
                                    List<File> contributors, List<File> awaitingRename,
-                                   boolean renameProcessed, Map<File, SkippedRows> discards) throws Exception {
+                                   boolean renameProcessed, Map<File, SkippedRows> discards,
+                                   ContentStore store, List<String> embeddedPendingDelete) throws Exception {
         batch.close(indx, pull, counters, written, log);
+        // Downstream of close, like the rename below it and for the same reason: close is what gives the
+        // INDX and PULL their final names, so anything after it is acting on delivered output.
+        deleteEmbedded(store, embeddedPendingDelete, counters, log);
         for (int i = 0; i < contributors.size(); i++) {
             File c = contributors.get(i);
             if (awaitingRename.remove(c)) finishInput(c, renameProcessed, log, counters, discards);
@@ -470,6 +527,45 @@ public final class ElarRun {
             }
         }
         renameDone(in, renameProcessed, log);
+    }
+
+    /**
+     * Deletes the documents of a batch that has just reached its final name, and empties the queue.
+     *
+     * A failure is logged and non-fatal, on the same reasoning as {@link #renameDone}: the INDX is
+     * already delivered, so failing the step here would be worse than the leftover it warns about. The
+     * count goes into the counters so a gate can act on it without reading the log.
+     *
+     * <b>One line per batch, not per document.</b> A run of two hundred thousand documents would
+     * otherwise double its own log. Which document went where is already answered per document by
+     * {@code logDocuments}; what this line answers is how much staging the batch gave back.
+     */
+    private static void deleteEmbedded(ContentStore store, List<String> handles,
+                                       ElarCounters counters, Consumer<String> log) {
+        if (handles.isEmpty()) return;
+        if (!(store instanceof DeletableContentStore)) { handles.clear(); return; }
+        DeletableContentStore del = (DeletableContentStore) store;
+        int ok = 0;
+        List<String> failed = new ArrayList<String>();
+        for (int i = 0; i < handles.size(); i++) {
+            String h = handles.get(i);
+            if (del.delete(h)) ok++;
+            else failed.add(store.fileName(h));      // a file NAME, never the metadata beside it
+        }
+        counters.documentsDeleted += ok;
+        counters.documentsDeleteFailed += failed.size();
+        StringBuilder b = new StringBuilder();
+        b.append("elarxml: ").append(ok).append(" embedded document(s) deleted after delivery");
+        if (!failed.isEmpty()) {
+            // capped: a share that has gone away fails every document, and a log line naming a hundred
+            // thousand files is a log line nobody reads
+            b.append("; ").append(failed.size()).append(" could NOT be deleted and are still there: ");
+            int show = Math.min(failed.size(), 10);
+            for (int i = 0; i < show; i++) { if (i > 0) b.append(", "); b.append(failed.get(i)); }
+            if (failed.size() > show) b.append(", and ").append(failed.size() - show).append(" more");
+        }
+        log.accept(b.toString());
+        handles.clear();
     }
 
     /**

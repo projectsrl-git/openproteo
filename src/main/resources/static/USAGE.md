@@ -574,6 +574,7 @@ The rest are optional and default to what the legacy tool did, with the three de
 - `contentSource` - `LOCAL` (default) or `IFS`. Where the embedded document is read from. See the section below.
 - `contentIfsPath`, `contentIfsMaxListing` - only under `IFS`.
 - `contentIfsLookup` - `STAT` (default) or `LISTING`, only under `IFS`. See below.
+- `deleteContentAfterEmbed` - `false` by default. Delete each embedded document from the local document directory once the INDX carrying it has been delivered. Only under `LOCAL`; refused under `IFS`. See the section below.
 - `checkFreeDisk` - default `true`, and only under `batchBy=BYTES`. See the section on running out of disk.
 - `logDocuments` - default `true`. One log line per document, naming the INDX it went into.
 - `validate` - `false` by default. See the validation section.
@@ -630,6 +631,18 @@ The check does nothing under `batchBy=DOCUMENTS`, where there is no size to reas
 Two things about the IFS mode are worth knowing before turning it on. The first is how a document is found. Under `contentIfsLookup=STAT`, the default, each document costs one round trip and the cache holds one entry per document the feed references. Under `LISTING` each parent directory is listed once and cached whole, which is only worth it for a small directory that a feed uses densely - the cost of a listing is not the round trip, it is every file in the directory, so a store of millions listed to reach thousands pays for all of them. `contentIfsMaxListing` (default 500 000) fails the run rather than risking an OutOfMemoryError, and its message says which of the two situations you are in. The second is that each document crosses the network **once**: it is staged to a single temp file in the step directory and both the digest pass and the Base64 pass read local disk, so peak local disk is one document rather than one batch.
 
 A document rewritten on the IFS while the run is in progress is caught by its length, in two independent places: the staging step compares what it downloaded against the size the listing reported, and the writer compares what it encoded against the same figure. Modification times come from the listing and are stable for the run, so it is the length that guards here, not the timestamp.
+
+### Giving the staging space back
+
+`deleteContentAfterEmbed`, off by default, deletes each document from the family's `documentPath` once the INDX carrying it has been delivered. It exists because what sits under `documentPath` is a **copy**: an `ifscopy` step staged it there, the archive still holds the original, and after the feed has gone out that copy is dead weight - the first real run of CLIAC@DT left 9.3 GB of it behind. This is the only option in the executor that removes something, which is why it is off unless it is asked for.
+
+**It is refused under `contentSource=IFS`, not ignored.** There the document is the archive's own copy and there is no staging to give back. The step fails at configuration with a message saying so, and the designer refuses to save the combination. That is deliberately louder than the treatment `contentIfsPath` gets under `LOCAL`, which only warns: an inert setting still leaves you with the run you asked for, while an operator who turned this on to reclaim disk and got silence would be told nothing about the one thing they wanted.
+
+**When a document is deleted matters more than the option itself.** Deletion happens at exactly the moment the input becomes `.done` - after `Batch.close` has renamed the INDX and its PULL to their final deliverable names - so `.done`, `.skipped` and "the document is gone" all mean the same thing: every batch this input contributed to has been delivered. Deleting at the point the document is written instead would look identical on a good run and lose documents on every path that discards an open batch. An exception aborts the batch; the disk guard cuts the input into `.remaining.csv` for the next run; an oversize document rolls it. The rows in `.remaining.csv` would then reference files that no longer exist, and since `onMissingFile` is `SKIP` by default the next run would drop every one of them and still report success.
+
+So nothing is deleted for a batch that is not delivered. If the INDX is committed but its PULL cannot be published, the pair is incomplete and **none** of that batch's documents is deleted, including the ones already inside the delivered INDX - the staging stays full rather than being reclaimed against half a pair.
+
+A deletion that fails - a file still held open by a scanner or an indexer, which on Windows is the ordinary case - is counted in `documentsDeleteFailed`, named in the log, and never fails the step: the INDX is already delivered, so failing here would be worse than the leftover it warns about. One line per batch reports how many went and which ones did not, capped at ten names; which document went into which INDX is already answered per document by `logDocuments`. Two run variables are published, `documentsDeleted` and `documentsDeleteFailed`, so a gate can act on leftover staging without parsing a log.
 
 ### Formatting the INDX
 

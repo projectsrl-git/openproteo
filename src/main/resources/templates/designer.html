@@ -1348,7 +1348,8 @@
                             '<div class="field"><label>Max listing entries</label><input type="number" min="0" value="' + attresc(nodeParam(n, 'contentIfsMaxListing')) + '" placeholder="500000" title="Directory listings are cached for the run. Past this many entries the run fails rather than risking an OutOfMemoryError mid-delivery." oninput="setNodeParam(' + i + ',\'contentIfsMaxListing\',this.value)"></div>' +
                             '<div class="field wide"><label></label><span class="dim small">Under STAT each document costs one round trip and the cache grows with the <b>feed</b>; under LISTING each parent directory is listed once and the cache grows with the <b>store behind it</b>, which is only worth it for a small directory a feed uses densely. Either way each document crosses the network <b>once</b>: it is staged to a single temp file in the step directory and both the digest and the Base64 pass read local disk. <code>documentPath</code> is not read at all.</span></div></div>';
                     } else {
-                        h += '<div class="form-row"><div class="field wide"><span class="dim small">The payload is read from the family\'s <code>documentPath</code>, and only the last segment of the column value is used &mdash; an <code>ifscopy</code> step has already flattened the tree into one directory, so the file name is the only part that can still be meaningful.</span></div></div>';
+                        h += '<div class="form-row"><div class="field wide"><span class="dim small">The payload is read from the family\'s <code>documentPath</code>, and only the last segment of the column value is used &mdash; an <code>ifscopy</code> step has already flattened the tree into one directory, so the file name is the only part that can still be meaningful.</span></div></div>' +
+                            '<div class="form-row"><div class="field wide"><label><input type="checkbox"' + (nodeParam(n, 'deleteContentAfterEmbed') === 'true' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'deleteContentAfterEmbed\',this.checked?\'true\':\'\')"> <b>Delete each document from <code>documentPath</code> once its INDX is delivered</b></label><span class="dim small">Off by default, and the only option here that removes something. What sits under <code>documentPath</code> is a <b>copy</b> staged by an <code>ifscopy</code> step, so deleting it gives back staging space and loses nothing &mdash; 9.3 GB was left behind by the first real run. Deletion happens at exactly the moment the input becomes <code>.done</code>: after the INDX and PULL have reached their final names. A batch that is not delivered deletes nothing, so the documents of an aborted batch, or of the rows cut into <code>.remaining.csv</code> by the disk guard, are still there for the next run. Not available under IFS &mdash; there the document is the archive\'s own.</span></div></div>';
                     }
                     h += '</div>';
 
@@ -1911,6 +1912,11 @@
                 }
                 if (ex === 'elarxml' && nodeParam(n, 'contentSource') !== 'IFS' && nodeParam(n, 'contentIfsPath')) {
                     errs.push(label + ' (' + n.id + '): contentIfsPath is set but the content source is LOCAL, where it has no effect');
+                }
+                if (ex === 'elarxml' && nodeParam(n, 'contentSource') === 'IFS' && nodeParam(n, 'deleteContentAfterEmbed') === 'true') {
+                    // the panel hides the box under IFS, so this catches the flag left behind by a
+                    // switch back to IFS after it was ticked, or an imported workflow carrying it
+                    errs.push(label + ' (' + n.id + '): deleteContentAfterEmbed is set but the content source is IFS, where deleting is refused - it is for the local copies an ifscopy step staged');
                 }
                 if (ex === 'safecopy' && (!n.source || !n.dest)) errs.push(label + ' (' + n.id + '): source and dest directories are required');
                 if (ex === 'dequote' && !n.source) errs.push(label + ' (' + n.id + '): input CSV (source) is required');

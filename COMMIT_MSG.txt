@@ -1,76 +1,62 @@
-elarxml: the drift check was blind, and staging reused one filename
+elarxml: delete the staged copy when its INDX is delivered
 
-Two defects from the first run on volume, and a correction to what was said
-about the first of them.
+New step parameter deleteContentAfterEmbed, OFF by default: each embedded
+document is removed from the family's documentPath once the INDX carrying it
+has reached its final deliverable name. Those documents are copies staged by
+an ifscopy step and the archive still holds the originals; the first real run
+of CLIAC@DT left 9.3 GB of them behind after the feed had gone out.
 
-THE DRIFT CHECK COMPARED TWO QUANTITIES THAT WERE NEVER COMPARABLE
+The moment is the design. writeDocument writes into a batch under the
+in-flight I_PART/P_PART names and the final name only arrives in
+Batch.close, so deletion is anchored to closeBatch - the same event that
+already anchors the .done rename and the .skipped commit. Three paths
+discard an open batch in
+between: an exception aborts it, the disk guard cuts the input into
+.remaining.csv, and an oversize document rolls it. Deleting at write time
+would look identical on a good run and leave .remaining.csv referencing files
+that no longer exist, which the default onMissingFile=SKIP would then drop
+without failing the run.
 
-The step log filled with "the byte budget is rolling at the wrong point", on
-every single document, at a fixed ratio of 1.330 between the two figures. That
-is 4/3, the Base64 expansion, and it is the whole explanation.
+DeletableContentStore is a new interface implemented only by
+LocalContentStore. IfsContentStore is outside that package and does not
+implement it, so deleting over IFS is unreachable because there is no method
+to call, not because a check forbids it. contentSource=IFS with the flag set
+is REFUSED (exitCode 2), not warned about as contentIfsPath under LOCAL is: an
+inert setting still gives the operator the run they asked for, while silence
+here would withhold the one thing they turned it on for. clientValidate
+refuses the same combination at save.
 
-Three quantities are involved and only two of them are the same kind of thing:
-the estimate, which is encoded characters; what writeDocument returned, which
-is the raw payload read from the document; and what the INDX actually grew by,
-which nothing measured. The check compared the first against the second, so it
-was always 4/3 apart and always fired. A warning that always fires reports
-nothing, and this is the one that exists to police PER_DOCUMENT_OVERHEAD, the
-only number in this executor that is not derived from something else. It had
-been blind since it was written.
-
-A correction, on the record. It was first reported to the field that the byte
-budget itself counted raw bytes, which would have made a 1.9 GB budget produce
-INDX files of about 2.5 GB. That was wrong. policy.appended(estimate)
-accumulates the encoded estimate, so the budget was in the right units and the
-delivered files were the right size. The conclusion was drawn from the warning
-rather than from the line that accumulates, and reading that line first would
-have cost nothing.
-
-The batch now measures its own growth, charsWritten before and after the
-document, and that figure feeds both the budget and the drift check. Measured
-rather than derived, so it needs no assumption about encoding overhead and
-stays correct if the formatting changes. The counter keeps the raw payload,
-which is what bytesEmbedded means.
-
-THE STAGING FILE REUSED ONE NAME TENS OF THOUSANDS OF TIMES
-
-The same run failed after 27668 documents and 9.3 GB with
-"elarxml-content.part (Access is denied)", on a disk with plenty of free
-space, confirmed.
-
-Every document was staged to the same path, deleted and recreated. On Windows
-that is precisely the shape that collides with a virus scanner or the indexer
-still holding the previous file. It is not a permissions problem, it is a
-race, which is why it took tens of thousands of iterations to appear.
-
-Each staged document now gets its own name, so it cannot collide with the one
-before it. Creation retries three times with a short back-off, because such a
-lock lasts fractions of a second. And because unique names never overwrite one
-another, the staging directory is swept once per run for anything a killed run
-left behind. The failure message now says the name was unique, so nobody is
-sent looking for a leftover that cannot exist.
+A delete that fails is counted in documentsDeleteFailed, named in the log and
+never fatal - the INDX is already delivered. One line per batch, ten names at
+most. summary() mentions deletion only when the option is on. An INDX that
+commits while its PULL cannot be published deletes nothing, including
+documents already inside the delivered INDX.
 
 VERIFIED
-- The drift check, on the document sizes taken from the real log, 236 KB to
-  2.13 MB: 5 warnings out of 5 before the change, 0 out of 5 after, with the
-  delivered INDX byte-identical. What is written did not change; only what is
-  compared.
-- 167 assertions on the IFS store, up from 162: consecutive documents get
-  different staging paths, a planted leftover is swept, one staged file exists
-  at a time and none after close.
-- The end-to-end identity still holds, both lookup strategies still deliver
-  the same file, and all seven elar suites pass unchanged. Rule scans clean.
+- Standalone suite compiled and run with javac --release 8 against the real
+  ElarRun: 32 assertions, 0 failures. The INDX is byte-identical (SHA-256)
+  with and without the option. A batch whose PULL cannot be published keeps
+  every document. Every row in .remaining.csv still has its file.
+- The suite bites: deleting after writeDocument fails 2 assertions, deleting
+  in the finally fails 1. Two earlier scenarios of mine were blind and were
+  replaced; the note records why.
+- Designer under jsdom: 11 assertions, 0 failures. The checkbox is driven by
+  compiling its own onchange attribute and calling it with this bound to the
+  element. Elements counted inside the card, not innerHTML matched as a
+  string. Two mutations fail it.
+- Scans: no Thymeleaf inlining tokens outside comments, no literal escape
+  sequences in inline JS, node --check on both inline scripts, brace balance
+  ignoring strings and comments on all four Java files.
+- tools/scan_panel_redraw.js: 120 parameters (from 118), 0 defects.
+- USAGE.md rendered by the real render() extracted from docs.html: 78
+  headings, 349 paragraphs, 5 code blocks, no raw Markdown outside code
+  blocks.
 
 NOT VERIFIED
-- The Windows lock itself. It needs Windows and a scanner, neither of which
-  exists in the chat sandbox, so the staging change removes the mechanism
-  rather than demonstrating the cure. The next run on volume is the evidence.
-- mvn clean package: Maven Central is unreachable from the sandbox, so the
-  build on the target machine remains the only final proof.
-- The report that an elarcheck step will not expand in the designer could not
-  be reproduced. A four-step workflow with elarxml in IFS renders the last
-  card with its body present, 26 fields inside it, div-balanced and inside its
-  own card; the CSS rule and toggleNode are both correct. Three hypotheses
-  were ruled out by measurement and none remains. The panel suite was weak by
-  construction, asserting on innerHTML as a string, which passes on malformed
-  HTML, and now counts elements inside the card instead.
+- mvn clean package. The internal Nexus is unreachable from the chat sandbox;
+  the build on the target machine is the only proof.
+- The Windows failure mode. A file held open by a scanner or the indexer is
+  exercised by a test double that refuses on purpose, not by a real lock: what
+  is shown is that a refusal is counted and does not fail the run, not that
+  the delete succeeds under a scanner.
+- Nothing touching IFS. Jt400Ifs has still never been executed.

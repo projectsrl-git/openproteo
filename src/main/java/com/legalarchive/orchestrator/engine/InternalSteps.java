@@ -2002,10 +2002,23 @@ public class InternalSteps {
         o.renameProcessed = !"false".equalsIgnoreCase(params.get("renameProcessed"));
         o.overwriteExisting = "true".equalsIgnoreCase(params.get("overwriteExisting"));
         o.descriptorsElement = xStr(params.get("descriptorsElement"), "DocumentDescriptors");
+        o.deleteContentAfterEmbed = "true".equalsIgnoreCase(params.get("deleteContentAfterEmbed"));
 
         // Where the payload is read from. LOCAL keeps every existing workflow exactly as it is.
         String contentSource = xStr(VarResolver.resolve(params.get("contentSource"), vars), "LOCAL");
         if ("IFS".equalsIgnoreCase(contentSource)) {
+            // Refused, not ignored. The other LOCAL/IFS mismatch in this method - contentIfsPath under
+            // LOCAL - only warns, because there the setting is inert and the run is still the run the
+            // operator asked for. Here it is the opposite: the operator asked for staging space to be
+            // freed, and under IFS there is no staging to free. Carrying on would deliver a correct feed
+            // and quietly not do the thing the step was turned on to do.
+            if (o.deleteContentAfterEmbed) {
+                line.accept("elarxml: deleteContentAfterEmbed cannot be used with contentSource=IFS."
+                        + " It deletes the LOCAL copies an ifscopy step staged, never a document read in"
+                        + " place from the archive. Turn it off, or read the payload from LOCAL.");
+                res.exitCode = 2;
+                return;
+            }
             publishDataSource(step, res);
             DataSourceDef ds = dataSources.get(step.datasource);
             if (ds == null) {
