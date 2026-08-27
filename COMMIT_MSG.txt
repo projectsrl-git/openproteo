@@ -1,82 +1,58 @@
-tiffcompress batch 1: the scanner, and a scan blind to its own panel
+elarxml: read the log history into an INDX-to-document index
 
-The executor, mode=SCAN only. It reads the TIFF header and follows the IFD
-chain to enumerate pages, never reading pixel data, and reports the
-distribution of compression tag 259 by file count AND by bytes together with
-how much of the corpus could be re-encoded to CCITT T.6. mode=COMPRESS refuses
-with an error rather than quietly scanning instead.
+New read-only tool tools/Get-ElarDocumentIndex.ps1: given a list of workflows
+(feed id or name, wildcards accepted), it reads every elarxml step log in
+their run history and writes one ';'-separated CSV pairing each delivered INDX
+file with the original content file it carries. Nothing under src/ is touched,
+so no feed can change behaviour; no build, no WAR, no restart.
 
-Two packages, one executor. orchestrator.tiff carries no write API and
-tools/scan_tiff_readonly.js asserts it, which is the elarcheck property that
-makes a scan safe to aim at a live directory. The report is rendered by the
-package and written by InternalSteps, for the same reason. Everything that
-writes will live in orchestrator.tiffpack.
+PowerShell rather than an internal executor, deliberately: this is a
+cross-feed analysis of history, not a step in a pipeline; the question it
+answers is raised BY an ELAR rejection and has to be answerable the same day;
+and indexing step logs was already considered and rejected for the product
+when the log report was built. Reasoning in section 2 of
+.claude/ELAR_LOG_DOCUMENT_INDEX.md.
 
-The sample is the deliverable, not a preview: the number exists to decide
-whether a compressor gets built. RESERVOIR is the default - one lazy pass,
-unbiased, opening no more files than the alternative. DIRECTORY samples a
-prefix of the enumeration, which is a corner of the store rather than a sample
-of it; its only advantage is that the walk stops early, and both the panel and
-the step log say so when it is selected. The report header carries the order,
-the seed and both counts, so a percentage cannot travel without the method
-that made it.
+The trace line is written BEFORE the document and the INDX only gets its
+deliverable name in Batch.close, so an aborted batch leaves trace lines naming
+a file that was never delivered. Collecting every "<- id=" line would
+therefore produce a CSV asserting deliveries that did not happen. A pair is
+emitted only when the log also shows that INDX reaching its final name,
+through "delivered with N document(s)" or the ungated "wrote X (N
+document(s))" - both accepted, because the first is absent with logDocuments
+off and the second when the run failed before its summary. Traces with no
+delivery are counted and reported, never emitted and never dropped, and the
+traced count is reconciled against the declared one.
 
-Files: tiff/TiffInfo.java, tiff/TiffScan.java, tiff/TiffScanReport.java (new),
-tools/scan_tiff_readonly.js (new), tools/scan_panel_redraw.js,
-engine/InternalSteps.java, engine/WorkflowEngine.java,
-parser/WorkflowXmlParser.java, templates/designer.html, static/USAGE.md,
-CLAUDE.md, .claude/TIFF_COMPRESS_EXECUTOR.md.
+Stated rather than left to be discovered: runs before 7fa7298 (2026-08-24) and
+runs with logDocuments=false carry the delivery lines but no per-document
+trace, so those INDX files are reported as unmapped instead of looking empty;
+and "file=" is the bare name for both content stores, so even under
+contentSource=IFS the full path is not in the log and no tool can recover it
+from history.
 
-VERIFIED
-- Standalone suite, javac --release 8, fixtures built byte by byte with no
-  binary committed: 47 assertions, 0 failures. Both byte orders, multipage
-  chains, mixed compression, out-of-line tag values, BigTIFF, non-TIFF,
-  truncated, looping IFD.
-- The suite bites. Six mutations: a reservoir index taken over the reservoir
-  instead of over everything seen, a mixed file charged to its first page, the
-  value field read when the values do not fit in it, IFD-loop detection
-  removed, BigTIFF treated as ordinary, and the outcomes-sum invariant made
-  vacuous.
-- Three of those were green first and were investigated rather than filed. The
-  loop guard was masked by the page cap, so the test now asserts which guard
-  fired. The invariant was untested by anything, so a scenario now breaks it
-  deliberately. No fixture exercised the out-of-line branch at all, which is
-  where a real RGB page keeps BitsPerSample - a reader taking the offset for a
-  value read 86 as a bit depth.
-- Designer under jsdom: 14 assertions, 0 failures, every control driven by
-  compiling its own onchange attribute and calling it with this bound to the
-  element. Two mutations fail it.
-- tools/scan_tiff_readonly.js proved able to fail by planting a write.
-- tools/scan_panel_redraw.js: 124 parameters, 0 defects, and now proved to
-  bite on this panel - see below.
-- USAGE.md rendered by the real render() from docs.html: 81 headings, 360
-  paragraphs, no raw Markdown outside code blocks.
+Test runs are included by default and duplicates are not removed: a _test_ run
+that wrote a real INDX delivered it, and the same file in two INDX files is
+the shape a re-run without output.start_time produces. Both are counted
+separately in the summary.
 
-THE REDRAW SCAN WAS BLIND, AND IS NOW CALIBRATED
-Open item 5 was that scan_panel_redraw.js had never been calibrated against a
-panel written after it. This is that panel, and the calibration found two
-defects in the SCAN rather than in the panel. It recognised only var x =
-nodeParam(n,'p') === and not the || 'DEFAULT' idiom, so it never saw the new
-controls at all; and it recognised a redraw only inside a named helper, not
-one written into the attribute. A mutation removing a redraw was caught by the
-jsdom suite and NOT by the scan. Both patterns extended. The inline one had to
-be bounded to its own attribute: unbounded, it ran forward past the handler it
-started in and credited directory and maxFilesScanned with a redraw they do
-not have.
+VERIFIED: the fixture logs are written by the REAL ElarRun, compiled
+standalone with --release 8, so the parser is tested against the emitter
+rather than a transcription - five runs including one whose third batch is
+traced and then aborted by an unencodable metadata value, one with
+logDocuments off, and one carrying a document id that itself contains "
+file=". 61 assertions green; 11 mutations of the script all caught. One green
+mutation was opened and was a bad mutation, but reading the line to find that
+out turned up a real off-by-one beside it (the count substring was one
+character too wide and only parsed because int.TryParse ignores a trailing
+space), now fixed and pinned. One assertion of mine could not fail and was
+replaced: on Linux .NET's current directory follows the process, so a relative
+output path resolves correctly either way, and the real Resolve-OutPath is now
+lifted out of the script and exercised against a deliberately diverging
+SetCurrentDirectory.
 
-A PROXY MEASUREMENT THAT LIED
-The first sampling-bias scenario assumed the walk would return the first-named
-files first. Measured: Files.newDirectoryStream on ext4 returns hash order -
-15 of the first 100, not 100 - so the scenario passed for DIRECTORY by
-accident and proved nothing. Node's readdir had reported name order because
-libuv sorts with alphasort and Java does not. The suite now demonstrates the
-bias through the walk's own FIFO ordering over directories, which this code
-owns and no filesystem can change.
-
-NOT VERIFIED
-- mvn clean package. The internal Nexus is unreachable from the chat sandbox.
-- That DIRECTORY order is name order on the target volume. It is on NTFS and
-  is not on the sandbox's ext4, so the bias argument holds where it matters
-  and cannot be shown here.
-- Nothing about the corpus. Every number this executor exists to produce is
-  still unmeasured.
+NOT VERIFIED: Windows PowerShell 5.1 - the sandbox has PowerShell 7 for Linux
+only. The dialect is asserted by six scans, each with a positive control
+proving the scan can fire, which is a syntax argument and not a run. And no
+real log from the field: the first run on the real history is also the
+measurement of how much of it predates the per-document trace.

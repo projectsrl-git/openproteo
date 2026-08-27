@@ -2672,3 +2672,47 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   `outcomesSumToFilesOpened()` return `true` broke nothing because no test ever built a state where it
   fails - it does now. And no fixture exercised the out-of-line tag branch, which is where a real RGB
   page keeps `BitsPerSample`; a reader that took the offset for a value read **86** as a bit depth.
+
+## elarxml log document index: which INDX carried which document, from the history
+* **`tools/Get-ElarDocumentIndex.ps1`**, read-only, no build and no deploy: it reads every elarxml
+  step log of the named workflows and writes one `;`-separated CSV of `indx_file;original_file`.
+  Spec and decisions in `.claude/ELAR_LOG_DOCUMENT_INDEX.md`.
+* **PowerShell rather than an internal executor, deliberately.** It is a cross-feed analysis of
+  history, not a step in a pipeline; the question it answers is raised BY an ELAR rejection and has
+  to be answerable the same day, not after a WAR and a Tomcat restart; and **indexing step logs was
+  already considered and rejected for the product** when the log report was built - they are one to
+  three orders of magnitude bigger than the audit trail. An executor would also add a run, and a log,
+  to the history it reads.
+* **The trace line is written BEFORE the document, and the INDX only gets its deliverable name in
+  `Batch.close`.** So an aborted batch leaves trace lines naming a file that was never delivered, and
+  the obvious implementation - collect every `<- id=` line - produces a CSV **asserting deliveries
+  that did not happen**. A pair is emitted only when the log also shows that INDX reaching its final
+  name, through `delivered with N document(s)` or the ungated `wrote X (N document(s))`; the two are
+  both accepted because their blind spots differ (the first is absent with `logDocuments` off, the
+  second when the run failed before its summary). Traces without a delivery are counted and reported,
+  never emitted and never dropped, and **the traced count is reconciled against the declared one**.
+* **What the logs cannot give is stated, not discovered later**: runs before `7fa7298` (2026-08-24)
+  and runs with `logDocuments=false` carry the delivery lines but no per-document trace, so the tool
+  reports those INDX files as unmapped instead of letting them look empty; and `file=` is the bare
+  name for BOTH stores, so even under `contentSource=IFS` the full path is not in the log and no tool
+  can recover it from history.
+* **Test runs are INCLUDED by default** (a `_test_` run that wrote a real INDX delivered it, and a
+  missing row is worse than an extra one) and **duplicates are not removed** - the same file in two
+  INDX files is the shape a re-run without `output.start_time` produces, both rows are true, and the
+  count is reported because in an archive that is a finding.
+* **The fixture logs are written by the REAL `ElarRun`**, compiled standalone with `--release 8`, so
+  the parser is tested against the emitter rather than a transcription: five runs including one whose
+  third batch is traced and then aborted by an unencodable value, one with `logDocuments` off, and one
+  carrying a document id that itself contains `" file="`. **61 assertions, 11 mutations all caught.**
+* **A green mutation was opened and was a bad one** - the `EndsWith(" document(s))")` guard is
+  covered by the `LastIndexOf(" (")` beside it - but reading that line to find out turned up a real
+  off-by-one next to it: the count substring was one character too wide and only parsed because
+  `int.TryParse` ignores a trailing space. **And an assertion of mine could not fail**: on Linux
+  .NET's current directory follows the process, so a relative output path resolves correctly with or
+  without the fix. The real function is now lifted out of the script and run against a deliberately
+  diverging `[System.IO.Directory]::SetCurrentDirectory`, which is the Windows behaviour by hand.
+* **NOT verified: Windows PowerShell 5.1.** The sandbox has PowerShell 7 for Linux. The dialect is
+  asserted by six scans (no `??`, ternary, `&&`/`||`, `-Parallel`, three-argument `Join-Path`,
+  literal backslash-n), each with a positive control proving the scan can fire - a syntax argument,
+  not a run. Nor has it seen a real log: the first run on the real history is also the measurement of
+  how much of that history predates the trace.
