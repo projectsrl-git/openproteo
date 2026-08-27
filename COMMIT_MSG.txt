@@ -1,60 +1,82 @@
-tiffcompress, batch 0: specification, and the sample decides the shape
+tiffcompress batch 1: the scanner, and a scan blind to its own panel
 
-Specification only. No code, no dependency, no registration.
+The executor, mode=SCAN only. It reads the TIFF header and follows the IFD
+chain to enumerate pages, never reading pixel data, and reports the
+distribution of compression tag 259 by file count AND by bytes together with
+how much of the corpus could be re-encoded to CCITT T.6. mode=COMPRESS refuses
+with an error rather than quietly scanning instead.
 
-A new internal executor tiffcompress, LOCAL directories only, with mode=SCAN
-by default and mode=COMPRESS later. SCAN reads the TIFF header and the IFD
-chain - never pixel data - and reports the distribution of compression tag 259
-by count AND by bytes, plus how much of the corpus is G4-eligible.
+Two packages, one executor. orchestrator.tiff carries no write API and
+tools/scan_tiff_readonly.js asserts it, which is the elarcheck property that
+makes a scan safe to aim at a live directory. The report is rendered by the
+package and written by InternalSteps, for the same reason. Everything that
+writes will live in orchestrator.tiffpack.
 
-Two packages, one executor. orchestrator.tiff holds the scanner with no write
-API, kept read-only by construction and proved by a scan the way elarcheck is
-(ELAR_CHECK_EXECUTOR.md section 307). orchestrator.tiffpack will hold
-everything that creates, replaces or deletes a file. A writer in the scanner's
-package would end that guarantee permanently, and it is what makes a scan safe
-to aim at a live directory.
+The sample is the deliverable, not a preview: the number exists to decide
+whether a compressor gets built. RESERVOIR is the default - one lazy pass,
+unbiased, opening no more files than the alternative. DIRECTORY samples a
+prefix of the enumeration, which is a corner of the store rather than a sample
+of it; its only advantage is that the walk stops early, and both the panel and
+the step log say so when it is selected. The report header carries the order,
+the seed and both counts, so a percentage cannot travel without the method
+that made it.
 
-Sampling is the design problem, not the parsing. Three million files means
-File.list materialises three million strings before the first file is opened,
-so enumeration is lazy; and the sample is not a preview but the proportion
-that decides whether batch 2 exists at all. scanOrder=DIRECTORY takes the
-first N, which is fast and biased in exactly the wrong way - directory order
-tracks creation order, so the first N are one feed from one source system
-scanned by one generation of hardware, the variables that determine
-compression. Default is RESERVOIR: one lazy pass, unbiased, bounded memory,
-opening no more files. The report states the order, the seed, entries
-enumerated and files opened, so a number cannot be quoted without its sampling
-method.
-
-Batch 2 is named but not designed, because batch 1's numbers decide what it
-is: bilevel uncompressed or LZW means G4 and a Nexus dependency; greyscale or
-colour uncompressed means G4 does not apply and Deflate from java.util.zip
-does, with no dependency; mostly-already-G4 means there is no batch 2. G4 will
-not be hand-rolled - a bug in MMR coding yields an image that decodes
-correctly in some viewers and wrongly in others.
-
-Three open questions are recorded as the user's, in section 9: whether
-TwelveMonkeys imageio-tiff is on the internal Nexus, whether an archived
-document may be bytes the source system does not hold given that the INDX
-carries the SHA-256 of what is embedded, and how deep the losslessness check
-in batch 2 must go.
+Files: tiff/TiffInfo.java, tiff/TiffScan.java, tiff/TiffScanReport.java (new),
+tools/scan_tiff_readonly.js (new), tools/scan_panel_redraw.js,
+engine/InternalSteps.java, engine/WorkflowEngine.java,
+parser/WorkflowXmlParser.java, templates/designer.html, static/USAGE.md,
+CLAUDE.md, .claude/TIFF_COMPRESS_EXECUTOR.md.
 
 VERIFIED
-- The TIFF structural claims were checked rather than recalled: a two-page
-  little-endian TIFF was built by hand and re-parsed, confirming the header
-  layout, the IFD chain and that two pages of the six collected tags occupy
-  164 bytes with no pixel data read.
-- The six registration points were read at 65d837d, not remembered:
-  WorkflowXmlParser lines 89, 91 and 94, WorkflowEngine.internalKind line
-  1027, the InternalSteps dispatch at line 98, and the designer dropdown at
-  line 938 with its panel at 1412 and clientValidate at 1900.
-- No compression or imaging code exists anywhere in src/ or pom.xml at this
-  commit.
+- Standalone suite, javac --release 8, fixtures built byte by byte with no
+  binary committed: 47 assertions, 0 failures. Both byte orders, multipage
+  chains, mixed compression, out-of-line tag values, BigTIFF, non-TIFF,
+  truncated, looping IFD.
+- The suite bites. Six mutations: a reservoir index taken over the reservoir
+  instead of over everything seen, a mixed file charged to its first page, the
+  value field read when the values do not fit in it, IFD-loop detection
+  removed, BigTIFF treated as ordinary, and the outcomes-sum invariant made
+  vacuous.
+- Three of those were green first and were investigated rather than filed. The
+  loop guard was masked by the page cap, so the test now asserts which guard
+  fired. The invariant was untested by anything, so a scenario now breaks it
+  deliberately. No fixture exercised the out-of-line branch at all, which is
+  where a real RGB page keeps BitsPerSample - a reader taking the offset for a
+  value read 86 as a bit depth.
+- Designer under jsdom: 14 assertions, 0 failures, every control driven by
+  compiling its own onchange attribute and calling it with this bound to the
+  element. Two mutations fail it.
+- tools/scan_tiff_readonly.js proved able to fail by planting a write.
+- tools/scan_panel_redraw.js: 124 parameters, 0 defects, and now proved to
+  bite on this panel - see below.
+- USAGE.md rendered by the real render() from docs.html: 81 headings, 360
+  paragraphs, no raw Markdown outside code blocks.
+
+THE REDRAW SCAN WAS BLIND, AND IS NOW CALIBRATED
+Open item 5 was that scan_panel_redraw.js had never been calibrated against a
+panel written after it. This is that panel, and the calibration found two
+defects in the SCAN rather than in the panel. It recognised only var x =
+nodeParam(n,'p') === and not the || 'DEFAULT' idiom, so it never saw the new
+controls at all; and it recognised a redraw only inside a named helper, not
+one written into the attribute. A mutation removing a redraw was caught by the
+jsdom suite and NOT by the scan. Both patterns extended. The inline one had to
+be bounded to its own attribute: unbounded, it ran forward past the handler it
+started in and credited directory and maxFilesScanned with a redraw they do
+not have.
+
+A PROXY MEASUREMENT THAT LIED
+The first sampling-bias scenario assumed the walk would return the first-named
+files first. Measured: Files.newDirectoryStream on ext4 returns hash order -
+15 of the first 100, not 100 - so the scenario passed for DIRECTORY by
+accident and proved nothing. Node's readdir had reported name order because
+libuv sorts with alphasort and Java does not. The suite now demonstrates the
+bias through the walk's own FIFO ordering over directories, which this code
+owns and no filesystem can change.
 
 NOT VERIFIED
-- That Java 8's javax.imageio has no TIFF plugin. This is true of Java 8 and
-  the reason the dependency question exists, but the sandbox runs a later JDK
-  whose ImageIO does ship TIFF, so it cannot be demonstrated here.
-- Nothing about the corpus. Every number this specification exists to obtain
-  is still unmeasured, and no claim about the distribution is made anywhere in
-  it.
+- mvn clean package. The internal Nexus is unreachable from the chat sandbox.
+- That DIRECTORY order is name order on the target volume. It is on NTFS and
+  is not on the sandbox's ext4, so the bias argument holds where it matters
+  and cannot be shown here.
+- Nothing about the corpus. Every number this executor exists to produce is
+  still unmeasured.

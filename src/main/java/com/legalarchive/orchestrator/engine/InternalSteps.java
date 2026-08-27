@@ -97,6 +97,8 @@ public class InternalSteps {
                 runElarXml(step, resolvedParams, vars, res, line);
             } else if ("elarcheck".equals(kind)) {
                 runElarCheck(step, resolvedParams, vars, res, line);
+            } else if ("tiffcompress".equals(kind)) {
+                runTiffCompress(step, resolvedParams, vars, res, line);
             } else if ("json2csv".equals(kind)) {
                 runJson2Csv(step, resolvedParams, vars, res, line);
             } else if ("csvsql".equals(kind)) {
@@ -1936,6 +1938,92 @@ public class InternalSteps {
             res.exitCode = (any && "true".equalsIgnoreCase(params.get("failOnFindings"))) ? 2 : 0;
         } catch (Exception ex) {
             line.accept("elarcheck: " + ex.getMessage());
+            res.exitCode = 2;
+        }
+    }
+
+    private void runTiffCompress(StepDef step, Map<String, String> params, Map<String, String> vars,
+                                 StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        String mode = xStr(VarResolver.resolve(params.get("mode"), vars), "SCAN").toUpperCase();
+        if ("COMPRESS".equals(mode)) {
+            // Named in the specification and not built. Saying so is the point: silently scanning
+            // instead would report a rewrite that never happened.
+            line.accept("tiffcompress: mode=COMPRESS is specified but not implemented yet. Its shape"
+                    + " depends on what mode=SCAN measures - bilevel and uncompressed means CCITT T.6"
+                    + " and a new dependency, colour means neither applies. Run the scan first.");
+            res.exitCode = 2;
+            return;
+        }
+        if (!"SCAN".equals(mode)) {
+            line.accept("tiffcompress: mode must be SCAN or COMPRESS, not '" + mode + "'");
+            res.exitCode = 2;
+            return;
+        }
+
+        com.legalarchive.orchestrator.tiff.TiffScan.Options o =
+                new com.legalarchive.orchestrator.tiff.TiffScan.Options();
+        String dir = blankToNull(VarResolver.resolve(params.get("directory"), vars));
+        if (dir == null) {
+            line.accept("tiffcompress: missing required parameter: directory");
+            res.exitCode = 2;
+            return;
+        }
+        o.directory = new java.io.File(dir);
+        o.recursive = "true".equalsIgnoreCase(params.get("recursive"));
+        o.maxFilesScanned = intParam(params.get("maxFilesScanned"), 1000);
+        o.sampleSeed = intParam(params.get("sampleSeed"), 0);
+
+        String order = xStr(VarResolver.resolve(params.get("scanOrder"), vars), "RESERVOIR").toUpperCase();
+        if ("DIRECTORY".equals(order)) {
+            o.scanOrder = com.legalarchive.orchestrator.tiff.TiffScan.Order.DIRECTORY;
+            // Said out loud, because the resulting percentage is the whole deliverable and this order
+            // makes it a percentage of one corner of the store rather than of the store.
+            line.accept("tiffcompress: scanOrder=DIRECTORY takes the first files the filesystem lists."
+                    + " Directory order tracks creation order, so the sample is one feed from one"
+                    + " source system in one period. Treat the percentages as that corner's, not the"
+                    + " store's.");
+        } else if ("RESERVOIR".equals(order)) {
+            o.scanOrder = com.legalarchive.orchestrator.tiff.TiffScan.Order.RESERVOIR;
+        } else {
+            line.accept("tiffcompress: scanOrder must be RESERVOIR or DIRECTORY, not '" + order + "'");
+            res.exitCode = 2;
+            return;
+        }
+
+        try {
+            com.legalarchive.orchestrator.tiff.TiffScanReport rep =
+                    com.legalarchive.orchestrator.tiff.TiffScan.run(o, line);
+            for (Map.Entry<String, String> e : rep.asVars().entrySet()) res.outVars.put(e.getKey(), e.getValue());
+
+            // The report goes to the STEP directory. Never to the scanned directory: the scanner has
+            // no write API precisely so it can be aimed at a live folder, and writing the report
+            // beside the files it measured would give that away at the last moment.
+            String sd = VarResolver.resolve("${stepDir}", vars);
+            if (sd != null && !sd.trim().isEmpty()) {
+                String name = xStr(params.get("reportFile"), "tiffscan.csv");
+                java.io.File out = new java.io.File(sd.trim(), name);
+                StringBuilder b = new StringBuilder();
+                java.util.List<String> lines = rep.csvLines();
+                for (int i = 0; i < lines.size(); i++) b.append(lines.get(i)).append((char) 10);
+                java.nio.file.Files.write(out.toPath(),
+                        b.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                line.accept("tiffcompress: report written to " + out.getName());
+                res.outVars.put("reportFile", out.getAbsolutePath());
+            } else {
+                line.accept("tiffcompress: no step directory available, so the report file was not"
+                        + " written; the counters and the rows below carry the same information");
+            }
+
+            java.util.List<com.legalarchive.orchestrator.tiff.TiffScanReport.Row> rows = rep.rows();
+            for (int i = 0; i < rows.size(); i++) {
+                com.legalarchive.orchestrator.tiff.TiffScanReport.Row r = rows.get(i);
+                line.accept("tiffcompress: " + r.label + " = " + r.files + " file(s), " + r.pages
+                        + " page(s), " + r.bytes + " byte(s), G4-eligible " + r.g4EligibleFiles
+                        + " file(s) / " + r.g4EligibleBytes + " byte(s)");
+            }
+            res.exitCode = 0;
+        } catch (Exception ex) {
+            line.accept("tiffcompress: " + ex.getMessage());
             res.exitCode = 2;
         }
     }

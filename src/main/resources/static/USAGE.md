@@ -877,3 +877,39 @@ Files are read in **file-name order**, so two runs over the same directory produ
 `${valuesMissing}` counts values the documents did not have. A number far higher than you expect usually means a path is mapped one level off, since a wrong path resolves to absent rather than to an error - which is exactly why the catalogue shows how often each attribute was actually seen.
 
 The output is RFC-4180: a value containing the delimiter is quoted rather than mangled. If a downstream reader cannot take quoted fields, strip the character upstream rather than relying on it being dropped.
+
+## tiffcompress
+
+Scans a directory of TIFF files and reports what compression they carry, so that whether recompressing them is worth doing becomes a measured question rather than an assumed one. `mode=SCAN` is the default and is the only mode implemented; `mode=COMPRESS` is specified and refuses with an error rather than quietly scanning instead.
+
+The scanner reads the TIFF header and follows the IFD chain to enumerate pages. **It never reads pixel data.** A two-page TIFF carrying the six tags it collects occupies about 160 bytes, so the cost of a file is a couple of seeks rather than a read - which is what makes scanning a share of this size affordable at all.
+
+**Read-only by construction.** No write API exists anywhere in the scanning package and `tools/scan_tiff_readonly.js` asserts it on every build, the same property `elarcheck` has and for the same reason: it can be pointed at a directory something else is writing into without anyone having to read the code first. The rewriting half of the executor lives in its own package so that this stays true. The report is written to the **step** directory, never beside the files it measured.
+
+Parameters:
+
+- `mode` - `SCAN` (default) or `COMPRESS`. `COMPRESS` is specified but not built, and says so rather than doing something else.
+- `directory` - the directory to read. Required.
+- `recursive` - `false` by default. Descend into subdirectories.
+- `maxFilesScanned` - `1000` by default. How many files are OPENED and parsed. `0` means all of them.
+- `scanOrder` - `RESERVOIR` (default) or `DIRECTORY`. See below; this one matters more than it looks.
+- `sampleSeed` - `0` picks a seed and reports it, so a surprising result can be reproduced exactly.
+- `reportFile` - `tiffscan.csv` by default, written to the step directory.
+
+Run variables: `filesEnumerated`, `filesOpened`, `bytesScanned`, `filesTiff`, `filesBigTiff`, `filesNotTiff`, `filesTruncated`, `filesIfdLoop`, `filesUnreadable`, `filesMixedCompression`, `filesAlreadyG4`, `bytesAlreadyG4`, `filesG4Eligible`, `bytesG4Eligible`, `scanOrder`, `sampleSeed`.
+
+### How the sample is drawn, and why it is the whole point
+
+The number this scan produces is a proportion, and it exists to decide whether a compressor gets built. So how the files are chosen matters more than how many are chosen.
+
+`RESERVOIR`, the default, makes one lazy pass over the directory keeping a reservoir of `maxFilesScanned` names, then opens those. Every file has the same chance of being in the sample regardless of where it sits in the enumeration. It opens exactly as many files as the alternative does.
+
+`DIRECTORY` takes the first N entries the filesystem hands back and stops the walk there. That truncated walk is its only advantage, and it comes at a price: the sample is a **prefix of the enumeration**, which is a corner of the store rather than a sample of it. On Windows the enumeration is by file name, and for names built from a Julian date and a counter that tracks creation order closely - so the first N are one feed, from one source system, scanned in one period by one generation of hardware, which are exactly the things that decide which compression a file carries. Use it when a full walk of the share is too slow to afford, and quote the number as that corner's rather than the store's. The step log and the panel both say so when it is selected.
+
+The report header records the order, the seed, how many entries were enumerated and how many files were opened, so a percentage cannot travel without the method that produced it.
+
+### Reading the report
+
+Every row is given **by file count and by bytes**. A million small files already in G4 and ten thousand large uncompressed ones read as 99% compressed by count and as the opposite by bytes, and it is the byte column that decides whether recompressing is worth anything.
+
+A file whose pages do not agree on their compression gets its own `MIXED:` row naming every codec it uses, rather than being charged to whatever its first page happened to be. BigTIFF is detected and reported as its own category, explicitly not parsed, so that it cannot leave the denominator silently; the same goes for files that are not TIFFs, truncated files, and IFD chains that loop. The header line `outcomesSumToFilesOpened` is the cheapest assertion that every file opened landed in exactly one outcome, and the step fails outright if it does not hold.

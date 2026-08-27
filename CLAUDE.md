@@ -2638,3 +2638,37 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   discriminates is the **PULL**, built inside `Batch.close` after the INDX has been committed. **Stated
   plainly: the disk-guard scenario cannot tell the two implementations apart**, because the guard only
   fires between batches, when nothing is in flight.
+
+## tiffcompress batch 1: the scanner, and a scan that could not see the panel it was pointed at
+* **The measurement comes before the compressor, because the measurement decides what the compressor
+  is.** Bilevel and uncompressed means CCITT T.6 and a Nexus dependency; colour means T.6 cannot
+  apply at all and Deflate from `java.util.zip` can, with no dependency; mostly-already-G4 means there
+  is nothing to build. Writing the compressor first would have meant choosing one of the three blind.
+* **Two packages, one executor.** `orchestrator.tiff` has no write API and `tools/scan_tiff_readonly.js`
+  asserts it, keeping the elarcheck property that makes a scan safe against a live directory.
+  Everything that writes will live in `orchestrator.tiffpack`. The report is rendered by the package
+  and **written by `InternalSteps`**, which is how elarcheck keeps the same property.
+* **Reported by count AND by bytes, always.** A million small G4 files and ten thousand large
+  uncompressed ones read as 99% compressed by count and as the opposite by bytes, and the byte column
+  is the one that decides.
+* **The sample is the deliverable.** `RESERVOIR` by default: one lazy pass, unbiased, and it opens no
+  more files than taking the first N does. `DIRECTORY` samples a **prefix of the enumeration**, which
+  is a corner of the store; its only advantage is that the walk stops early.
+* **Measured, against a proxy that lied.** The first bias test assumed the walk would hand back the
+  first-named files first. `Files.newDirectoryStream` on ext4 returns **hash order** - 15 of the first
+  100, not 100 - so the scenario passed for the wrong reason and proved nothing. Node's `readdir` had
+  said name order because **libuv sorts with `alphasort` and Java does not**. A proxy measurement
+  instead of the deciding one, caught by the test rather than by production. The suite now demonstrates
+  the bias through the walk's own FIFO ordering, which this code owns.
+* **`scan_panel_redraw.js` is now calibrated against a panel written after it — item 5 — and the
+  calibration found two defects in the SCAN, not in the panel.** It recognised only
+  `var x = nodeParam(n,'p') ===` and not the `|| 'DEFAULT'` idiom, so it never saw the new controls at
+  all; and it recognised a redraw only inside a named helper, not one written into the attribute. A
+  mutation removing a redraw was caught by the jsdom suite and **not** by the scan. Both extended;
+  the inline pattern had to be bounded to its own attribute, because unbounded it ran forward and
+  credited `directory` and `maxFilesScanned` with a redraw they do not have.
+* **Green mutations investigated, twice usefully.** Removing IFD-loop detection changed nothing because
+  the page cap also returns `IFD_LOOP` - the test now asserts *which* guard fired. Making
+  `outcomesSumToFilesOpened()` return `true` broke nothing because no test ever built a state where it
+  fails - it does now. And no fixture exercised the out-of-line tag branch, which is where a real RGB
+  page keeps `BitsPerSample`; a reader that took the offset for a value read **86** as a bit depth.

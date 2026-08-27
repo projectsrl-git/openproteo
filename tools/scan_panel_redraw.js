@@ -34,9 +34,16 @@ const writtenByAnyControl = all(new RegExp('setNodeParam\\([^,]+,\\s*' + ESC + '
 const textInputs = all(new RegExp(
   '<input(?![^>]*type=\\\\?"(?:checkbox|radio|number)\\\\?")[^>]*oninput="setNodeParam\\([^,]+,\\s*' + ESC + '([A-Za-z0-9_.]+)' + ESC, 'g'));
 
-// Handlers that already redraw.
-const redraws = all(new RegExp(
-  'function\\s+\\w+\\s*\\([^)]*\\)\\s*\\{[^}]*setNodeParam\\([^,]+,\\s*' + ESC + '([A-Za-z0-9_.]+)' + ESC + '[^}]*renderNodes\\(\\)', 'g'));
+// Handlers that already redraw, in the two forms the panels use: a named helper, and the redraw
+// written straight into the attribute. Only the first was recognised until a control of the second
+// kind went unseen entirely - flagged neither as a defect nor as safe, simply absent from the count.
+// The inline form is bounded to its own attribute: without that, the match runs forward past the
+// handler it started in and credits an unrelated control with the next redraw it finds.
+const redraws = new Set();
+for (const p of all(new RegExp(
+  'function\\s+\\w+\\s*\\([^)]*\\)\\s*\\{[^}]*setNodeParam\\([^,]+,\\s*' + ESC + '([A-Za-z0-9_.]+)' + ESC + '[^}]*renderNodes\\(\\)', 'g'))) redraws.add(p);
+for (const p of all(new RegExp(
+  'setNodeParam\\([^,]+,\\s*' + ESC + '([A-Za-z0-9_.]+)' + ESC + '[^;"\']*\\);\\s*renderNodes\\(\\)', 'g'))) redraws.add(p);
 
 // A parameter DECIDES THE SHAPE of the panel when the rendering branches on it in a statement - an
 // `if`, or a variable the emission later tests - rather than merely interpolating it into one
@@ -46,13 +53,26 @@ const shape = new Set();
 let m;
 const ifBranch = /if\s*\([^)]*nodeParam\(\s*n\s*,\s*'([A-Za-z0-9_.]+)'/g;
 while ((m = ifBranch.exec(src)) !== null) shape.add(m[1]);
-const viaVar = /var\s+(\w+)\s*=\s*nodeParam\(\s*n\s*,\s*'([A-Za-z0-9_.]+)'\s*\)\s*===?/g;
-while ((m = viaVar.exec(src)) !== null) {
-  // only if that variable is later used to choose text or fields, not just the selected attribute
-  const uses = new RegExp('\\b' + m[1] + '\\b\\s*===?\\s*\'[^\']*\'\\s*\\?', 'g');
-  let n = 0, mm;
-  while ((mm = uses.exec(src)) !== null) n++;
-  if (n > 0) shape.add(m[2]);
+// Two ways a panel binds a parameter to a variable it later branches on. The second was added after
+// the scan reported a clean run on a panel whose control it could not see at all: the mutation that
+// removed that control's redraw was caught by the panel's own jsdom suite and NOT by this scan.
+// A scan that cannot fail on the code it is pointed at is worth nothing, which is exactly the
+// property this file exists to check for in the panels.
+const viaVarPatterns = [
+  //  var x = nodeParam(n, 'p') === 'A' ? ... : ...
+  /var\s+(\w+)\s*=\s*nodeParam\(\s*n\s*,\s*'([A-Za-z0-9_.]+)'\s*\)\s*===?/g,
+  //  var x = nodeParam(n, 'p') || 'DEFAULT'   - the same thing with a default folded in
+  /var\s+(\w+)\s*=\s*nodeParam\(\s*n\s*,\s*'([A-Za-z0-9_.]+)'\s*\)\s*\|\|/g
+];
+for (const viaVar of viaVarPatterns) {
+  viaVar.lastIndex = 0;
+  while ((m = viaVar.exec(src)) !== null) {
+    // only if that variable is later used to choose text or fields, not just the selected attribute
+    const uses = new RegExp('\\b' + m[1] + '\\b\\s*===?\\s*\'[^\']*\'\\s*[?)]', 'g');
+    let n = 0, mm;
+    while ((mm = uses.exec(src)) !== null) n++;
+    if (n > 0) shape.add(m[2]);
+  }
 }
 
 const flagged = [];

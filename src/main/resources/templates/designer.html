@@ -936,6 +936,7 @@
                     '<option value="sqlreport"' + (ex === 'sqlreport' ? ' selected' : '') + '>sqlreport (read-only queries → Markdown report)</option>' +
                     '<option value="elarxml"' + (ex === 'elarxml' ? ' selected' : '') + '>elarxml (ELAR \u2014 build INDX/PULL from a flat CSV)</option>' +
                     '<option value="elarcheck"' + (ex === 'elarcheck' ? ' selected' : '') + '>elarcheck (ELAR \u2014 validate delivered INDX, read-only)</option>' +
+                    '<option value="tiffcompress"' + (ex === 'tiffcompress' ? ' selected' : '') + '>tiffcompress (TIFF \u2014 scan a directory for compression, read-only)</option>' +
                     '<option value="json2csv"' + (ex === 'json2csv' ? ' selected' : '') + '>json2csv (JSON files \u2192 one flat CSV, one file per row)</option>' +
                     '</select></div>';
                 h += '<div class="field wide"><label>Script / executable (relative to scripts dir or absolute)' + (isExternal(ex) ? ' *' : '') + '</label>' +
@@ -1448,6 +1449,35 @@
                     h += '<div class="dim small" style="margin-top:6px"><b>Read-only by construction</b> &mdash; no write API exists anywhere in the package and a build scan asserts it, which is what makes this safe against a live delivery folder. It never repairs: repair stays in the PowerShell scripts, run as ordinary <code>powershell</code> steps in the same workflow.</div>';
                     h += '<div class="dim small" style="margin-top:4px">Each file gets <b>OK</b>, <b>CORRUPTED</b> or <b>MALFORMED</b>, which is the decision the operator needs: send, or regenerate. <b>CORRUPTED</b> is the one that matters &mdash; well-formed but wrong, so ELAR <i>accepts</i> it and archives a wrong value with nothing downstream to flag it. A file that is both is reported MALFORMED, since it has to be regenerated either way.</div>';
                     h += '<div class="dim small" style="margin-top:4px">Writes <code>elarcheck_findings.tsv</code> into the <b>step</b> directory, never into the inspected one, published as <b>${findingsFile}</b>. <b>No field value appears in it or in any log line</b>: findings carry element names, positions and counts only. Counters: <b>${filesScanned}</b>, <b>${filesWellFormed}</b>, <b>${filesRejectedLikely}</b>, <b>${filesCorrupted}</b>, <b>${documentsTotal}</b>, <b>${whitespaceAfterAngle}</b>, <b>${valueLineBreaks}</b>, <b>${markupLineBreaks}</b>, <b>${linesOverLimit}</b>, <b>${linesOverReceiverLimit}</b>, <b>${longestLine}</b>, <b>${tagsMissing}</b>, <b>${tagsDuplicate}</b>, <b>${tagsEmpty}</b>, <b>${nameAlreadyDelivered}</b>, <b>${pullMissing}</b>, <b>${pullUnreferenced}</b>, <b>${hashMismatches}</b>, <b>${findingsTotal}</b>.</div>';
+                } else if (ex === 'tiffcompress') {
+                    var tcMode  = nodeParam(n, 'mode') || 'SCAN';
+                    var tcOrder = nodeParam(n, 'scanOrder') || 'RESERVOIR';
+                    h += '<div class="sub"><div class="sub-h">TIFF scan</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Directory *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'directory')) + '" placeholder="${landingOut}/staging" title="Read-only in SCAN mode: nothing here is modified, renamed or deleted, so it is safe to point at a directory something else is writing into." oninput="setNodeParam(' + i + ',\'directory\',this.value)"></div>' +
+                        '<div class="field"><label>Mode</label><select onchange="setNodeParam(' + i + ',\'mode\',this.value); renderNodes()">' +
+                        '<option value="SCAN"' + (tcMode === 'SCAN' ? ' selected' : '') + '>SCAN</option>' +
+                        '<option value="COMPRESS"' + (tcMode === 'COMPRESS' ? ' selected' : '') + '>COMPRESS</option>' +
+                        '</select></div></div>';
+                    if (tcMode === 'COMPRESS') {
+                        h += '<div class="form-row"><div class="field wide"><span class="dim small"><b>COMPRESS is specified but not built.</b> What it should do depends on what SCAN measures: bilevel and uncompressed means re-encoding to CCITT T.6, which needs a codec that is not on the classpath; colour means neither T.6 nor anything else applies. The step refuses rather than quietly scanning instead.</span></div></div></div>';
+                    } else {
+                        h += '<div class="form-row">' +
+                            '<div class="field"><label>Max files opened</label><input type="number" min="0" value="' + attresc(nodeParam(n, 'maxFilesScanned')) + '" placeholder="1000" title="How many files are OPENED and parsed. 0 means every one of them. Only the header and the IFD chain are read - never pixel data - so the cost per file is a couple of seeks." oninput="setNodeParam(' + i + ',\'maxFilesScanned\',this.value)"></div>' +
+                            '<div class="field"><label>Sample order</label><select onchange="setNodeParam(' + i + ',\'scanOrder\',this.value); renderNodes()">' +
+                            '<option value="RESERVOIR"' + (tcOrder === 'RESERVOIR' ? ' selected' : '') + '>RESERVOIR (unbiased)</option>' +
+                            '<option value="DIRECTORY"' + (tcOrder === 'DIRECTORY' ? ' selected' : '') + '>DIRECTORY (first N, biased)</option>' +
+                            '</select></div>' +
+                            '<div class="field"><label>Seed</label><input type="number" min="0" value="' + attresc(nodeParam(n, 'sampleSeed')) + '" placeholder="0" title="0 picks a seed and reports it, so a surprising result can be reproduced exactly." oninput="setNodeParam(' + i + ',\'sampleSeed\',this.value)"></div></div>';
+                        if (tcOrder === 'DIRECTORY') {
+                            h += '<div class="form-row"><div class="field wide"><span class="dim small"><b>DIRECTORY takes the first files the filesystem lists, and stops there.</b> That is its only advantage. Directory order tracks creation order, so the sample is one feed, from one source system, scanned in one period by one generation of hardware &mdash; the very things that decide which compression a file carries. The percentages it produces belong to that corner, not to the store. Use it when a full walk of the share is too slow to afford, and say so when quoting the number.</span></div></div>';
+                        }
+                        h += '<div class="form-row">' +
+                            '<div class="field wide"><label>Report file (written to the step directory)</label><input value="' + attresc(nodeParam(n, 'reportFile')) + '" placeholder="tiffscan.csv" oninput="setNodeParam(' + i + ',\'reportFile\',this.value)"></div>' +
+                            '<div class="field wide"><label><input type="checkbox"' + (nodeParam(n, 'recursive') === 'true' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'recursive\',this.checked?\'true\':\'\')"> Descend into subdirectories</label></div></div></div>';
+                        h += '<div class="dim small" style="margin-top:6px">Reports the distribution of TIFF compression <b>by file count AND by bytes</b>. A million small files already in G4 and ten thousand large uncompressed ones read as 99% compressed by count and as the opposite by bytes, and it is the byte column that decides whether recompressing is worth anything. Outputs: <b>${filesEnumerated}</b>, <b>${filesOpened}</b>, <b>${bytesScanned}</b>, <b>${filesAlreadyG4}</b>, <b>${bytesAlreadyG4}</b>, <b>${filesG4Eligible}</b>, <b>${bytesG4Eligible}</b>, <b>${filesMixedCompression}</b>, <b>${filesBigTiff}</b>, <b>${filesNotTiff}</b>.</div>';
+                        h += '<div class="dim small" style="margin-top:4px"><b>Read-only by construction</b> &mdash; no write API exists anywhere in the scanning package and a build scan asserts it. The report goes to the step directory, never beside the files it measured.</div>';
+                    }
                 } else if (ex === 'json2csv') {
                     var jTypes = ['String', 'Number', 'Date', 'MIMEType', 'Serial', 'ObjectName'];
                     var jPaths = (window.j2cPaths && window.j2cPaths[n.id]) || null;
@@ -1896,6 +1926,9 @@
                         if ((jtype === 'Date' || jtype === 'Number') && !jsrc) errs.push(label + ' (' + n.id + '): json2csv column ' + jas + ' is a ' + jtype + ' but maps no JSON path');
                         if (jtype === 'MIMEType' && String(jcol.mode || 'FIXED') === 'FIXED' && !String(jcol.value || '').trim()) errs.push(label + ' (' + n.id + '): json2csv column ' + jas + ' is a FIXED MIMEType with no value to write');
                     }
+                }
+                if (ex === 'tiffcompress' && !nodeParam(n, 'directory')) {
+                    errs.push(label + ' (' + n.id + '): tiffcompress needs a directory');
                 }
                 if (ex === 'elarcheck') {
                     if (!String(nodeParam(n, 'inputDir') || '').trim()) errs.push(label + ' (' + n.id + '): elarcheck needs the directory to inspect (inputDir)');

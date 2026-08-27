@@ -179,20 +179,27 @@ Parameters, and the rules they must obey:
   is reported as a fallback. Non-negotiable.
 * Bilevel only. Nothing lossy, in any mode, at any setting.
 
-## 9. Open questions — these are yours
+## 9. Answered, and what remains open
 
-1. **Is TwelveMonkeys `imageio-tiff` on the internal Nexus?** With `imageio-core`, `common-lang`,
-   `common-io`, version pinned explicitly since the Spring Boot 2.7 BOM does not manage it. If the
-   answer is no and the corpus turns out to be bilevel, batch 2 does not exist in this form. Nothing
-   in batch 1 depends on the answer.
-2. **May an archived document be bytes the source system does not hold?** The INDX carries the
-   SHA-256 of what is embedded, so recompressing changes the digest that goes into the archive. A
-   records-management decision, not a technical one, and it can close the branch whatever the numbers
-   say. Worth asking in parallel with batch 1 rather than after it.
-3. **How deep must the losslessness check in batch 2 go?** Re-reading the header and comparing page
-   count and dimensions is cheap and catches a structurally broken rewrite. Comparing decoded pixels
-   is the only thing that proves nothing was lost, and it costs a full decode of both files. This
-   decides batch 2's runtime and is not mine to choose.
+1. **TwelveMonkeys on Nexus** - to be attempted. Nothing in batch 1 depends on it, and batch 2's shape
+   may make the question moot: if the corpus is colour, no imaging library helps.
+2. **May an archived document be bytes the source system does not hold?** **Yes.** Recorded here
+   because the INDX carries the SHA-256 of what is embedded, so this is the permission that lets
+   batch 2 exist at all.
+3. **How deep must the losslessness check be?** **Optional, FAST or DEEP.** FAST re-reads the header
+   and compares page count and dimensions; DEEP decodes both files and compares the pixels. The
+   default is to be decided with batch 2, but the safe reading of an ambiguous configuration is DEEP,
+   and the argument for it is that a fast check cannot distinguish a correct rewrite from one that
+   silently dropped a page's content while keeping its geometry.
+
+Still open, and neither blocks batch 1:
+
+4. **What the corpus actually contains.** Unmeasured. Batch 1 exists to answer it.
+5. **Whether `DIRECTORY` order is name order on the target volume.** It is on NTFS. It is **not** on
+   the sandbox's ext4, where `Files.newDirectoryStream` returns hash order - measured, after a proxy
+   measurement through Node said otherwise because libuv sorts with `alphasort` and Java does not.
+   The bias argument for preferring `RESERVOIR` therefore holds on the target and cannot be
+   demonstrated here, and the suite proves it through the walk's own ordering instead.
 
 ## 10. Batch 1 deliverable
 
