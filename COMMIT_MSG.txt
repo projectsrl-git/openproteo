@@ -1,62 +1,60 @@
-elarxml: delete the staged copy when its INDX is delivered
+tiffcompress, batch 0: specification, and the sample decides the shape
 
-New step parameter deleteContentAfterEmbed, OFF by default: each embedded
-document is removed from the family's documentPath once the INDX carrying it
-has reached its final deliverable name. Those documents are copies staged by
-an ifscopy step and the archive still holds the originals; the first real run
-of CLIAC@DT left 9.3 GB of them behind after the feed had gone out.
+Specification only. No code, no dependency, no registration.
 
-The moment is the design. writeDocument writes into a batch under the
-in-flight I_PART/P_PART names and the final name only arrives in
-Batch.close, so deletion is anchored to closeBatch - the same event that
-already anchors the .done rename and the .skipped commit. Three paths
-discard an open batch in
-between: an exception aborts it, the disk guard cuts the input into
-.remaining.csv, and an oversize document rolls it. Deleting at write time
-would look identical on a good run and leave .remaining.csv referencing files
-that no longer exist, which the default onMissingFile=SKIP would then drop
-without failing the run.
+A new internal executor tiffcompress, LOCAL directories only, with mode=SCAN
+by default and mode=COMPRESS later. SCAN reads the TIFF header and the IFD
+chain - never pixel data - and reports the distribution of compression tag 259
+by count AND by bytes, plus how much of the corpus is G4-eligible.
 
-DeletableContentStore is a new interface implemented only by
-LocalContentStore. IfsContentStore is outside that package and does not
-implement it, so deleting over IFS is unreachable because there is no method
-to call, not because a check forbids it. contentSource=IFS with the flag set
-is REFUSED (exitCode 2), not warned about as contentIfsPath under LOCAL is: an
-inert setting still gives the operator the run they asked for, while silence
-here would withhold the one thing they turned it on for. clientValidate
-refuses the same combination at save.
+Two packages, one executor. orchestrator.tiff holds the scanner with no write
+API, kept read-only by construction and proved by a scan the way elarcheck is
+(ELAR_CHECK_EXECUTOR.md section 307). orchestrator.tiffpack will hold
+everything that creates, replaces or deletes a file. A writer in the scanner's
+package would end that guarantee permanently, and it is what makes a scan safe
+to aim at a live directory.
 
-A delete that fails is counted in documentsDeleteFailed, named in the log and
-never fatal - the INDX is already delivered. One line per batch, ten names at
-most. summary() mentions deletion only when the option is on. An INDX that
-commits while its PULL cannot be published deletes nothing, including
-documents already inside the delivered INDX.
+Sampling is the design problem, not the parsing. Three million files means
+File.list materialises three million strings before the first file is opened,
+so enumeration is lazy; and the sample is not a preview but the proportion
+that decides whether batch 2 exists at all. scanOrder=DIRECTORY takes the
+first N, which is fast and biased in exactly the wrong way - directory order
+tracks creation order, so the first N are one feed from one source system
+scanned by one generation of hardware, the variables that determine
+compression. Default is RESERVOIR: one lazy pass, unbiased, bounded memory,
+opening no more files. The report states the order, the seed, entries
+enumerated and files opened, so a number cannot be quoted without its sampling
+method.
+
+Batch 2 is named but not designed, because batch 1's numbers decide what it
+is: bilevel uncompressed or LZW means G4 and a Nexus dependency; greyscale or
+colour uncompressed means G4 does not apply and Deflate from java.util.zip
+does, with no dependency; mostly-already-G4 means there is no batch 2. G4 will
+not be hand-rolled - a bug in MMR coding yields an image that decodes
+correctly in some viewers and wrongly in others.
+
+Three open questions are recorded as the user's, in section 9: whether
+TwelveMonkeys imageio-tiff is on the internal Nexus, whether an archived
+document may be bytes the source system does not hold given that the INDX
+carries the SHA-256 of what is embedded, and how deep the losslessness check
+in batch 2 must go.
 
 VERIFIED
-- Standalone suite compiled and run with javac --release 8 against the real
-  ElarRun: 32 assertions, 0 failures. The INDX is byte-identical (SHA-256)
-  with and without the option. A batch whose PULL cannot be published keeps
-  every document. Every row in .remaining.csv still has its file.
-- The suite bites: deleting after writeDocument fails 2 assertions, deleting
-  in the finally fails 1. Two earlier scenarios of mine were blind and were
-  replaced; the note records why.
-- Designer under jsdom: 11 assertions, 0 failures. The checkbox is driven by
-  compiling its own onchange attribute and calling it with this bound to the
-  element. Elements counted inside the card, not innerHTML matched as a
-  string. Two mutations fail it.
-- Scans: no Thymeleaf inlining tokens outside comments, no literal escape
-  sequences in inline JS, node --check on both inline scripts, brace balance
-  ignoring strings and comments on all four Java files.
-- tools/scan_panel_redraw.js: 120 parameters (from 118), 0 defects.
-- USAGE.md rendered by the real render() extracted from docs.html: 78
-  headings, 349 paragraphs, 5 code blocks, no raw Markdown outside code
-  blocks.
+- The TIFF structural claims were checked rather than recalled: a two-page
+  little-endian TIFF was built by hand and re-parsed, confirming the header
+  layout, the IFD chain and that two pages of the six collected tags occupy
+  164 bytes with no pixel data read.
+- The six registration points were read at 65d837d, not remembered:
+  WorkflowXmlParser lines 89, 91 and 94, WorkflowEngine.internalKind line
+  1027, the InternalSteps dispatch at line 98, and the designer dropdown at
+  line 938 with its panel at 1412 and clientValidate at 1900.
+- No compression or imaging code exists anywhere in src/ or pom.xml at this
+  commit.
 
 NOT VERIFIED
-- mvn clean package. The internal Nexus is unreachable from the chat sandbox;
-  the build on the target machine is the only proof.
-- The Windows failure mode. A file held open by a scanner or the indexer is
-  exercised by a test double that refuses on purpose, not by a real lock: what
-  is shown is that a refusal is counted and does not fail the run, not that
-  the delete succeeds under a scanner.
-- Nothing touching IFS. Jt400Ifs has still never been executed.
+- That Java 8's javax.imageio has no TIFF plugin. This is true of Java 8 and
+  the reason the dependency question exists, but the sandbox runs a later JDK
+  whose ImageIO does ship TIFF, so it cannot be demonstrated here.
+- Nothing about the corpus. Every number this specification exists to obtain
+  is still unmeasured, and no claim about the distribution is made anywhere in
+  it.
