@@ -2716,3 +2716,50 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   literal backslash-n), each with a positive control proving the scan can fire - a syntax argument,
   not a run. Nor has it seen a real log: the first run on the real history is also the measurement of
   how much of that history predates the trace.
+
+## Feed schema index — Batch 0 (spec only)
+* Spec at `.claude/FEED_SCHEMA_INDEX.md`, self-contained. **No code in this commit.** Two deliverables:
+  `tools/Get-FeedSchemaIndex.ps1` writing one CSV census of every feed's record layout, and
+  `feed_index_viewer.html` at the repository root navigating it as a SOURCE -> feed -> fields tree.
+* **PowerShell, not an internal executor** - the choice was left open and it goes the way
+  `Get-ElarDocumentIndex.ps1` went, for the same reasons plus one that is stronger here: an executor
+  means new code inside `InternalSteps`, on the deploy path of 144 live feeds, in exchange for a
+  report. **What would reverse the decision is written down**: if the index has to be visible inside
+  the application, the reader belongs in Java behind an endpoint and the viewer becomes a template.
+  That is a different feature, and saying so now makes it a decision later instead of a discovery.
+* **ONE ROW PER FIELD.** Fields-as-columns would make the header the union of every field name in the
+  estate; fields packed into one cell cannot be filtered, which is the only reason to write a CSV.
+  Per field: source/target ids and descriptions, feed identity, the dataschema position/type/nullable,
+  and the displayschema `DisplayName`/`DataType`/`DisplaySequenceNr`/`Viewable`/`anonType`.
+  `field_seq` is the DATASCHEMA order - that order is the record layout, and `DisplaySequenceNr` is a
+  presentation choice carried in its own column rather than allowed to reorder the file.
+* **The displayschema join must be the PRODUCT's join, and it is a second implementation of one that
+  already exists in Java.** Exact, case-sensitive, trimmed, with the `name`/`ColumnName`/`COLUMN_NAME`
+  and `DisplayName`/`displayName`/`display_name` alias chains and both container dialects, copied from
+  `ApiController.displayNameMap` and `InternalSteps.readSchemaColumnNames`. The suite **lifts those
+  alias lists out of the Java at build time** and asserts agreement - the technique that kept json2csv's
+  `FileMask` honest against elarcheck's matcher. A case-insensitive join was rejected: it would report a
+  description the application does not use.
+* **A displayschema entry naming a column the dataschema lacks is an ORPHAN**, emitted with
+  `in_dataschema=no` and counted, never dropped: a description pointing at a column that does not exist
+  is the defect an index exists to surface. Same for a feed with a dataschema and no displayschema - it
+  is IN, with empty description columns, because a feed nobody has described is a finding.
+* **Two schemas for one feed are reported, never merged.** The feed root wins over a step's
+  `dataschema`/`displayschema`/`columnsSchema` param; a conflict names both paths in the summary. A
+  schema path still carrying an unresolved `${...}` is reported as unresolved rather than read as a
+  literal - there is no run to resolve it against.
+* **Workflow variables as columns (`name:description`) carry the RAW declaration.** A variable may
+  itself contain `${...}` and there is no run here; resolving would be right for some and quietly wrong
+  for others with nothing in the file saying which. Header is the description, `-VariableHeaders Name`
+  flips it. Gate 0 question.
+* Viewer: **zero external references, asserted** - the three viewers it is modelled on load PapaParse
+  and Chart.js from a CDN and this one reuses `csv-viewer.html`'s own parser. Leaf is a TABLE, not more
+  tree rows (a record layout is a table, and a `+` in front of 15 000 childless items is noise); search
+  runs on the model so it matches inside feeds never drawn; `+`/`-` in a bordered box, prev/next match
+  with an `n of m` counter, and per-node counts that show `n of m` under a filter so a node showing 3 of
+  97 fields cannot look like a feed with 3 fields.
+* **NOT verifiable here and said now**: Windows PowerShell 5.1 (the sandbox has PS7 for Linux; the
+  dialect is six scans with positive controls, a syntax argument and not a run), and the real estate -
+  no real workflow XML or `dataschema.json` is available, so the first run on the real directory is also
+  the first measurement of the conflict and orphan counters. `mvn clean package` is untouched: neither
+  deliverable is in the WAR, which is the point of the executor decision.
