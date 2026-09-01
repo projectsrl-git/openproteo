@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenProteo &mdash; Feed schema index</title>
+<!--
+  Standalone navigable index of the record layout of every archived feed.
+
+  Reads the CSV produced by tools/Get-FeedSchemaIndex.ps1 (one row per FIELD) and presents it as a
+  SOURCE -> feed -> fields tree with one search box over everything.
+
+  ZERO EXTERNAL REFERENCES, by construction and asserted by scan: no CDN, no font, no image. The CSV
+  splitter is the one from csv-viewer.html, lifted rather than rewritten so the two cannot disagree
+  about quoting.
+
+  NO LITERAL \n OR \r ANYWHERE IN THE JAVASCRIPT: the UBS proxy rewrites those two-character escape
+  sequences into real newlines inside string literals, which breaks the string and the file with it.
+  String.fromCharCode(10) / (13) throughout, regular expressions included.
+-->
+<style>
+  :root{
+    --bg:#0e1116; --bg-raise:#161a21; --bg-panel:#1a1f27; --bg-hover:#1e242e;
+    --line:#262c36; --line-soft:#1e232b;
+    --ink:#e6e6e6; --ink-dim:#a0a8b5; --ink-faint:#6f7886;
+    --accent:#f5a623; --accent-dim:#8a6520;
+    --ok:#3fb950; --fail:#f85149; --info:#58a6ff;
+    --mark:#f5a623; --mark-ink:#1a1a1a;
+    --brand:#e60000;
+  }
+  html[data-theme="light"]{
+    --bg:#ffffff; --bg-raise:#f7f8fa; --bg-panel:#f0f2f5; --bg-hover:#eaeef4;
+    --line:#dfe3e9; --line-soft:#eaedf1;
+    --ink:#1a1a1a; --ink-dim:#525b66; --ink-faint:#858e99;
+    --accent:#b46b00; --accent-dim:#e8c98a;
+    --ok:#1a7f37; --fail:#cf222e; --info:#0969da;
+    --mark:#ffe08a; --mark-ink:#1a1a1a;
+    --brand:#c40000;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%; overflow:hidden}
+  body{
+    font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg); color:var(--ink); font-size:13px;
+    display:flex; flex-direction:column;
+  }
+  header{
+    background:var(--bg-raise); border-bottom:1px solid var(--line);
+    padding:10px 16px; display:flex; align-items:center; gap:16px; flex-shrink:0; flex-wrap:wrap;
+  }
+  .brand{display:flex; align-items:baseline; gap:10px}
+  .brand .logo{font-weight:700; color:var(--brand); font-size:16px; letter-spacing:2px}
+  .brand h1{font-size:13px; font-weight:600}
+  .brand .sub{font-size:11px; color:var(--ink-faint); font-style:italic}
+  .spacer{margin-left:auto}
+  .btn{
+    border:1px solid var(--line); background:var(--bg-panel); color:var(--ink);
+    padding:5px 11px; font-size:12px; cursor:pointer; border-radius:3px; font-family:inherit;
+  }
+  .btn:hover{background:var(--bg-hover); border-color:var(--ink-faint)}
+  .btn:disabled{opacity:.4; cursor:default}
+  input[type=search],input[type=text],select{
+    border:1px solid var(--line); padding:5px 9px; font-size:12px;
+    border-radius:3px; font-family:inherit; background:var(--bg); color:var(--ink);
+  }
+  input:focus,select:focus{outline:none; border-color:var(--accent)}
+  input[type=file]{display:none}
+
+  .toolbar{
+    display:flex; align-items:center; gap:10px; padding:8px 16px;
+    border-bottom:1px solid var(--line); flex-shrink:0; flex-wrap:wrap;
+    background:var(--bg-raise);
+  }
+  .toolbar label{font-size:10px; color:var(--ink-faint); font-weight:600; letter-spacing:1px; text-transform:uppercase}
+  .stat{font-size:12px; color:var(--ink-dim)}
+  .stat b{color:var(--ink); font-variant-numeric:tabular-nums}
+  #matchInfo{font-variant-numeric:tabular-nums; min-width:86px; display:inline-block}
+
+  .view{display:none; flex:1; min-height:0; flex-direction:column}
+  .view.on{display:flex}
+  .welcome{align-items:center; justify-content:center; gap:20px; padding:40px}
+  .welcome h2{font-size:20px; font-weight:300}
+  .welcome h2 b{color:var(--brand); font-weight:600}
+  .welcome p{color:var(--ink-dim); max-width:620px; text-align:center; line-height:1.6}
+  .drop{border:2px dashed var(--line); border-radius:8px; padding:32px 52px; text-align:center}
+  .drop.hot{border-color:var(--accent); background:var(--bg-hover)}
+  .err{color:var(--fail); font-size:12px}
+
+  .tree{flex:1; overflow:auto; padding:8px 12px 40px 12px}
+
+  .node{margin:0}
+  .nrow{
+    display:flex; align-items:center; gap:8px; padding:4px 6px; border-radius:3px;
+    border:1px solid transparent;
+  }
+  .nrow:hover{background:var(--bg-hover)}
+  .nrow.cur{border-color:var(--accent); background:var(--bg-hover)}
+  .tog{
+    width:22px; height:20px; flex:0 0 22px; border:1px solid var(--line); border-radius:3px;
+    background:var(--bg-panel); color:var(--ink-dim); font-size:13px; line-height:16px;
+    cursor:pointer; font-family:inherit; text-align:center; padding:0;
+  }
+  .tog:hover{border-color:var(--accent); color:var(--accent)}
+  .tog.leaf{visibility:hidden}
+  .src-row{background:var(--bg-panel); border-left:4px solid var(--accent); margin-top:6px}
+  .src-row .ttl{font-weight:700; letter-spacing:.5px}
+  .feed-row{margin-left:26px}
+  .feed-row .ttl{font-weight:600}
+  .ttl{color:var(--ink)}
+  .sub{color:var(--ink-dim); font-size:11.5px}
+  .cnt{color:var(--ink-faint); font-size:11px; font-variant-numeric:tabular-nums; white-space:nowrap}
+  .badge{
+    font-size:9.5px; letter-spacing:.6px; text-transform:uppercase; padding:1px 5px;
+    border-radius:2px; border:1px solid var(--line); color:var(--ink-dim); white-space:nowrap;
+  }
+  .badge.prod{border-color:var(--fail); color:var(--fail)}
+  .badge.warn{border-color:var(--accent); color:var(--accent)}
+
+  .vars{margin:2px 0 4px 54px; display:flex; flex-wrap:wrap; gap:6px}
+  .vchip{
+    font-size:11px; border:1px solid var(--line-soft); background:var(--bg-raise);
+    border-radius:3px; padding:1px 6px; color:var(--ink-dim);
+  }
+  .vchip b{color:var(--ink); font-weight:600}
+  .vchip.tok b{color:var(--accent)}
+
+  .ftab{margin:2px 0 10px 54px; border:1px solid var(--line); border-radius:3px; overflow:auto}
+  table{border-collapse:collapse; width:100%; font-size:12px}
+  th{
+    text-align:left; padding:5px 8px; background:var(--bg-panel); color:var(--ink-dim);
+    font-size:10px; text-transform:uppercase; letter-spacing:.7px; font-weight:600;
+    border-bottom:2px solid var(--accent-dim); white-space:nowrap; position:sticky; top:0;
+  }
+  td{padding:4px 8px; border-bottom:1px solid var(--line-soft); vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  tr.odd td{background:var(--bg-raise)}
+  tr.cur td{background:var(--bg-hover); box-shadow:inset 2px 0 0 var(--accent)}
+  td.num{text-align:right; font-variant-numeric:tabular-nums; color:var(--ink-faint)}
+  .yes{color:var(--fail); font-weight:600}
+  .no{color:var(--ink-faint)}
+  .orph td{opacity:.92}
+  .orph td:first-child{box-shadow:inset 2px 0 0 var(--fail)}
+  mark{background:var(--mark); color:var(--mark-ink); border-radius:2px; padding:0 1px}
+  .empty{padding:20px; color:var(--ink-faint)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="logo">UBS</span>
+    <h1>Feed schema index</h1>
+    <span class="sub">OpenProteo &mdash; record layout of every archived feed</span>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn" id="openBtn">Open index CSV&hellip;</button>
+  <button class="btn" id="themeBtn">theme</button>
+  <input type="file" id="file" accept=".csv,.txt">
+</header>
+
+<div class="view on" id="welcome">
+  <div class="welcome" style="display:flex; flex-direction:column; align-items:center; justify-content:center; flex:1">
+    <h2>Open the index produced by <b>Get-FeedSchemaIndex.ps1</b></h2>
+    <p>One row per field: SOURCE, feed, the record layout from <i>dataschema.json</i> and the field
+       descriptions from <i>displayschema.json</i>. Everything stays in this page &mdash; no network,
+       no upload.</p>
+    <div class="drop" id="drop">Drag the CSV here, or <button class="btn" id="browseBtn">browse&hellip;</button></div>
+    <p class="err" id="loadErr"></p>
+  </div>
+</div>
+
+<div class="view" id="main">
+  <div class="toolbar">
+    <label for="q">Search</label>
+    <input type="search" id="q" placeholder="source, feed, field, description, variable&hellip;" style="width:300px">
+    <button class="btn" id="prevBtn" title="previous match">&lsaquo; prev</button>
+    <span class="stat" id="matchInfo"></span>
+    <button class="btn" id="nextBtn" title="next match">next &rsaquo;</button>
+    <label for="srcJump" style="margin-left:10px">Go to</label>
+    <select id="srcJump"><option value="">source&hellip;</option></select>
+    <div class="spacer"></div>
+    <button class="btn" id="expandBtn">expand all</button>
+    <button class="btn" id="sourcesBtn">collapse to sources</button>
+    <button class="btn" id="collapseBtn">collapse all</button>
+  </div>
+  <div class="toolbar" style="border-bottom:1px solid var(--line)">
+    <span class="stat" id="stats"></span>
+  </div>
+  <div class="tree" id="tree"></div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  // The two characters that may never appear as literal escapes in this file.
+  var LF = String.fromCharCode(10), CR = String.fromCharCode(13), BOM = String.fromCharCode(0xFEFF);
+
+  function $(id){ return document.getElementById(id); }
+  function el(tag, cls, parent){
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  // ===== theme =====
+  function refreshTheme(){
+    var lt = document.documentElement.getAttribute('data-theme') === 'light';
+    $('themeBtn').textContent = lt ? (String.fromCharCode(0x263E) + ' dark') : (String.fromCharCode(0x2600) + ' light');
+  }
+  function toggleTheme(){
+    var lt = document.documentElement.getAttribute('data-theme') === 'light';
+    if (lt) document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', 'light');
+    refreshTheme();
+  }
+
+  // ===== CSV =====
+  // splitLine is csv-viewer.html's, lifted rather than rewritten: two implementations of RFC-4180
+  // quoting that quietly disagree are worse than one.
+  function splitLine(line, delim){
+    var out = [], sb = '', inQ = false;
+    for (var i = 0; i < line.length; i++){
+      var c = line.charAt(i);
+      if (inQ){
+        if (c === '"'){
+          if (i + 1 < line.length && line.charAt(i + 1) === '"'){ sb += '"'; i++; }
+          else inQ = false;
+        } else sb += c;
+      } else {
+        if (c === '"') inQ = true;
+        else if (c === delim){ out.push(sb); sb = ''; }
+        else sb += c;
+      }
+    }
+    out.push(sb);
+    return out;
+  }
+  function detectDelim(headerLine){
+    var cands = [';', ',', String.fromCharCode(9), '|'], best = ';', bestN = -1;
+    for (var i = 0; i < cands.length; i++){
+      var n = splitLine(headerLine, cands[i]).length;
+      if (n > bestN){ bestN = n; best = cands[i]; }
+    }
+    return best;
+  }
+  function parseCsv(text){
+    if (text.charAt(0) === BOM) text = text.slice(1);
+    var lines = text.split(LF);
+    while (lines.length && lines[lines.length - 1] === '') lines.pop();
+    for (var i = 0; i < lines.length; i++){
+      if (lines[i].charAt(lines[i].length - 1) === CR) lines[i] = lines[i].slice(0, -1);
+    }
+    if (!lines.length) return { columns: [], rows: [] };
+    var d = detectDelim(lines[0]);
+    var columns = splitLine(lines[0], d);
+    var rows = [];
+    for (var r = 1; r < lines.length; r++) rows.push(splitLine(lines[r], d));
+    return { columns: columns, rows: rows, delimiter: d };
+  }
+
+  // ===== the model =====
+  // Columns are found BY NAME, never by position: the index gains columns with -Detailed and one per
+  // -Variables entry, so a positional reader would silently shift the day either is used.
+  var FIXED = ['source_id','source_description','target_id','target_description','feed_id','feed_name',
+               'feed_description','production','field_seq','field_name','field_type','field_nullable',
+               'display_nullable','display_name','display_type','display_seq','viewable','anon_type',
+               'in_dataschema','in_displayschema','workflow_file','dataschema_path','displayschema_path',
+               'schema_source'];
+
+  var MODEL = null;      // { sources: [...], feeds: n, fields: n, varCols: [names] }
+  var FLAT = [];         // every node in document order, for prev/next
+  var MATCHES = [];      // indices into FLAT
+  var CUR = -1;
+  var QUERY = '';
+
+  function lower(s){ return (s == null ? '' : String(s)).toLowerCase(); }
+
+  function buildModel(parsed){
+    var idx = {}, i;
+    for (i = 0; i < parsed.columns.length; i++) idx[parsed.columns[i].trim()] = i;
+    if (!(('feed_id' in idx) && ('field_name' in idx))){
+      throw new Error('this does not look like a feed schema index: the header has no feed_id / field_name column');
+    }
+    var varCols = [];
+    for (i = 0; i < parsed.columns.length; i++){
+      var name = parsed.columns[i].trim();
+      if (FIXED.indexOf(name) < 0 && name !== '') varCols.push({ name: name, i: i });
+    }
+
+    function cell(row, key){
+      var j = idx[key];
+      if (j == null || j >= row.length) return '';
+      return row[j] == null ? '' : row[j];
+    }
+
+    var sources = [], bySrc = {}, feedCount = 0, fieldCount = 0;
+    for (var r = 0; r < parsed.rows.length; r++){
+      var row = parsed.rows[r];
+      if (!row.length || (row.length === 1 && row[0] === '')) continue;
+      var sid = cell(row, 'source_id') || '(no source)';
+      var src = bySrc[sid];
+      if (!src){
+        src = { kind: 'source', id: sid, desc: cell(row, 'source_description'),
+                feeds: [], byFeed: {}, open: false };
+        bySrc[sid] = src;
+        sources.push(src);
+      }
+      if (src.desc === '' && cell(row, 'source_description') !== '') src.desc = cell(row, 'source_description');
+
+      var fid = cell(row, 'feed_id');
+      var feed = src.byFeed[fid];
+      if (!feed){
+        feed = { kind: 'feed', id: fid, name: cell(row, 'feed_name'), desc: cell(row, 'feed_description'),
+                 target: cell(row, 'target_id'), targetDesc: cell(row, 'target_description'),
+                 prod: lower(cell(row, 'production')) === 'yes',
+                 source: src, fields: [], vars: [], open: false };
+        for (var v = 0; v < varCols.length; v++){
+          feed.vars.push({ name: varCols[v].name,
+                           value: varCols[v].i < row.length ? (row[varCols[v].i] || '') : '' });
+        }
+        src.byFeed[fid] = feed;
+        src.feeds.push(feed);
+        feedCount++;
+      }
+      var f = {
+        kind: 'field', feed: feed,
+        seq: cell(row, 'field_seq'),
+        name: cell(row, 'field_name'),
+        type: cell(row, 'field_type'),
+        nullable: cell(row, 'field_nullable'),
+        dispNullable: cell(row, 'display_nullable'),
+        dispName: cell(row, 'display_name'),
+        dispType: cell(row, 'display_type'),
+        dispSeq: cell(row, 'display_seq'),
+        viewable: cell(row, 'viewable'),
+        anon: cell(row, 'anon_type'),
+        inData: lower(cell(row, 'in_dataschema')) !== 'no',
+        inDisp: lower(cell(row, 'in_displayschema')) === 'yes'
+      };
+      // A field is MANDATORY when the dataschema says nullable=false. The two schemas can disagree,
+      // and when they do BOTH are shown rather than one being picked - the file says so, and hiding
+      // half of it here would answer a question the sources do not agree about.
+      f.mandatory = (lower(f.nullable) === 'false');
+      f.nullDisagree = (f.nullable !== '' && f.dispNullable !== '' && f.nullable !== f.dispNullable);
+      f.hay = lower([f.name, f.type, f.dispName, f.dispType, f.anon, f.seq, f.dispSeq].join(' '));
+      feed.fields.push(f);
+      fieldCount++;
+    }
+
+    // haystacks: a feed's own text plus its variables; a source's own text plus every feed under it,
+    // so typing a field name still reveals the source that contains it.
+    for (var s = 0; s < sources.length; s++){
+      var so = sources[s], acc = lower(so.id + ' ' + so.desc);
+      for (var k = 0; k < so.feeds.length; k++){
+        var fe = so.feeds[k];
+        var fh = lower([fe.id, fe.name, fe.desc, fe.target, fe.targetDesc].join(' '));
+        for (var w = 0; w < fe.vars.length; w++) fh += ' ' + lower(fe.vars[w].name + ' ' + fe.vars[w].value);
+        fe.hay = fh;
+        acc += ' ' + fh;
+      }
+      so.hay = acc;
+    }
+    return { sources: sources, feeds: feedCount, fields: fieldCount, varCols: varCols };
+  }
+
+  // ===== search =====
+  // Runs on the MODEL, so it finds matches inside feeds whose table has never been drawn.
+  function applyQuery(q){
+    QUERY = q;
+    var ql = lower(q).trim();
+    var i, j, k;
+    for (i = 0; i < MODEL.sources.length; i++){
+      var s = MODEL.sources[i];
+      s.shown = true; s.hit = false; s.shownFeeds = 0;
+      for (j = 0; j < s.feeds.length; j++){
+        var f = s.feeds[j];
+        f.shown = true; f.hit = false; f.shownFields = 0;
+        for (k = 0; k < f.fields.length; k++){ f.fields[k].shown = true; f.fields[k].hit = false; }
+      }
+    }
+    if (ql === ''){
+      for (i = 0; i < MODEL.sources.length; i++){
+        var s0 = MODEL.sources[i];
+        s0.shownFeeds = s0.feeds.length;
+        for (j = 0; j < s0.feeds.length; j++) s0.feeds[j].shownFields = s0.feeds[j].fields.length;
+      }
+      rebuildFlat();
+      return;
+    }
+    for (i = 0; i < MODEL.sources.length; i++){
+      var sr = MODEL.sources[i];
+      var srcHit = lower(sr.id + ' ' + sr.desc).indexOf(ql) >= 0;
+      sr.hit = srcHit;
+      var anyFeed = false;
+      for (j = 0; j < sr.feeds.length; j++){
+        var fd = sr.feeds[j];
+        var feedHit = fd.hay.indexOf(ql) >= 0;
+        fd.hit = feedHit;
+        var anyField = false;
+        for (k = 0; k < fd.fields.length; k++){
+          var fl = fd.fields[k];
+          var fieldHit = fl.hay.indexOf(ql) >= 0;
+          fl.hit = fieldHit;
+          // a matching SOURCE or FEED shows all of its fields: the match is the container, and
+          // hiding its contents would make a hit look empty
+          fl.shown = fieldHit || feedHit || srcHit;
+          if (fl.shown) anyField = true;
+        }
+        fd.shownFields = 0;
+        for (k = 0; k < fd.fields.length; k++) if (fd.fields[k].shown) fd.shownFields++;
+        fd.shown = feedHit || srcHit || anyField;
+        if (fd.shown){ anyFeed = true; fd.open = true; }
+      }
+      sr.shownFeeds = 0;
+      for (j = 0; j < sr.feeds.length; j++) if (sr.feeds[j].shown) sr.shownFeeds++;
+      sr.shown = srcHit || anyFeed;
+      if (sr.shown) sr.open = true;
+    }
+    rebuildFlat();
+  }
+
+  function rebuildFlat(){
+    FLAT = []; MATCHES = [];
+    for (var i = 0; i < MODEL.sources.length; i++){
+      var s = MODEL.sources[i];
+      if (!s.shown) continue;
+      FLAT.push(s);
+      if (s.hit) MATCHES.push(FLAT.length - 1);
+      for (var j = 0; j < s.feeds.length; j++){
+        var f = s.feeds[j];
+        if (!f.shown) continue;
+        FLAT.push(f);
+        if (f.hit) MATCHES.push(FLAT.length - 1);
+        for (var k = 0; k < f.fields.length; k++){
+          var fl = f.fields[k];
+          if (!fl.shown) continue;
+          FLAT.push(fl);
+          if (fl.hit) MATCHES.push(FLAT.length - 1);
+        }
+      }
+    }
+    CUR = MATCHES.length ? 0 : -1;
+  }
+
+  // ===== rendering =====
+  function markInto(parent, text, cls){
+    var span = el(cls === 'b' ? 'b' : 'span', cls === 'b' ? null : (cls || null), parent);
+    var t = text == null ? '' : String(text);
+    var ql = lower(QUERY).trim();
+    if (ql === '' || t === ''){ span.textContent = t; return span; }
+    var lt = lower(t), pos = 0, at;
+    while ((at = lt.indexOf(ql, pos)) >= 0){
+      if (at > pos) span.appendChild(document.createTextNode(t.substring(pos, at)));
+      var m = el('mark', null, span);
+      m.textContent = t.substring(at, at + ql.length);
+      pos = at + ql.length;
+    }
+    if (pos < t.length) span.appendChild(document.createTextNode(t.substring(pos)));
+    return span;
+  }
+
+  function countText(shown, total, word){
+    if (QUERY.trim() !== '' && shown !== total) return shown + ' of ' + total + ' ' + word;
+    return total + ' ' + word;
+  }
+
+  function render(){
+    var tree = $('tree');
+    tree.innerHTML = '';
+    if (!MODEL || !MODEL.sources.length){
+      el('div', 'empty', tree).textContent = 'the index is empty';
+      return;
+    }
+    var anyShown = false;
+    for (var i = 0; i < MODEL.sources.length; i++){
+      var s = MODEL.sources[i];
+      if (!s.shown) continue;
+      anyShown = true;
+      renderSource(tree, s);
+    }
+    if (!anyShown) el('div', 'empty', tree).textContent = 'nothing matches ' + String.fromCharCode(0x201C) + QUERY + String.fromCharCode(0x201D);
+    paintCurrent();
+  }
+
+  function renderSource(parent, s){
+    var node = el('div', 'node', parent);
+    node.setAttribute('data-src', s.id);
+    var row = el('div', 'nrow src-row', node);
+    s.dom = row;
+    var tog = el('button', 'tog', row);
+    tog.textContent = s.open ? String.fromCharCode(0x2212) : '+';
+    tog.setAttribute('aria-label', s.open ? 'collapse' : 'expand');
+    tog.onclick = function(){ s.open = !s.open; render(); };
+    markInto(row, s.id, 'ttl');
+    if (s.desc) markInto(row, s.desc, 'sub');
+    var c = el('span', 'cnt', row);
+    c.textContent = countText(s.shownFeeds, s.feeds.length, 'feeds');
+    if (!s.open) return;
+    for (var j = 0; j < s.feeds.length; j++){
+      if (s.feeds[j].shown) renderFeed(node, s.feeds[j]);
+    }
+  }
+
+  function renderFeed(parent, f){
+    var node = el('div', 'node', parent);
+    var row = el('div', 'nrow feed-row', node);
+    f.dom = row;
+    var tog = el('button', 'tog', row);
+    tog.textContent = f.open ? String.fromCharCode(0x2212) : '+';
+    tog.onclick = function(){ f.open = !f.open; render(); };
+    markInto(row, f.id, 'ttl');
+    if (f.name && f.name !== f.id) markInto(row, f.name, 'sub');
+    if (f.prod) el('span', 'badge prod', row).textContent = 'prod';
+    if (f.target) el('span', 'badge', row).textContent = String.fromCharCode(0x2192) + ' ' + f.target;
+    var c = el('span', 'cnt', row);
+    c.textContent = countText(f.shownFields, f.fields.length, 'fields');
+    if (!f.open) return;
+    if (f.desc) markInto(el('div', 'vars', node), f.desc, 'vchip');
+    if (f.vars.length){
+      var vb = el('div', 'vars', node);
+      for (var v = 0; v < f.vars.length; v++){
+        var val = f.vars[v].value;
+        // a value still carrying ${...} is a RUNTIME value the index could not resolve, and the tool
+        // deliberately keeps the token rather than emptying the cell. Colour it so the difference
+        // between "not defined" and "computed at run time" survives into the picture.
+        var isTok = val.indexOf('$' + '{') >= 0;
+        var chip = el('span', 'vchip' + (isTok ? ' tok' : ''), vb);
+        chip.appendChild(document.createTextNode(f.vars[v].name + ': '));
+        markInto(chip, val === '' ? String.fromCharCode(0x2014) : val, 'b');
+      }
+    }
+    renderFields(node, f);
+  }
+
+  function renderFields(parent, f){
+    var wrap = el('div', 'ftab', parent);
+    var table = el('table', null, wrap);
+    var thead = el('thead', null, table);
+    var hr = el('tr', null, thead);
+    var heads = ['#','field','type','mandatory','display name','display type','disp.seq','viewable','anon'];
+    for (var h = 0; h < heads.length; h++) el('th', null, hr).textContent = heads[h];
+    var tb = el('tbody', null, table);
+    var n = 0;
+    for (var k = 0; k < f.fields.length; k++){
+      var fl = f.fields[k];
+      if (!fl.shown) continue;
+      var tr = el('tr', (n % 2 ? 'odd' : '') + (fl.inData ? '' : ' orph'), tb);
+      fl.dom = tr;
+      n++;
+      el('td', 'num', tr).textContent = fl.seq === '' ? String.fromCharCode(0x2014) : fl.seq;
+      var td = el('td', null, tr);
+      markInto(td, fl.name);
+      if (!fl.inData) el('span', 'badge warn', td).textContent = 'orphan';
+      markInto(el('td', null, tr), fl.type);
+      var tdm = el('td', null, tr);
+      if (fl.mandatory){ el('span', 'yes', tdm).textContent = 'YES'; }
+      else if (fl.nullable === ''){ el('span', 'no', tdm).textContent = String.fromCharCode(0x2014); }
+      else { el('span', 'no', tdm).textContent = 'no'; }
+      if (fl.nullDisagree){
+        var w = el('span', 'badge warn', tdm);
+        w.textContent = '!=';
+        w.title = 'dataschema says nullable=' + fl.nullable + ', displayschema says Nullable=' + fl.dispNullable;
+      }
+      markInto(el('td', null, tr), fl.dispName);
+      markInto(el('td', null, tr), fl.dispType);
+      el('td', 'num', tr).textContent = fl.dispSeq;
+      el('td', null, tr).textContent = fl.viewable;
+      markInto(el('td', null, tr), fl.anon);
+    }
+    if (!n){ wrap.removeChild(table); el('div', 'empty', wrap).textContent = 'no field matches'; }
+  }
+
+  // ===== navigation =====
+  function paintCurrent(){
+    var i;
+    for (i = 0; i < FLAT.length; i++){
+      var nd = FLAT[i];
+      if (nd.dom) nd.dom.className = nd.dom.className.replace(/ ?cur/g, '');
+    }
+    $('matchInfo').textContent = MATCHES.length
+      ? ((CUR + 1) + ' of ' + MATCHES.length + ' matches')
+      : (QUERY.trim() === '' ? '' : 'no match');
+    $('prevBtn').disabled = MATCHES.length < 2;
+    $('nextBtn').disabled = MATCHES.length < 2;
+    if (CUR < 0 || CUR >= MATCHES.length) return;
+    var node = FLAT[MATCHES[CUR]];
+    if (node && node.dom){
+      node.dom.className = node.dom.className + ' cur';
+      if (node.dom.scrollIntoView) node.dom.scrollIntoView({ block: 'center' });
+    }
+  }
+  function step(delta){
+    if (!MATCHES.length) return;
+    CUR = (CUR + delta + MATCHES.length) % MATCHES.length;
+    var node = FLAT[MATCHES[CUR]];
+    // opening the ancestors is what makes "next" reach a match inside a collapsed feed
+    if (node.kind === 'field'){ node.feed.open = true; node.feed.source.open = true; }
+    else if (node.kind === 'feed'){ node.source.open = true; }
+    render();
+  }
+
+  function setAllOpen(srcOpen, feedOpen){
+    for (var i = 0; i < MODEL.sources.length; i++){
+      var s = MODEL.sources[i];
+      s.open = srcOpen;
+      for (var j = 0; j < s.feeds.length; j++) s.feeds[j].open = feedOpen;
+    }
+    render();
+  }
+
+  function fillSourceJump(){
+    var sel = $('srcJump');
+    sel.innerHTML = '';
+    var first = el('option', null, sel);
+    first.value = ''; first.textContent = 'source' + String.fromCharCode(0x2026);
+    for (var i = 0; i < MODEL.sources.length; i++){
+      var o = el('option', null, sel);
+      o.value = MODEL.sources[i].id;
+      o.textContent = MODEL.sources[i].id + '  (' + MODEL.sources[i].feeds.length + ')';
+    }
+  }
+
+  function updateStats(){
+    var srcs = MODEL.sources.length, mand = 0, orph = 0, dis = 0, nodisp = 0;
+    for (var i = 0; i < MODEL.sources.length; i++){
+      for (var j = 0; j < MODEL.sources[i].feeds.length; j++){
+        var f = MODEL.sources[i].feeds[j], hasDisp = false;
+        for (var k = 0; k < f.fields.length; k++){
+          var fl = f.fields[k];
+          if (fl.mandatory) mand++;
+          if (!fl.inData) orph++;
+          if (fl.nullDisagree) dis++;
+          if (fl.inDisp) hasDisp = true;
+        }
+        if (!hasDisp) nodisp++;
+      }
+    }
+    var t = $('stats');
+    t.innerHTML = '';
+    function add(label, value, warn){
+      var s = el('span', 'stat', t);
+      s.style.marginRight = '18px';
+      s.appendChild(document.createTextNode(label + ' '));
+      var b = el('b', null, s);
+      b.textContent = String(value);
+      if (warn && value > 0) b.style.color = 'var(--accent)';
+    }
+    add('sources', srcs); add('feeds', MODEL.feeds); add('fields', MODEL.fields);
+    add('mandatory', mand);
+    add('orphan descriptions', orph, true);
+    add('nullable disagreements', dis, true);
+    add('feeds with no description', nodisp, true);
+  }
+
+  // ===== loading =====
+  function load(text){
+    var parsed = parseCsv(text);
+    MODEL = buildModel(parsed);
+    applyQuery('');
+    setAllOpen(true, false);
+    fillSourceJump();
+    updateStats();
+    $('welcome').className = 'view';
+    $('main').className = 'view on';
+  }
+  function loadFile(file){
+    var fr = new FileReader();
+    fr.onload = function(){
+      try { load(String(fr.result)); $('loadErr').textContent = ''; }
+      catch (e){ $('loadErr').textContent = e.message; }
+    };
+    fr.onerror = function(){ $('loadErr').textContent = 'cannot read the file'; };
+    fr.readAsText(file, 'UTF-8');
+  }
+
+  // ===== wiring =====
+  function boot(){
+    refreshTheme();
+    $('themeBtn').onclick = toggleTheme;
+    $('openBtn').onclick = function(){ $('file').click(); };
+    $('browseBtn').onclick = function(){ $('file').click(); };
+    $('file').onchange = function(){ if (this.files && this.files[0]) loadFile(this.files[0]); };
+
+    var drop = $('drop');
+    drop.ondragover = function(e){ e.preventDefault(); drop.className = 'drop hot'; };
+    drop.ondragleave = function(){ drop.className = 'drop'; };
+    drop.ondrop = function(e){
+      e.preventDefault(); drop.className = 'drop';
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+    };
+
+    $('q').oninput = function(){ applyQuery(this.value); render(); };
+    $('q').onkeydown = function(e){ if (e.keyCode === 13){ e.preventDefault(); step(e.shiftKey ? -1 : 1); } };
+    $('prevBtn').onclick = function(){ step(-1); };
+    $('nextBtn').onclick = function(){ step(1); };
+    $('expandBtn').onclick = function(){ setAllOpen(true, true); };
+    $('sourcesBtn').onclick = function(){ setAllOpen(true, false); };
+    $('collapseBtn').onclick = function(){ setAllOpen(false, false); };
+    $('srcJump').onchange = function(){
+      var id = this.value;
+      if (!id) return;
+      for (var i = 0; i < MODEL.sources.length; i++){
+        if (MODEL.sources[i].id === id){
+          MODEL.sources[i].open = true;
+          render();
+          if (MODEL.sources[i].dom && MODEL.sources[i].dom.scrollIntoView){
+            MODEL.sources[i].dom.scrollIntoView({ block: 'start' });
+          }
+          break;
+        }
+      }
+    };
+  }
+
+  boot();
+
+  // exposed for the test harness only; the page itself uses none of these
+  window.__fsi = {
+    parseCsv: parseCsv, splitLine: splitLine, buildModel: buildModel,
+    load: load, render: render, step: step, setAllOpen: setAllOpen,
+    applyQuery: function(q){ applyQuery(q); render(); },
+    model: function(){ return MODEL; }, matches: function(){ return MATCHES; },
+    current: function(){ return CUR; }
+  };
+})();
+</script>
+</body>
+</html>

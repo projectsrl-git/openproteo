@@ -2831,3 +2831,36 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * **A workflow's `baseDir` attribute overrides `-BaseDir`**, as `FeedLayout` has it - the single most
   likely way for a whole estate to be skipped, and nothing previously said which value had won.
 * 156 assertions, 16 mutations all caught, the last two being the reverts of this change.
+
+## Feed schema index — Batch 2 delivered: `feed_index_viewer.html`
+* Standalone SOURCE -> feed -> fields tree over the index CSV, at the repository root beside
+  `csv-viewer.html`. **94 jsdom assertions + 9 end to end, 14 mutations all caught.** Zero external
+  references asserted by scan; the CSV splitter is `csv-viewer.html`'s **lifted verbatim**, so the two
+  cannot disagree about RFC-4180 quoting. No literal `\n`/`\r` in the JS (positive control included),
+  plus the `[[`/`[(` and duplicate top-level `function`/`var` scans.
+* **Columns are found BY NAME, never by position** — the file gains four columns under `-Detailed` and
+  one per `-Variables` entry, so a positional reader shifts silently, and it LOOKS right on the default
+  file. That is exactly why the first mutation of this rule came back green until a `-Detailed` fixture
+  existed.
+* **Tables on demand, search on the model.** Sources open with their feeds listed and no field table
+  drawn; search runs over the model so it matches inside feeds never rendered. **A hit must never look
+  empty**: a matching source shows all its feeds, a matching feed all its fields, and counts read
+  `1 of 3 fields` so a filtered node cannot be mistaken for a small one.
+* **The three findings are DRAWN, not only counted**: orphan rows marked and named, mandatory fields
+  saying YES, and a nullable disagreement carrying a badge whose tooltip names BOTH values. The
+  end-to-end check asserts the page marks exactly the three disagreements the tool counted on the same
+  file. The unresolved `${runDate}` token is coloured apart from an empty cell, so the distinction the
+  tool preserves survives to the last step instead of dying in the picture.
+* **Three green mutations opened: one bad, two real gaps.** Removing the BOM strip from `parseCsv`
+  changed nothing because `buildModel` indexes on `columns[i].trim()` and **JavaScript's `trim` removes
+  U+FEFF as whitespace** — the protection exists twice and either alone suffices, so the parser's own
+  contract is now asserted. The real gaps: no fixture exercised `-Detailed`, and the step-navigation
+  test searched and stepped without collapsing anything in between, so `applyQuery` had already done
+  `step`'s work. **A test that supplies the missing step cannot fail on it** — the second time that
+  exact shape has appeared.
+* **Two assertions of mine were wrong rather than the code**: one confused feed ROWS with field TABLES;
+  one took the LAST chip matching a name across three feeds instead of the first, so it asserted
+  against the feed whose values are empty. Same class as the harness that lifted the wrong Java.
+* **NOT verified**: the real index (the end-to-end run is `samples/` through the real tool and the real
+  page, not 144 feeds), and the UBS browser — flex-with-wrap throughout and no `grid`, which is an
+  argument and not a rendering. `mvn clean package` untouched: the page is not in the WAR.

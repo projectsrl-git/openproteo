@@ -331,7 +331,7 @@ the estate doubles.
 |---|---|---|
 | 0 | this document | Gate 0 answers below |
 | 1 | `tools/Get-FeedSchemaIndex.ps1` + suite, dialect scans, alias-agreement harness — **DELIVERED** | a real run over the real workflows dir |
-| 2 | `feed_index_viewer.html` + jsdom suite | opened on the real index |
+| 2 | `feed_index_viewer.html` + jsdom suite — **DELIVERED** | opened on the real index |
 | 3 | `USAGE.md` / `README.md` paragraph, rendered through `docs.html`'s own `render()` | — |
 
 Batch 1 delivers a usable answer on its own: the CSV opens in `csv-viewer.html` today. The viewer is
@@ -442,3 +442,44 @@ description columns? §4.2 recommends present.
   value on the command line, and nothing previously said which had won.
 * 156 assertions, 16 mutations all caught, including the two that revert this batch: a skip note that
   stops naming the path, and a missing directory folded back into the missing-schema case.
+
+
+## 13. Batch 2 delivered — the viewer
+
+* `feed_index_viewer.html` at the repository root, beside `csv-viewer.html` / `xml_viewer.html` /
+  `json_viewer.html`. **94 jsdom assertions on the page + 9 end-to-end**, 14 mutations all caught.
+* **Zero external references, asserted by scan**, and the CSV splitter is `csv-viewer.html`'s lifted
+  verbatim rather than rewritten: two implementations of RFC-4180 quoting that quietly disagree are
+  worse than one. No literal `\n` / `\r` in the JavaScript, with a positive control proving the scan
+  can fire, plus the `[[` / `[(` scan and the duplicate top-level `function`/`var` scan that two
+  earlier single-file pages needed.
+* **Columns are found BY NAME, never by position.** The index gains four columns under `-Detailed` and
+  one per `-Variables` entry, so a positional reader would silently shift the day either is used —
+  and would look right on the default file, which is why the first mutation of this rule came back
+  green until a `-Detailed` fixture was added.
+* **The leaf is a table and the tables are drawn on demand**: the sources open, their feeds are
+  listed, and no field table exists until a feed is opened. Search runs on the MODEL, so it matches
+  inside feeds that have never been drawn.
+* **A hit must never look empty**: a matching source shows all its feeds and a matching feed all its
+  fields. Counts read `1 of 3 fields` under a filter, so a node showing three fields of ninety-seven
+  cannot be mistaken for a feed with three.
+* **The three findings are drawn, not only counted**: the orphan row is marked and named, the mandatory
+  column says YES, and a nullable disagreement carries a badge whose tooltip names BOTH values. The
+  summary line repeats the counts, and the end-to-end check asserts the page marks exactly the three
+  disagreements the tool reported on the same file.
+* **The unresolved `${runDate}` token is coloured apart from an empty cell**, so the distinction the
+  PowerShell tool goes out of its way to preserve survives into the picture instead of dying at the
+  last step.
+* **Three green mutations, all opened; one was a bad mutation and two were real gaps.** Removing the
+  BOM strip from `parseCsv` changed nothing, because `buildModel` indexes on `columns[i].trim()` and
+  JavaScript's `trim` removes U+FEFF as whitespace — the protection exists twice and either alone
+  suffices, so the parser's contract is now asserted directly. The other two were holes: no fixture
+  exercised `-Detailed`, and the step-navigation test searched and stepped without collapsing anything
+  in between, so `applyQuery` had already done `step`'s work and a mutation removing it stayed green.
+* **Two assertions of mine were wrong, not the code**: one confused feed ROWS with field TABLES, and
+  one took the LAST chip matching a name across three feeds instead of the first, silently asserting
+  against the feed whose values are empty. Same class as the harness that lifted the wrong Java.
+* **NOT verified**: the real index. The end-to-end run is this repository's `samples/` schemas through
+  the real tool and the real page, not 144 feeds; and the page has been driven under jsdom, not in the
+  UBS browser, where the CSS constraints of `CLAUDE.md` §3 apply — flex with wrap is used throughout
+  and no `grid` layout appears, but that is an argument, not a rendering.

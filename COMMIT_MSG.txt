@@ -1,39 +1,51 @@
-feed schema index 1.1: a skip now names the path it looked at
+feed schema index batch 2: the tree viewer over the index
 
-Reported from the field: every feed skipped as "no dataschema" while
-both schema files are plainly present in the designer's Workflow files
-panel. The upload location was never the doubt - AssetStore.scopeDir
-returns FeedLayout.feedDir, so the tool looks in the right kind of place
-- but the message could not distinguish "the file is missing" from "the
-directory is missing", and those two have opposite remedies.
+feed_index_viewer.html at the repository root, beside csv-viewer.html:
+a standalone SOURCE -> feed -> fields tree over the CSV that
+Get-FeedSchemaIndex.ps1 writes, with one search box over sources,
+feeds, fields, descriptions and variable values. 94 jsdom assertions on
+the page plus 9 driving the real page with the real tool's output, and
+14 mutations all caught. Nothing under src/ is touched.
 
-The defect is therefore the message, and it is the one that cost the
-round trip. "no dataschema" reads as a statement about the estate when
-it is almost always a statement about -BaseDir. Three changes, all
-diagnostic:
+Zero external references, asserted by scan rather than intended, and
+the CSV splitter is csv-viewer.html's lifted verbatim: two
+implementations of RFC-4180 quoting that quietly disagree are worse
+than one. No literal escape sequences in the JavaScript, with a
+positive control proving that scan can fire, plus the Thymeleaf-hostile
+sequences and the duplicate top-level declaration scan that two earlier
+single-file pages needed.
 
-Every skip names the exact path it looked for, so the answer is in the
-output instead of in a second conversation.
+Columns are found by name and never by position. The index gains four
+columns under -Detailed and one per -Variables entry, so a positional
+reader would shift silently while looking correct on the default file.
+That is precisely why the first mutation of this rule came back green,
+and it stayed green until a -Detailed fixture was added.
 
-A missing feed DIRECTORY is its own cause, with its own counter
-feed_dir_missing, and its note points at both -BaseDir and the
-workflow's own baseDir attribute. A workflow carrying baseDir overrides
-the command line exactly as FeedLayout does, which is the single most
-likely way for a whole estate to be skipped with nothing saying which
-value won.
+Tables are drawn on demand and search runs on the model, so a match
+inside a feed that has never been rendered is still found. A hit must
+never look empty: a matching source shows all of its feeds and a
+matching feed all of its fields, and counts read "1 of 3 fields" so a
+filtered node cannot be mistaken for a small one.
 
-The run states both directories it was pointed at before it reads the
-first feed, so the first lines of output already answer "what was this
-run looking at".
+The three findings the tool reports are drawn and not only counted:
+orphan rows are marked and named, mandatory fields say YES, and a
+nullable disagreement carries a badge whose tooltip names both values.
+The end-to-end check asserts the page marks exactly the three
+disagreements the tool counted on the same file. An unresolved
+${runDate} token is coloured apart from an empty cell, so the
+distinction the tool goes out of its way to preserve survives into the
+picture instead of dying at the last step.
 
-Same principle as ElarConfig replacing a production NPE with a message
-naming the bad family, the properties file and the families it does
-contain.
+Three mutations came back green and all three were opened. One was a
+bad mutation: removing the BOM strip from parseCsv changes nothing
+because buildModel indexes on columns[i].trim() and JavaScript's trim
+removes U+FEFF as whitespace, so the protection exists twice. The other
+two were real holes - no fixture exercised -Detailed, and the
+step-navigation test searched and stepped without collapsing anything
+in between, so applyQuery had already performed step's work.
 
-156 assertions, 16 mutations all caught, the last two being the reverts
-of this change: a skip note that stops naming its path, and a missing
-directory folded back into the missing-schema case.
-
-NOT VERIFIED, unchanged from batch 1: Windows PowerShell 5.1 (the
-sandbox has 7.4.6 for Linux; the dialect is six scans with positive
-controls) and the real estate.
+NOT VERIFIED: the real index, since the end-to-end run is this
+repository's samples through the real tool and the real page rather
+than 144 feeds; and the UBS browser, where flex-with-wrap throughout
+and no grid layout is an argument and not a rendering. mvn clean
+package is unaffected: the page is not in the WAR.
