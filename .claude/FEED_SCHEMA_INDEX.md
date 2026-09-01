@@ -82,9 +82,34 @@ Header (default form):
 
 ```
 source_id;source_description;target_id;target_description;feed_id;feed_name;feed_description;
-production;field_seq;field_name;field_type;field_nullable;display_name;display_type;display_seq;
-viewable;anon_type;in_dataschema;in_displayschema[;<variable columns>]
+production;field_seq;field_name;field_type;field_nullable;display_nullable;display_name;
+display_type;display_seq;viewable;anon_type;in_dataschema;in_displayschema[;<variable columns>]
 ```
+
+### 4.0 Mandatory fields, and the two columns that can disagree
+
+`field_nullable=false` means the field is **mandatory**, and the rule is `InternalSteps`', asymmetry
+included:
+
+```java
+schemaNotNull.add(Boolean.FALSE.equals(nu) || "false".equalsIgnoreCase(String.valueOf(nu)));
+```
+
+Mandatory ONLY for the boolean `false` or the string `"false"`. Anything else — **absent included**,
+and `0`, and a typo like `"FALSO"` — means nullable. Copied exactly rather than tidied: an index that
+read a missing `nullable` as mandatory would declare a constraint production does not enforce.
+
+**The displayschema carries its OWN `Nullable`, and the two files disagree in practice.** On this
+repository's own shipped samples they disagree on 3 of 10 columns — `NDG`, `DATA_KYC` and
+`END_OF_RELATIONSHIP_DATE` are `nullable:false` in the dataschema and `Nullable:true` in the
+displayschema. So `display_nullable` sits beside `field_nullable`, both are written, and
+`nullable_disagreements` counts them. **The dataschema is the authority** because it is the one the
+product acts on — the `validate` step's `notNull` check reads it and nothing else — but reporting one
+column alone would give a clean answer to a question the files do not agree about.
+
+An entry that does not carry the attribute at all gets `''`, not `true`: *absent* and *explicitly
+nullable* are different facts about a schema, and the index has room to keep them apart even where the
+product does not.
 
 * `field_seq` is the **1-based position in the dataschema**, and the rows are written in that order.
   That order *is* the record layout; `DisplaySequenceNr` is a presentation choice and is carried in
@@ -218,17 +243,25 @@ The tool prints a summary in the `key=value` shape the OpenProteo PowerShell scr
 interactive prompts, no colour, so it can be an exec step later without changes):
 
 ```
+out_file=D:\analisi\feed-schema-index.csv
 feeds_seen=144
 feeds_indexed=138
 feeds_skipped_no_dataschema=6
+feeds_skipped_no_displayschema=0
+feeds_skipped_unparseable=0
+feeds_filtered_out=0
 rows_written=13871
 displayschema_missing=11
 orphan_display_columns=4
 schema_path_conflicts=1
+nullable_disagreements=37
+variables_unresolved=12
+globals_loaded=8
+variable_defined_in_feeds.originTableName=96
 ```
 
-`orphan_display_columns` and `schema_path_conflicts` are the two numbers that make this a check as well
-as a report. A run where both are zero says so explicitly rather than omitting the lines — the
+`orphan_display_columns`, `schema_path_conflicts` and `nullable_disagreements` are the three numbers
+that make this a check as well as a report. A run where both are zero says so explicitly rather than omitting the lines — the
 `ElarCounters` rule: a line that only appears on failure trains people not to look for it.
 
 ## 7. The viewer
@@ -297,7 +330,7 @@ the estate doubles.
 | batch | content | gate |
 |---|---|---|
 | 0 | this document | Gate 0 answers below |
-| 1 | `tools/Get-FeedSchemaIndex.ps1` + suite, dialect scans, alias-agreement harness | a real run over the real workflows dir |
+| 1 | `tools/Get-FeedSchemaIndex.ps1` + suite, dialect scans, alias-agreement harness — **DELIVERED** | a real run over the real workflows dir |
 | 2 | `feed_index_viewer.html` + jsdom suite | opened on the real index |
 | 3 | `USAGE.md` / `README.md` paragraph, rendered through `docs.html`'s own `render()` | — |
 
@@ -348,3 +381,43 @@ to a visible token, which is honest but not what the column is for.
 Optional, and it only changes a default: is `Both` wanted instead of `Dataschema` for `-Require` — that
 is, should a feed with no `displayschema.json` be absent from the index rather than present with empty
 description columns? §4.2 recommends present.
+
+
+## 11. Batch 1, delivered — what the tests found that review did not
+
+* **150 assertions, 14 mutations, all caught.** The suite is not committed, as the `elar` suites are
+  not; it can be, with a runner, on request.
+* **PowerShell's XML adapter exposes attributes as properties, so `$root.Name` on
+  `<workflow name="Feed A">` returns `Feed A`, not `workflow`.** Every workflow in the fixture was
+  rejected as "expected root element <workflow>, found <Feed A>" and the index came out empty. The
+  whole tool was reading nothing and saying so in a message that read like a malformed file. Fixed by
+  going through the .NET getters (`get_Name`, `get_Attributes`, `get_Value`, `get_InnerText`,
+  `get_ParentNode`), which a document's own content cannot shadow. **Worth remembering before the next
+  PowerShell tool touches XML.**
+* **The first real run found a second defect, in usage rather than in logic.** Under `pwsh -File`
+  every argument is a plain string and a comma is not an array separator, so
+  `-Variables 'a:x','b:y','c:z'` collapsed into ONE column whose header was the rest of the command
+  line. Silent; the only symptom is an absurd header. `Split-VariableSpecs` now splits such an entry,
+  **but only when the split is unambiguous** — every part must look like a variable name and the parts
+  must agree about carrying a description — so `total:somme, moyennes`, a description that simply
+  contains a comma, is left alone. Splitting that would be the quiet corruption the rule exists to
+  prevent. Both directions are mutations, and both are caught.
+* **A defect in my own fixture, found by the same run**: `param([string]$DataJson)` coerces `$null` to
+  `''`, so "this feed has no displayschema" wrote an EMPTY one and the fixture stopped being the estate
+  it claimed to be. The estate a suite builds is part of the suite.
+* **The alias-agreement harness lifted the WRONG chain first.** `InternalSteps` carries the same shape
+  twice — the mask executor's ends in `DisplayName`, `readSchemaColumnNames`' in `COLUMN_NAME` — and
+  matching the first occurrence compared the reader against the wrong Java. The lift is now anchored on
+  the method. A harness that reads the wrong source is worse than no harness, because it reports
+  agreement.
+* **`ConvertFrom-Json` refuses an object with two keys differing only in case**, on 5.1 and on 7 alike.
+  Such a schema cannot be read at all, so it lands in `feeds_skipped_unparseable` rather than being
+  half-read. Pinned by an assertion instead of being met in the field.
+* **`nullable_disagreements` had something real to find on the first run**: 9 across the three sample
+  feeds, from the 3 per feed the shipped `samples/` schemas already disagree on. A counter that has
+  never been non-zero is a counter nobody trusts.
+* **NOT verified**: Windows PowerShell 5.1 — the sandbox has PowerShell 7.4.6 for Linux, and the
+  dialect is six scans each with a positive control proving the scan can fire, which is a syntax
+  argument and not a run. And the real estate: the smoke run is this repository's own 15 workflow XML
+  files with the `samples/` schemas copied into three feed directories, not 144 real feeds. The first
+  run on the real directory is also the first measurement of `schema_path_conflicts`.

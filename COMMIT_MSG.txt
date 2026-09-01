@@ -1,40 +1,53 @@
-feed schema index: variable columns are resolved, tokens survive
+feed schema index batch 1: the tool, and an XML trap that read nothing
 
-Gate 0 answered on the one question that changes what a column means:
-the workflow variables asked for by name are emitted RESOLVED, not as
-the raw declaration the spec recommended. Spec only, no code.
+tools/Get-FeedSchemaIndex.ps1: one read-only PowerShell script writing a
+CSV census of the record layout of every feed OpenProteo loads, one row
+per field, joining the workflow XML with dataschema.json and
+displayschema.json. Nothing under src/ is touched, so no feed can change
+behaviour; no build, no WAR, no restart. 150 assertions and 14
+mutations, all caught. Spec updated at .claude/FEED_SCHEMA_INDEX.md.
 
-Resolution runs against the map Operations already uses for feed tags -
-file globals, feedId/parentId/sourceId/targetId, and the workflow's own
-<variables> - innermost-first as VarResolver does it, so a variable
-built out of another one resolves for real and the index cannot
-disagree with the Operations grid about the same feed.
+The defect that mattered was invisible to review. PowerShell's XmlNode
+adapter exposes attributes and child elements AS properties, so
+$root.Name on <workflow name="Feed A"> returns "Feed A" and not
+"workflow". Every workflow was therefore rejected as "expected root
+element <workflow>, found <Feed A>", the index came out empty, and the
+message read like a malformed file rather than like a bug in the reader.
+Every XML access now goes through the .NET getters, which a document's
+own content cannot shadow.
 
-One deliberate divergence from VarResolver, and it is what makes
-resolving safe here. VarResolver gives an unknown name the empty
-string, which is right at runtime and wrong at design time: ${runDate}
-and ${extract.rowCount} do not exist yet, so an empty cell would be
-indistinguishable from "this feed does not define the variable". An
-unresolvable token therefore stays the literal ${name}. A cell either
-carries a value that is true at design time or visible evidence that it
-is computed at run time, and can never be a lie; variables_unresolved
-counts the occurrences. ${list[N]} and ${COL@key} stay literal too -
-they only mean something against a run's published lists.
+The first real run found a second one, in usage rather than logic. Under
+pwsh -File every argument is a plain string and a comma is not an array
+separator, so -Variables 'a:x','b:y','c:z' collapsed into a single
+column whose header was the rest of the command line. Silent; the only
+symptom is a header nobody reads twice. Such an entry is now split, but
+only when the split is unambiguous - every part must look like a
+variable name and the parts must agree about carrying a description - so
+a description that merely contains a comma survives verbatim. Splitting
+that would be the quiet corruption the rule exists to prevent.
 
-The recommendation that was overruled is left standing in the spec
-rather than deleted. The token rule exists to close the same failure
-the raw recommendation was arguing about, and it only reads as a
-decision beside what it replaced.
+Mandatory fields are carried twice on purpose. field_nullable follows
+InternalSteps exactly, asymmetry included: mandatory only for the
+boolean false or the string "false", so an absent attribute, a 0 and a
+typo all mean nullable. The displayschema carries its own Nullable and
+the two disagree on three of ten columns in this repository's own
+shipped samples, so display_nullable sits beside it, both are written,
+and nullable_disagreements counts the difference. The dataschema is the
+authority because it is what the validate step acts on; reporting one
+column alone would give a clean answer to a question the two files do
+not agree about.
 
-Two costs are recorded rather than absorbed. This is a third
-implementation of ${} resolution after VarResolver and the Operations
-tag map, contained by scope and by a suite that lifts VarResolver's
-patterns out of the Java at build time and asserts agreement, as the
-displayschema aliases already will. And global variables become an
-input: without a readable orchestrator.global-vars every ${someGlobal}
-degrades to a token, so -GlobalVarsFile names the file and the summary
-reports how many were loaded, saying 0 explicitly rather than staying
-silent.
+Two harness defects were exposed by the same run, both of the class that
+reports success: the fixture declared [string]$DataJson, and
+[string]$null is the empty string, so "this feed has no displayschema"
+wrote an empty one; and the alias-agreement lift matched the first
+occurrence of the chain shape in InternalSteps, which belongs to the
+mask executor, so it compared the reader against the wrong Java and
+reported agreement. Both fixed and both now anchored.
 
-G0.1 and G0.2 still gate batch 1, joined by G0.3a raised by this answer:
-whether global-vars is readable from the machine that runs the script.
+NOT VERIFIED: Windows PowerShell 5.1. The sandbox has PowerShell 7.4.6
+for Linux, so the dialect is asserted by six scans each with a positive
+control proving the scan can fire - a syntax argument, not a run. Nor
+the real estate: the smoke run is this repository's own 15 workflow XML
+files with samples/ copied into three feed directories, not 144 feeds.
+mvn clean package is unaffected; nothing here is in the WAR.

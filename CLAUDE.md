@@ -2777,3 +2777,42 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   no real workflow XML or `dataschema.json` is available, so the first run on the real directory is also
   the first measurement of the conflict and orphan counters. `mvn clean package` is untouched: neither
   deliverable is in the WAR, which is the point of the executor decision.
+
+## Feed schema index — Batch 1 delivered: `tools/Get-FeedSchemaIndex.ps1`
+* One CSV census of the record layout of every feed, one row per FIELD, joining the workflow XML, the
+  `dataschema.json` and the `displayschema.json`. Read-only: nothing is written but the output, and
+  every input is opened `FileShare.ReadWrite` so the tool cannot block a feed that is running while it
+  reads. **150 assertions, 14 mutations all caught**; the suite is not committed, as the `elar` suites
+  are not.
+* **`$root.Name` on `<workflow name="Feed A">` returns `Feed A`.** PowerShell's XmlNode adapter exposes
+  attributes and child elements AS properties, shadowing the node's own. Every workflow in the fixture
+  was rejected as "expected root element <workflow>, found <Feed A>" and the index came out EMPTY,
+  behind a message that read like a malformed file. Now through the .NET getters (`get_Name`,
+  `get_Attributes`, `get_Value`, `get_InnerText`, `get_ParentNode`), which a document's own content
+  cannot shadow. **Remember before the next PowerShell tool touches XML.**
+* **The first real run found a usage defect, not a logic one.** Under `pwsh -File` every argument is a
+  plain string and a comma is NOT an array separator, so `-Variables 'a:x','b:y','c:z'` collapsed into
+  one column whose header was the rest of the command line — silent, the only symptom being a header
+  nobody reads twice. `Split-VariableSpecs` splits such an entry **only when the split is
+  unambiguous**: every part must look like a variable name and the parts must AGREE about carrying a
+  description, so `total:somme, moyennes` is left alone. Splitting that would be the quiet corruption
+  the rule exists to prevent; both directions are mutations and both are caught.
+* **`display_nullable` beside `field_nullable`, and `nullable_disagreements`.** The mandatory-field
+  rule is `InternalSteps`' with its asymmetry intact — mandatory ONLY for the boolean `false` or the
+  string `"false"`, so absent, `0` and a typo all mean nullable. The displayschema carries its own
+  `Nullable` and **the two disagree on 3 of 10 columns in this repo's OWN shipped samples**, so both
+  are written and the disagreement is counted. The dataschema is the authority because it is what the
+  `validate` step acts on; reporting one column alone would give a clean answer to a question the files
+  do not agree about. An absent attribute is `''`, not `true`.
+* **Two harness defects the run exposed, both of the class that reports success.** My fixture used
+  `param([string]$DataJson)`, and `[string]$null` is `''`, so "this feed has no displayschema" wrote an
+  EMPTY one — the estate a suite builds is part of the suite. And the alias-agreement lift matched the
+  FIRST occurrence of the chain shape in `InternalSteps`, which is the mask executor's ending in
+  `DisplayName`, not `readSchemaColumnNames`' ending in `COLUMN_NAME`: it was comparing the reader
+  against the wrong Java and reporting agreement. Anchored on the method now.
+* **`ConvertFrom-Json` refuses an object whose keys differ only by case**, identically on 5.1 and 7, so
+  such a schema lands in `feeds_skipped_unparseable` rather than half-read. Pinned by assertion.
+* **NOT verified**: Windows PowerShell 5.1 — the sandbox has 7.4.6 for Linux and the dialect is six
+  scans, each with a positive control proving it can fire, which is a syntax argument and not a run.
+  And the real estate: the smoke run is this repository's 15 workflow XML files with `samples/` copied
+  into three feed directories. `mvn clean package` is untouched — nothing here is in the WAR.
