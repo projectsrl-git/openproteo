@@ -1,58 +1,40 @@
-elarxml: read the log history into an INDX-to-document index
+feed schema index: variable columns are resolved, tokens survive
 
-New read-only tool tools/Get-ElarDocumentIndex.ps1: given a list of workflows
-(feed id or name, wildcards accepted), it reads every elarxml step log in
-their run history and writes one ';'-separated CSV pairing each delivered INDX
-file with the original content file it carries. Nothing under src/ is touched,
-so no feed can change behaviour; no build, no WAR, no restart.
+Gate 0 answered on the one question that changes what a column means:
+the workflow variables asked for by name are emitted RESOLVED, not as
+the raw declaration the spec recommended. Spec only, no code.
 
-PowerShell rather than an internal executor, deliberately: this is a
-cross-feed analysis of history, not a step in a pipeline; the question it
-answers is raised BY an ELAR rejection and has to be answerable the same day;
-and indexing step logs was already considered and rejected for the product
-when the log report was built. Reasoning in section 2 of
-.claude/ELAR_LOG_DOCUMENT_INDEX.md.
+Resolution runs against the map Operations already uses for feed tags -
+file globals, feedId/parentId/sourceId/targetId, and the workflow's own
+<variables> - innermost-first as VarResolver does it, so a variable
+built out of another one resolves for real and the index cannot
+disagree with the Operations grid about the same feed.
 
-The trace line is written BEFORE the document and the INDX only gets its
-deliverable name in Batch.close, so an aborted batch leaves trace lines naming
-a file that was never delivered. Collecting every "<- id=" line would
-therefore produce a CSV asserting deliveries that did not happen. A pair is
-emitted only when the log also shows that INDX reaching its final name,
-through "delivered with N document(s)" or the ungated "wrote X (N
-document(s))" - both accepted, because the first is absent with logDocuments
-off and the second when the run failed before its summary. Traces with no
-delivery are counted and reported, never emitted and never dropped, and the
-traced count is reconciled against the declared one.
+One deliberate divergence from VarResolver, and it is what makes
+resolving safe here. VarResolver gives an unknown name the empty
+string, which is right at runtime and wrong at design time: ${runDate}
+and ${extract.rowCount} do not exist yet, so an empty cell would be
+indistinguishable from "this feed does not define the variable". An
+unresolvable token therefore stays the literal ${name}. A cell either
+carries a value that is true at design time or visible evidence that it
+is computed at run time, and can never be a lie; variables_unresolved
+counts the occurrences. ${list[N]} and ${COL@key} stay literal too -
+they only mean something against a run's published lists.
 
-Stated rather than left to be discovered: runs before 7fa7298 (2026-08-24) and
-runs with logDocuments=false carry the delivery lines but no per-document
-trace, so those INDX files are reported as unmapped instead of looking empty;
-and "file=" is the bare name for both content stores, so even under
-contentSource=IFS the full path is not in the log and no tool can recover it
-from history.
+The recommendation that was overruled is left standing in the spec
+rather than deleted. The token rule exists to close the same failure
+the raw recommendation was arguing about, and it only reads as a
+decision beside what it replaced.
 
-Test runs are included by default and duplicates are not removed: a _test_ run
-that wrote a real INDX delivered it, and the same file in two INDX files is
-the shape a re-run without output.start_time produces. Both are counted
-separately in the summary.
+Two costs are recorded rather than absorbed. This is a third
+implementation of ${} resolution after VarResolver and the Operations
+tag map, contained by scope and by a suite that lifts VarResolver's
+patterns out of the Java at build time and asserts agreement, as the
+displayschema aliases already will. And global variables become an
+input: without a readable orchestrator.global-vars every ${someGlobal}
+degrades to a token, so -GlobalVarsFile names the file and the summary
+reports how many were loaded, saying 0 explicitly rather than staying
+silent.
 
-VERIFIED: the fixture logs are written by the REAL ElarRun, compiled
-standalone with --release 8, so the parser is tested against the emitter
-rather than a transcription - five runs including one whose third batch is
-traced and then aborted by an unencodable metadata value, one with
-logDocuments off, and one carrying a document id that itself contains "
-file=". 61 assertions green; 11 mutations of the script all caught. One green
-mutation was opened and was a bad mutation, but reading the line to find that
-out turned up a real off-by-one beside it (the count substring was one
-character too wide and only parsed because int.TryParse ignores a trailing
-space), now fixed and pinned. One assertion of mine could not fail and was
-replaced: on Linux .NET's current directory follows the process, so a relative
-output path resolves correctly either way, and the real Resolve-OutPath is now
-lifted out of the script and exercised against a deliberately diverging
-SetCurrentDirectory.
-
-NOT VERIFIED: Windows PowerShell 5.1 - the sandbox has PowerShell 7 for Linux
-only. The dialect is asserted by six scans, each with a positive control
-proving the scan can fire, which is a syntax argument and not a run. And no
-real log from the field: the first run on the real history is also the
-measurement of how much of it predates the per-document trace.
+G0.1 and G0.2 still gate batch 1, joined by G0.3a raised by this answer:
+whether global-vars is readable from the machine that runs the script.

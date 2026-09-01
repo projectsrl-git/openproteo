@@ -166,13 +166,49 @@ unresolved rather than being read as a literal.
   `name:description` asks for and a census is read by people. `-VariableHeaders Name` writes the
   machine name instead, for the case where the file feeds another program. Both spellings are in the
   tool so that neither has to be argued about again.
-* **Values are emitted RAW, unresolved.** A workflow variable may itself contain `${...}`, and there is
-  no run here to resolve it against — no `runDate`, no step outputs. Operations resolves tags against a
-  light map for display; doing the same here would produce values that are right for some variables and
-  quietly wrong for others, with nothing in the file saying which. The declaration is what the workflow
-  says, and it is what an index should carry. **Gate 0 question G0.3.**
 * A duplicate name in `-Variables` is refused at start, naming it, rather than producing two columns
   with the same header.
+
+### 5.1 Values are RESOLVED — decided, reversing this document's own recommendation
+
+Batch 0 recommended emitting the raw declaration. **The answer at Gate 0 was RESOLVED**, and it is
+recorded here as the decision rather than corrected quietly, because §5.2 exists only because of it.
+
+The map resolved against is the one **Operations already uses for feed tags** (`overviewFeeds`):
+file globals, plus `feedId` / `parentId` / `sourceId` / `targetId`, plus the workflow's own
+`<variables>`. That choice is not convenience — it means **the index and the Operations grid cannot
+disagree about the same feed**. Resolution is iterative and innermost-first, as `VarResolver` does it,
+so a variable built out of another one (`${TargetDestination.${targetId}}`) resolves for real, which is
+the case where resolving earns its keep.
+
+### 5.2 The deliberate divergence: an unresolvable token STAYS a token
+
+`VarResolver.resolve` resolves an unknown name to the **empty string**. That is right at runtime and
+wrong here: `${runDate}` and `${extract.rowCount}` do not exist at design time, so an empty cell would
+be indistinguishable from *this feed does not define the variable*. That is the "right for some,
+quietly wrong for others" failure the raw recommendation was trying to avoid — resolution does not
+remove it, it only hides it better.
+
+**So this tool leaves what it cannot resolve as the literal `${name}`.** A cell either carries a value
+that is true at design time or carries visible evidence that it is computed at run time. It can never
+be a lie. `variables_unresolved` counts the occurrences in the summary, so an isolated case and a
+variable that should never have been in the list look different.
+
+`${list[N]}` and `${COL@key}` are **not interpreted** and stay literal: both only mean anything against
+a run's published lists, and a design-time reading of them could only invent one.
+
+### 5.3 The cost, stated
+
+This is a **third** implementation of `${}` resolution, after `VarResolver` and the Operations tag map.
+It is contained by scope — `${name}` with nesting and a depth cap, nothing else — and by the suite,
+which lifts `VarResolver`'s patterns out of the Java at build time and asserts the two agree on every
+case both cover. Same technique as the displayschema alias lists in §4.1, and for the same reason: two
+implementations that quietly disagree are worse than one.
+
+**Global variables become an input.** With values resolved, a feed's `${someGlobal}` needs
+`orchestrator.global-vars` to be readable from wherever the script runs, or every such cell degrades to
+a visible token. `-GlobalVarsFile` names it; the summary says how many globals were loaded, and says
+`0` explicitly rather than staying silent, so a missing file cannot look like a feed that uses none.
 
 `-Variables` accepts a name only (`recordBusinessDate`), in which case the header is the name.
 
@@ -281,7 +317,7 @@ the second batch precisely so that the first one is not held up by it.
 * **`mvn clean package`** is not affected: neither deliverable is in the WAR. Nothing in this feature
   touches Java, and that is the point of §2.
 
-## 10. Gate 0 — three questions that gate batch 1
+## 10. Gate 0 — two questions still open, one answered
 
 **G0.1 — Does the machine that will run the script see BOTH directories?** The tool needs
 `orchestrator.workflows-dir` (for SOURCE, descriptions and variables) and the feed base dir (for the
@@ -299,9 +335,15 @@ Select-String -Path '<workflows-dir>\*.xml' -Pattern 'dataschema|displayschema|c
 
 Anything that is not `${feedDir}/dataschema.json` or `${feedDir}/displayschema.json` is the answer.
 
-**G0.3 — Variable values raw or resolved?** §5 recommends RAW and says why. If a variable in the list
-routinely carries `${...}` and the resolved form is what is wanted on screen, say so now: it changes
-what the column means, and half-resolving is the outcome to avoid.
+**G0.3 — Variable values raw or resolved? ANSWERED: RESOLVED.** This document recommended RAW; the
+answer went the other way and §5.1-5.3 are written to it. The recommendation is left standing above
+rather than deleted, because §5.2 — an unresolvable token stays a token instead of becoming an empty
+cell — is the guard against the exact failure the RAW recommendation was arguing about, and it only
+reads as a decision beside what it overruled. G0.1 and G0.2 still gate batch 1.
+
+**G0.3a, raised BY the answer and now part of the gate.** Is `orchestrator.global-vars` readable from
+the machine that runs the script? Resolution needs it (§5.3); without it every `${someGlobal}` degrades
+to a visible token, which is honest but not what the column is for.
 
 Optional, and it only changes a default: is `Both` wanted instead of `Dataschema` for `-Require` — that
 is, should a feed with no `displayschema.json` be absent from the index rather than present with empty

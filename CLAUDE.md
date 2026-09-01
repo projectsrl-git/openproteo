@@ -2748,10 +2748,24 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   `dataschema`/`displayschema`/`columnsSchema` param; a conflict names both paths in the summary. A
   schema path still carrying an unresolved `${...}` is reported as unresolved rather than read as a
   literal - there is no run to resolve it against.
-* **Workflow variables as columns (`name:description`) carry the RAW declaration.** A variable may
-  itself contain `${...}` and there is no run here; resolving would be right for some and quietly wrong
-  for others with nothing in the file saying which. Header is the description, `-VariableHeaders Name`
-  flips it. Gate 0 question.
+* **Workflow variables as columns (`name:description`) are RESOLVED** — Gate 0 answered, reversing this
+  spec's own recommendation of the raw declaration. Resolved against the map **Operations already uses
+  for feed tags** (globals + `feedId`/`parentId`/`sourceId`/`targetId` + the workflow's `<variables>`),
+  innermost-first, so the index and the Operations grid cannot disagree about the same feed. Header is
+  the description, `-VariableHeaders Name` flips it.
+* **The divergence that makes resolving safe: an unresolvable token STAYS a token.**
+  `VarResolver.resolve` gives an unknown name the empty string — right at runtime, wrong here, where
+  `${runDate}` and `${extract.rowCount}` do not exist and an empty cell would be indistinguishable from
+  *this feed does not define the variable*. The cell keeps the literal `${name}` instead, so it either
+  carries a design-time truth or visible evidence that it is computed at run time, and never a lie;
+  `variables_unresolved` counts it. `${list[N]}` and `${COL@key}` are left literal — they only mean
+  something against a run's published lists. **The RAW recommendation is left standing in the spec
+  rather than deleted**: the token rule only reads as a decision beside what it overruled.
+* Cost stated: a **third** implementation of `${}` resolution after `VarResolver` and the Operations tag
+  map, contained by scope (`${name}` with nesting and a depth cap) and by a suite that lifts
+  `VarResolver`'s patterns from the Java at build time and asserts agreement — same technique as the
+  displayschema aliases. And **global vars become an INPUT** (`-GlobalVarsFile`): unreadable, every
+  `${someGlobal}` degrades to a token, so the summary reports the count loaded and says `0` explicitly.
 * Viewer: **zero external references, asserted** - the three viewers it is modelled on load PapaParse
   and Chart.js from a CDN and this one reuses `csv-viewer.html`'s own parser. Leaf is a TABLE, not more
   tree rows (a record layout is a table, and a `+` in front of 15 000 childless items is noise); search
