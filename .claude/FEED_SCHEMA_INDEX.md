@@ -421,3 +421,24 @@ description columns? §4.2 recommends present.
   argument and not a run. And the real estate: the smoke run is this repository's own 15 workflow XML
   files with the `samples/` schemas copied into three feed directories, not 144 real feeds. The first
   run on the real directory is also the first measurement of `schema_path_conflicts`.
+
+
+## 12. Batch 1.1 — a skip that did not say where it looked
+
+* **Reported from the field: every feed skipped as "no dataschema" while `dataschema.json` and
+  `displayschema.json` are plainly there in the designer's Workflow files panel.** The upload location
+  is not in doubt — `AssetStore.scopeDir` returns `FeedLayout.feedDir`, so the tool was looking in the
+  right *kind* of place — but the message could not say whether the file was missing or the
+  DIRECTORY was, and those have opposite remedies.
+* **The defect is the message, and it is the one that cost the round trip.** `no dataschema` reads as a
+  statement about the estate; it is almost always a statement about `-BaseDir`. Now every skip names
+  the exact path it looked for, a **missing feed directory is its own cause** with its own counter
+  (`feed_dir_missing`) pointing at `-BaseDir` and at the workflow's own `baseDir` attribute, and the
+  run states both directories it was pointed at before the first feed is read. Same principle as
+  `ElarConfig` replacing the production NPE with a message naming the bad family, the properties file
+  and the families it does contain.
+* **A workflow's `baseDir` attribute overrides `-BaseDir`**, exactly as `FeedLayout` has it. That is
+  the single most likely cause of a whole estate being skipped: one value in the definitions, one
+  value on the command line, and nothing previously said which had won.
+* 156 assertions, 16 mutations all caught, including the two that revert this batch: a skip note that
+  stops naming the path, and a missing directory folded back into the missing-schema case.

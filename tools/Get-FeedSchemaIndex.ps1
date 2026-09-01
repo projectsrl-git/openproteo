@@ -506,6 +506,7 @@ function Invoke-FeedSchemaIndex {
         feeds_skipped_no_dataschema   = 0
         feeds_skipped_no_displayschema = 0
         feeds_skipped_unparseable     = 0
+        feed_dir_missing              = 0
         feeds_filtered_out            = 0
         rows_written                  = 0
         displayschema_missing         = 0
@@ -518,6 +519,9 @@ function Invoke-FeedSchemaIndex {
     $notes = New-Object System.Collections.Generic.List[string]
     $varDefined = New-Object 'System.Collections.Generic.Dictionary[string,int]' ([System.StringComparer]::Ordinal)
     foreach ($d in $varDecls) { $varDefined[$d.Name] = 0 }
+
+    $notes.Add("workflows dir: $WorkflowsDir")
+    $notes.Add("feed base dir: $BaseDir (a workflow's own baseDir attribute overrides it)")
 
     $xmlFiles = @(Get-ChildItem -LiteralPath $WorkflowsDir -Filter '*.xml' -File | Sort-Object Name)
 
@@ -596,16 +600,21 @@ function Invoke-FeedSchemaIndex {
         if (-not $keep) {
             if (-not $hasData) {
                 $counters.feeds_skipped_no_dataschema++
-                $notes.Add("$($def.FeedId): no dataschema")
+                if (-not $dataInfo.FeedDirExists) {
+                    $counters.feed_dir_missing++
+                    $notes.Add("$($def.FeedId): FEED DIRECTORY NOT FOUND: $feedDir - check -BaseDir, or the workflow's own baseDir attribute")
+                } else {
+                    $notes.Add("$($def.FeedId): no dataschema at $($dataInfo.RootCandidate)")
+                }
             } else {
                 $counters.feeds_skipped_no_displayschema++
-                $notes.Add("$($def.FeedId): no displayschema (excluded by -Require Both)")
+                $notes.Add("$($def.FeedId): no displayschema at $($dispInfo.RootCandidate) (excluded by -Require Both)")
             }
             continue
         }
         if (-not $hasDisp) {
             $counters.displayschema_missing++
-            $notes.Add("$($def.FeedId): no displayschema; description columns are empty")
+            $notes.Add("$($def.FeedId): no displayschema at $($dispInfo.RootCandidate); description columns are empty")
         }
 
         # --- read the two schemas ---
@@ -855,7 +864,10 @@ function Resolve-FeedSchemaPath {
         $Vars
     )
     $rootPath = ''
+    $candidate = ''
+    $feedDirExists = $false
     if (-not [string]::IsNullOrWhiteSpace($FeedDir)) {
+        $feedDirExists = Test-Path -LiteralPath $FeedDir -PathType Container
         $candidate = Join-Path $FeedDir $FileName
         if (Test-Path -LiteralPath $candidate -PathType Leaf) { $rootPath = $candidate }
     }
@@ -889,12 +901,17 @@ function Resolve-FeedSchemaPath {
     }
 
     return [pscustomobject]@{
-        Path        = $chosen
-        Source      = $source
-        ParamPath   = $paramPath
-        ParamOrigin = $ParamOrigin
-        Conflict    = $conflict
-        Unresolved  = $unresolved
+        Path          = $chosen
+        Source        = $source
+        ParamPath     = $paramPath
+        ParamOrigin   = $ParamOrigin
+        Conflict      = $conflict
+        Unresolved    = $unresolved
+        # What was tried, so a skip can NAME it. "no dataschema" without the path it looked for is a
+        # message that cannot be acted on: it looks like a statement about the estate when it is
+        # usually a statement about the base directory.
+        RootCandidate = $candidate
+        FeedDirExists = $feedDirExists
     }
 }
 

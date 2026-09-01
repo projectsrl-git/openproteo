@@ -2816,3 +2816,18 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   scans, each with a positive control proving it can fire, which is a syntax argument and not a run.
   And the real estate: the smoke run is this repository's 15 workflow XML files with `samples/` copied
   into three feed directories. `mvn clean package` is untouched — nothing here is in the WAR.
+
+## Feed schema index 1.1: a skip that did not say where it looked
+* **Reported from the field: every feed skipped as `no dataschema` with both schema files plainly
+  present in the designer.** The location was not the doubt - `AssetStore.scopeDir` returns
+  `FeedLayout.feedDir`, so the tool looks in the right kind of place - but the message could not
+  distinguish *the file is missing* from *the DIRECTORY is missing*, and those have opposite remedies.
+* **The defect was the message.** `no dataschema` reads as a statement about the estate and is almost
+  always a statement about `-BaseDir`. Every skip now NAMES the path it looked for; a missing feed
+  directory is its own cause with its own counter (`feed_dir_missing`), pointing at `-BaseDir` and at
+  the workflow's own `baseDir` attribute; and the run states both directories it was given before it
+  reads the first feed. Same principle as `ElarConfig` replacing the production NPE with a message
+  naming the bad family, the file and the families it does contain.
+* **A workflow's `baseDir` attribute overrides `-BaseDir`**, as `FeedLayout` has it - the single most
+  likely way for a whole estate to be skipped, and nothing previously said which value had won.
+* 156 assertions, 16 mutations all caught, the last two being the reverts of this change.
