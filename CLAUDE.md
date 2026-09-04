@@ -2864,3 +2864,23 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * **NOT verified**: the real index (the end-to-end run is `samples/` through the real tool and the real
   page, not 144 feeds), and the UBS browser — flex-with-wrap throughout and no `grid`, which is an
   argument and not a rendering. `mvn clean package` untouched: the page is not in the WAR.
+
+## csvsql: the newline option is now reachable from the designer
+* The engine already did it: `runCsvSql` has read `newlinesInValues` and published
+  `${newlinesSanitized}` since the 2026-07-24 extraction patch, through the SAME
+  `SqlSupport.exportResultSet(..., nlMode)` as `sql`. What was missing was the way in —
+  the designer rendered the dropdown only in the `sql` branch, and the Variables page
+  cannot help because it lists only params **already present** on a step. So `csvsql`
+  gains the dropdown (keep / space / strip, default keep, wording says "arriving from
+  the input CSVs" instead of "extracted") and the `normalised line breaks inside N
+  value(s)` log line that `sql` already had. No parser/writer/DTO change: it is a
+  generic `<param>`.
+* **Scope limit, measured on real H2 2.1.214**, not deduced: normalisation happens while
+  WRITING the result. A break inside a **quoted** input field is reassembled by CSVREAD
+  and then collapsed (`newlinesSanitized=1`, one physical line). A break at the **edges**
+  of a value is already gone before the option applies, because `trim` defaults true and
+  `String.trim()` eats CR/LF. A **bare** unquoted break has already shredded the record
+  into two malformed rows inside CSVREAD before the exporter sees it, and is NOT
+  repairable here — that stays with `dequote` (`embeddedNewlines`) or the extraction
+  upstream. The designer hint states this so the control does not promise more than it
+  does. Note in `.claude/2026-09-04-csvsql-newlines-in-values.md`.

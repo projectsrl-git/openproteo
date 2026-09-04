@@ -1009,6 +1009,12 @@
                         '<div class="field"><label>Split: max rows per file (0 = no split)</label><input type="number" min="0" value="' + (n.csvSplitRows || '') + '" placeholder="0" oninput="updNode(' + i + ',\'csvSplitRows\',this.value)"></div>' +
                         '<div class="field"><label>Split: max MB per file (0 = no split)</label><input type="number" min="0" value="' + (n.csvSplitMb || '') + '" placeholder="0" oninput="updNode(' + i + ',\'csvSplitMb\',this.value)"></div>' +
                         '<div class="field"><label></label><span class="dim small">→ ${csvFile} (1st), ${csvFiles}, ${csvParts}</span></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Line breaks inside values (CR/LF arriving from the input CSVs)</label><select onchange="setNodeParam(' + i + ',\'newlinesInValues\',this.value)">' +
+                        '<option value="keep"' + (nodeParam(n,'newlinesInValues') !== 'space' && nodeParam(n,'newlinesInValues') !== 'strip' ? ' selected' : '') + '>keep them as they arrive (default)</option>' +
+                        '<option value="space"' + (nodeParam(n,'newlinesInValues') === 'space' ? ' selected' : '') + '>replace with a space — one record per line</option>' +
+                        '<option value="strip"' + (nodeParam(n,'newlinesInValues') === 'strip' ? ' selected' : '') + '>remove them — one record per line</option></select></div>' +
+                        '<div class="field"><label></label><span class="dim small">off by default; applied while WRITING the result, so it clears a break that reached H2 inside a QUOTED input field. A record already split by a bare newline is not repaired here — fix it upstream with dequote. Leading/trailing breaks are already removed by the trim → ${newlinesSanitized}</span></div></div>';
                     h += '<div class="subsection"><div class="sub-label">SQL query over the table names (${vars} resolved at run time)</div>' +
                         '<textarea class="inline-input" style="width:100%;min-height:110px" placeholder="SELECT a.NDG, COUNT(*) AS N FROM anagrafica a JOIN conti c ON a.NDG = c.NDG GROUP BY a.NDG" oninput="updNode(' + i + ',\'query\',this.value)">' + esc(n.query) + '</textarea>' +
                         '<div style="margin-top:8px"><button class="ghost-btn" onclick="previewCsvSql(' + i + ')">▶ Preview</button> ' +

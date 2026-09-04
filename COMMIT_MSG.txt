@@ -1,51 +1,40 @@
-feed schema index batch 2: the tree viewer over the index
+csvsql: expose newlinesInValues in the designer, log the count
 
-feed_index_viewer.html at the repository root, beside csv-viewer.html:
-a standalone SOURCE -> feed -> fields tree over the CSV that
-Get-FeedSchemaIndex.ps1 writes, with one search box over sources,
-feeds, fields, descriptions and variable values. 94 jsdom assertions on
-the page plus 9 driving the real page with the real tool's output, and
-14 mutations all caught. Nothing under src/ is touched.
+The engine already honoured the parameter: runCsvSql has read newlinesInValues
+and published ${newlinesSanitized} since the 2026-07-24 extraction patch,
+through the same SqlSupport.exportResultSet(..., nlMode) as the sql executor,
+so the three options are identical by construction. What was missing was the
+way in. designer.html rendered the dropdown only in the 'sql' branch, and the
+Variables page could not fill the gap because it lists only params already
+present on a step - so the parameter was reachable only by hand-editing the
+workflow XML, while static/USAGE.md already promised it for csvsql.
 
-Zero external references, asserted by scan rather than intended, and
-the CSV splitter is csv-viewer.html's lifted verbatim: two
-implementations of RFC-4180 quoting that quietly disagree are worse
-than one. No literal escape sequences in the JavaScript, with a
-positive control proving that scan can fire, plus the Thymeleaf-hostile
-sequences and the duplicate top-level declaration scan that two earlier
-single-file pages needed.
+The csvsql panel gains the dropdown (keep / space / strip, default keep) and
+runCsvSql gains the "normalised line breaks inside N value(s)" line that
+runSql already logged when the counter is > 0. Wording differs from the sql
+panel on purpose - sql normalises what a database returns, csvsql what an
+input CSV carries - while the values stay identical, so the neutral
+PARAM_OPTIONS entry on the Variables page remains correct for both. No
+parser/writer/DTO/model change: newlinesInValues is a generic <param> that
+already round-trips, and it is not a required field, so clientValidate is
+untouched. Default stays keep: no feed changes output on deploy.
 
-Columns are found by name and never by position. The index gains four
-columns under -Detailed and one per -Variables entry, so a positional
-reader would shift silently while looking correct on the default file.
-That is precisely why the first mutation of this rule came back green,
-and it stayed green until a -Detailed fixture was added.
+The scope limit was measured, not deduced. Driving the exact CSVREAD staging
+statement from runCsvSql into the verbatim exportResultSet on real H2 2.1.214:
+a break inside a QUOTED input field is reassembled by CSVREAD and then
+collapsed (newlinesSanitized=1, one physical line); a break at the EDGES of a
+value is already gone because trim defaults true and String.trim() eats CR/LF;
+a BARE unquoted break has already shredded the record into two malformed rows
+inside CSVREAD before the exporter sees anything, and is not repairable here -
+that stays with dequote or the extraction upstream. The designer hint says so.
 
-Tables are drawn on demand and search runs on the model, so a match
-inside a feed that has never been rendered is still found. A hit must
-never look empty: a matching source shows all of its feeds and a
-matching feed all of its fields, and counts read "1 of 3 fields" so a
-filtered node cannot be mistaken for a small one.
+Verified: the end-to-end H2 run above; the new fragment rendered in Node for
+absent / "" / keep / space / strip / SPACE / garbage (exactly one 'selected'
+each, tags balanced); designer.html inline scripts pass node --check with zero
+literal backslash-n or backslash-r and zero unsafe [[ or [(; InternalSteps
+braces balance at 0 ignoring strings and comments, and the added statement
+needs no new import. Each scan was first run against a deliberately broken
+copy and did flag the injected defect, so the clean results mean something.
 
-The three findings the tool reports are drawn and not only counted:
-orphan rows are marked and named, mandatory fields say YES, and a
-nullable disagreement carries a badge whose tooltip names both values.
-The end-to-end check asserts the page marks exactly the three
-disagreements the tool counted on the same file. An unresolved
-${runDate} token is coloured apart from an empty cell, so the
-distinction the tool goes out of its way to preserve survives into the
-picture instead of dying at the last step.
-
-Three mutations came back green and all three were opened. One was a
-bad mutation: removing the BOM strip from parseCsv changes nothing
-because buildModel indexes on columns[i].trim() and JavaScript's trim
-removes U+FEFF as whitespace, so the protection exists twice. The other
-two were real holes - no fixture exercised -Detailed, and the
-step-navigation test searched and stepped without collapsing anything
-in between, so applyQuery had already performed step's work.
-
-NOT VERIFIED: the real index, since the end-to-end run is this
-repository's samples through the real tool and the real page rather
-than 144 feeds; and the UBS browser, where flex-with-wrap throughout
-and no grid layout is an argument and not a rendering. mvn clean
-package is unaffected: the page is not in the WAR.
+NOT verified: mvn clean package - Maven is unreachable from the chat sandbox,
+so the build on the working copy is the final proof.

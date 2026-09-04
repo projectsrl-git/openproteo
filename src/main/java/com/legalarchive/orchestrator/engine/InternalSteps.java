@@ -274,7 +274,11 @@ public class InternalSteps {
                 if (qto > 0) st.setQueryTimeout(qto);
                 if (control != null) control.statement = st;
                 java.sql.ResultSet rs = st.executeQuery(query);
-                // csvsql output is written WITHOUT BOM so it is safe to feed into another csvsql input
+                // csvsql output is written WITHOUT BOM so it is safe to feed into another csvsql input.
+                // newlinesInValues (keep|space|strip, default keep) normalises CR/LF while WRITING, where the
+                // column count is known from the ResultSet: it clears a break that reached H2 inside a QUOTED
+                // input field. A record already split by a BARE newline was mis-parsed by CSVREAD before we get
+                // here and is not repairable at this point - that is the dequote/extraction side.
                 SqlSupport.ExportResult er = sql.exportResultSet(rs, out, delim, false, maxRows, maxBytes, trim,
                         params.get("newlinesInValues"));
                 res.outVars.put("rowCount", String.valueOf(er.rows));
@@ -283,6 +287,7 @@ public class InternalSteps {
                 res.outVars.put("csvFiles", String.join(step.delimiter == null ? ";" : step.delimiter, er.files));
                 res.outVars.put("csvRowCounts", joinCounts(er.partRows, step.delimiter == null ? ";" : step.delimiter));
                 res.outVars.put("newlinesSanitized", String.valueOf(er.newlinesSanitized));
+                if (er.newlinesSanitized > 0) line.accept("normalised line breaks inside " + er.newlinesSanitized + " value(s)");
                 if (er.parts > 1) line.accept("exported " + er.rows + " row(s) into " + er.parts + " CSV part(s)");
                 else line.accept("exported " + er.rows + " row(s) to " + res.outVars.get("csvFile"));
                 for (String f : er.files) line.accept("  " + f);
