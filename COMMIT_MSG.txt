@@ -1,82 +1,59 @@
-ftpsend, batch 0: specification, and UAT decided two of the rules
+ftpsend, batch 0 revised: Gate 0 closed, one prediction struck through
 
-Specification only. No code, no dependency, no registration.
+Specification only. Still no code, no dependency, no registration.
 
-A new internal executor ftpsend that uploads the files of a packaging
-directory to an FTPS server over an explicit TLS control channel,
-authenticating with a client certificate in a PKCS#12 file. It replaces
-scripts/Send-FTPS.ps1, which has never been more than a skeleton that sleeps
-two seconds and returns 0, and the external FTPS.exe invocation used for the
-z/OS deliveries.
+Three answers, folded into the sections they affect rather than appended.
 
-The batch-0 question was which of the five files in 40_PACKAGING are sent and
-in what order. The answer is that the executor must not know: file sets differ
-per feed and completion semantics belong to the receiving system. The step
-carries an ordered list of DOS/UNIX masks (* and ? only), edited with ADD and
-DELETE and reordered with UP and DOWN, as repeated <send> elements the way
-<replacement> and <reportQuery> already are. Order is masks in list order,
-then files sorted by name - the sort is explicit, because directory
-enumeration is name order on NTFS and hash order on ext4, which was measured
-during the tiffcompress work. First match wins, so a trailing catch-all does
-not duplicate the .tar. A mask matching nothing fails the step unless marked
-optional. The first failure aborts everything after it, not configurable,
-because that is what makes the ordering mean anything: if the .tar fails, the
-.control that announces the package as complete must not follow it. The whole
-ordered plan is logged before the first byte moves.
+Transarch UNIX is the first target: binary transfers to remote paths. That
+moves SITE commands, quoted dataset names and ASCII mode out of batch 2 and
+into a new section 15, designed but deferred, because they triple what the
+transport must implement and none of them can be exercised against a loopback
+server that is not z/OS. Batch 2 is now binary STOR to a path, which is
+exactly what can be driven end to end in the sandbox.
 
-Two rules come from a UAT session rather than from design. Against gbwu2719685
-the control channel completes in full - TLS up, client certificate accepted -
-and the data channel does not open: LIST fails, the server answers 227 with an
-unroutable 10.117.145.81, and a 49 KB .tar transfers 0 bytes. First, the
-client is not the problem and no client-side option fixes it - the working
-client already reuses the TLS session and already substitutes the passive
-address, which are the two behaviours this specification requires, and it
-fails anyway. That is recorded so the first failing run is not searched for in
-the code. Second, a remote file existing proves nothing: the 0 KB .control
-appeared to arrive, and a second attempt reported it already present, which
-looked like success and was not, because servers create the destination file
-on accepting STOR, before a byte crosses the data channel.
+The .pfx is named by absolute path in the target, with no configured base
+directory. Two consequences are written down instead of being left to surface
+later. A target definition becomes specific to the machine it was written on,
+so exporting it between environments carries a path that must be rewritten,
+and USAGE.md says so beside the field. And because a wrong path is now the
+most likely misconfiguration, the step checks the file exists and is readable
+before opening any socket, failing with the path it looked for - otherwise a
+missing .pfx presents as a failed TLS handshake, which is an error one goes
+looking for on the server.
 
-Hence the verification rule: after each file, SIZE on the remote name, and it
-must EQUAL the local byte count. Not greater than zero - that rejects the
-.control, which legitimately weighs zero bytes. Not absent - that accepts a 49
-KB .tar that arrived empty. Only equality separates the two. SIZE travels on
-the control channel, so it works where the data channel is unreliable and
-where listing is refused. The executor never sends LIST, NLST or MLSD at all.
+The client in service is never prompted to accept the server certificate. This
+produced a fourth trust mode and a new default: trustMode=WINDOWS, reading the
+operating system store through KeyStore.getInstance("Windows-ROOT") via
+SunMSCAPI, present in Java 8 on Windows. No prompt means Windows already
+trusts the issuer; Java does not read that store, it reads cacerts, where an
+internal CA distributed by group policy is not present. WINDOWS makes the JVM
+trust exactly what the working client trusts. Caveat recorded for the first
+handshake: Windows-ROOT holds roots, not intermediates, so if the server does
+not send its full chain, Windows-CA must be consulted too.
 
-Transport is a JDK-only client in a Spring-free package behind an
-FtpsTransport seam, for the reason that shaped json2csv: Maven Central is
-unreachable from the sandbox, so a commons-net implementation could not be
-compiled here, let alone exercised, and would arrive on the target having
-never run. Scope is STOR to two known servers over explicit TLS, passive.
-commons-net stays as the fallback behind the seam.
+Section 14 keeps a prediction whose conclusion held and whose reasoning did
+not, struck through rather than quietly corrected. It claimed the working
+client stores an accepted fingerprint instead of validating a chain. The
+opposite is true: it is never prompted at all. trustMode=JVM would still have
+failed, but for a different reason, and the answer is WINDOWS rather than
+FILE. A prediction that reaches the right conclusion from a wrong premise is
+the kind that gets trusted again next time, so the premise is left visible.
 
-ignorePasvAddress and reuseTlsSession default to ON, departing from the rule
-that a new behaviour is born off. A default known to be wrong for both servers
-in scope is not conservative, it is broken. Both stay switchable per target.
+Section 13 becomes answered-and-open. Five questions remain and none of them
+blocks batch 1 or batch 2. The network path is deferred by agreement to the
+point of first use; it remains what section 2 says will fail, and the note on
+what a network request needs is kept for when it is raised.
 
 VERIFIED
-- The six registration points were read at 21cb46b, not remembered:
-  WorkflowXmlParser lines 89, 91 and 94, WorkflowEngine.internalKind line
-  1027, the InternalSteps dispatch chain ending at line 112, and the designer
-  dropdown ending at line 940.
-- The INDX line terminator is LF only, read at WrappingXmlOut line 53 (NL =
-  (char) 10), which is what makes the ASCII CRLF rule necessary rather than
-  decorative.
-- The reorder buttons reuse an existing pattern: designer.html lines 865-866
-  already move nodes with class mv and the u2191 / u2193 escapes. ADD and
-  DELETE follow addRepl / delRepl at lines 505-506.
-- No FTP, FTPS, keystore or commons-net code exists anywhere in src/ or
-  pom.xml at this commit; scripts/Send-FTPS.ps1 is a simulation.
+- HEAD re-read as 1d4789e immediately before generating this patch, after the
+  batch 0 commit landed; the patch was checked and applied on a second clean
+  clone at that commit and the resulting file compared byte for byte.
+- Windows-ROOT via SunMSCAPI is a Java 8 mechanism on Windows. It is asserted
+  from the JDK API, not exercised: this sandbox is Linux and has no such
+  store.
 
 NOT VERIFIED
-- Everything about the network path. The data channel does not work from the
-  tested workstation and the cause - closed passive range, or a load balancer
-  splitting control from data - is not established. No delivery has been made
-  by any means from OpenProteo.
-- That FTPS.exe -a translates LF to CRLF today. The specification assumes it
-  because the ELAR delivery works; that is an inference, and it is listed as
-  an open question rather than stated as fact.
-- TLS session resumption against the real servers, and the z/OS SITE dialogue.
-  Both are declared as what batch 2 cannot prove in the sandbox.
-- Whether commons-net is on the internal Nexus.
+- trustMode=WINDOWS against the real server. It is a reasoned answer to an
+  observed fact, not a tested one, and it is listed as such in section 12.
+- Everything about the network path, unchanged from batch 0.
+- That FTPS.exe -a translates LF to CRLF. Now blocks only section 15.

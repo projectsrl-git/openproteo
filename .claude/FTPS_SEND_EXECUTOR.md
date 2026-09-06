@@ -68,7 +68,7 @@ target.
 | `source` | local directory holding the files to send. Required. Variables resolved. |
 | `<send>` elements | the ordered mask list (§4). At least one required. |
 | `remoteDir` | default remote directory, overridable per mask. Empty = the login directory. |
-| `siteCommands` | commands sent verbatim after login, one per line, before the first transfer. Empty by default. A non-2xx reply fails the step. |
+| `siteCommands` | commands sent verbatim after login, one per line, before the first transfer. Empty by default. A non-2xx reply fails the step. **DEFERRED — see §15.** |
 | `renameSent` | rename each local file after a verified upload. Empty by default (**nothing is renamed**). |
 | `failFast` | fixed at true, not a parameter. See §4. |
 
@@ -125,7 +125,7 @@ The rules, and the reasoning that makes them rules rather than preferences:
   be sent, with its size and its transfer mode. An operator can then check the order they configured
   against the order that will happen, before it happens rather than in a post-mortem.
 
-`ASCII` mode translates the local line separator to CRLF on the wire, which is what the protocol
+**DEFERRED with the z/OS target (§15).** `ASCII` mode translates the local line separator to CRLF on the wire, which is what the protocol
 requires and what makes a z/OS `RECFM=VB` dataset receive records rather than one long one. The
 INDX that `elarxml` writes terminates lines with LF only (`WrappingXmlOut`, `NL = (char) 10`), so
 without that translation the whole file is a single record and exceeds `LRECL`. **That the current
@@ -147,8 +147,9 @@ id, name
 host, port (2121), security (EXPLICIT | IMPLICIT, default EXPLICIT)
 minTls (1.2), maxTls (1.3)
 username, password (may be empty — see §1)
-clientCertFile, clientCertPassword          PKCS#12
-trustMode (JVM | FILE | ANY, default JVM), trustStoreFile, trustStorePassword
+clientCertFile, clientCertPassword          PKCS#12, absolute path
+trustMode (WINDOWS | JVM | FILE | ANY, default WINDOWS), trustStoreFile,
+                                            trustStorePassword
 passive (true), ignorePasvAddress (true), reuseTlsSession (true)
 dataProtection (PRIVATE, i.e. PROT P)
 systemType (UNIX | ZOS), controlEncoding (UTF-8)
@@ -160,9 +161,28 @@ connectTimeoutSec (30), dataTimeoutSec (300)
   reply from this estate has been observed to be unroutable, and the client that works has session
   reuse enabled. A default that is known to be wrong for the only two servers in scope is not a
   conservative default, it is a broken one. Both remain switchable per target.
-* `trustMode=ANY` accepts any server certificate. It exists because it may be the only way to get a
-  first delivery through, and it **writes a WARN line to the step log on every run that uses it** —
-  the same way `deleteContentAfterEmbed` announces itself before acting rather than after.
+* **`trustMode=WINDOWS` is the default**, reading the operating system trust store through
+  `KeyStore.getInstance("Windows-ROOT")` (SunMSCAPI, present in Java 8 on Windows). The reason is a
+  measured one: the client in service reaches this estate **without ever prompting to accept the
+  server certificate**, which means Windows already trusts the issuing CA — almost certainly an
+  internal CA distributed by group policy, since the host is inside `gbl.ad.hedani.net`. Java does
+  not read that store; it reads its own `cacerts`, where such a CA is not present. `WINDOWS` makes
+  the JVM trust exactly what the working client trusts. Caveat to confirm at the first handshake:
+  `Windows-ROOT` holds root CAs, not intermediates, so if the server does not send its full chain
+  `Windows-CA` must be consulted as well.
+* `JVM` uses `cacerts` and is correct for a target whose certificate chains to a public CA. `FILE`
+  points at an explicit truststore. `ANY` accepts any server certificate; it exists because it may
+  be the only way to get a first delivery through, and it **writes a WARN line to the step log on
+  every run that uses it** — the same way `deleteContentAfterEmbed` announces itself before acting
+  rather than after.
+* **`clientCertFile` is an absolute path, and there is no configured base directory.** The
+  consequence is that a target definition is specific to the machine it was written on: exported
+  from one environment and imported into another it carries a path that must be rewritten, and
+  `USAGE.md` says so beside the field rather than leaving it to be discovered during a migration.
+  Because a wrong path now becomes the most likely misconfiguration, the step **checks that the file
+  exists and is readable before opening any socket**, and fails naming the path it looked for.
+  Otherwise a missing `.pfx` presents as a failed TLS handshake, which is an error one goes looking
+  for on the server.
 * **Passwords are stored in clear text**, as `datasources.json` already does, and the file is
   protected by filesystem ACLs. Neither password is ever written to a log, at any level, in any
   form — not the value, not its length.
@@ -294,42 +314,71 @@ six, or the executor is unreachable in a way that only appears at runtime.
 
 1. **Core, no network.** The glob matcher, the reply parser, the plan builder and its ordering
    rules. Spring-free, no I/O. Exercised in the sandbox, mutations proved to fail before filing.
-2. **The transport**, against a loopback FTPS server written in the test: the full conversation,
-   multiline replies, `230`-without-`PASS`, the discarded `227` address, `STOR`, `SIZE`, and the
-   abort-on-first-failure path. What cannot be proved here is declared: real session resumption
-   against a real server, and the z/OS `SITE` dialogue.
+2. **The transport for the UNIX target**, against a loopback FTPS server written in the test: the
+   full conversation, multiline replies, `230`-without-`PASS`, the discarded `227` address, binary
+   `STOR` to a remote path, `SIZE`, and the abort-on-first-failure path. No `SITE`, no dataset
+   names, no ASCII. What cannot be proved here is declared: real session resumption against a real
+   server, and `trustMode=WINDOWS`, which needs a Windows JVM the sandbox does not have.
 3. **The executor and its six registrations**, the target registry and store, the designer panel.
 4. **The targets admin page and `USAGE.md`.**
 
 Nothing before batch 3 can change the behaviour of any existing feed, because until then nothing
 outside the new package is touched.
 
-## 13. Open questions
+## 13. Answered, and what remains open
 
-1. **Which host will run OpenProteo when it sends, and is it the host the working tool runs on?**
-   Now the first question, because of §2: if it is a different host, the passive port range must be
-   opened towards the FTPS server and no code substitutes for that request. The request needs source
-   host, destination host, port 2121 and the passive range — and it should state that TLS and the
-   client certificate are already proven to work, so that "check the credentials" is not the answer.
-2. **Is `commons-net` on the internal Nexus, and at what version?** Needed only as the fallback.
-3. **Where do the `.pfx` files live on the OpenProteo host** — a directory in the external
-   `application.properties`, in the manner of `mask-pools-dir`.
-4. **Does `FTPS.exe -a` translate LF to CRLF today?** §4 assumes it does because the ELAR delivery
+Answered since the first draft, and folded into the sections above:
+
+* **Transarch UNIX is the first target.** Binary transfers to remote paths. This is what §15 defers.
+* **The `.pfx` is named by absolute path in the target**, with no configured base directory, and the
+  consequences are in §5.
+* **The client in service is never prompted to accept the server certificate**, which produced
+  `trustMode=WINDOWS` in §5 and corrected the reasoning struck through in §14.
+
+Still open. None of them blocks batch 1 or batch 2:
+
+1. **Which host will run OpenProteo when it sends**, and whether the passive port range is open from
+   it. Deferred by agreement to the point of first use, but it is what §2 says will fail, and no
+   code substitutes for that network request. When it is raised it needs source host, destination
+   host, port 2121 and the passive range, and it should state that TLS and the client certificate
+   are already proven to work, so that "check the credentials" is not the answer.
+2. **Is `commons-net` on the internal Nexus, and at what version?** Needed only as the fallback
+   behind the seam.
+3. **Does `FTPS.exe -a` translate LF to CRLF today?** §4 assumes it does because the ELAR delivery
    works. If it does not, something else is supplying the record boundaries and this specification
-   has the mechanism wrong.
-5. **Is the `.control` the completion marker for the receiving system?** The ordering is the
+   has the mechanism wrong. Blocks §15, nothing before it.
+4. **Is the `.control` the completion marker for the receiving system?** The ordering is the
    operator's to configure either way, but if it is, it belongs last in every mask list by
    convention and that convention should be written into `USAGE.md`.
-6. **Will an inbound flow be needed?** If yes, `ftpget` is designed with this transport rather than
+5. **Will an inbound flow be needed?** If yes, `ftpget` is designed with this transport rather than
    bolted onto this executor.
 
 ## 14. Predictions, recorded so they can be struck through
 
-* **`trustMode=JVM` will fail on first contact.** The working client stores an accepted fingerprint
-  rather than validating a chain, which suggests the server certificate is issued by an internal CA
-  that is not in the JVM `cacerts`. If so the answer is `FILE` with that CA, and `ANY` is not the
-  answer.
+* **`trustMode=JVM` would fail on first contact.** ~~The working client stores an accepted
+  fingerprint rather than validating a chain, which suggests the server certificate is issued by an
+  internal CA that is not in the JVM `cacerts`.~~ **Wrong reasoning, and the fact is the opposite:
+  the client is never prompted at all.** The conclusion survives but for a different reason — no
+  prompt means Windows trusts the issuer, not that the issuer is public, and on a host inside an AD
+  domain that points at an internal CA present in the Windows store and absent from `cacerts`. The
+  answer is `WINDOWS`, not `FILE`, and this is why the default changed in §5. Recorded rather than
+  quietly fixed, because a prediction that reached the right conclusion from a wrong premise is the
+  kind that gets trusted again next time.
 * **TLS 1.3 will make the session-resumption trick unreliable.** Resumption in 1.3 is ticket-based
   and is not the session-ID mechanism the "reuse TLS session ID" option was built around. If the
   data channel is refused while everything else works, capping `maxTls` at 1.2 is the first lever to
   pull, and this prediction is the reason the field exists.
+
+## 15. Deferred: the z/OS target
+
+Designed here, built after the UNIX target works end to end. Deferred because it triples what batch
+2 must implement and none of it can be exercised against a loopback server that is not z/OS.
+
+* **`SITE` commands**, sent verbatim after login and before the first transfer, each requiring a
+  2xx reply. The working session issues one line allocating the dataset, and without it the
+  allocation is wrong in a way that surfaces as `451 Record is too long to process`.
+* **Remote names are quoted dataset names, not paths.** `STOR 'DOC.RZ2.ELA.FTP.TRVL@EXR.D25065.INDX.C103800'`
+  rather than a directory plus a filename. The mask list produces local files; the mapping from a
+  local name to a dataset name needs its own rule, and that rule is not "the same string".
+* **ASCII mode with LF to CRLF translation**, per §4, resting on open question 3.
+* `systemType=ZOS` on the target selects all three. Nothing about it changes the UNIX path.
