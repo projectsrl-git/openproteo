@@ -1,40 +1,82 @@
-csvsql: expose newlinesInValues in the designer, log the count
+ftpsend, batch 0: specification, and UAT decided two of the rules
 
-The engine already honoured the parameter: runCsvSql has read newlinesInValues
-and published ${newlinesSanitized} since the 2026-07-24 extraction patch,
-through the same SqlSupport.exportResultSet(..., nlMode) as the sql executor,
-so the three options are identical by construction. What was missing was the
-way in. designer.html rendered the dropdown only in the 'sql' branch, and the
-Variables page could not fill the gap because it lists only params already
-present on a step - so the parameter was reachable only by hand-editing the
-workflow XML, while static/USAGE.md already promised it for csvsql.
+Specification only. No code, no dependency, no registration.
 
-The csvsql panel gains the dropdown (keep / space / strip, default keep) and
-runCsvSql gains the "normalised line breaks inside N value(s)" line that
-runSql already logged when the counter is > 0. Wording differs from the sql
-panel on purpose - sql normalises what a database returns, csvsql what an
-input CSV carries - while the values stay identical, so the neutral
-PARAM_OPTIONS entry on the Variables page remains correct for both. No
-parser/writer/DTO/model change: newlinesInValues is a generic <param> that
-already round-trips, and it is not a required field, so clientValidate is
-untouched. Default stays keep: no feed changes output on deploy.
+A new internal executor ftpsend that uploads the files of a packaging
+directory to an FTPS server over an explicit TLS control channel,
+authenticating with a client certificate in a PKCS#12 file. It replaces
+scripts/Send-FTPS.ps1, which has never been more than a skeleton that sleeps
+two seconds and returns 0, and the external FTPS.exe invocation used for the
+z/OS deliveries.
 
-The scope limit was measured, not deduced. Driving the exact CSVREAD staging
-statement from runCsvSql into the verbatim exportResultSet on real H2 2.1.214:
-a break inside a QUOTED input field is reassembled by CSVREAD and then
-collapsed (newlinesSanitized=1, one physical line); a break at the EDGES of a
-value is already gone because trim defaults true and String.trim() eats CR/LF;
-a BARE unquoted break has already shredded the record into two malformed rows
-inside CSVREAD before the exporter sees anything, and is not repairable here -
-that stays with dequote or the extraction upstream. The designer hint says so.
+The batch-0 question was which of the five files in 40_PACKAGING are sent and
+in what order. The answer is that the executor must not know: file sets differ
+per feed and completion semantics belong to the receiving system. The step
+carries an ordered list of DOS/UNIX masks (* and ? only), edited with ADD and
+DELETE and reordered with UP and DOWN, as repeated <send> elements the way
+<replacement> and <reportQuery> already are. Order is masks in list order,
+then files sorted by name - the sort is explicit, because directory
+enumeration is name order on NTFS and hash order on ext4, which was measured
+during the tiffcompress work. First match wins, so a trailing catch-all does
+not duplicate the .tar. A mask matching nothing fails the step unless marked
+optional. The first failure aborts everything after it, not configurable,
+because that is what makes the ordering mean anything: if the .tar fails, the
+.control that announces the package as complete must not follow it. The whole
+ordered plan is logged before the first byte moves.
 
-Verified: the end-to-end H2 run above; the new fragment rendered in Node for
-absent / "" / keep / space / strip / SPACE / garbage (exactly one 'selected'
-each, tags balanced); designer.html inline scripts pass node --check with zero
-literal backslash-n or backslash-r and zero unsafe [[ or [(; InternalSteps
-braces balance at 0 ignoring strings and comments, and the added statement
-needs no new import. Each scan was first run against a deliberately broken
-copy and did flag the injected defect, so the clean results mean something.
+Two rules come from a UAT session rather than from design. Against gbwu2719685
+the control channel completes in full - TLS up, client certificate accepted -
+and the data channel does not open: LIST fails, the server answers 227 with an
+unroutable 10.117.145.81, and a 49 KB .tar transfers 0 bytes. First, the
+client is not the problem and no client-side option fixes it - the working
+client already reuses the TLS session and already substitutes the passive
+address, which are the two behaviours this specification requires, and it
+fails anyway. That is recorded so the first failing run is not searched for in
+the code. Second, a remote file existing proves nothing: the 0 KB .control
+appeared to arrive, and a second attempt reported it already present, which
+looked like success and was not, because servers create the destination file
+on accepting STOR, before a byte crosses the data channel.
 
-NOT verified: mvn clean package - Maven is unreachable from the chat sandbox,
-so the build on the working copy is the final proof.
+Hence the verification rule: after each file, SIZE on the remote name, and it
+must EQUAL the local byte count. Not greater than zero - that rejects the
+.control, which legitimately weighs zero bytes. Not absent - that accepts a 49
+KB .tar that arrived empty. Only equality separates the two. SIZE travels on
+the control channel, so it works where the data channel is unreliable and
+where listing is refused. The executor never sends LIST, NLST or MLSD at all.
+
+Transport is a JDK-only client in a Spring-free package behind an
+FtpsTransport seam, for the reason that shaped json2csv: Maven Central is
+unreachable from the sandbox, so a commons-net implementation could not be
+compiled here, let alone exercised, and would arrive on the target having
+never run. Scope is STOR to two known servers over explicit TLS, passive.
+commons-net stays as the fallback behind the seam.
+
+ignorePasvAddress and reuseTlsSession default to ON, departing from the rule
+that a new behaviour is born off. A default known to be wrong for both servers
+in scope is not conservative, it is broken. Both stay switchable per target.
+
+VERIFIED
+- The six registration points were read at 21cb46b, not remembered:
+  WorkflowXmlParser lines 89, 91 and 94, WorkflowEngine.internalKind line
+  1027, the InternalSteps dispatch chain ending at line 112, and the designer
+  dropdown ending at line 940.
+- The INDX line terminator is LF only, read at WrappingXmlOut line 53 (NL =
+  (char) 10), which is what makes the ASCII CRLF rule necessary rather than
+  decorative.
+- The reorder buttons reuse an existing pattern: designer.html lines 865-866
+  already move nodes with class mv and the u2191 / u2193 escapes. ADD and
+  DELETE follow addRepl / delRepl at lines 505-506.
+- No FTP, FTPS, keystore or commons-net code exists anywhere in src/ or
+  pom.xml at this commit; scripts/Send-FTPS.ps1 is a simulation.
+
+NOT VERIFIED
+- Everything about the network path. The data channel does not work from the
+  tested workstation and the cause - closed passive range, or a load balancer
+  splitting control from data - is not established. No delivery has been made
+  by any means from OpenProteo.
+- That FTPS.exe -a translates LF to CRLF today. The specification assumes it
+  because the ELAR delivery works; that is an inference, and it is listed as
+  an open question rather than stated as fact.
+- TLS session resumption against the real servers, and the z/OS SITE dialogue.
+  Both are declared as what batch 2 cannot prove in the sandbox.
+- Whether commons-net is on the internal Nexus.
