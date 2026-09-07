@@ -87,26 +87,112 @@ public class ApiController {
 
     // ----------------------------------------------------------- FTPS targets
     /**
-     * The FTPS targets, for the ftpsend step panel. Read-only here: creating and editing them is
-     * the admin page, which is a later batch. Both passwords are replaced before the list leaves
-     * the server - not masked in the UI, absent from the response.
+     * The FTPS targets, for the admin page and for the ftpsend step panel.
+     *
+     * <p>Both passwords are replaced before the list leaves the server, by the same rule the
+     * datasources use: the placeholder if one is set, empty if none is, so the page can tell the
+     * two apart without ever receiving either value.
      */
     @GetMapping("/api/ftp-targets")
-    public java.util.List<java.util.Map<String, Object>> listFtpTargets() {
-        java.util.List<java.util.Map<String, Object>> out =
-                new java.util.ArrayList<java.util.Map<String, Object>>();
-        for (com.legalarchive.orchestrator.ftps.FtpsTarget t : ftpTargets.all()) {
-            java.util.Map<String, Object> m = new LinkedHashMap<String, Object>();
-            m.put("id", t.getId());
-            m.put("name", t.getName());
-            m.put("host", t.getHost());
-            m.put("port", t.getPort());
-            m.put("username", t.getUsername());
-            m.put("systemType", "UNIX");
-            out.add(m);
+    public java.util.List<com.legalarchive.orchestrator.ftps.FtpsTarget> listFtpTargets() {
+        java.util.List<com.legalarchive.orchestrator.ftps.FtpsTarget> out =
+                new java.util.ArrayList<com.legalarchive.orchestrator.ftps.FtpsTarget>();
+        for (com.legalarchive.orchestrator.ftps.FtpsTarget t : ftpTargets.all()) out.add(maskFtp(t));
+        return out;
+    }
+
+    @PostMapping("/api/ftp-targets")
+    public ResponseEntity<Map<String, Object>> saveFtpTarget(
+            @RequestBody com.legalarchive.orchestrator.ftps.FtpsTarget t) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        if (t.getId() == null || !t.getId().matches("[A-Za-z0-9._-]+")) {
+            return badRequest(out, "Invalid target id: only letters, digits, . _ - allowed");
+        }
+        if (t.getHost() == null || t.getHost().trim().isEmpty()) {
+            return badRequest(out, "Host is required");
+        }
+        if (t.getPort() <= 0 || t.getPort() > 65535) {
+            return badRequest(out, "Port must be between 1 and 65535");
+        }
+        unmaskFtp(t);
+        ftpTargets.save(t);
+        out.put("ok", true);
+        return ResponseEntity.ok(out);
+    }
+
+    @PostMapping("/api/ftp-targets/{id}/delete")
+    public ResponseEntity<Map<String, Object>> deleteFtpTarget(@PathVariable String id) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        out.put("ok", ftpTargets.delete(id));
+        return ResponseEntity.ok(out);
+    }
+
+    /**
+     * Connects, negotiates TLS, logs in and hangs up. Nothing is transferred and nothing is listed.
+     *
+     * <p>It exists because the one thing standing between this executor and a delivery is whether
+     * the passive data channel is reachable at all, and that is a network fact no code can settle.
+     * The test reports the control-channel conversation, which is the half that is already known to
+     * work, so a failure here is a different failure from the one section 2 of the specification
+     * describes - and being able to tell them apart is the whole point.
+     */
+    @PostMapping("/api/ftp-targets/test")
+    public Map<String, Object> testFtpTarget(
+            @RequestBody com.legalarchive.orchestrator.ftps.FtpsTarget t) {
+        Map<String, Object> out = new LinkedHashMap<String, Object>();
+        unmaskFtp(t);
+        com.legalarchive.orchestrator.ftps.FtpsSession s = null;
+        try {
+            s = new com.legalarchive.orchestrator.ftps.JdkFtpsClient().open(t);
+            out.put("ok", true);
+            out.put("trace", new java.util.ArrayList<String>(s.trace()));
+        } catch (Exception e) {
+            out.put("ok", false);
+            out.put("error", String.valueOf(e.getMessage()));
+            out.put("trace", s == null ? new java.util.ArrayList<String>()
+                    : new java.util.ArrayList<String>(s.trace()));
+        } finally {
+            if (s != null) try { s.close(); } catch (Exception ignored) { }
         }
         return out;
     }
+
+    private com.legalarchive.orchestrator.ftps.FtpsTarget maskFtp(
+            com.legalarchive.orchestrator.ftps.FtpsTarget t) {
+        com.legalarchive.orchestrator.ftps.FtpsTarget c =
+                new com.legalarchive.orchestrator.ftps.FtpsTarget();
+        c.setId(t.getId()); c.setName(t.getName()); c.setHost(t.getHost()); c.setPort(t.getPort());
+        c.setUsername(t.getUsername());
+        c.setPassword(isBlank(t.getPassword()) ? "" : "********");
+        c.setClientCertFile(t.getClientCertFile());
+        c.setClientCertPassword(isBlank(t.getClientCertPassword()) ? "" : "********");
+        c.setTrustMode(t.getTrustMode());
+        c.setTrustStoreFile(t.getTrustStoreFile());
+        c.setTrustStorePassword(isBlank(t.getTrustStorePassword()) ? "" : "********");
+        c.setMinTls(t.getMinTls()); c.setMaxTls(t.getMaxTls());
+        c.setPassive(t.isPassive()); c.setIgnorePasvAddress(t.isIgnorePasvAddress());
+        c.setReuseTlsSession(t.isReuseTlsSession());
+        c.setConnectTimeoutSec(t.getConnectTimeoutSec()); c.setDataTimeoutSec(t.getDataTimeoutSec());
+        c.setControlEncoding(t.getControlEncoding());
+        return c;
+    }
+
+    /** Restores any password the page sent back as the placeholder, from the stored target. */
+    private void unmaskFtp(com.legalarchive.orchestrator.ftps.FtpsTarget t) {
+        com.legalarchive.orchestrator.ftps.FtpsTarget ex =
+                t.getId() == null ? null : ftpTargets.get(t.getId());
+        if ("********".equals(t.getPassword())) {
+            t.setPassword(ex == null ? "" : ex.getPassword());
+        }
+        if ("********".equals(t.getClientCertPassword())) {
+            t.setClientCertPassword(ex == null ? "" : ex.getClientCertPassword());
+        }
+        if ("********".equals(t.getTrustStorePassword())) {
+            t.setTrustStorePassword(ex == null ? "" : ex.getTrustStorePassword());
+        }
+    }
+
+    private static boolean isBlank(String s) { return s == null || s.isEmpty(); }
 
     // ----------------------------------------------------------- datasources
     @GetMapping("/api/datasources")

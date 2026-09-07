@@ -1,75 +1,64 @@
-ftpsend batch 3: the executor, its six registrations, the panel
+ftpsend batch 4: the targets page, and a table the renderer cannot draw
 
-The step becomes reachable. Six registration points, read at 1be571f and not
-remembered: WorkflowXmlParser lines 89, 91 and 94,
-WorkflowEngine.internalKind, the InternalSteps dispatch chain, and the
-designer dropdown. Plus the <send> parsing, SendSpec in the model,
-FtpTargetStore, the ftp-targets-file property, a read-only /api/ftp-targets,
-and the step panel.
+The admin page for FTPS targets, its API, and the USAGE.md section. This
+completes ftpsend: a target can now be created without editing JSON by hand.
 
-The panel is the first reorderable list in a step panel: masks are added,
-deleted and moved with UP and DOWN, reusing the .mv buttons the node header
-already has. The order of the rows IS the send order, and the panel says so,
-because it is the only thing that decides whether the file announcing a
-package as complete goes last.
+The API grows save, delete and a test alongside the read that batch 3 added.
+All three passwords - account, certificate, truststore - follow the rule the
+datasources already use: the placeholder leaves the server if one is set and
+nothing if none is, and a placeholder coming back means unchanged, so a save
+cannot blank a password the page never held.
 
-Two defects were found by the tests rather than by review, and both would have
-been invisible in a code read.
+The test button connects, negotiates TLS, logs in and hangs up. It transfers
+nothing and lists nothing, and the page says so in as many words next to the
+green tick: it proves the control channel and proves nothing about the data
+channel, which is the half that fails when a passive range is closed or a
+balancer splits the two connections. The conversation is shown either way,
+because when it fails the useful thing is which command it reached.
 
-The first is the one that matters. StepExecutor.Result starts its exit code at
--1, not 0, so the failure branch as first written - exitCode == 0 ? 1 : keep -
-left it at -1, and the normalisation at the end of the method turned that into
-0. A delivery that failed verification was reported as a successful step. The
-test that caught it is the one where the server reports a SIZE one byte short.
-
-The second came from a mutation that returned green: treating directories as
-sendable files changed nothing, because no test directory had a subdirectory.
-A catch-all mask claiming a folder would have gone unnoticed until a real
-packaging directory happened to contain one. A case was added and the mutation
-now fails.
-
-A third gap turned up on the panel side, also from a green mutation: buildXml
-sorting the masks instead of preserving their order produced identical XML,
-because the two masks in the test were already in alphabetical order. The rows
-are now put in a deliberately non-alphabetical order before the XML is
-checked.
+The page states the two measured facts where they are needed rather than in a
+document nobody opens beside the form: that Windows-ROOT carries root CAs and
+not intermediates, next to the trust selector, and that with TLS 1.3 available
+the data channel will not reuse the control session, next to the version
+selector.
 
 VERIFIED
-- 49 executor assertions green on Java 8, the production runtime, and on Java
-  21. They run runFtpSend itself: the method and its helpers are extracted
-  from InternalSteps.java by line range and diffed against the source, so what
-  is exercised is byte-identical to what ships, not a transcription. It is
-  driven against the FTPS server written for batch 2, with the five real file
-  names of 40_PACKAGING including the .control at zero bytes.
-- 11 executor mutations, 11 caught, after two came back green and were
-  investigated - one malformed, one a real gap.
-- 42 designer assertions green in jsdom, against the real template. Every
-  control is driven by dispatching an event on the rendered element, never by
-  writing to wf.nodes: a test that edited the model behind the panel could not
-  see a control that stopped redrawing, which is the defect this file exists
-  for. Add, delete, both reorder directions, the no-op at each edge, the
-  checkboxes, validation and the generated XML.
-- 12 designer mutations, 12 caught. Removing renderNodes from moveSend and
-  from delSend both fail on the panel assertion and not only the model one,
-  which is the point.
-- The Windows half of the mask path check now has a case of its own. It had
-  none: the forward-slash test passed either way, and a mutation dropping only
-  that half went unnoticed until the case was added.
-- Patch applied on a second clean clone at 1be571f, compared byte for byte,
-  and both suites re-run from the applied tree.
+- 52 page assertions green in jsdom against the real template. Every control
+  is driven by an event on the rendered element, and the save assertions read
+  the request body the page actually sent rather than its variables: the
+  placeholder going back untouched, an empty password staying empty, the port
+  arriving as a number, the booleans as booleans.
+- 13 page mutations, 13 caught, after two came back green and were
+  investigated. One was malformed. The other was real and is the more
+  interesting: New failing to clear the truststore password changed nothing,
+  because no test had ever put a value in that field. Asserting a field is
+  empty proves nothing when it was empty to begin with, so every field New
+  clears is now filled first and then asserted.
+- The USAGE.md section was rendered with the real render() from docs.html,
+  extracted with its helpers and run over the file: 90 TOC entries against 81
+  before, no Markdown leaking outside code blocks, and the new section
+  present.
+- The designer suite from batch 3 still passes, 42 assertions.
+- Patch applied on a second clean clone at 93b6c6a, compared byte for byte,
+  and the page suite re-run from the applied tree.
+
+A defect avoided rather than found, worth recording because it was one grep
+from shipping: the section was first written with a Markdown parameter table.
+The renderer in docs.html has no table support at all - no table, td or th
+anywhere in it - and USAGE.md had never contained one, so seven rows of pipe-
+separated text would have rendered as seven stray paragraphs. The table is now
+the bullet list every other Parameters section uses.
 
 NOT VERIFIED
-- mvn clean package. Maven Central is unreachable from the sandbox, so the
-  full tree cannot be compiled: Spring, Jackson, POI, H2 and jt400 are absent.
-  What was compiled is the ftps package, model/def, AppProperties,
-  VarResolver, RunControl, StepExecutor and the extracted executor, against
-  minimal stubs for the four annotations and types they touch. The edits to
-  WorkflowXmlParser, WorkflowEngine and ApiController are therefore NOT
-  compiled anywhere: they are three small, mechanical changes, and they are
-  the risk this commit carries.
-- FtpTargetStore reads and writes JSON through Jackson, which is stubbed here.
-  Its map behaviour is exercised; the file round-trip is not.
-- Nothing has been sent to a real server, and the network path is still what
-  section 2 of the specification says it is.
-- The targets admin page and USAGE.md remain batch 4. Until then a target is
-  created by writing ftp-targets.json by hand.
+- mvn clean package, unchanged: Maven Central is unreachable from the sandbox,
+  so ApiController and PageController are not compiled anywhere. Both edits
+  are mechanical, and they are the risk this commit carries alongside batch
+  3's.
+- The Thymeleaf render itself. The harness substitutes what the server emits
+  for the one attribute the scripts read; the rest of the page is served as
+  written.
+- The test endpoint has never run against a real server. What it does against
+  the loopback server from batch 2 is exercised; what it will say against the
+  UAT host is the open question of section 2 and remains one.
+- FtpTargetStore's JSON round-trip: Jackson is stubbed in the sandbox, so the
+  map behaviour is exercised and the file is not.

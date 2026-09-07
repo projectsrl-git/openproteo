@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenProteo — FTPS targets</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css(v=${buildId})}">
+    <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub">FTPS targets</span>
+    <span class="spacer"></span>
+    <a class="btn sm ops" th:href="@{/overview}">▦ Operations</a>
+    <a class="btn sm ops" th:href="@{/datasources}">Data sources</a>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap" style="max-width:1100px">
+    <h1>FTPS targets</h1>
+    <p class="page-sub">Delivery destinations referenced by id from <code>ftpsend</code> steps. Explicit TLS on the
+        control channel, passive data connections, authentication by client certificate held in a PKCS#12 file.
+        Passwords are stored in the targets JSON file — protect it with filesystem permissions.</p>
+
+    <div class="banner ok" id="okBanner" style="display:none"></div>
+    <div class="banner error" id="errBanner" style="display:none"></div>
+
+    <div class="designer-grid">
+        <div>
+            <h2>Targets</h2>
+            <div id="list"></div>
+            <div class="toolbar"><button class="btn" onclick="newTarget()">＋ New target</button></div>
+        </div>
+
+        <div class="dz-sticky">
+            <h2 id="formTitle">New target</h2>
+            <div class="panel">
+                <div class="form-row">
+                    <div class="field"><label>Id *</label><input id="t_id" placeholder="TRANSARCH_XF"></div>
+                    <div class="field"><label>Name</label><input id="t_name" placeholder="Transarch — XF feed"></div>
+                </div>
+                <div class="form-row">
+                    <div class="field wide"><label>Host *</label><input id="t_host" placeholder="server.example.net"></div>
+                    <div class="field"><label>Port</label><input id="t_port" type="number" min="1" max="65535" value="2121"></div>
+                </div>
+                <div class="form-row">
+                    <div class="field"><label>Username *</label><input id="t_username" placeholder="S211048"></div>
+                    <div class="field"><label>Password</label><input id="t_password" type="password" placeholder="(none — certificate only)"></div>
+                    <div class="field wide"><label></label><span class="dim small">Leave the password empty when the account authenticates by certificate alone. The client then never sends <code>PASS</code>: a <code>230</code> arriving straight after <code>USER</code> is a completed login, and pushing a password into it would be answered <code>503</code> at best.</span></div>
+                </div>
+
+                <div class="sub"><div class="sub-h">Client certificate</div>
+                    <div class="form-row">
+                        <div class="field wide"><label>PKCS#12 file (absolute path on the OpenProteo server)</label>
+                            <input id="t_clientCertFile" placeholder="D:\certs\S211048_TRANSARCH.pfx"></div>
+                        <div class="field"><label>Certificate password</label><input id="t_clientCertPassword" type="password"></div>
+                    </div>
+                    <div class="dim small">There is no configured base directory, so the path is absolute and the target is specific to the machine it was written on: exported to another environment it carries a path that must be rewritten. The step checks the file exists and is readable <b>before opening any socket</b>, so a wrong path says so instead of surfacing as a failed TLS handshake.</div>
+                </div>
+
+                <div class="sub"><div class="sub-h">Server certificate</div>
+                    <div class="form-row">
+                        <div class="field"><label>Trust</label>
+                            <select id="t_trustMode" onchange="trustChanged()">
+                                <option value="WINDOWS">Windows store</option>
+                                <option value="JVM">JVM cacerts</option>
+                                <option value="FILE">Truststore file</option>
+                                <option value="ANY">Accept anything</option>
+                            </select>
+                        </div>
+                        <div class="field wide" id="trustFileField" style="display:none"><label>Truststore file</label>
+                            <input id="t_trustStoreFile" placeholder="D:\certs\internal-ca.jks"></div>
+                        <div class="field" id="trustPwdField" style="display:none"><label>Truststore password</label>
+                            <input id="t_trustStorePassword" type="password"></div>
+                    </div>
+                    <div class="dim small" id="trustHint"></div>
+                </div>
+
+                <div class="sub"><div class="sub-h">Connection</div>
+                    <div class="form-row">
+                        <div class="field"><label>Minimum TLS</label>
+                            <select id="t_minTls"><option value="TLSv1.2">TLS 1.2</option><option value="TLSv1.3">TLS 1.3</option></select></div>
+                        <div class="field"><label>Maximum TLS</label>
+                            <select id="t_maxTls" onchange="tlsChanged()"><option value="TLSv1.2">TLS 1.2</option><option value="TLSv1.3">TLS 1.3</option></select></div>
+                        <div class="field"><label>Connect timeout (s)</label><input id="t_connectTimeoutSec" type="number" min="1" value="30"></div>
+                        <div class="field"><label>Data timeout (s)</label><input id="t_dataTimeoutSec" type="number" min="1" value="300"></div>
+                    </div>
+                    <div class="dim small" id="tlsHint" style="margin:-4px 0 8px"></div>
+                    <div class="form-row">
+                        <div class="field wide"><label><input type="checkbox" id="t_passive" checked> Passive mode</label>
+                            <span class="dim small">Active mode is not implemented.</span></div>
+                        <div class="field wide"><label><input type="checkbox" id="t_ignorePasvAddress" checked> Ignore the address in the 227 reply</label>
+                            <span class="dim small">On by default, against the usual rule that a new behaviour is born off. The reason is measured: a server on this estate answers <code>227</code> with an address that is not routable from where the client runs. Only the port is used; the control host is kept.</span></div>
+                        <div class="field wide"><label><input type="checkbox" id="t_reuseTlsSession" checked> Reuse the control TLS session on data connections</label>
+                            <span class="dim small">On by default, for the same reason: the client in service has it enabled. Where the JVM does not allow it the transfer proceeds with a fresh session and the step log says which of the two happened.</span></div>
+                    </div>
+                </div>
+
+                <div class="toolbar" style="padding:0 16px 14px">
+                    <button class="btn" onclick="testTarget()">⚡ Test login</button>
+                    <span class="spacer"></span>
+                    <button class="btn primary" onclick="saveTarget()">💾 Save</button>
+                </div>
+                <div class="ds-test-result" id="testResult" style="padding:0 16px 6px"></div>
+                <pre class="mono small dim" id="testTrace" style="display:none;padding:0 16px 14px;white-space:pre-wrap"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    var CTX = (function(){ var b=document.querySelector('.brand'); var h=b?b.getAttribute('href'):'/'; return h.charAt(h.length-1)==='/'?h:h+'/'; })();
+    function tick() { document.getElementById('clock').textContent = new Date().toLocaleString('it-IT'); }
+    tick(); setInterval(tick, 1000);
+    function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+    function banner(ok, msg){ var b=document.getElementById(ok?'okBanner':'errBanner'); var o=document.getElementById(ok?'errBanner':'okBanner');
+        b.style.display='block'; b.textContent=msg; o.style.display='none'; }
+    function val(id){ return document.getElementById(id).value; }
+    function setVal(id, v){ document.getElementById(id).value = (v==null?'':v); }
+    function chk(id){ return document.getElementById(id).checked; }
+    function setChk(id, v){ document.getElementById(id).checked = !!v; }
+
+    function trustChanged(){
+        var m = val('t_trustMode');
+        document.getElementById('trustFileField').style.display = (m==='FILE') ? 'block' : 'none';
+        document.getElementById('trustPwdField').style.display  = (m==='FILE') ? 'block' : 'none';
+        var h = document.getElementById('trustHint');
+        if (m === 'WINDOWS') h.innerHTML = 'Reads the operating system store, which is what the FTPS client already in service trusts \u2014 it reaches this estate without ever prompting to accept a server certificate, so the issuing CA is in the Windows store and almost certainly not in the JVM cacerts. Note that <b>Windows-ROOT holds root CAs and not intermediates</b>: if the server does not send its full chain this is where it will fail.';
+        else if (m === 'JVM') h.innerHTML = 'The JVM cacerts. Correct for a server whose certificate chains to a public CA \u2014 which an internal host inside an AD domain usually does not.';
+        else if (m === 'FILE') h.innerHTML = 'An explicit truststore holding the issuing CA. JKS, or PKCS#12 if the file ends in .p12 or .pfx.';
+        else h.innerHTML = '<b>Accepts any server certificate, unconditionally.</b> Every run that uses this writes a warning into the step log. It exists to get a first delivery through, not to stay switched on.';
+    }
+
+    function tlsChanged(){
+        var h = document.getElementById('tlsHint');
+        h.innerHTML = (val('t_maxTls') === 'TLSv1.3')
+            ? 'With 1.3 available it will be negotiated, and <b>the data channel will not reuse the control session</b>: resumption in 1.3 is ticket-based, not the session-id mechanism this reuses. Measured on Java 8. If a server refuses the data connection while everything else works, capping here at 1.2 is the first thing to try.'
+            : 'Capped at 1.2, where the data channel reuses the control session.';
+    }
+
+    function load(){
+        fetch(CTX + 'api/ftp-targets').then(function(r){return r.json();}).then(function(list){
+            var h='<div class="panel"><table><thead><tr><th>Id</th><th>Host</th><th>User</th><th>Certificate</th><th style="width:160px"></th></tr></thead><tbody>';
+            (list||[]).forEach(function(t){
+                var cert = t.clientCertFile ? t.clientCertFile.replace(/^.*[\\\/]/, '') : '\u2014';
+                h += '<tr><td class="mono"><span class="feed-id">'+esc(t.id)+'</span></td>'+
+                    '<td class="mono small dim">'+esc(t.host)+':'+esc(t.port)+'</td>'+
+                    '<td class="small dim">'+esc(t.username)+'</td>'+
+                    '<td class="mono small dim">'+esc(cert)+'</td>'+
+                    '<td><button class="btn sm" onclick=\'edit('+JSON.stringify(t)+')\'>Edit</button> '+
+                    '<button class="btn sm danger" onclick="del(\''+esc(t.id)+'\')">Delete</button></td></tr>';
+            });
+            if(!list || !list.length) h += '<tr><td colspan="5" class="dim">No targets yet.</td></tr>';
+            h += '</tbody></table></div>';
+            document.getElementById('list').innerHTML=h;
+        });
+    }
+
+    function newTarget(){
+        ['t_id','t_name','t_host','t_username','t_password','t_clientCertFile','t_clientCertPassword',
+         't_trustStoreFile','t_trustStorePassword'].forEach(function(id){ setVal(id,''); });
+        setVal('t_port','2121'); setVal('t_connectTimeoutSec','30'); setVal('t_dataTimeoutSec','300');
+        setVal('t_trustMode','WINDOWS'); setVal('t_minTls','TLSv1.2'); setVal('t_maxTls','TLSv1.3');
+        setChk('t_passive', true); setChk('t_ignorePasvAddress', true); setChk('t_reuseTlsSession', true);
+        document.getElementById('t_id').readOnly=false; document.getElementById('t_id').style.opacity=1;
+        document.getElementById('formTitle').textContent='New target';
+        clearTest();
+        trustChanged(); tlsChanged();
+    }
+
+    function edit(t){
+        setVal('t_id', t.id);
+        document.getElementById('t_id').readOnly=true; document.getElementById('t_id').style.opacity=0.6;
+        setVal('t_name', t.name); setVal('t_host', t.host); setVal('t_port', t.port);
+        setVal('t_username', t.username); setVal('t_password', t.password);
+        setVal('t_clientCertFile', t.clientCertFile); setVal('t_clientCertPassword', t.clientCertPassword);
+        setVal('t_trustMode', t.trustMode || 'WINDOWS');
+        setVal('t_trustStoreFile', t.trustStoreFile); setVal('t_trustStorePassword', t.trustStorePassword);
+        setVal('t_minTls', t.minTls || 'TLSv1.2'); setVal('t_maxTls', t.maxTls || 'TLSv1.3');
+        setVal('t_connectTimeoutSec', t.connectTimeoutSec || 30);
+        setVal('t_dataTimeoutSec', t.dataTimeoutSec || 300);
+        setChk('t_passive', t.passive !== false);
+        setChk('t_ignorePasvAddress', t.ignorePasvAddress !== false);
+        setChk('t_reuseTlsSession', t.reuseTlsSession !== false);
+        document.getElementById('formTitle').textContent='Edit '+t.id;
+        clearTest();
+        trustChanged(); tlsChanged();
+    }
+
+    function clearTest(){
+        document.getElementById('testResult').textContent='';
+        var p=document.getElementById('testTrace'); p.style.display='none'; p.textContent='';
+    }
+
+    /* The three password fields are sent back exactly as they arrived. A field still holding the
+       placeholder means "unchanged", and the server puts the stored value back: the page never has
+       the real one to send, and a save must not be able to blank a password by accident. */
+    function collect(){
+        return {
+            id: val('t_id').trim(), name: val('t_name').trim(),
+            host: val('t_host').trim(), port: parseInt(val('t_port'), 10) || 0,
+            username: val('t_username').trim(), password: val('t_password'),
+            clientCertFile: val('t_clientCertFile').trim(),
+            clientCertPassword: val('t_clientCertPassword'),
+            trustMode: val('t_trustMode'),
+            trustStoreFile: val('t_trustStoreFile').trim(),
+            trustStorePassword: val('t_trustStorePassword'),
+            minTls: val('t_minTls'), maxTls: val('t_maxTls'),
+            passive: chk('t_passive'),
+            ignorePasvAddress: chk('t_ignorePasvAddress'),
+            reuseTlsSession: chk('t_reuseTlsSession'),
+            connectTimeoutSec: parseInt(val('t_connectTimeoutSec'), 10) || 30,
+            dataTimeoutSec: parseInt(val('t_dataTimeoutSec'), 10) || 300
+        };
+    }
+
+    /* Connects, logs in and hangs up. It transfers nothing and lists nothing, so a green result
+       says the control channel works and says nothing at all about the data channel - which is the
+       half that has actually been failing. The trace is shown either way, because on this estate
+       the useful information is which command the conversation reached. */
+    function testTarget(){
+        var r=document.getElementById('testResult'); r.style.color='var(--ink-dim)'; r.textContent='Connecting...';
+        var p=document.getElementById('testTrace'); p.style.display='none'; p.textContent='';
+        fetch(CTX + 'api/ftp-targets/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collect())})
+            .then(function(x){return x.json();}).then(function(j){
+                r.style.color = j.ok ? 'var(--ok)' : 'var(--fail)';
+                r.textContent = j.ok ? '\u2713 Control channel OK \u2014 logged in. This says nothing about the data channel: nothing was transferred.'
+                                     : ('\u2715 ' + (j.error || 'failed'));
+                if (j.trace && j.trace.length) { p.style.display='block'; p.textContent = j.trace.join(String.fromCharCode(10)); }
+            }).catch(function(e){ r.style.color='var(--fail)'; r.textContent='Error: '+e; });
+    }
+
+    function saveTarget(){
+        var t=collect();
+        if(!t.id){ banner(false,'Id is required'); return; }
+        if(!t.host){ banner(false,'Host is required'); return; }
+        fetch(CTX + 'api/ftp-targets',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(t)})
+            .then(function(x){return x.json();}).then(function(j){
+                if(j.ok){ banner(true,'Saved target '+t.id); load(); } else { banner(false,j.error||'Save failed'); }
+            });
+    }
+
+    function del(id){
+        opConfirm('Delete target '+id+'?', function(){
+            fetch(CTX + 'api/ftp-targets/'+encodeURIComponent(id)+'/delete',{method:'POST'})
+                .then(function(x){return x.json();}).then(function(){ load(); });
+        }, { danger:true, okText:'Delete' });
+    }
+
+    newTarget(); load();
+</script>
+<script th:src="@{/js/modal.js(v=${buildId})}"></script>
+<script th:src="@{/js/theme.js(v=${buildId})}"></script>
+</body>
+</html>

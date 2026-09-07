@@ -132,6 +132,7 @@ OpenProteo deliberately **ships no database driver**. Bundling one per vendor wo
   time `{{columns}}` is replaced by that schema's column names (optionally double-quoted).
   Can also split the export into parts by row count and/or size (see Splitting below).
 - **json2csv** — read the JSON files matching a wildcard mask in a directory and write one flat CSV whose shape is the feed's dataschema, one row per file. A mapper pairs each dataschema column with a JSON attribute path, with per-column types (String, Number, Date, MIMEType, Serial, ObjectName). Splits by rows and/or MB like the SQL export. See The json2csv step below.
+- **ftpsend** — deliver the files of a packaging directory to an FTPS server over explicit TLS, authenticating with a client certificate held in a PKCS#12 file. An ordered list of file masks decides what is sent and in what order; every upload is verified with `SIZE` against the local byte count and the first failure ends the step. See The ftpsend step below.
 - **split** — split an **existing file** into parts by rows and/or MB, using the same logic
   as the SQL export. Use it to run a LOOP only over the final steps, after validation and
   anonymization (see Splitting and Loops).
@@ -913,3 +914,77 @@ The report header records the order, the seed, how many entries were enumerated 
 Every row is given **by file count and by bytes**. A million small files already in G4 and ten thousand large uncompressed ones read as 99% compressed by count and as the opposite by bytes, and it is the byte column that decides whether recompressing is worth anything.
 
 A file whose pages do not agree on their compression gets its own `MIXED:` row naming every codec it uses, rather than being charged to whatever its first page happened to be. BigTIFF is detected and reported as its own category, explicitly not parsed, so that it cannot leave the denominator silently; the same goes for files that are not TIFFs, truncated files, and IFD chains that loop. The header line `outcomesSumToFilesOpened` is the cheapest assertion that every file opened landed in exactly one outcome, and the step fails outright if it does not hold.
+
+## The ftpsend step
+
+`ftpsend` delivers the files of a packaging directory to an FTPS server. Explicit TLS on the control channel, passive data connections, and authentication by a client certificate held in a PKCS#12 file - the shape the archives this project feeds actually use. It replaces calling an external FTPS client from a PowerShell step.
+
+The destination is not configured on the step. It is an **FTPS target**, created once under *FTPS targets* in the top bar and referenced by id, the way a datasource is. That is where the host, the account, the certificate and the TLS settings live.
+
+### The ordered mask list
+
+The step does not know which of your files completes a delivery, and deliberately so: the file set differs per feed and the completion semantics belong to the receiving system, not to us. Instead you give it a list of DOS/UNIX file masks, in the order you want them sent, edited with **+ mask**, the **✕** button, and the **↑ ↓** pair.
+
+```xml
+<step id="send" exec="ftpsend" source="${feedDir}/40_PACKAGING">
+  <param name="target" value="TRANSARCH_XF"/>
+  <send pattern="*.tar"/>
+  <send pattern="*.md5"/>
+  <send pattern="*.audit.xml" optional="true"/>
+  <send pattern="*.control"/>
+</step>
+```
+
+The order of those rows **is** the send order. If the receiving system takes one file as the signal that the package is complete, put it last - and the reason that matters is the next rule.
+
+### The first failure ends the step
+
+Nothing after a failing row is attempted. That is what makes the ordering mean anything: if the archive fails to arrive, the marker announcing the package as complete must not follow it into the remote directory.
+
+The whole plan is built and logged **before the first byte moves**, so a mask that matches nothing stops the step before anything has been uploaded rather than halfway through a delivery. Read the `plan file=...` lines in the step log and you are reading the order that is about to happen, not a post-mortem of one that already did.
+
+### The rules the masks follow
+
+Wildcards are `*` and `?` only, matched on the file name. Matching is **case-insensitive**. A mask names a file and never a path: a separator in it is refused, and subdirectories are never searched or sent.
+
+Masks are applied in list order and, within one mask, files are sent **sorted by name**. The sort is explicit rather than inherited from the filesystem, so the same directory produces the same delivery wherever the step runs.
+
+**First match wins.** A file already claimed by an earlier mask is not sent again by a later one, so a trailing `*` catch-all is safe.
+
+A mask that matches **no file fails the step**, unless you tick *Optional*. A delivery missing its `.md5` is a broken delivery, and the way it breaks is silently. *Enabled* is the other half of the same idea: it parks a mask without deleting it, and a parked mask is never a reason to fail.
+
+### Verification: SIZE, and equality
+
+After each upload the step asks the server for the file's `SIZE` and accepts it **only if it equals the local byte count**.
+
+Both halves of that sentence are load-bearing. A "greater than zero" check would reject a `.control` that legitimately weighs nothing. No check at all would accept a 49 KB archive that arrived empty - which is not hypothetical: a server creates the destination file the moment it accepts `STOR`, before a byte crosses the data channel, so **a remote file existing proves nothing**. Only equality separates the two cases.
+
+`SIZE` travels on the control channel, which is why the verification still works on an estate where the data connection is unreliable. For the same reason the step **never lists the remote directory**: what it sends comes from your masks, and not listing removes a whole class of failure from the delivery path.
+
+### Parameters
+
+`target` and `source` are the required ones.
+
+- `target` - id of an FTPS target, from the *FTPS targets* page.
+- `source` - the local directory holding the files. A relative path is resolved against `feedDir`.
+- `remoteDir` - the remote directory. Empty, the default, means the directory the account lands in; a mask can override it for the files it claims.
+- `renameSent` - a suffix added to each local file once its upload has been verified. **Empty by default, so nothing is renamed**: a step that renamed by default would change what the next run of an existing feed sees.
+- `siteCommands` - commands sent verbatim after login, one per line. Empty by default; the UNIX target needs none, and it is the z/OS dataset allocation that will.
+
+Outputs: `${filesMatched}`, `${filesSent}`, `${bytesSent}`, `${masksEvaluated}` and `${firstFailure}`, which is empty on a good run. On a good run `${filesMatched}` equals `${filesSent}`, and the step log states the invariant in as many words - it is the cheapest check that the step did what it claims.
+
+### Testing a target
+
+The *Test login* button on the targets page connects, negotiates TLS, logs in and hangs up. It transfers nothing and lists nothing, so a green result tells you the **control channel** works and tells you nothing at all about the data channel - which is the half that fails when a passive port range is closed or a load balancer splits the two connections apart. The conversation is shown either way, because when it fails the useful information is which command it reached.
+
+### Two defaults that are on rather than off
+
+**Ignore the address in the 227 reply** and **reuse the control TLS session on data connections** both default to *on*, against the usual rule that a new behaviour starts switched off. Both are switchable per target, and the reason for the exception is measured rather than assumed: a server on this estate answers `PASV` with an address that is not routable from where the client runs, and the FTPS client already in service has session reuse enabled. A default known to be wrong for the servers in scope is not a conservative default.
+
+Session reuse depends on the JVM. Where it is not available the transfer proceeds with a fresh session and the step log says which of the two happened. It also depends on the TLS version: capped at **TLS 1.2** the data channel reuses the control session, while with **1.3** available it will be negotiated and will not, because resumption there is ticket-based. If a server refuses the data connection while everything else works, capping *Maximum TLS* at 1.2 is the first thing to try.
+
+### What it does not do yet
+
+**ASCII transfers are not implemented.** A mask asking for ASCII fails the step rather than sending the bytes unchanged, which would produce a file that arrives, reports the right size and is wrong. ASCII is deferred together with the z/OS target, along with `SITE` commands and quoted dataset names.
+
+There is no download side, no resume, no active mode, and the step never deletes or renames anything on the server. The only thing it changes locally is the rename you asked for.

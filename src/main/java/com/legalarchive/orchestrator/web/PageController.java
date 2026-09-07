@@ -156,6 +156,11 @@ public class PageController {
         return "datasources";
     }
 
+    @GetMapping("/ftp-targets")
+    public String ftpTargets() {
+        return "ftptargets";
+    }
+
     @GetMapping("/files")
     public String sharedFiles() {
         return "shared";
