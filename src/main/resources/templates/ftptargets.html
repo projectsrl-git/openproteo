@@ -152,23 +152,37 @@
             : 'Capped at 1.2, where the data channel reuses the control session.';
     }
 
+    /* The loaded targets, kept here so that the row buttons can refer to one by INDEX.
+       Serialising a target into the onclick attribute is how the datasources page does it and it
+       cannot survive real data: a certificate path under a folder such as "Jastej's files" carries
+       an apostrophe, JSON.stringify does not escape it, the single-quoted attribute ends early and
+       the button dies with a syntax error nobody sees. An index has no quoting problem at all. */
+    var TARGETS = [];
+
     function load(){
         fetch(CTX + 'api/ftp-targets').then(function(r){return r.json();}).then(function(list){
-            var h='<div class="panel"><table><thead><tr><th>Id</th><th>Host</th><th>User</th><th>Certificate</th><th style="width:160px"></th></tr></thead><tbody>';
-            (list||[]).forEach(function(t){
-                var cert = t.clientCertFile ? t.clientCertFile.replace(/^.*[\\\/]/, '') : '\u2014';
+            TARGETS = list || [];
+            /* Four columns, not five: with host, user and certificate the actions column was pushed
+               out of the left pane and the buttons could not be reached. The certificate file name
+               now sits under the host, where it costs no width. */
+            var h='<div class="panel"><table><thead><tr><th>Id</th><th>Host</th><th>User</th><th style="width:150px"></th></tr></thead><tbody>';
+            TARGETS.forEach(function(t, i){
+                var cert = t.clientCertFile ? t.clientCertFile.replace(/^.*[\\\/]/, '') : '';
                 h += '<tr><td class="mono"><span class="feed-id">'+esc(t.id)+'</span></td>'+
-                    '<td class="mono small dim">'+esc(t.host)+':'+esc(t.port)+'</td>'+
+                    '<td class="mono small dim">'+esc(t.host)+':'+esc(t.port)+
+                    (cert ? '<div class="small dim">'+esc(cert)+'</div>' : '')+'</td>'+
                     '<td class="small dim">'+esc(t.username)+'</td>'+
-                    '<td class="mono small dim">'+esc(cert)+'</td>'+
-                    '<td><button class="btn sm" onclick=\'edit('+JSON.stringify(t)+')\'>Edit</button> '+
-                    '<button class="btn sm danger" onclick="del(\''+esc(t.id)+'\')">Delete</button></td></tr>';
+                    '<td><button class="btn sm" onclick="editAt('+i+')">Edit</button> '+
+                    '<button class="btn sm danger" onclick="delAt('+i+')">Delete</button></td></tr>';
             });
-            if(!list || !list.length) h += '<tr><td colspan="5" class="dim">No targets yet.</td></tr>';
+            if(!TARGETS.length) h += '<tr><td colspan="4" class="dim">No targets yet.</td></tr>';
             h += '</tbody></table></div>';
             document.getElementById('list').innerHTML=h;
         });
     }
+
+    function editAt(i){ if (TARGETS[i]) edit(TARGETS[i]); }
+    function delAt(i){ if (TARGETS[i]) del(TARGETS[i].id); }
 
     function newTarget(){
         ['t_id','t_name','t_host','t_username','t_password','t_clientCertFile','t_clientCertPassword',
