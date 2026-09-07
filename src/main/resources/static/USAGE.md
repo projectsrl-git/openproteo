@@ -961,6 +961,16 @@ Both halves of that sentence are load-bearing. A "greater than zero" check would
 
 `SIZE` travels on the control channel, which is why the verification still works on an estate where the data connection is unreliable. For the same reason the step **never lists the remote directory**: what it sends comes from your masks, and not listing removes a whole class of failure from the delivery path.
 
+### When the server will not answer SIZE
+
+Some accounts may store and not stat. A delivery drop box answers `SIZE` with `550 Operation not permitted` - and so does a drop box that collected the file the moment it landed, which looks identical from here. Neither is a failed transfer, but with the default setting both fail the step, because a transfer that cannot be verified is not a transfer that succeeded.
+
+The target has a **Verify uploads** setting for exactly this. `SIZE`, the default, is the rule above. `NONE` takes the server's `226` as the confirmation and asks nothing further.
+
+`226` is worth more than it looks and less than `SIZE`. It is the server saying it received the stream and closed the file - which is more than "the file exists", and that distinction matters, because a server creates the destination the moment it accepts `STOR`. What it does not catch is a file the server truncated without complaining. So `NONE` is a real weakening, and every run that uses it says so once in the step log before anything is sent, and marks each delivered file `remoteBytes=unverified` rather than printing a number that was never checked.
+
+Nothing else is weakened by it. A refused `STOR`, a data connection that never opens, a transfer the server rejects at the end: all of them still fail the step, and still stop everything after them.
+
 ### Parameters
 
 `target` and `source` are the required ones.

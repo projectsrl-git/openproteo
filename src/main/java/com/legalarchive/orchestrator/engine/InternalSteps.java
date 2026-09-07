@@ -204,7 +204,13 @@ public class InternalSteps {
         line.accept("ftpsend: target=" + targetId + " host=" + target.getHost() + ":" + target.getPort()
                 + " user=" + target.getUsername() + " trust=" + target.getTrustMode()
                 + " passive=" + target.isPassive() + " ignorePasvAddress=" + target.isIgnorePasvAddress()
-                + " reuseTlsSession=" + target.isReuseTlsSession());
+                + " reuseTlsSession=" + target.isReuseTlsSession() + " verify=" + target.getVerify());
+        if (target.getVerify() == com.legalarchive.orchestrator.ftps.VerifyMode.NONE) {
+            // Said once, before anything is sent, and said plainly: a run whose deliveries are not
+            // checked should not have to be read closely to notice it.
+            line.accept("ftpsend: WARNING verify=NONE - uploads are confirmed by the server's 226 and"
+                    + " not checked with SIZE, so a file that arrived truncated would pass");
+        }
         line.accept("ftpsend: source=" + dir.getAbsolutePath() + " masks=" + plan.masksEvaluated()
                 + " filesMatched=" + plan.fileCount() + " bytes=" + plan.totalBytes());
         for (String s : plan.describe()) line.accept(s);
@@ -235,10 +241,11 @@ public class InternalSteps {
                 java.io.File local = new java.io.File(dir, pf.name());
                 long started = System.currentTimeMillis();
                 long written = session.store(local, pf.remoteDir(), pf.name(), pf.transfer());
-                long remote = session.size(pf.remoteDir(), pf.name());
+                boolean verified = target.getVerify() != com.legalarchive.orchestrator.ftps.VerifyMode.NONE;
+                long remote = verified ? session.size(pf.remoteDir(), pf.name()) : -1;
                 long ms = System.currentTimeMillis() - started;
                 traced = drainTrace(session, traced, line);
-                if (remote != local.length()) {
+                if (verified && remote != local.length()) {
                     // The one check that separates a delivery from a file that merely exists: the
                     // server creates the destination on accepting STOR, before a byte crosses, so a
                     // failed transfer leaves a plausible empty file behind.
@@ -247,7 +254,8 @@ public class InternalSteps {
                 }
                 filesSent++;
                 bytesSent += written;
-                line.accept("sent file=" + pf.name() + " bytes=" + written + " remoteBytes=" + remote
+                line.accept("sent file=" + pf.name() + " bytes=" + written
+                        + " remoteBytes=" + (verified ? String.valueOf(remote) : "unverified")
                         + " transfer=" + pf.transfer() + " order=" + pf.order() + " ms=" + ms);
                 if (!renameSent.isEmpty()) {
                     java.io.File to = new java.io.File(dir, pf.name() + renameSent);

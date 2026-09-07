@@ -40,6 +40,8 @@ public class FtpsTarget {
 
     private String controlEncoding = "UTF-8";
 
+    private VerifyMode verify = VerifyMode.SIZE;
+
     public String getId() {
         return id;
     }
@@ -182,6 +184,14 @@ public class FtpsTarget {
 
     public void setDataTimeoutSec(int dataTimeoutSec) {
         this.dataTimeoutSec = dataTimeoutSec;
+    }
+
+    public VerifyMode getVerify() {
+        return verify;
+    }
+
+    public void setVerify(VerifyMode verify) {
+        this.verify = verify == null ? VerifyMode.SIZE : verify;
     }
 
     public String getControlEncoding() {

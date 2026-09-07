@@ -83,10 +83,16 @@
                             <select id="t_minTls"><option value="TLSv1.2">TLS 1.2</option><option value="TLSv1.3">TLS 1.3</option></select></div>
                         <div class="field"><label>Maximum TLS</label>
                             <select id="t_maxTls" onchange="tlsChanged()"><option value="TLSv1.2">TLS 1.2</option><option value="TLSv1.3">TLS 1.3</option></select></div>
+                        <div class="field"><label>Verify uploads</label>
+                            <select id="t_verify" onchange="verifyChanged()">
+                                <option value="SIZE">SIZE must equal the local size</option>
+                                <option value="NONE">Trust the server's 226</option>
+                            </select></div>
                         <div class="field"><label>Connect timeout (s)</label><input id="t_connectTimeoutSec" type="number" min="1" value="30"></div>
                         <div class="field"><label>Data timeout (s)</label><input id="t_dataTimeoutSec" type="number" min="1" value="300"></div>
                     </div>
                     <div class="dim small" id="tlsHint" style="margin:-4px 0 8px"></div>
+                    <div class="dim small" id="verifyHint" style="margin:-4px 0 8px"></div>
                     <div class="form-row">
                         <div class="field wide"><label><input type="checkbox" id="t_passive" checked> Passive mode</label>
                             <span class="dim small">Active mode is not implemented.</span></div>
@@ -132,6 +138,13 @@
         else h.innerHTML = '<b>Accepts any server certificate, unconditionally.</b> Every run that uses this writes a warning into the step log. It exists to get a first delivery through, not to stay switched on.';
     }
 
+    function verifyChanged(){
+        var h = document.getElementById('verifyHint');
+        h.innerHTML = (val('t_verify') === 'NONE')
+            ? '<b>Uploads are not checked.</b> The server\'s <code>226</code> is taken as the confirmation, which says it received the stream and closed the file — more than "the file exists" and less than "the file is the right length". Use it for an account allowed to store but not to stat, or where the file is collected the moment it lands and <code>SIZE</code> answers <code>550</code> for that reason. Every run says so in the step log.'
+            : 'After each upload the server is asked for <code>SIZE</code> and the answer must <b>equal</b> the local byte count. Not "greater than zero", which would reject a <code>.control</code> that legitimately weighs nothing; not absent, which would accept an archive that arrived empty.';
+    }
+
     function tlsChanged(){
         var h = document.getElementById('tlsHint');
         h.innerHTML = (val('t_maxTls') === 'TLSv1.3')
@@ -162,11 +175,12 @@
          't_trustStoreFile','t_trustStorePassword'].forEach(function(id){ setVal(id,''); });
         setVal('t_port','2121'); setVal('t_connectTimeoutSec','30'); setVal('t_dataTimeoutSec','300');
         setVal('t_trustMode','WINDOWS'); setVal('t_minTls','TLSv1.2'); setVal('t_maxTls','TLSv1.3');
+        setVal('t_verify','SIZE');
         setChk('t_passive', true); setChk('t_ignorePasvAddress', true); setChk('t_reuseTlsSession', true);
         document.getElementById('t_id').readOnly=false; document.getElementById('t_id').style.opacity=1;
         document.getElementById('formTitle').textContent='New target';
         clearTest();
-        trustChanged(); tlsChanged();
+        trustChanged(); tlsChanged(); verifyChanged();
     }
 
     function edit(t){
@@ -183,9 +197,10 @@
         setChk('t_passive', t.passive !== false);
         setChk('t_ignorePasvAddress', t.ignorePasvAddress !== false);
         setChk('t_reuseTlsSession', t.reuseTlsSession !== false);
+        setVal('t_verify', t.verify || 'SIZE');
         document.getElementById('formTitle').textContent='Edit '+t.id;
         clearTest();
-        trustChanged(); tlsChanged();
+        trustChanged(); tlsChanged(); verifyChanged();
     }
 
     function clearTest(){
@@ -206,7 +221,7 @@
             trustMode: val('t_trustMode'),
             trustStoreFile: val('t_trustStoreFile').trim(),
             trustStorePassword: val('t_trustStorePassword'),
-            minTls: val('t_minTls'), maxTls: val('t_maxTls'),
+            minTls: val('t_minTls'), maxTls: val('t_maxTls'), verify: val('t_verify'),
             passive: chk('t_passive'),
             ignorePasvAddress: chk('t_ignorePasvAddress'),
             reuseTlsSession: chk('t_reuseTlsSession'),

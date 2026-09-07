@@ -174,6 +174,7 @@ public class ApiController {
         c.setReuseTlsSession(t.isReuseTlsSession());
         c.setConnectTimeoutSec(t.getConnectTimeoutSec()); c.setDataTimeoutSec(t.getDataTimeoutSec());
         c.setControlEncoding(t.getControlEncoding());
+        c.setVerify(t.getVerify());
         return c;
     }
 

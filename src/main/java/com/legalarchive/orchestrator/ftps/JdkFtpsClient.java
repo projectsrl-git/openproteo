@@ -197,7 +197,10 @@ public final class JdkFtpsClient implements FtpsTransport {
             FtpReply r = readReply();
             if (!r.isPositiveCompletion()) {
                 throw new FtpProtocolException("SIZE failed for " + remoteName + ": " + r.text()
-                        + " - a transfer that cannot be verified is not a transfer that succeeded");
+                        + " - a transfer that cannot be verified is not a transfer that succeeded."
+                        + " If this account is allowed to store but not to stat, or the file is"
+                        + " collected as soon as it lands, set Verify to NONE on the target and the"
+                        + " server's 226 becomes the confirmation");
             }
             String line = r.lastLine();
             int sp = line.indexOf(' ');

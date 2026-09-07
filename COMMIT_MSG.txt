@@ -1,57 +1,68 @@
-ftpsend fix: the masks never reached the file, and the checklist was wrong
+ftpsend: a target that may store but not stat, and two facts from the field
 
-Reported: two send patterns added in the designer, saved, gone. The masks were
-being written into the preview pane and dropped by everything downstream of
-it.
+Reported from the first real run: the transfer succeeds and the step fails.
+The log reads 150, 50176 bytes written, 226 Transfer complete - and then SIZE
+comes back 550 Operation not permitted, so the verification rule fails the
+step and nothing after the first file is attempted.
 
-The designer's buildXml is the preview and the download, and it never reaches
-the disk. Saving posts the workflow as JSON, which becomes a WorkflowDto and
-is re-serialised by WorkflowXmlWriter. The DTO had no sends field, so Jackson
-discarded the array without a word; the writer emitted no <send>; the parser
-read none back. Three places, all missed, in both directions - a workflow
-saved this way also reopened without its masks, because the StepDef to DTO
-mapping had the same hole.
+The rule is right and the situation is one the specification named as open. An
+account may be allowed to store and not to stat, and a drop box that collects
+the file the moment it lands answers 550 for a different reason that looks
+identical from here. Neither is a failed transfer.
 
-The batch 3 checklist covered the six places an executor KIND has to be
-registered. A repeated child element has its own set, and only one of them
-overlaps. Reading the parser and the panel and inferring that the designer's
-XML was what got saved is exactly the substitution of a plausible deduction
-for a read that the contract warns about, and it produced a feature that
-passed 42 panel assertions and lost the data anyway.
+The target gains Verify uploads: SIZE, the default and unchanged, or NONE,
+which takes the server's 226 as the confirmation. 226 is worth more than it
+looks and less than SIZE - it is the server saying it received the stream and
+closed the file, which is more than "the file exists", and that distinction is
+the whole reason SIZE was there, because a server creates the destination the
+moment it accepts STOR. What 226 does not catch is a file truncated without
+complaint. So NONE is a real weakening: it warns once in the step log before
+anything is sent, and marks each file remoteBytes=unverified rather than
+printing a number nobody checked. The SIZE failure message now names the
+setting that changes it.
 
-Three places fixed: SendDto and the sends list on NodeDto, the <send> block in
-WorkflowXmlWriter, and the StepDef to DTO mapping in ApiController so a saved
-workflow reopens with its masks in order.
+Nothing else is weakened. A refused STOR, a data channel that never opens, a
+transfer rejected at the end: all still fail, and all still stop everything
+after them.
+
+Two facts from the same log, worth recording because both were open questions.
+
+The data channel works. 227 advertised 10.117.145.81, the client substituted
+the control host, the connection opened and 50176 bytes crossed. The wall this
+feature was designed around is not there from that machine.
+
+The JVM is not Java 8. The reflection that installs the control session is
+refused with "module java.base does not opens sun.security.ssl", so it is 9 or
+later, and the transfer completed anyway over a fresh TLS 1.3 session. That
+server does not require session reuse - which was the risk that shaped the
+whole transport - and the degradation path built for exactly this case behaved
+as designed. On that JVM the reuse option is inert unless Tomcat is started
+with --add-opens java.base/sun.security.ssl=ALL-UNNAMED, and on this evidence
+it does not need to be.
 
 VERIFIED
-- A round-trip test over the path a save actually takes: DTO, writer, XML
-  file, parser, StepDef. Both the writer and the parser are JDK-only, so this
-  runs against the real classes and not against stubs. 22 assertions.
-- The reported bug is reproduced by it: suppressing the writer block takes the
-  suite from 22 green to 7 failures, the first being that no <send> is
-  emitted.
-- Order is checked against a NON-alphabetical sequence, so a writer that
-  sorted would be caught - a mutation that sorts fails on exactly that
-  assertion. With the two masks of the report, *.md5 and *.tar, sorted and
-  given are the same string and the test would have proved nothing.
-- 6 mutations, 6 caught: the block removed, the list sorted, transfer written
-  when it is BINARY, an empty row written as an empty mask, and each of
-  optional and enabled dropped on the way out.
-- Saving twice is exercised: parse, map back, write again, and assert the
-  order and every flag survive. Losing them on the second save is the same
-  shape of bug as this one.
-- Patch applied on a second clean clone at f69f350, compared byte for byte,
-  and the round trip re-run from the applied tree.
-
-One harness weakness fixed on the way, for the third time in this feature and
-this time it had crept back in: the reproduction of the bug printed nothing at
-all, because the suite threw on an index past the end of an empty list and
-died before the summary. An aborted phase now reports the count it reached, so
-a mutation that crashes is comparable with one that fails an assertion rather
-than being read as green.
+- 61 executor assertions green on Java 8, up from 49. The new ones reproduce
+  the field case: a server answering SIZE with 550 fails the step with the
+  default, delivers with NONE, and with NONE never sends SIZE at all.
+- 5 executor mutations, 5 caught: SIZE silently downgraded to NONE, NONE
+  ignored and SIZE asked anyway, the warning removed, the warning softened
+  from WARNING to a bland line, and the per-file line printing a number
+  instead of "unverified".
+- 60 page assertions green, up from 52, covering the selector, both hints, and
+  the mode travelling in the save body.
+- 4 page mutations, 4 caught, after one came back green and was investigated.
+  It was a real gap and the same one as last time: the stored test target had
+  no verify field, so a form ignoring the stored value still read SIZE and the
+  assertion passed on something it had never loaded. The fixture now holds the
+  non-default mode.
+- The executor body is extracted verbatim by line range and diffed against
+  InternalSteps.java before every run.
+- USAGE.md re-rendered with the real render() from docs.html: 91 TOC entries,
+  no Markdown leaking outside code blocks.
+- Patch applied on a second clean clone at 95309b3 and compared byte for byte.
 
 NOT VERIFIED
-- mvn clean package, unchanged: Maven Central is unreachable from the sandbox.
-  ApiController is edited again here and is still compiled nowhere.
-- The designer side is untouched by this commit; its 42 assertions still
-  describe the panel, not the save.
+- mvn clean package, unchanged.
+- Whether that 550 means the account cannot stat or the file was already
+  collected. It does not change the fix and it does change what the operator
+  should expect to find on the server afterwards.
