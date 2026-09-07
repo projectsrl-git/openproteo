@@ -164,6 +164,24 @@ public class WorkflowXmlWriter {
                             qe.setTextContent(rq.sql == null ? "" : rq.sql);
                             s.appendChild(qe);
                         }
+                        if (n.sends != null) for (com.legalarchive.orchestrator.web.dto.WorkflowDto.NodeDto.SendDto sd : n.sends) {
+                            // A row with no mask is dropped rather than written empty: the designer
+                            // lets one exist while it is being typed, and an empty pattern would be
+                            // refused by the matcher at run time instead of at save time.
+                            if (sd == null || sd.pattern == null || sd.pattern.trim().isEmpty()) continue;
+                            org.w3c.dom.Element se = doc.createElement("send");
+                            se.setAttribute("pattern", sd.pattern.trim());
+                            if (sd.transfer != null && !sd.transfer.trim().isEmpty()
+                                    && !"BINARY".equalsIgnoreCase(sd.transfer.trim())) {
+                                se.setAttribute("transfer", sd.transfer.trim().toUpperCase());
+                            }
+                            if (sd.remoteDir != null && !sd.remoteDir.trim().isEmpty()) {
+                                se.setAttribute("remoteDir", sd.remoteDir.trim());
+                            }
+                            if (Boolean.TRUE.equals(sd.optional)) se.setAttribute("optional", "true");
+                            if (Boolean.FALSE.equals(sd.enabled)) se.setAttribute("enabled", "false");
+                            s.appendChild(se);
+                        }
                         if (n.csvSplitRows != null && n.csvSplitRows > 0) s.setAttribute("csvSplitRows", String.valueOf(n.csvSplitRows));
                         if (n.csvSplitMb != null && n.csvSplitMb > 0) s.setAttribute("csvSplitMb", String.valueOf(n.csvSplitMb));
                         attr(s, "delimiter", n.delimiter);

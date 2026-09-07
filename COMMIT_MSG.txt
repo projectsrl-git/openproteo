@@ -1,64 +1,57 @@
-ftpsend batch 4: the targets page, and a table the renderer cannot draw
+ftpsend fix: the masks never reached the file, and the checklist was wrong
 
-The admin page for FTPS targets, its API, and the USAGE.md section. This
-completes ftpsend: a target can now be created without editing JSON by hand.
+Reported: two send patterns added in the designer, saved, gone. The masks were
+being written into the preview pane and dropped by everything downstream of
+it.
 
-The API grows save, delete and a test alongside the read that batch 3 added.
-All three passwords - account, certificate, truststore - follow the rule the
-datasources already use: the placeholder leaves the server if one is set and
-nothing if none is, and a placeholder coming back means unchanged, so a save
-cannot blank a password the page never held.
+The designer's buildXml is the preview and the download, and it never reaches
+the disk. Saving posts the workflow as JSON, which becomes a WorkflowDto and
+is re-serialised by WorkflowXmlWriter. The DTO had no sends field, so Jackson
+discarded the array without a word; the writer emitted no <send>; the parser
+read none back. Three places, all missed, in both directions - a workflow
+saved this way also reopened without its masks, because the StepDef to DTO
+mapping had the same hole.
 
-The test button connects, negotiates TLS, logs in and hangs up. It transfers
-nothing and lists nothing, and the page says so in as many words next to the
-green tick: it proves the control channel and proves nothing about the data
-channel, which is the half that fails when a passive range is closed or a
-balancer splits the two connections. The conversation is shown either way,
-because when it fails the useful thing is which command it reached.
+The batch 3 checklist covered the six places an executor KIND has to be
+registered. A repeated child element has its own set, and only one of them
+overlaps. Reading the parser and the panel and inferring that the designer's
+XML was what got saved is exactly the substitution of a plausible deduction
+for a read that the contract warns about, and it produced a feature that
+passed 42 panel assertions and lost the data anyway.
 
-The page states the two measured facts where they are needed rather than in a
-document nobody opens beside the form: that Windows-ROOT carries root CAs and
-not intermediates, next to the trust selector, and that with TLS 1.3 available
-the data channel will not reuse the control session, next to the version
-selector.
+Three places fixed: SendDto and the sends list on NodeDto, the <send> block in
+WorkflowXmlWriter, and the StepDef to DTO mapping in ApiController so a saved
+workflow reopens with its masks in order.
 
 VERIFIED
-- 52 page assertions green in jsdom against the real template. Every control
-  is driven by an event on the rendered element, and the save assertions read
-  the request body the page actually sent rather than its variables: the
-  placeholder going back untouched, an empty password staying empty, the port
-  arriving as a number, the booleans as booleans.
-- 13 page mutations, 13 caught, after two came back green and were
-  investigated. One was malformed. The other was real and is the more
-  interesting: New failing to clear the truststore password changed nothing,
-  because no test had ever put a value in that field. Asserting a field is
-  empty proves nothing when it was empty to begin with, so every field New
-  clears is now filled first and then asserted.
-- The USAGE.md section was rendered with the real render() from docs.html,
-  extracted with its helpers and run over the file: 90 TOC entries against 81
-  before, no Markdown leaking outside code blocks, and the new section
-  present.
-- The designer suite from batch 3 still passes, 42 assertions.
-- Patch applied on a second clean clone at 93b6c6a, compared byte for byte,
-  and the page suite re-run from the applied tree.
+- A round-trip test over the path a save actually takes: DTO, writer, XML
+  file, parser, StepDef. Both the writer and the parser are JDK-only, so this
+  runs against the real classes and not against stubs. 22 assertions.
+- The reported bug is reproduced by it: suppressing the writer block takes the
+  suite from 22 green to 7 failures, the first being that no <send> is
+  emitted.
+- Order is checked against a NON-alphabetical sequence, so a writer that
+  sorted would be caught - a mutation that sorts fails on exactly that
+  assertion. With the two masks of the report, *.md5 and *.tar, sorted and
+  given are the same string and the test would have proved nothing.
+- 6 mutations, 6 caught: the block removed, the list sorted, transfer written
+  when it is BINARY, an empty row written as an empty mask, and each of
+  optional and enabled dropped on the way out.
+- Saving twice is exercised: parse, map back, write again, and assert the
+  order and every flag survive. Losing them on the second save is the same
+  shape of bug as this one.
+- Patch applied on a second clean clone at f69f350, compared byte for byte,
+  and the round trip re-run from the applied tree.
 
-A defect avoided rather than found, worth recording because it was one grep
-from shipping: the section was first written with a Markdown parameter table.
-The renderer in docs.html has no table support at all - no table, td or th
-anywhere in it - and USAGE.md had never contained one, so seven rows of pipe-
-separated text would have rendered as seven stray paragraphs. The table is now
-the bullet list every other Parameters section uses.
+One harness weakness fixed on the way, for the third time in this feature and
+this time it had crept back in: the reproduction of the bug printed nothing at
+all, because the suite threw on an index past the end of an empty list and
+died before the summary. An aborted phase now reports the count it reached, so
+a mutation that crashes is comparable with one that fails an assertion rather
+than being read as green.
 
 NOT VERIFIED
-- mvn clean package, unchanged: Maven Central is unreachable from the sandbox,
-  so ApiController and PageController are not compiled anywhere. Both edits
-  are mechanical, and they are the risk this commit carries alongside batch
-  3's.
-- The Thymeleaf render itself. The harness substitutes what the server emits
-  for the one attribute the scripts read; the rest of the page is served as
-  written.
-- The test endpoint has never run against a real server. What it does against
-  the loopback server from batch 2 is exercised; what it will say against the
-  UAT host is the open question of section 2 and remains one.
-- FtpTargetStore's JSON round-trip: Jackson is stubbed in the sandbox, so the
-  map behaviour is exercised and the file is not.
+- mvn clean package, unchanged: Maven Central is unreachable from the sandbox.
+  ApiController is edited again here and is still compiled nowhere.
+- The designer side is untouched by this commit; its 42 assertions still
+  describe the panel, not the save.

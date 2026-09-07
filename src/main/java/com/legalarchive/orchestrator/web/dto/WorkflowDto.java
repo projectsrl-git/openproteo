@@ -80,6 +80,11 @@ public class WorkflowDto {
         public java.util.List<ColumnSelDto> columns;
         public static class ReportQueryDto { public String title; public String sql; public String keyColumn; public String collect; public Integer maxRows; }
         public java.util.List<ReportQueryDto> reportQueries;
+        // ftpsend. The order of this list IS the send order, so it travels as a list and is never
+        // sorted or keyed on the way through: designer -> DTO -> writer -> XML -> parser.
+        public static class SendDto { public String pattern; public String transfer; public String remoteDir;
+            public Boolean optional; public Boolean enabled; }
+        public java.util.List<SendDto> sends;
         public String delimiter;
         // parallel fan-out
         public String forEach;

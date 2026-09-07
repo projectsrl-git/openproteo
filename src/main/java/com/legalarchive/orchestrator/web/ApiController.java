@@ -2399,6 +2399,16 @@ public class ApiController {
                         nd.reportQueries.add(qd);
                     }
                 }
+                if (st.sends != null && !st.sends.isEmpty()) {
+                    nd.sends = new java.util.ArrayList<WorkflowDto.NodeDto.SendDto>();
+                    for (com.legalarchive.orchestrator.model.def.SendSpec sp : st.sends) {
+                        WorkflowDto.NodeDto.SendDto sd = new WorkflowDto.NodeDto.SendDto();
+                        sd.pattern = sp.pattern; sd.transfer = sp.transfer; sd.remoteDir = sp.remoteDir;
+                        sd.optional = sp.optional ? Boolean.TRUE : null;
+                        sd.enabled = sp.enabled ? null : Boolean.FALSE;
+                        nd.sends.add(sd);
+                    }
+                }
                 nd.delimiter = st.delimiter;
                 nd.forEach = st.forEach;
                 nd.concurrency = st.concurrency != 4 ? st.concurrency : null;
