@@ -59,6 +59,7 @@ public class ApiController {
     private final AssetStore assets;
     private final CsvService csv;
     private final com.legalarchive.orchestrator.port.WorkflowPorter porter;
+    private final com.legalarchive.orchestrator.ftps.FtpTargetStore ftpTargets;
     private final ObjectMapper mapper = new ObjectMapper();
     private final WorkflowXmlWriter xmlWriter = new WorkflowXmlWriter();
     private final WorkflowXmlParser xmlParser = new WorkflowXmlParser();
@@ -67,7 +68,8 @@ public class ApiController {
                          AuditLogger audit, WorkflowScheduler scheduler, AppProperties props,
                          DataSourceStore dataSources, SqlSupport sql, AssetStore assets, CsvService csv,
                          com.legalarchive.orchestrator.store.GlobalVarsStore globalVars,
-                         com.legalarchive.orchestrator.port.WorkflowPorter porter) {
+                         com.legalarchive.orchestrator.port.WorkflowPorter porter,
+                         com.legalarchive.orchestrator.ftps.FtpTargetStore ftpTargets) {
         this.registry = registry;
         this.engine = engine;
         this.store = store;
@@ -80,6 +82,30 @@ public class ApiController {
         this.csv = csv;
         this.globalVars = globalVars;
         this.porter = porter;
+        this.ftpTargets = ftpTargets;
+    }
+
+    // ----------------------------------------------------------- FTPS targets
+    /**
+     * The FTPS targets, for the ftpsend step panel. Read-only here: creating and editing them is
+     * the admin page, which is a later batch. Both passwords are replaced before the list leaves
+     * the server - not masked in the UI, absent from the response.
+     */
+    @GetMapping("/api/ftp-targets")
+    public java.util.List<java.util.Map<String, Object>> listFtpTargets() {
+        java.util.List<java.util.Map<String, Object>> out =
+                new java.util.ArrayList<java.util.Map<String, Object>>();
+        for (com.legalarchive.orchestrator.ftps.FtpsTarget t : ftpTargets.all()) {
+            java.util.Map<String, Object> m = new LinkedHashMap<String, Object>();
+            m.put("id", t.getId());
+            m.put("name", t.getName());
+            m.put("host", t.getHost());
+            m.put("port", t.getPort());
+            m.put("username", t.getUsername());
+            m.put("systemType", "UNIX");
+            out.add(m);
+        }
+        return out;
     }
 
     // ----------------------------------------------------------- datasources

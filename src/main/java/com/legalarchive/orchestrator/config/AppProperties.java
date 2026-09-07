@@ -40,6 +40,9 @@ public class AppProperties {
     /** File JSON con le definizioni dei datasource (connessioni riusabili). */
     private String datasourcesFile = "./datasources.json";
 
+    /** File JSON con le definizioni dei target FTPS usati dall'executor ftpsend. */
+    private String ftpTargetsFile = "./ftp-targets.json";
+
     // --- csvsql (H2 SQL over CSVs) ---
     /** Default H2 engine for csvsql: auto | mem | file. 'auto' uses in-memory below the size
         threshold (much faster) and on-disk above it. Override per step with param 'engine'. */
@@ -103,6 +106,8 @@ public class AppProperties {
     public int getMaxTransitions() { return maxTransitions; }
     public void setMaxTransitions(int v) { this.maxTransitions = v; }
     public String getDatasourcesFile() { return datasourcesFile; }
+    public String getFtpTargetsFile() { return ftpTargetsFile; }
+    public void setFtpTargetsFile(String v) { this.ftpTargetsFile = v; }
 
     public String getCsvsqlEngine() { return csvsqlEngine; }
     public void setCsvsqlEngine(String v) { this.csvsqlEngine = v; }

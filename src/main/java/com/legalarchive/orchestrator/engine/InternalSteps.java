@@ -41,13 +41,16 @@ public class InternalSteps {
     private final SqlSupport sql;
     private final IfsSupport ifs;
     private final com.legalarchive.orchestrator.config.AppProperties props;
+    private final com.legalarchive.orchestrator.ftps.FtpTargetStore ftpTargets;
 
     public InternalSteps(DataSourceStore dataSources, SqlSupport sql, IfsSupport ifs,
-                         com.legalarchive.orchestrator.config.AppProperties props) {
+                         com.legalarchive.orchestrator.config.AppProperties props,
+                         com.legalarchive.orchestrator.ftps.FtpTargetStore ftpTargets) {
         this.dataSources = dataSources;
         this.sql = sql;
         this.ifs = ifs;
         this.props = props;
+        this.ftpTargets = ftpTargets;
     }
 
     public StepExecutor.Result run(String kind, StepDef step, Map<String, String> resolvedParams,
@@ -101,6 +104,8 @@ public class InternalSteps {
                 runTiffCompress(step, resolvedParams, vars, res, line);
             } else if ("json2csv".equals(kind)) {
                 runJson2Csv(step, resolvedParams, vars, res, line);
+            } else if ("ftpsend".equals(kind)) {
+                runFtpSend(step, resolvedParams, vars, res, line, control);
             } else if ("csvsql".equals(kind)) {
                 runCsvSql(step, resolvedParams, vars, res, line, control);
             } else if ("xlsx2csv".equals(kind)) {
@@ -126,6 +131,161 @@ public class InternalSteps {
             if (log != null) try { log.close(); } catch (Exception ignored) {}
         }
         return res;
+    }
+
+    // -------------------------------------------------------------- ftpsend
+    /**
+     * Delivers the files of a packaging directory to an FTPS server over an explicit TLS control
+     * channel, authenticating with a client certificate in a PKCS#12 file.
+     *
+     * <p>Three rules carry the weight, and all three come from a UAT session rather than from
+     * design. The whole ordered plan is built and logged before the first byte moves, so a mask
+     * that matches nothing stops the step before anything has been uploaded rather than halfway
+     * through a delivery. Every upload is verified with SIZE against the local byte count, and
+     * accepted only on equality - not "greater than zero", which would reject a .control that
+     * legitimately weighs nothing, and not absent, which would accept a 49 KB archive that arrived
+     * empty. And the first failure ends the step: if the archive fails, the marker announcing the
+     * package as complete must not follow it.
+     */
+    private void runFtpSend(StepDef step, Map<String, String> params, Map<String, String> vars,
+                            StepExecutor.Result res, java.util.function.Consumer<String> line,
+                            RunControl control) throws Exception {
+        String targetId = VarResolver.resolve(xStr(params.get("target"), null), vars);
+        if (targetId == null) { line.accept("ftpsend: target is required"); res.exitCode = 2; return; }
+        com.legalarchive.orchestrator.ftps.FtpsTarget target = ftpTargets.get(targetId);
+        if (target == null) {
+            line.accept("ftpsend: no FTPS target with id '" + targetId + "' in " + ftpTargets.file());
+            res.exitCode = 2; return;
+        }
+
+        String source = VarResolver.resolve(step.source, vars);
+        if (source == null || source.trim().isEmpty()) { line.accept("ftpsend: source directory is required"); res.exitCode = 2; return; }
+        java.io.File dir = new java.io.File(rebaseRel(source, vars));
+        if (!dir.isDirectory()) { line.accept("ftpsend: source is not a directory: " + source); res.exitCode = 2; return; }
+
+        String remoteDir = xStr(VarResolver.resolve(params.get("remoteDir"), vars), "");
+        String renameSent = xStr(VarResolver.resolve(params.get("renameSent"), vars), "");
+        String siteCommands = VarResolver.resolve(params.get("siteCommands"), vars);
+
+        if (step.sends == null || step.sends.isEmpty()) {
+            line.accept("ftpsend: at least one <send> file mask is required"); res.exitCode = 2; return;
+        }
+        java.util.List<com.legalarchive.orchestrator.ftps.SendMask> masks =
+                new java.util.ArrayList<com.legalarchive.orchestrator.ftps.SendMask>();
+        try {
+            for (com.legalarchive.orchestrator.model.def.SendSpec sp : step.sends) {
+                masks.add(new com.legalarchive.orchestrator.ftps.SendMask(
+                        VarResolver.resolve(sp.pattern, vars),
+                        com.legalarchive.orchestrator.ftps.TransferMode.parse(sp.transfer),
+                        VarResolver.resolve(sp.remoteDir, vars),
+                        sp.optional, sp.enabled));
+            }
+        } catch (IllegalArgumentException e) {
+            line.accept("ftpsend: " + e.getMessage()); res.exitCode = 2; return;
+        }
+
+        // Only regular files, and the plan sorts them: directory enumeration is name order on NTFS
+        // and hash order elsewhere, so a plan that inherited it would be right here and untestable
+        // anywhere else.
+        java.util.List<com.legalarchive.orchestrator.ftps.FileEntry> candidates =
+                new java.util.ArrayList<com.legalarchive.orchestrator.ftps.FileEntry>();
+        java.io.File[] found = dir.listFiles();
+        if (found != null) for (java.io.File f : found) {
+            if (f.isFile()) candidates.add(new com.legalarchive.orchestrator.ftps.FileEntry(f.getName(), f.length()));
+        }
+
+        com.legalarchive.orchestrator.ftps.SendPlan plan;
+        try {
+            plan = com.legalarchive.orchestrator.ftps.SendPlan.build(masks, candidates, remoteDir);
+        } catch (com.legalarchive.orchestrator.ftps.PlanException e) {
+            line.accept("ftpsend: " + e.getMessage()); res.exitCode = 2; return;
+        }
+
+        line.accept("ftpsend: target=" + targetId + " host=" + target.getHost() + ":" + target.getPort()
+                + " user=" + target.getUsername() + " trust=" + target.getTrustMode()
+                + " passive=" + target.isPassive() + " ignorePasvAddress=" + target.isIgnorePasvAddress()
+                + " reuseTlsSession=" + target.isReuseTlsSession());
+        line.accept("ftpsend: source=" + dir.getAbsolutePath() + " masks=" + plan.masksEvaluated()
+                + " filesMatched=" + plan.fileCount() + " bytes=" + plan.totalBytes());
+        for (String s : plan.describe()) line.accept(s);
+
+        int filesSent = 0;
+        long bytesSent = 0;
+        String firstFailure = "";
+        com.legalarchive.orchestrator.ftps.FtpsSession session = null;
+        int traced = 0;
+        try {
+            session = new com.legalarchive.orchestrator.ftps.JdkFtpsClient().open(target);
+            traced = drainTrace(session, traced, line);
+
+            if (siteCommands != null) {
+                for (String cmd : siteCommands.split("\\r?\\n")) {
+                    if (!cmd.trim().isEmpty()) session.site(cmd.trim());
+                }
+                traced = drainTrace(session, traced, line);
+            }
+
+            for (com.legalarchive.orchestrator.ftps.PlannedFile pf : plan.files()) {
+                if (control != null && control.aborted) {
+                    firstFailure = "aborted before " + pf.name();
+                    line.accept("ftpsend: aborted by request, nothing after " + pf.name() + " was attempted");
+                    res.exitCode = -997;
+                    break;
+                }
+                java.io.File local = new java.io.File(dir, pf.name());
+                long started = System.currentTimeMillis();
+                long written = session.store(local, pf.remoteDir(), pf.name(), pf.transfer());
+                long remote = session.size(pf.remoteDir(), pf.name());
+                long ms = System.currentTimeMillis() - started;
+                traced = drainTrace(session, traced, line);
+                if (remote != local.length()) {
+                    // The one check that separates a delivery from a file that merely exists: the
+                    // server creates the destination on accepting STOR, before a byte crosses, so a
+                    // failed transfer leaves a plausible empty file behind.
+                    throw new java.io.IOException("ftpsend: " + pf.name() + " verification failed - local "
+                            + local.length() + " bytes, remote SIZE " + remote);
+                }
+                filesSent++;
+                bytesSent += written;
+                line.accept("sent file=" + pf.name() + " bytes=" + written + " remoteBytes=" + remote
+                        + " transfer=" + pf.transfer() + " order=" + pf.order() + " ms=" + ms);
+                if (!renameSent.isEmpty()) {
+                    java.io.File to = new java.io.File(dir, pf.name() + renameSent);
+                    if (local.renameTo(to)) line.accept("renamed file=" + pf.name() + " to=" + to.getName());
+                    else line.accept("WARNING: could not rename " + pf.name() + " after sending it");
+                }
+            }
+        } catch (Exception e) {
+            firstFailure = String.valueOf(e.getMessage());
+            if (session != null) drainTrace(session, traced, line);
+            line.accept("ftpsend: FAILED after " + filesSent + " of " + plan.fileCount()
+                    + " files - nothing after this point was attempted");
+            line.accept("ftpsend: " + firstFailure);
+            // Not "== 0 ? 1 : keep": Result.exitCode starts at -1, so that test is false on the
+            // very first failure and the normalisation at the end of the method would then turn -1
+            // into 0 and report a failed delivery as a successful one. Found by the executor tests.
+            if (res.exitCode == -1 || res.exitCode == 0) res.exitCode = 1;
+            res.lastLines = firstFailure;
+        } finally {
+            if (session != null) try { session.close(); } catch (Exception ignored) { }
+        }
+
+        line.accept("ftpsend: invariant filesMatched=" + plan.fileCount() + " filesSent=" + filesSent
+                + (filesSent == plan.fileCount() ? " OK" : " NOT MET"));
+        res.outVars.put("filesMatched", String.valueOf(plan.fileCount()));
+        res.outVars.put("filesSent", String.valueOf(filesSent));
+        res.outVars.put("bytesSent", String.valueOf(bytesSent));
+        res.outVars.put("masksEvaluated", String.valueOf(plan.masksEvaluated()));
+        res.outVars.put("firstFailure", firstFailure);
+        if (res.exitCode == -1) res.exitCode = 0;
+    }
+
+    /** Copies the new lines of the session trace into the step log, in order, without repeating. */
+    private static int drainTrace(com.legalarchive.orchestrator.ftps.FtpsSession session, int from,
+                                  java.util.function.Consumer<String> line) {
+        java.util.List<String> t = session.trace();
+        for (int i = from; i < t.size(); i++) line.accept("ftp " + t.get(i));
+        return t.size();
     }
 
     // -------------------------------------------------------------- csvsql

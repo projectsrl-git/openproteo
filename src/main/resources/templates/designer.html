@@ -218,6 +218,9 @@
     var DATASOURCES = [];
     fetch(CTX + 'api/datasources').then(readJson).then(function(d){ DATASOURCES = d || []; renderNodes(); }).catch(function(e){ console.warn('datasources load failed:', e && e.message); });
 
+    var FTPTARGETS = [];
+    fetch(CTX + 'api/ftp-targets').then(readJson).then(function(d){ FTPTARGETS = d || []; renderNodes(); }).catch(function(e){ console.warn('ftp targets load failed:', e && e.message); });
+
     var MASK_POOLS = [];
     fetch(CTX + 'api/mask/pools/files').then(readJson).then(function(d){
         MASK_POOLS = (d && d.files ? d.files : []).map(function(f){ return f.name; });
@@ -506,6 +509,19 @@
     function delRepl(i, ri) { wf.nodes[i].replacements.splice(ri, 1); renderNodes(); preview(); }
     function updRepl(i, ri, f, v) { wf.nodes[i].replacements[ri][f] = v; preview(); }
     function updReplCols(i, ri, v) { wf.nodes[i].replacements[ri].columns = v.split(',').map(function (x) { return x.trim(); }).filter(function (x) { return x; }); preview(); }
+    // ftpsend: the ordered mask list. Every one of these redraws through renderNodes(), and the
+    // reorder pair is the first of its kind in a step panel - a row that moved without the panel
+    // redrawing would leave the operator editing the mask that used to be there.
+    function addSend(i) { var n = wf.nodes[i]; n.sends = n.sends || []; n.sends.push({ pattern: '', transfer: 'BINARY', remoteDir: '', optional: false, enabled: true }); renderNodes(); }
+    function delSend(i, si) { wf.nodes[i].sends.splice(si, 1); renderNodes(); preview(); }
+    function updSend(i, si, f, v) { wf.nodes[i].sends[si][f] = v; preview(); }
+    function moveSend(i, si, d) {
+        var a = wf.nodes[i].sends || [];
+        var j = si + d;
+        if (j < 0 || j >= a.length) return;
+        var t = a[si]; a[si] = a[j]; a[j] = t;
+        renderNodes(); preview();
+    }
     function addInput(i) { var n = wf.nodes[i]; n.inputs = n.inputs || []; n.inputs.push({ csv: '', table: '' }); renderNodes(); }
     function delInput(i, ii) { wf.nodes[i].inputs.splice(ii, 1); renderNodes(); preview(); }
     function updInput(i, ii, f, v) { wf.nodes[i].inputs[ii][f] = v; preview(); }
@@ -938,6 +954,7 @@
                     '<option value="elarcheck"' + (ex === 'elarcheck' ? ' selected' : '') + '>elarcheck (ELAR \u2014 validate delivered INDX, read-only)</option>' +
                     '<option value="tiffcompress"' + (ex === 'tiffcompress' ? ' selected' : '') + '>tiffcompress (TIFF \u2014 scan a directory for compression, read-only)</option>' +
                     '<option value="json2csv"' + (ex === 'json2csv' ? ' selected' : '') + '>json2csv (JSON files \u2192 one flat CSV, one file per row)</option>' +
+                    '<option value="ftpsend"' + (ex === 'ftpsend' ? ' selected' : '') + '>ftpsend (deliver files to an FTPS server)</option>' +
                     '</select></div>';
                 h += '<div class="field wide"><label>Script / executable (relative to scripts dir or absolute)' + (isExternal(ex) ? ' *' : '') + '</label>' +
                     '<input value="' + attresc(n.script) + '" placeholder="' + (isExternal(ex) ? 'Prepare-Feed.ps1 | tool.bat | app.jar' : '(not used for this executor)') + '" oninput="updNode(' + i + ',\'script\',this.value)"' + (isExternal(ex) ? '' : ' disabled') + '></div>' +
@@ -1455,6 +1472,61 @@
                     h += '<div class="dim small" style="margin-top:6px"><b>Read-only by construction</b> &mdash; no write API exists anywhere in the package and a build scan asserts it, which is what makes this safe against a live delivery folder. It never repairs: repair stays in the PowerShell scripts, run as ordinary <code>powershell</code> steps in the same workflow.</div>';
                     h += '<div class="dim small" style="margin-top:4px">Each file gets <b>OK</b>, <b>CORRUPTED</b> or <b>MALFORMED</b>, which is the decision the operator needs: send, or regenerate. <b>CORRUPTED</b> is the one that matters &mdash; well-formed but wrong, so ELAR <i>accepts</i> it and archives a wrong value with nothing downstream to flag it. A file that is both is reported MALFORMED, since it has to be regenerated either way.</div>';
                     h += '<div class="dim small" style="margin-top:4px">Writes <code>elarcheck_findings.tsv</code> into the <b>step</b> directory, never into the inspected one, published as <b>${findingsFile}</b>. <b>No field value appears in it or in any log line</b>: findings carry element names, positions and counts only. Counters: <b>${filesScanned}</b>, <b>${filesWellFormed}</b>, <b>${filesRejectedLikely}</b>, <b>${filesCorrupted}</b>, <b>${documentsTotal}</b>, <b>${whitespaceAfterAngle}</b>, <b>${valueLineBreaks}</b>, <b>${markupLineBreaks}</b>, <b>${linesOverLimit}</b>, <b>${linesOverReceiverLimit}</b>, <b>${longestLine}</b>, <b>${tagsMissing}</b>, <b>${tagsDuplicate}</b>, <b>${tagsEmpty}</b>, <b>${nameAlreadyDelivered}</b>, <b>${pullMissing}</b>, <b>${pullUnreferenced}</b>, <b>${hashMismatches}</b>, <b>${findingsTotal}</b>.</div>';
+                } else if (ex === 'ftpsend') {
+                    var sends = n.sends || [];
+                    var tsel = '<select onchange="setNodeParam(' + i + ',\'target\',this.value); renderNodes()">' +
+                        '<option value="">-- choose a target --</option>';
+                    var tcur = nodeParam(n, 'target') || '';
+                    var tknown = false;
+                    FTPTARGETS.forEach(function (t) {
+                        if (t.id === tcur) tknown = true;
+                        tsel += '<option value="' + attresc(t.id) + '"' + (t.id === tcur ? ' selected' : '') + '>' +
+                            esc(t.id) + (t.host ? (' \u2014 ' + esc(t.host) + ':' + esc(String(t.port || ''))) : '') + '</option>';
+                    });
+                    // A target the server does not know is kept in the list rather than silently
+                    // dropped: the workflow says what it says, and an id that vanished from the
+                    // dropdown is exactly the thing an operator needs told.
+                    if (tcur && !tknown) tsel += '<option value="' + attresc(tcur) + '" selected>' + esc(tcur) + ' (not defined on this server)</option>';
+                    tsel += '</select>';
+
+                    h += '<div class="sub"><div class="sub-h">Destination</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>FTPS target *</label>' + tsel + '</div>' +
+                        '<div class="field wide"><label>Source directory *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${feedDir}/40_PACKAGING" title="The files sent are the ones the masks below match in this directory. Nothing here is deleted; nothing is renamed unless you ask for it." oninput="updNode(' + i + ',\'source\',this.value)"></div>' +
+                        '<div class="field"><label>Remote directory</label><input value="' + attresc(nodeParam(n, 'remoteDir')) + '" placeholder="(login directory)" title="Empty means the directory the account lands in. A mask can override it for its own files." oninput="setNodeParam(' + i + ',\'remoteDir\',this.value)"></div></div>';
+                    h += '</div>';
+
+                    h += '<div class="sub"><div class="sub-h">Files to send, in order</div>';
+                    h += '<div class="dim small" style="margin-bottom:6px">The order of these rows <b>is</b> the send order. If the receiving system takes one file as the signal that the package is complete, put it last: a failure stops the step, and nothing after the failing row is attempted.</div>';
+                    if (!sends.length) {
+                        h += '<div class="dim small">No mask yet \u2014 the step would send nothing.</div>';
+                    }
+                    sends.forEach(function (sd, si) {
+                        h += '<div class="form-row">' +
+                            '<div class="field"><label>' + (si === 0 ? 'Mask *' : '') + '</label><input value="' + attresc(sd.pattern) + '" placeholder="*.tar" title="Wildcards * and ? only, matched on the file name. Case-insensitive. A mask names a file, never a path." oninput="updSend(' + i + ',' + si + ',\'pattern\',this.value)"></div>' +
+                            '<div class="field"><label>' + (si === 0 ? 'Transfer' : '') + '</label><select onchange="updSend(' + i + ',' + si + ',\'transfer\',this.value)">' +
+                            '<option value="BINARY"' + ((sd.transfer || 'BINARY') === 'BINARY' ? ' selected' : '') + '>BINARY</option>' +
+                            '<option value="ASCII"' + (sd.transfer === 'ASCII' ? ' selected' : '') + '>ASCII</option>' +
+                            '</select></div>' +
+                            '<div class="field"><label>' + (si === 0 ? 'Remote dir' : '') + '</label><input value="' + attresc(sd.remoteDir) + '" placeholder="(step default)" oninput="updSend(' + i + ',' + si + ',\'remoteDir\',this.value)"></div>' +
+                            '<div class="field"><label>' + (si === 0 ? 'Optional' : '') + '</label><input type="checkbox"' + (sd.optional ? ' checked' : '') + ' title="Off: a mask matching no file fails the step, because a delivery missing one of its parts is a broken delivery and the way it breaks is silently." onchange="updSend(' + i + ',' + si + ',\'optional\',this.checked)"></div>' +
+                            '<div class="field"><label>' + (si === 0 ? 'Enabled' : '') + '</label><input type="checkbox"' + (sd.enabled === false ? '' : ' checked') + ' title="A parked mask: kept in the list, not evaluated, never a reason to fail." onchange="updSend(' + i + ',' + si + ',\'enabled\',this.checked)"></div>' +
+                            '<div class="field"><label>' + (si === 0 ? 'Order' : '') + '</label>' +
+                            '<button class="mv" title="move up" onclick="moveSend(' + i + ',' + si + ',-1)">\u2191</button>' +
+                            '<button class="mv" title="move down" onclick="moveSend(' + i + ',' + si + ',1)">\u2193</button>' +
+                            '<button class="del" title="remove this mask" onclick="delSend(' + i + ',' + si + ')">\u2715</button>' +
+                            '</div></div>';
+                    });
+                    h += '<div><button class="add" onclick="addSend(' + i + ')">+ mask</button></div></div>';
+
+                    h += '<div class="sub"><div class="sub-h">Options</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Rename after sending</label><input value="' + attresc(nodeParam(n, 'renameSent')) + '" placeholder="(nothing is renamed)" title="A suffix added to the local file once its upload has been verified. Empty by default: a step that renamed by default would change what the next run of an existing feed sees." oninput="setNodeParam(' + i + ',\'renameSent\',this.value)"></div>' +
+                        '<div class="field wide"><label>SITE commands (one per line, sent after login)</label><input value="' + attresc(nodeParam(n, 'siteCommands')) + '" placeholder="(none)" title="For the UNIX target this stays empty. It is the z/OS dataset allocation that needs it, and that target is not built yet." oninput="setNodeParam(' + i + ',\'siteCommands\',this.value)"></div></div></div>';
+
+                    h += '<div class="dim small" style="margin-top:6px">Every upload is verified with <b>SIZE</b> against the local byte count and accepted <b>only on equality</b>. Not \"greater than zero\", which would reject a <code>.control</code> that legitimately weighs nothing; not absent, which would accept a 49 KB archive that arrived empty. A server creates the destination the moment it accepts <code>STOR</code>, so a remote file existing proves nothing.</div>';
+                    h += '<div class="dim small" style="margin-top:4px">The step never lists the remote directory: what it sends comes from the masks above. Outputs: <b>${filesMatched}</b>, <b>${filesSent}</b>, <b>${bytesSent}</b>, <b>${masksEvaluated}</b>, <b>${firstFailure}</b>. On a good run <b>${filesMatched}</b> equals <b>${filesSent}</b>, and the step log says so in as many words.</div>';
+                    h += '<div class="dim small" style="margin-top:4px"><b>ASCII is not implemented yet</b> and a step that uses it will fail rather than send the bytes unchanged \u2014 it is deferred with the z/OS target, along with SITE and dataset names.</div>';
                 } else if (ex === 'tiffcompress') {
                     var tcMode  = nodeParam(n, 'mode') || 'SCAN';
                     var tcOrder = nodeParam(n, 'scanOrder') || 'RESERVOIR';
@@ -1797,6 +1869,15 @@
                 (n.columns || []).forEach(function (c) {
                     if (c.src || c.as) inner.push('            <column src="' + xesc(c.src || '') + '" as="' + xesc(c.as || '') + '"/>');
                 });
+                (n.sends || []).forEach(function (sd) {
+                    if (!sd || !String(sd.pattern || '').trim()) return;
+                    var sx = '            <send pattern="' + xesc(sd.pattern) + '"';
+                    if (sd.transfer && sd.transfer !== 'BINARY') sx += ' transfer="' + xesc(sd.transfer) + '"';
+                    if (sd.remoteDir) sx += ' remoteDir="' + xesc(sd.remoteDir) + '"';
+                    if (sd.optional) sx += ' optional="true"';
+                    if (sd.enabled === false) sx += ' enabled="false"';
+                    inner.push(sx + '/>');
+                });
                 (n.reportQueries || []).forEach(function (rq) {
                     if (!rq || (!rq.sql && !rq.title)) return;
                     var q = '            <reportQuery';
@@ -1910,6 +1991,24 @@
                     // both are read with charAt(0), so a longer value would be truncated in silence
                     if (String(nodeParam(n, 'separator') || '').length > 1) errs.push(label + ' (' + n.id + '): the field separator must be a single character');
                     if (String(nodeParam(n, 'quoteChar') || '').length > 1) errs.push(label + ' (' + n.id + '): the quote character must be a single character, or empty to disable quoting');
+                }
+                if (ex === 'ftpsend') {
+                    if (!String(nodeParam(n, 'target') || '').trim()) errs.push(label + ' (' + n.id + '): ftpsend needs an FTPS target');
+                    if (!String(n.source || '').trim()) errs.push(label + ' (' + n.id + '): ftpsend needs the source directory holding the files to send');
+                    var fsends = n.sends || [];
+                    var fLive = fsends.filter(function (sd) { return sd && sd.enabled !== false && String(sd.pattern || '').trim(); });
+                    if (!fLive.length) errs.push(label + ' (' + n.id + '): ftpsend needs at least one enabled file mask, or the step would send nothing');
+                    var fseen = {};
+                    for (var fi = 0; fi < fsends.length; fi++) {
+                        var fm = String(fsends[fi].pattern || '').trim();
+                        if (!fm) { errs.push(label + ' (' + n.id + '): ftpsend has a row with no file mask'); continue; }
+                        // Same rule the matcher enforces, said here so it is caught while editing
+                        // rather than at the first run: a mask names a file, never a path.
+                        if (fm.indexOf('/') >= 0 || fm.indexOf('\\') >= 0) errs.push(label + ' (' + n.id + '): the file mask ' + fm + ' contains a path separator \u2014 a mask names a file, and subdirectories are never searched');
+                        if (fseen[fm.toLowerCase()]) errs.push(label + ' (' + n.id + '): the file mask ' + fm + ' appears twice \u2014 the second one can never match, because the first already claimed those files');
+                        fseen[fm.toLowerCase()] = 1;
+                        if (String(fsends[fi].transfer || 'BINARY') === 'ASCII') errs.push(label + ' (' + n.id + '): the file mask ' + fm + ' asks for ASCII, which is not implemented yet and is deferred with the z/OS target');
+                    }
                 }
                 if (ex === 'json2csv') {
                     if (!String(nodeParam(n, 'inputDir') || '').trim()) errs.push(label + ' (' + n.id + '): json2csv needs the directory holding the JSON files (inputDir)');

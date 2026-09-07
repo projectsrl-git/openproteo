@@ -86,12 +86,12 @@ public class WorkflowXmlParser {
                     s.name = el.hasAttribute("name") ? el.getAttribute("name") : s.id;
                     s.exec = trimToNull(el.getAttribute("exec"));
                     if (s.exec != null && !java.util.Arrays.asList(
-                            "auto", "powershell", "cmd", "jar", "sql", "ifscopy", "filecopy", "setvar", "validate", "csvreplace", "encoding", "anonymize", "mask", "split", "safecopy", "dequote", "csvsql", "xlsx2csv", "diff", "sqlreport", "elarxml", "elarcheck", "json2csv", "tiffcompress")
+                            "auto", "powershell", "cmd", "jar", "sql", "ifscopy", "filecopy", "setvar", "validate", "csvreplace", "encoding", "anonymize", "mask", "split", "safecopy", "dequote", "csvsql", "xlsx2csv", "diff", "sqlreport", "elarxml", "elarcheck", "json2csv", "tiffcompress", "ftpsend")
                             .contains(s.exec.toLowerCase())) {
-                        throw new IllegalArgumentException("Step '" + s.id + "': exec must be auto, powershell, cmd, jar, sql, ifscopy, filecopy, setvar, validate, csvreplace, encoding, anonymize, mask, split, safecopy, dequote, csvsql, xlsx2csv, diff, sqlreport, elarxml, elarcheck, json2csv or tiffcompress");
+                        throw new IllegalArgumentException("Step '" + s.id + "': exec must be auto, powershell, cmd, jar, sql, ifscopy, filecopy, setvar, validate, csvreplace, encoding, anonymize, mask, split, safecopy, dequote, csvsql, xlsx2csv, diff, sqlreport, elarxml, elarcheck, json2csv, tiffcompress or ftpsend");
                     }
                     String ik = s.exec == null ? null : s.exec.toLowerCase();
-                    boolean internal = "sql".equals(ik) || "ifscopy".equals(ik) || "filecopy".equals(ik) || "setvar".equals(ik) || "validate".equals(ik) || "csvreplace".equals(ik) || "encoding".equals(ik) || "anonymize".equals(ik) || "mask".equals(ik) || "split".equals(ik) || "safecopy".equals(ik) || "dequote".equals(ik) || "csvsql".equals(ik) || "xlsx2csv".equals(ik) || "diff".equals(ik) || "sqlreport".equals(ik) || "elarxml".equals(ik) || "elarcheck".equals(ik) || "json2csv".equals(ik) || "tiffcompress".equals(ik);
+                    boolean internal = "sql".equals(ik) || "ifscopy".equals(ik) || "filecopy".equals(ik) || "setvar".equals(ik) || "validate".equals(ik) || "csvreplace".equals(ik) || "encoding".equals(ik) || "anonymize".equals(ik) || "mask".equals(ik) || "split".equals(ik) || "safecopy".equals(ik) || "dequote".equals(ik) || "csvsql".equals(ik) || "xlsx2csv".equals(ik) || "diff".equals(ik) || "sqlreport".equals(ik) || "elarxml".equals(ik) || "elarcheck".equals(ik) || "json2csv".equals(ik) || "tiffcompress".equals(ik) || "ftpsend".equals(ik);
                     // script is required only for external (process) steps
                     s.script = internal ? trimToNull(el.getAttribute("script")) : req(el, "script", xmlFile);
                     // built-in step attributes
@@ -139,6 +139,19 @@ public class WorkflowXmlParser {
                         cs.mode = trimToNull(col.getAttribute("mode"));
                         cs.value = col.hasAttribute("value") ? col.getAttribute("value") : null;
                         s.columns.add(cs);
+                    }
+                    for (Element sd : directChildren(el, "send")) {
+                        // ftpsend. The order of these elements IS the send order, so they are read
+                        // in document order and never sorted or de-duplicated here: an operator who
+                        // puts the completion marker last must get it last.
+                        com.legalarchive.orchestrator.model.def.SendSpec sp =
+                                new com.legalarchive.orchestrator.model.def.SendSpec();
+                        sp.pattern = trimToNull(sd.getAttribute("pattern"));
+                        sp.transfer = trimToNull(sd.getAttribute("transfer"));
+                        sp.remoteDir = trimToNull(sd.getAttribute("remoteDir"));
+                        sp.optional = "true".equalsIgnoreCase(sd.getAttribute("optional"));
+                        sp.enabled = !"false".equalsIgnoreCase(sd.getAttribute("enabled"));
+                        s.sends.add(sp);
                     }
                     for (Element rqe : directChildren(el, "reportQuery")) {
                         // NOT <query>: that tag is the single-statement text of the 'sql' executor

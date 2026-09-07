@@ -1,85 +1,75 @@
-ftpsend batch 2: the transport, and a mechanism the spec had wrong
+ftpsend batch 3: the executor, its six registrations, the panel
 
-The FTPS client: explicit TLS on the control channel, passive data
-connections, binary STOR and SIZE. Six classes added to the ftps package, one
-specification correction, nothing else touched. Still no registration and no
-pom change, so the package remains unreachable from the running application
-until batch 3.
+The step becomes reachable. Six registration points, read at 1be571f and not
+remembered: WorkflowXmlParser lines 89, 91 and 94,
+WorkflowEngine.internalKind, the InternalSteps dispatch chain, and the
+designer dropdown. Plus the <send> parsing, SendSpec in the model,
+FtpTargetStore, the ftp-targets-file property, a read-only /api/ftp-targets,
+and the step panel.
 
-FtpsTransport and FtpsSession are the seam. FtpsTarget is the connection
-definition. TrustMode and SslContexts cover the four ways of judging a server
-certificate and the PKCS#12 client certificate. JdkFtpsClient is the client.
+The panel is the first reorderable list in a step panel: masks are added,
+deleted and moved with UP and DOWN, reusing the .mv buttons the node header
+already has. The order of the rows IS the send order, and the panel says so,
+because it is the only thing that decides whether the file announcing a
+package as complete goes last.
 
-The specification claimed data-channel session reuse could be had by wrapping
-the data socket while naming the control host and port, so that JSSE would
-find the control session in its cache. That was measured and it is false. The
-client cache follows the socket's real peer port, not the one handed to
-createSocket, so naming the control endpoint finds nothing and the client
-sends an empty session id. It was isolated in a bench differing from a working
-case only in the port actually connected to, and it fails the same way on Java
-8 and on Java 21. Section 6 now carries the wrong version struck through.
+Two defects were found by the tests rather than by review, and both would have
+been invisible in a code read.
 
-What works, and what is implemented, is the technique that paragraph
-dismissed: the control session is put into the client cache under the data
-endpoint's key before the data socket is wrapped, and the handshake resumes
-it. Measured to resume on Java 8, which is the production runtime. Where the
-internals are encapsulated the injection fails, the transfer proceeds with a
-fresh session, and the trace says which of the two happened - a delivery must
-not fail over what is, until a server refuses it, an optimisation.
+The first is the one that matters. StepExecutor.Result starts its exit code at
+-1, not 0, so the failure branch as first written - exitCode == 0 ? 1 : keep -
+left it at -1, and the normalisation at the end of the method turned that into
+0. A delivery that failed verification was reported as a successful step. The
+test that caught it is the one where the server reports a SIZE one byte short.
 
-The second prediction in section 14 is now measured rather than predicted. On
-Java 8 capped at TLSv1.2 the data channel resumes; with TLSv1.3 available it
-negotiates 1.3 and does not, because resumption there is ticket-based. maxTls
-is the lever, and that is what it is for.
+The second came from a mutation that returned green: treating directories as
+sendable files changed nothing, because no test directory had a subdirectory.
+A catch-all mask claiming a folder would have gone unnoticed until a real
+packaging directory happened to contain one. A case was added and the mutation
+now fails.
 
-One defect found by the tests rather than by review: the client handshaked the
-data channel when it opened the socket, before sending STOR. A server accepts
-the data connection only once it knows what it is for, so both sides waited
-for each other. The handshake now happens after the transfer command and its
-1xx.
-
-Two behaviours are refusals by design. ASCII mode raises instead of sending
-the bytes unchanged, because the files it would carry end their lines with LF
-and the protocol requires CRLF: sending them verbatim produces a file that
-arrives, reports the right size and is wrong. And a SIZE that the server
-cannot answer raises rather than assuming success, because a transfer that
-cannot be verified is not a transfer that succeeded.
+A third gap turned up on the panel side, also from a green mutation: buildXml
+sorting the masks instead of preserving their order produced identical XML,
+because the two masks in the test were already in alphabetical order. The rows
+are now put in a deliberately non-alphabetical order before the XML is
+checked.
 
 VERIFIED
-- Compiled with javac --release 8 and, separately, with the Java 8 compiler.
-- 82 core assertions and 50 transport assertions green on Java 8; 82 and 42 on
-  Java 21, the difference being the reuse assertions that only apply where the
-  injection is possible. Both runtimes were run because production is Java 8
-  and the sandbox default is not.
-- The transport tests drive a real FTPS conversation against a server written
-  for the purpose: AUTH TLS, the multiline 220 and 230, PBSZ, PROT P, TYPE,
-  CWD, PASV, STOR, SIZE, QUIT, over real TLS with certificates generated by
-  keytool, including PKCS#12 client-certificate authentication against a
-  server that demands it.
-- 12 transport mutations, 12 caught, after four came back green and were
-  investigated. Two of those four were malformed mutations that never applied.
-  The other two were real gaps: the refused-STOR test asserted only that
-  something was thrown, which also passed when the client ignored the 550 and
-  timed out later on a data connection nobody accepted; and nothing checked
-  the final 226 at all. Both tests now assert the reason, and the fake server
-  grew a mode where the data crosses and the server then rejects the transfer.
-- The UAT failure is reproduced as a test: a server that accepts STOR, creates
-  the destination and never accepts the data connection. The client raises,
-  and the test asserts the zero-byte shell is left behind - the thing that
-  looked like a successful delivery.
-- The 227 reply carrying 10.117.145.81 is a test case. The transfer succeeds
-  with the substitution on, fails with it off, and the discarded address
-  appears in the trace either way.
-- The password never reaches the trace; asserted, and the assertion fails when
-  the masking is removed.
+- 49 executor assertions green on Java 8, the production runtime, and on Java
+  21. They run runFtpSend itself: the method and its helpers are extracted
+  from InternalSteps.java by line range and diffed against the source, so what
+  is exercised is byte-identical to what ships, not a transcription. It is
+  driven against the FTPS server written for batch 2, with the five real file
+  names of 40_PACKAGING including the .control at zero bytes.
+- 11 executor mutations, 11 caught, after two came back green and were
+  investigated - one malformed, one a real gap.
+- 42 designer assertions green in jsdom, against the real template. Every
+  control is driven by dispatching an event on the rendered element, never by
+  writing to wf.nodes: a test that edited the model behind the panel could not
+  see a control that stopped redrawing, which is the defect this file exists
+  for. Add, delete, both reorder directions, the no-op at each edge, the
+  checkboxes, validation and the generated XML.
+- 12 designer mutations, 12 caught. Removing renderNodes from moveSend and
+  from delSend both fail on the panel assertion and not only the model one,
+  which is the point.
+- The Windows half of the mask path check now has a case of its own. It had
+  none: the forward-slash test passed either way, and a mutation dropping only
+  that half went unnoticed until the case was added.
+- Patch applied on a second clean clone at 1be571f, compared byte for byte,
+  and both suites re-run from the applied tree.
 
 NOT VERIFIED
-- trustMode=WINDOWS. The sandbox is Linux and has no Windows-ROOT store. The
-  code reports which provider it needs and the test asserts that message; that
-  the store then contains the issuing CA is an inference from the working
-  client never prompting, not a measurement.
-- Anything against the real servers. Session reuse was measured against a
-  server written here, which resumes when asked; whether the real ones require
-  it, and whether the passive range is open at all, is still section 2.
-- mvn clean package: Maven Central is unreachable from the sandbox.
-- ASCII, SITE and dataset names remain deferred with the z/OS target.
+- mvn clean package. Maven Central is unreachable from the sandbox, so the
+  full tree cannot be compiled: Spring, Jackson, POI, H2 and jt400 are absent.
+  What was compiled is the ftps package, model/def, AppProperties,
+  VarResolver, RunControl, StepExecutor and the extracted executor, against
+  minimal stubs for the four annotations and types they touch. The edits to
+  WorkflowXmlParser, WorkflowEngine and ApiController are therefore NOT
+  compiled anywhere: they are three small, mechanical changes, and they are
+  the risk this commit carries.
+- FtpTargetStore reads and writes JSON through Jackson, which is stubbed here.
+  Its map behaviour is exercised; the file round-trip is not.
+- Nothing has been sent to a real server, and the network path is still what
+  section 2 of the specification says it is.
+- The targets admin page and USAGE.md remain batch 4. Until then a target is
+  created by writing ftp-targets.json by hand.
