@@ -229,11 +229,23 @@ Three details that are the whole difficulty:
 
 * **The host from the `227` reply is discarded and the control host is used**, keeping only the
   port. §2 is the evidence; RFC 1123 permits it and every serious client does it.
-* **TLS session resumption on the data channel** is obtained by creating the data `SSLSocket` over
+* **TLS session resumption on the data channel.** ~~Obtained by creating the data `SSLSocket` over
   the connected plain socket while passing the **control** connection's host and port as the peer
   identity, so the JSSE session cache is consulted under the key it was populated with. No
   reflection into `sun.security.ssl`, which is the other published technique and which breaks
-  between JDKs.
+  between JDKs.~~ **Measured, and false.** The client session cache follows the socket's real peer
+  port, not the one handed to `createSocket`, so naming the control endpoint finds nothing and the
+  client offers an empty session id. Isolated in a bench that differs from a working case only in
+  the port actually connected to, and confirmed on Java 8 as well as Java 21. What does work, and
+  what is implemented, is the technique dismissed above: the control session is put into the client
+  cache under the **data** endpoint's key before the data socket is wrapped, and the handshake then
+  resumes it. Measured to resume on Java 8, the production runtime. On a JDK where the internals are
+  encapsulated the injection fails, the transfer proceeds with a fresh session, and the trace says
+  which of the two happened rather than the delivery failing over it.
+* **The data channel is handshaked after `STOR`, not when the socket is opened.** A server accepts
+  the data connection only once it knows what it is for, so a client that handshakes on connect
+  waits for a server hello that cannot arrive until it sends the command it is blocked from
+  sending. Found by the transport tests, which deadlocked in exactly that way.
 * **Replies are multiline until proven otherwise.** A reply line beginning `NNN-` continues until a
   line beginning `NNN` followed by a space. The z/OS log shows exactly this shape on the welcome
   banner and on the login. A parser that reads one line and moves on desynchronises on the second
@@ -364,10 +376,12 @@ Still open. None of them blocks batch 1 or batch 2:
   answer is `WINDOWS`, not `FILE`, and this is why the default changed in §5. Recorded rather than
   quietly fixed, because a prediction that reached the right conclusion from a wrong premise is the
   kind that gets trusted again next time.
-* **TLS 1.3 will make the session-resumption trick unreliable.** Resumption in 1.3 is ticket-based
-  and is not the session-ID mechanism the "reuse TLS session ID" option was built around. If the
-  data channel is refused while everything else works, capping `maxTls` at 1.2 is the first lever to
-  pull, and this prediction is the reason the field exists.
+* ~~**TLS 1.3 will make the session-resumption trick unreliable.**~~ **Confirmed, and now measured
+  rather than predicted.** On Java 8 with the window capped at TLSv1.2 the data channel resumes the
+  control session; with TLSv1.3 available it negotiates 1.3 and does not, because resumption there
+  is ticket-based and not the session-ID mechanism the "reuse TLS session ID" option was built
+  around. If the data channel is refused while everything else works, capping `maxTls` at
+  `TLSv1.2` is the first lever to pull, and that is what the field is for.
 
 ## 15. Deferred: the z/OS target
 

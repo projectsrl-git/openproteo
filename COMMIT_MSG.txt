@@ -1,84 +1,85 @@
-ftpsend batch 1: the core, exercised, with one defect found by its own tests
+ftpsend batch 2: the transport, and a mechanism the spec had wrong
 
-The ftps package: Spring-free, JDK-only, no network, nothing outside it
-touched. No registration and no pom change, so no existing feed can behave
-differently after this commit - the package is unreachable from the running
-application until batch 3 wires it up.
+The FTPS client: explicit TLS on the control channel, passive data
+connections, binary STOR and SIZE. Six classes added to the ftps package, one
+specification correction, nothing else touched. Still no registration and no
+pom change, so the package remains unreachable from the running application
+until batch 3.
 
-Eleven classes. Glob is the DOS/UNIX mask matcher. FtpReply, FtpReplyReader
-and FtpProtocolException are the reply layer. PasvReply parses the 227.
-SendMask, FileEntry, PlannedFile, SendPlan and PlanException are the ordered
-mask list and the plan it produces. TransferMode is TYPE I and TYPE A.
+FtpsTransport and FtpsSession are the seam. FtpsTarget is the connection
+definition. TrustMode and SslContexts cover the four ways of judging a server
+certificate and the PKCS#12 client certificate. JdkFtpsClient is the client.
 
-Glob does not translate the mask into a regular expression. A file mask
-carries a dot on essentially every use, and the masks configured in the tool
-in service carry '+' and '$' as literals (S211048_TRANSARCH_XF_TAR+$).
-Substituting into a regex and missing one escape turns *.tar into something
-that also accepts Xtar, which produces a delivery nobody notices is wrong. The
-matcher walks the pattern directly, backtracking on the last star, and rejects
-a mask containing a path separator rather than letting it silently never
-match.
+The specification claimed data-channel session reuse could be had by wrapping
+the data socket while naming the control host and port, so that JSSE would
+find the control session in its cache. That was measured and it is false. The
+client cache follows the socket's real peer port, not the one handed to
+createSocket, so naming the control endpoint finds nothing and the client
+sends an empty session id. It was isolated in a bench differing from a working
+case only in the port actually connected to, and it fails the same way on Java
+8 and on Java 21. Section 6 now carries the wrong version struck through.
 
-FtpReplyReader honours the multiline form. This is not theoretical: the z/OS
-session opens with a two-line 220 and logs in with 230- followed by 230. A
-reader that takes the first line and moves on leaves the rest of the banner in
-the buffer, reads it as the answer to the next command, and from there reports
-every error against the wrong command. Termination is same code then a space,
-so an intermediate line that itself begins with digits does not end the reply.
+What works, and what is implemented, is the technique that paragraph
+dismissed: the control session is put into the client cache under the data
+endpoint's key before the data socket is wrapped, and the handshake resumes
+it. Measured to resume on Java 8, which is the production runtime. Where the
+internals are encapsulated the injection fails, the transfer proceeds with a
+fresh session, and the trace says which of the two happened - a delivery must
+not fail over what is, until a server refuses it, an optimisation.
 
-SendPlan builds the whole plan before the first byte moves, which is what
-makes a required mask matching nothing fail before anything has been uploaded
-rather than halfway through a delivery, and what lets the step log the order
-the operator configured so they can check it beforehand. Masks in list order,
-files sorted by name within a mask, first match wins, disabled masks not
-evaluated.
+The second prediction in section 14 is now measured rather than predicted. On
+Java 8 capped at TLSv1.2 the data channel resumes; with TLSv1.3 available it
+negotiates 1.3 and does not, because resumption there is ticket-based. maxTls
+is the lever, and that is what it is for.
 
-The sort is explicit and that is the point: directory enumeration is name
-order on NTFS and hash order on ext4, so a plan inheriting the filesystem
-order would be right on the target and untestable anywhere else. The test
-builds the same directory twice, reversed, and requires the same plan.
+One defect found by the tests rather than by review: the client handshaked the
+data channel when it opened the socket, before sending STOR. A server accepts
+the data connection only once it knows what it is for, so both sides waited
+for each other. The handshake now happens after the transfer command and its
+1xx.
+
+Two behaviours are refusals by design. ASCII mode raises instead of sending
+the bytes unchanged, because the files it would carry end their lines with LF
+and the protocol requires CRLF: sending them verbatim produces a file that
+arrives, reports the right size and is wrong. And a SIZE that the server
+cannot answer raises rather than assuming success, because a transfer that
+cannot be verified is not a transfer that succeeded.
 
 VERIFIED
-- Compiled with javac --release 8, which checks the API surface and not only
-  the class file version. No warnings other than the obsolete-source notice.
-- 82 assertions, all green, run against the compiled classes. They use the
-  real artefacts rather than invented ones: the two 227 replies from the z/OS
-  log, the 10.117.145.81 address from the UAT failure, the z/OS 220 and 230
-  banners and the BLOCKSIZE multiline 200, and the five real file names of
-  40_PACKAGING including the .control at zero bytes.
-- 15 mutations, 15 caught. Case sensitivity, '?' arity, star backtracking, the
-  path-separator guard, multiline reading, reply termination, the 256 in the
-  port arithmetic, the sort, first-match-wins, the required-mask failure, the
-  disabled-mask skip, per-mask remote directory, and one-based ordering were
-  each broken in turn and each broke at least one assertion.
-
-Two things the tests found rather than confirmed, both recorded because the
-point of a positive control is that it sometimes fires.
-
-First, a defect in PasvReply, red on the first run. On rejecting a number over
-255 the scan resumed one character in, so a rejected 999 was re-read as an
-accepted 99 and the reply parsed into a plausible, wrong port. It now resumes
-past the whole number that started the failed attempt.
-
-Second, one mutation came back green: removing the guard that stops a digit
-run once it exceeds 255. Investigated rather than filed, and it was a real
-gap, not a useless mutation. The outer check catches 999 after the fact, which
-is why the suite stayed green, but it cannot catch a run long enough to
-overflow the accumulator: 4294967297 wraps to 1 and is accepted as an ordinary
-address byte. Two cases were added, the mutation now fails, and the guard is
-load-bearing.
-
-One harness weakness was fixed on the way. The disabled-mask mutation aborted
-the run with an uncaught exception, so the remaining assertions never ran and
-the reported coverage was higher than the real one. Each group now records an
-abort as a failure instead of stopping.
+- Compiled with javac --release 8 and, separately, with the Java 8 compiler.
+- 82 core assertions and 50 transport assertions green on Java 8; 82 and 42 on
+  Java 21, the difference being the reuse assertions that only apply where the
+  injection is possible. Both runtimes were run because production is Java 8
+  and the sandbox default is not.
+- The transport tests drive a real FTPS conversation against a server written
+  for the purpose: AUTH TLS, the multiline 220 and 230, PBSZ, PROT P, TYPE,
+  CWD, PASV, STOR, SIZE, QUIT, over real TLS with certificates generated by
+  keytool, including PKCS#12 client-certificate authentication against a
+  server that demands it.
+- 12 transport mutations, 12 caught, after four came back green and were
+  investigated. Two of those four were malformed mutations that never applied.
+  The other two were real gaps: the refused-STOR test asserted only that
+  something was thrown, which also passed when the client ignored the 550 and
+  timed out later on a data connection nobody accepted; and nothing checked
+  the final 226 at all. Both tests now assert the reason, and the fake server
+  grew a mode where the data crosses and the server then rejects the transfer.
+- The UAT failure is reproduced as a test: a server that accepts STOR, creates
+  the destination and never accepts the data connection. The client raises,
+  and the test asserts the zero-byte shell is left behind - the thing that
+  looked like a successful delivery.
+- The 227 reply carrying 10.117.145.81 is a test case. The transfer succeeds
+  with the substitution on, fails with it off, and the discarded address
+  appears in the trace either way.
+- The password never reaches the trace; asserted, and the assertion fails when
+  the masking is removed.
 
 NOT VERIFIED
-- mvn clean package. Maven Central is unreachable from the sandbox, so the
-  build was not run; only this package was compiled, and it references nothing
-  outside itself and java.io, java.util.
-- Nothing here touches a socket. Everything about TLS, session resumption,
-  trustMode=WINDOWS and the network path is batch 2 or later, and the network
-  path itself remains what section 2 of the specification says will fail.
-- ASCII mode is defined and carried through the plan, but the LF to CRLF
-  translation lives in the transport and is deferred with the z/OS target.
+- trustMode=WINDOWS. The sandbox is Linux and has no Windows-ROOT store. The
+  code reports which provider it needs and the test asserts that message; that
+  the store then contains the issuing CA is an inference from the working
+  client never prompting, not a measurement.
+- Anything against the real servers. Session reuse was measured against a
+  server written here, which resumes when asked; whether the real ones require
+  it, and whether the passive range is open at all, is still section 2.
+- mvn clean package: Maven Central is unreachable from the sandbox.
+- ASCII, SITE and dataset names remain deferred with the z/OS target.
