@@ -1,68 +1,68 @@
-Mask pools: international streets and cities, and the bare-name rule
+Mask address prefix: batch 2 specification, no implementation
 
-Batch 1 of two. Data plus the one line of registration that makes the data
-reachable; the "Via " prefix stays a constant and is batch 2.
+Spec at .claude/MASK_ADDRESS_PREFIX.md, self-contained. No code in this
+commit. Batch 1 (1b08084) shipped the international street and city pools;
+this decides how the hardcoded "Via " stops being hardcoded.
 
-New src/main/resources/maskdata/streets_international.txt (177 names) and
-cities_international.txt (513 cities), both spread over UK, US, DE, FR, ES,
-NL and CH. MaskPools.BUNDLED goes 15 -> 17.
+RECOMMENDATION: a step parameter, and it should carry a FORMAT TEMPLATE
+rather than a bare prefix. Default "Via {street} {number}".
 
-The two files alone would have done nothing visible. MaskPools.get() finds a
-bundled pool on the classpath, but ApiController.poolList() builds the
-catalogue from BUNDLED plus whatever sits in the external mask-pools-dir, so
-a file bundled in the WAR and absent from BUNDLED is missing from the
-designer dropdown on every installation without an external pools directory
-- which is the normal installation. That is why a data batch touches a .java.
-Nothing else was needed: designer.html already filters the Streets dropdown
-on "streets" and the Cities dropdown on "cities"/"caps".
+Four options were evaluated and two of the three rejections turned on a
+measurement rather than on taste.
 
-The street pool holds the NAME ONLY - streets_it.txt has Garibaldi, not Via
-Garibaldi - because MaskGenerators.address() writes "Via " + street + " " +
-num and the type word is a Java constant. The first line of each new file
-states that rule and the reason, so the next pool added does not arrive as
-"Oakwood Street" and produce "Via Oakwood Street 42" with nothing failing.
+A bare addressPrefix parameter is rejected on a reading of designer.html:499
+- setNodeParam DELETES a parameter when the value is empty and never creates
+  an empty one, so from the designer "present and empty" cannot be
+  expressed and "no prefix" is unreachable. That is the setting that cannot
+  take effect, refused three times before in this codebase. The escape hatch
+  would be a magic token. A bare prefix also cannot reach Oakwood Street,
+  Bahnhofstrasse or Damrak, because the constant sits in PREFIX position -
+  four of the seven provenances now in the pool file.
 
-UTF-8 without a BOM is correctness here, not style: get() skips a comment by
-testing the first character after String.trim(), and trim() does not remove
-U+FEFF. With a BOM the header line would be loaded as a masking value.
+Baking the type word into the pool VALUES is NOT rejected on byte-identity:
+measured, it reproduces the baseline digest exactly, since the pool keeps its
+length. It is rejected on the failure mode. The pools page exists so an
+operator can replace a pool, the documented format is the bare name, and a
+bare-name replacement would silently turn every address into "Botticelli 90"
+with no error and no counter. It also inverts the rule batch 1 wrote into
+both file headers one commit ago, and it ends the freedom to mix an Italian
+pool with a French prefix.
 
-USAGE.md said streets and cities were freely selectable it/international when
-they were not. Rewritten to what is delivered, plus a paragraph saying the
-prefix is fixed and the international pool therefore yields "Via Oakwood 42".
-CLAUDE.md's mask section was stale in the same way (BUNDLED 15, only the
-company pools listed as having a twin) and is corrected in place rather than
-appended, so it cannot conflict with another patch at the tail.
+A "#prefix=" directive in the pool header is rejected on the compatibility
+direction: a "#" line is by the format's own contract IGNORED, so a newer
+pool file read by an older build produces "Via Voltaire" silently, and
+external pool directories are shared across installations that are not
+upgraded together.
 
-VERIFIED
-- 754 assertions green, javac --release 8, against the real MaskEngine,
-  MaskPools and MaskGenerators. Raw-byte checks (no BOM, no CR anywhere,
-  strict UTF-8 decode, no blank lines, no trailing spaces, exactly one
-  comment line, no duplicates including case-insensitive), value counts read
-  back through the real MaskPools (177 and 513, comment skipped), an accented
-  city surviving the read, every BUNDLED entry present on disk, and the
-  dropdown prefix filter yielding 2 street files and 3 city files.
-- Positive control: the same suite fails 5 assertions against the tree before
-  the BUNDLED edit, so it is capable of finding something.
-- No-op proof, digests rather than assertions: the mask package compiled from
-  a clean clone of f437d43 and from the patched tree, both run over 3010
-  values with the DEFAULT Italian pools across address, city, fullName,
-  company and customerDescription. Identical SHA-256
-  dd104f43c4d6f5b3cf3bfab6742fd115d20335dfe72c1673fd822538746da036 and the
-  same sample "Via Petrarca 47". No existing feed changes output.
-- Measured rather than predicted: with streets_international selected,
-  address() returns "Via Hazelmere 67".
-- 14 jsdom assertions running docs.html's own render() over the real
-  USAGE.md: each new paragraph is a single <p>, backticks become <code>, no
-  raw Markdown leaks, and the wrapped-paragraph count goes 113 -> 111.
-- An assertion of mine was wrong rather than the code: I expected the wrap
-  count to drop by 3 and it dropped by 2, because the third source line ended
-  in a full stop and the checker keys on the line that ENDS. Corrected in the
-  harness with the reason recorded beside it.
+VERIFIED (9 assertions, javac --release 8, real MaskEngine/MaskPools/
+MaskGenerators, 2000 values per measurement)
+- Stream.nextInt(bound) rejection-samples ON THE BOUND. Windows: 16 of 2^32
+  at bound 60, 57 at 61, 46 at 250. After nextInt(60) and nextInt(61) on the
+  same seed the next byte was identical 2000/2000, so consumption is
+  bound-independent in practice but not by construction, and nothing
+  proposed here changes a bound.
+- A pool one entry longer moves the drawn index for 1962 of 2000 values. It
+  is the index that moves, not the stream position.
+- The recommended design renders SHA-256 284b372f7a589eb875c25faa9fd16a546
+  83045793a40e9a6cd8ad1cc59c76f8d at the default template, which is the
+  digest of the shipped address() over the same 2000 values. The stream is
+  then probed one byte further and matches 2000/2000 - a measurement of the
+  stream POSITION, not an argument about it.
+- Registration read rather than predicted: WorkflowXmlParser:175-176 and
+  WorkflowXmlWriter:204-207 handle every <param> generically, and
+  designer.html:444 does the same in buildXml. No parser, writer, DTO or
+  buildXml change is needed. This is the elarxml <param> case, not the
+  reportQuery new-element case.
+
+RECORDED BECAUSE IT WAS GOT WRONG ONCE
+The first run reported the two decisive measurements as FAILING. The harness
+was wrong, not the code: it seeded the stream with the raw value while
+MaskGenerators seeds it with norm(value), upper-cased under the default
+trimUpper. Taken at face value it would have argued against the recommended
+option on false evidence.
 
 NOT VERIFIED
-- mvn clean package. Maven Central is unreachable from the sandbox;
-  MaskPools.java was compiled standalone with --release 8, not against the
-  Spring tree. The build on the deploy machine is the only final proof.
-- The dropdown rendered in the UBS browser. The prefix filter was exercised
-  as logic, not as a rendering. designer.html is unchanged by this patch.
-- The pools page and any external mask-pools-dir override.
+- mvn clean package. Nothing in this commit is compiled into the WAR: the
+  only file added is a markdown spec.
+- The design itself. Five Gate 0 questions in section 6 are open and
+  implementation waits on them.
