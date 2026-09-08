@@ -1,178 +1,178 @@
-# International street names (UK/US/DE/FR/ES/NL/CH). NAME ONLY, no type prefix: no Street/Road/Rue/Strasse/Calle/Straat here, because the address strategy supplies the prefix itself and would otherwise write it twice. Same rule as streets_it.txt, which holds 'Garibaldi', not 'Via Garibaldi'.
-Abbey
-Ashfield
-Baker
-Beechwood
-Bramley
-Brookfield
-Cavendish
-Clarendon
-Coronation
-Cranbrook
-Elmwood
-Fairfield
-Grosvenor
-Hazelmere
-Highbury
-Kingsway
-Knightsbridge
-Ludgate
-Marlborough
-Pembroke
-Queensway
-Regent
-Shaftesbury
-Tavistock
-Wentworth
-Windsor
-Ashland
-Belmont
-Brookline
-Cedarcrest
-Chestnut
-Concord
-Cypress
-Dogwood
-Fairmount
-Franklin
-Hawthorne
-Hillcrest
-Jefferson
-Kensington
-Lakeshore
-Larchmont
-Lexington
-Madison
-Magnolia
-Meridian
-Oakwood
-Ridgeway
-Riverside
-Sycamore
-Waverly
-Woodbine
-Ahorn
-Amsel
-Bahnhof
-Beethoven
-Birken
-Brunnen
-Buchen
-Eichen
-Fasanen
-Garten
-Goethe
-Hafen
-Heide
-Kastanien
-Lerchen
-Lessing
-Linden
-Mozart
-Mühlen
-Nelken
-Rosen
-Schiller
-Sonnen
-Tannen
-Ulmen
-Wiesen
-Ziegel
-Beaumarchais
-Bellechasse
-Berthollet
-Chaptal
-Chateaubriand
-Clichy
-Courcelles
-Daubigny
-Delambre
-Fontenoy
-Lafayette
-Lamarck
-Marbeuf
-Molière
-Monceau
-Montaigne
-Montparnasse
-Rambuteau
-Rivoli
-Ronsard
-Sévigné
-Turenne
-Vaugirard
-Vavin
-Voltaire
-Alcalá
-Almagro
-Arenal
-Atocha
-Bailén
-Cervantes
-Colón
-Ferraz
-Fuencarral
-Goya
-Hortaleza
-Jorge Juan
-Lagasca
-Larios
-Mayor
-Núñez de Balboa
-Preciados
-Recoletos
-Serrano
-Sevilla
-Tetuán
-Valverde
-Velázquez
-Villanueva
-Zurbano
-Amstel
-Berken
-Bilderdijk
-Ceintuur
+# International street names (UK/US/DE/FR/ES/NL/CH), COMPLETE with the type word and in each country's own word order: 'Oakwood Street', 'Bahnhofstraße', 'Rue Voltaire', 'Calle Serrano'. The type word lives here and not in the code, which is what lets choosing this file choose the language too. A few Dutch names (Damrak, Rokin, Spui, Overtoom) are complete streets on their own and correctly carry no suffix. Do not replace this file with bare names.
+Abbey Street
+Ashfield Road
+Baker Avenue
+Beechwood Lane
+Bramley Way
+Brookfield Close
+Cavendish Drive
+Clarendon Gardens
+Coronation Street
+Cranbrook Road
+Elmwood Avenue
+Fairfield Lane
+Grosvenor Way
+Hazelmere Close
+Highbury Drive
+Kingsway Gardens
+Knightsbridge Street
+Ludgate Road
+Marlborough Avenue
+Pembroke Lane
+Queensway Way
+Regent Close
+Shaftesbury Drive
+Tavistock Gardens
+Wentworth Street
+Windsor Road
+Ashland Street
+Belmont Avenue
+Brookline Drive
+Cedarcrest Boulevard
+Chestnut Lane
+Concord Court
+Cypress Road
+Dogwood Terrace
+Fairmount Street
+Franklin Avenue
+Hawthorne Drive
+Hillcrest Boulevard
+Jefferson Lane
+Kensington Court
+Lakeshore Road
+Larchmont Terrace
+Lexington Street
+Madison Avenue
+Magnolia Drive
+Meridian Boulevard
+Oakwood Lane
+Ridgeway Court
+Riverside Road
+Sycamore Terrace
+Waverly Street
+Woodbine Avenue
+Ahornstraße
+Amselweg
+Bahnhofallee
+Beethovengasse
+Birkenstraße
+Brunnenweg
+Buchenallee
+Eichengasse
+Fasanenstraße
+Gartenweg
+Goetheallee
+Hafengasse
+Heidestraße
+Kastanienweg
+Lerchenallee
+Lessinggasse
+Lindenstraße
+Mozartweg
+Mühlenallee
+Nelkengasse
+Rosenstraße
+Schillerweg
+Sonnenallee
+Tannengasse
+Ulmenstraße
+Wiesenweg
+Ziegelallee
+Rue Beaumarchais
+Avenue Bellechasse
+Boulevard Berthollet
+Allée Chaptal
+Rue Chateaubriand
+Avenue Clichy
+Boulevard Courcelles
+Allée Daubigny
+Rue Delambre
+Avenue Fontenoy
+Boulevard Lafayette
+Allée Lamarck
+Rue Marbeuf
+Avenue Molière
+Boulevard Monceau
+Allée Montaigne
+Rue Montparnasse
+Avenue Rambuteau
+Boulevard Rivoli
+Allée Ronsard
+Rue Sévigné
+Avenue Turenne
+Boulevard Vaugirard
+Allée Vavin
+Rue Voltaire
+Calle Alcalá
+Avenida Almagro
+Paseo Arenal
+Ronda Atocha
+Calle Bailén
+Avenida Cervantes
+Paseo Colón
+Ronda Ferraz
+Calle Fuencarral
+Avenida Goya
+Paseo Hortaleza
+Ronda Jorge Juan
+Calle Lagasca
+Avenida Larios
+Paseo Mayor
+Ronda Núñez de Balboa
+Calle Preciados
+Avenida Recoletos
+Paseo Serrano
+Ronda Sevilla
+Calle Tetuán
+Avenida Valverde
+Paseo Velázquez
+Ronda Villanueva
+Calle Zurbano
+Amstelstraat
+Berkenlaan
+Bilderdijkgracht
+Ceintuurweg
 Damrak
-Esdoorn
-Hazelaar
-Heemskerck
-Huygens
-Jacob Obrecht
-Kalver
-Kruis
-Leidse
-Meidoorn
+Esdoornlaan
+Hazelaargracht
+Heemskerckweg
+Huygensstraat
+Jacob Obrechtlaan
+Kalvergracht
+Kruisweg
+Leidsestraat
+Meidoornlaan
 Overtoom
-Populieren
-Reguliers
-Rembrandt
+Populierenweg
+Reguliersstraat
+Rembrandtlaan
 Rokin
-Ruysdael
+Ruysdaelweg
 Spui
-Vondel
-Weesper
-Wilgen
-Aare
-Albis
-Bellerive
-Bellevue
-Bernina
-Dufour
-Escher
-Gotthard
-Helvetia
-Hirschen
-Jungfrau
-Limmat
-Löwen
-Matterhorn
-Pestalozzi
-Pilatus
-Reuss
-Rhein
-Rütli
-Säntis
-Sihl
-Tödi
-Uetliberg
-Zähringer
+Vondellaan
+Weespergracht
+Wilgenweg
+Aarestrasse
+Albisweg
+Bellerivegasse
+Bellevuestrasse
+Berninaweg
+Dufourgasse
+Escherstrasse
+Gotthardweg
+Helvetiagasse
+Hirschenstrasse
+Jungfrauweg
+Limmatgasse
+Löwenstrasse
+Matterhornweg
+Pestalozzigasse
+Pilatusstrasse
+Reussweg
+Rheingasse
+Rütlistrasse
+Säntisweg
+Sihlgasse
+Tödistrasse
+Uetlibergweg
+Zähringergasse

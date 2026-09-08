@@ -82,12 +82,17 @@ public final class MaskGenerators {
         return pick(pools.get(cityFile), s, value);
     }
 
-    /** plausible structure only (no CAP/city coherence by design): "Via <name> <number>". */
+    /** plausible structure only (no CAP/city coherence by design): "&lt;street&gt; &lt;number&gt;".
+     *  The type word (Via / Street / Strasse / Rue / Calle) is part of the POOL VALUE, not of this
+     *  code, so selecting a pool selects its language and its word order with it. The two draws
+     *  below are unchanged and in the same order, so the deterministic sequence — and therefore
+     *  every address ever produced — is identical to the version that held the constant here.
+     *  The empty-pool fallback carries the type word for the same reason. */
     public String address(String value, String group) {
         MaskEngine.Stream s = engine.stream(group, norm(value));
-        String street = pick(pools.get(streetFile), s, "Roma");
+        String street = pick(pools.get(streetFile), s, "Via Roma");
         int num = 1 + s.nextInt(250);
-        return "Via " + street + " " + num;
+        return street + " " + num;
     }
 
     public String company(String value, String group) {

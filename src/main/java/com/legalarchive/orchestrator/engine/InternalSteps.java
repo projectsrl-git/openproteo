@@ -3163,6 +3163,14 @@ public class InternalSteps {
         gen.companyColorsFile  = poolFile(params.get("companyColorsFile"),  gen.companyColorsFile);
         gen.companyActionsFile = poolFile(params.get("companyActionsFile"), gen.companyActionsFile);
         gen.companySuffixesFile = poolFile(params.get("companySuffixesFile"), gen.companySuffixesFile);
+        // The street pool carries its own type word (Via / Street / Strasse / Rue / Calle), so the
+        // file selected decides the language of every masked address. Nothing in a VALUE can tell
+        // us whether the type word is present, so state the pool in effect on EVERY run - including
+        // the default - instead of only when something looks unusual.
+        String[] streetPoolVals = pools.get(gen.streetFile);
+        line.accept("street pool: " + gen.streetFile + ", " + streetPoolVals.length + " values"
+                + (streetPoolVals.length > 0 ? ", e.g. \"" + streetPoolVals[0] + "\""
+                                             : " (EMPTY - addresses fall back to \"Via Roma\")"));
         set.accept("init", new String[]{"PASS", "deterministic RNG + pools ready (HMAC-SHA256); normalize=" + normMode
                 + "; localePercentIt=" + gen.localePercentIt + "; cidMode=" + gen.cidMode});
 

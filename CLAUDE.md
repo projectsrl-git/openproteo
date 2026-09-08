@@ -345,9 +345,13 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   company_animals/colors/actions/suffixes in *_it e *_international; cities e streets
   in *_it e *_international. Solo caps_it non ha coppia (e nessun generatore lo legge:
   e' selezionabile come pool Cities perche' la tendina filtra su ['cities','caps']).
-* streets_*.txt contengono il NOME NUDO ("Garibaldi", non "Via Garibaldi"): il tipo
-  di via e' il prefisso costante "Via " in MaskGenerators.address(), non un valore
-  della pool. Cambiare solo il file dati produce "Via Oakwood 42".
+* streets_*.txt contengono la VIA COMPLETA, parola di tipo inclusa ("Via Garibaldi",
+  "Oakwood Street", "Bahnhofstrasse", "Rue Voltaire"): dopo il batch del 2026-09-08 il
+  prefisso NON e' piu' cablato in MaskGenerators.address(), che aggiunge solo il civico.
+  Scegliere il file sceglie anche la lingua e l'ordine delle parole. Nessun parametro.
+  Nessun valore puo' dire all'executor se la parola di tipo c'e': sostituire una pool con
+  una lista di nomi nudi la toglie da ogni indirizzo in silenzio, quindi runMask logga
+  sempre la pool strade in uso con dimensione e primo valore. Spec .claude/MASK_ADDRESS_PREFIX.md.
 
 ## This batch (split / docs / UI)
 
