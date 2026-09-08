@@ -103,20 +103,31 @@
         document.getElementById('customFields').style.display = t==='custom'?'block':'none';
     }
 
+    /* The loaded connections, kept here so a row button can name one by INDEX.
+       Serialising the connection into the onclick attribute cannot survive real data: a test query
+       is normally a SQL statement and a SQL statement normally contains a string literal, so the
+       apostrophe ends the single-quoted attribute early and the button dies with a syntax error
+       nobody sees. The same defect was reported and fixed on the FTPS targets page. */
+    var DATASOURCES = [];
+
     function load(){
         fetch(CTX + 'api/datasources').then(function(r){return r.json();}).then(function(list){
+            DATASOURCES = list || [];
             var h='<div class="panel"><table><thead><tr><th>Id</th><th>Type</th><th>Host / URL</th><th>User</th><th style="width:160px"></th></tr></thead><tbody>';
-            (list||[]).forEach(function(d){
+            DATASOURCES.forEach(function(d, i){
                 h += '<tr><td class="mono"><span class="feed-id">'+esc(d.id)+'</span></td><td class="mono small">'+esc(d.type)+'</td>'+
                     '<td class="mono small dim">'+esc(d.type==='custom'?d.jdbcUrl:d.host)+'</td><td class="small dim">'+esc(d.user)+'</td>'+
-                    '<td><button class="btn sm" onclick=\'edit('+JSON.stringify(d)+')\'>Edit</button> '+
-                    '<button class="btn sm danger" onclick="del(\''+esc(d.id)+'\')">Delete</button></td></tr>';
+                    '<td><button class="btn sm" onclick="editAt('+i+')">Edit</button> '+
+                    '<button class="btn sm danger" onclick="delAt('+i+')">Delete</button></td></tr>';
             });
-            if(!list || !list.length) h += '<tr><td colspan="5" class="dim">No connections yet.</td></tr>';
+            if(!DATASOURCES.length) h += '<tr><td colspan="5" class="dim">No connections yet.</td></tr>';
             h += '</tbody></table></div>';
             document.getElementById('list').innerHTML=h;
         });
     }
+
+    function editAt(i){ if (DATASOURCES[i]) edit(DATASOURCES[i]); }
+    function delAt(i){ if (DATASOURCES[i]) del(DATASOURCES[i].id); }
 
     function newDs(){
         ['d_id','d_name','d_host','d_user','d_password','d_properties','d_jdbcUrl','d_driverClass','d_user2','d_password2','d_testQuery'].forEach(function(id){document.getElementById(id).value='';});

@@ -1,51 +1,30 @@
-FTPS targets page: Edit could not be clicked, for two separate reasons
+Data sources: the same dead Edit button, found before it was reported
 
-Reported from the page in use: the Edit button does nothing. Two independent
-defects, either of which is enough on its own.
+The FTPS targets page had its row buttons serialise the whole record into the
+onclick attribute, and an apostrophe in a path killed them. That commit noted
+this page carries the same pattern and left it alone because nobody had hit
+it. Fixing it now, and it is not hypothetical: the field most likely to carry
+an apostrophe here is the test query, because a SQL statement normally
+contains a string literal.
 
-The row buttons carried the whole target serialised into their onclick
-attribute, which is how the datasources page does it and which cannot survive
-real data. A certificate path under a folder called "Singh, Jastej's files"
-contains an apostrophe; JSON.stringify does not escape it; the single-quoted
-attribute ends early and the browser reports a syntax error nobody sees. The
-buttons now name a target by INDEX into the loaded list, which has no quoting
-problem at all.
-
-And the table had grown to five columns - id, host, user, certificate, actions
-- in a pane that is half the page. The actions column was pushed out of view,
-so even a working button could not be reached. The certificate file name now
-sits under the host, where it costs no width, and the table is back to the
-four columns the datasources page uses.
+Both row buttons now name a connection by INDEX into the loaded list. Nothing
+else changes: same columns, same handlers, same endpoints.
 
 VERIFIED
-- The apostrophe defect is reproduced and then fixed: with the real path in
-  the fixture, clicking Edit raised "Invalid or unexpected token" and left the
-  form empty; it now fills the form.
-- 72 page assertions green, up from 60. The fixture carries the path that
-  broke it - apostrophe, comma and backslashes - and a SECOND target, so a
-  button that resolved to index 0 opens the wrong one.
-- Every row button is asserted to match editAt(n) or delAt(n) exactly: no row
-  button may carry data in an attribute again.
-- The row is asserted to have four cells and the last one to hold both
-  buttons. That is as close as this harness gets to the layout: jsdom does not
-  lay out, so the column count stands in for the clipping and the clipping
-  itself is not verified here.
-- 6 page mutations, 6 caught, after three came back green and were
-  investigated. All three were the same gap and it is the third time in this
-  feature: the fixture had nothing to lose. One target meant an index-ignoring
-  Edit still opened the right one; deleting only the first row meant the same
-  for Delete; and a header-only fifth column left the cell count unchanged.
-  The fixture now has two targets, the delete assertion moved to the second,
-  and the mutation adds a cell rather than a heading.
+- The defect is reproduced first, against the page as it was: with a test
+  query reading SELECT 1 FROM SYSIBM.SYSDUMMY1 WHERE 'a' = 'a', clicking Edit
+  raises "Invalid or unexpected token" and leaves the form empty. 8 of 16
+  assertions fail. After the change all 16 pass.
+- The fixture carries two connections, not one, so a button resolving to index
+  0 would open or delete the wrong record: the second row is the one edited
+  and the one deleted. The lesson is now three pages old - an assertion proves
+  nothing about an index when there is only one thing to index.
+- Every row button is asserted to match editAt(n) or delAt(n) exactly.
+- 5 mutations, 5 caught: each of editAt and delAt ignoring its index, delAt
+  not resolving the id, the list not being kept, and the payload put back into
+  the attribute.
 
 NOT VERIFIED
-- The layout itself. That the four columns now fit the pane in a real browser
-  is the one claim here resting on the shape of the page rather than on a
-  test.
-- mvn clean package, unchanged.
-
-The datasources page has the same attribute-serialising pattern and the same
-latent defect: a connection whose name or host carried an apostrophe would
-kill its Edit button in exactly this way. It is untouched here because nobody
-has reported it, and it is written down so that it is a decision rather than
-an oversight.
+- mvn clean package, unchanged. This commit touches one template and no Java.
+- Whether any connection in use actually carries an apostrophe today. The fix
+  does not depend on it.
