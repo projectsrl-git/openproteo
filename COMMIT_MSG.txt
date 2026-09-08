@@ -1,68 +1,65 @@
-Mask address prefix: batch 2 specification, no implementation
+Mask address prefix: Gate 0 answered, option B chosen, still no code
 
-Spec at .claude/MASK_ADDRESS_PREFIX.md, self-contained. No code in this
-commit. Batch 1 (1b08084) shipped the international street and city pools;
-this decides how the hardcoded "Via " stops being hardcoded.
+Revision A of .claude/MASK_ADDRESS_PREFIX.md. The recommendation in that
+spec was NOT adopted: the type word goes into the pool values and there is
+no new parameter at all, as the original executor behaved. The author picks
+a street file from the existing dropdown and decides nothing else.
 
-RECOMMENDATION: a step parameter, and it should carry a FORMAT TEMPLATE
-rather than a bare prefix. Default "Via {street} {number}".
+The rejected analysis is left standing with strikethrough rather than
+rewritten. Sections 4 and 5 are marked superseded and section 10 carries the
+decision; a decision only reads as one beside what it overruled.
 
-Four options were evaluated and two of the three rejections turned on a
-measurement rather than on taste.
+Gate 0: 1 no parameter, no template; 2 and 3 moot; 4 the international pool
+is UNUSABLE until this ships, so batch 2 is what makes batch 1 useful; 5 per
+step, never per column.
 
-A bare addressPrefix parameter is rejected on a reading of designer.html:499
-- setNodeParam DELETES a parameter when the value is empty and never creates
-  an empty one, so from the designer "present and empty" cannot be
-  expressed and "no prefix" is unreachable. That is the setting that cannot
-  take effect, refused three times before in this codebase. The escape hatch
-  would be a magic token. A bare prefix also cannot reach Oakwood Street,
-  Bahnhofstrasse or Damrak, because the constant sits in PREFIX position -
-  four of the seven provenances now in the pool file.
+Recorded in B's favour, because the earlier analysis undersold it: the
+prefix-position objection that ruled out a bare parameter DISAPPEARS under
+B. The word order lives in the value, so choosing the file chooses the order
+too - which a template could only reach by having someone type the right one
+per feed.
 
-Baking the type word into the pool VALUES is NOT rejected on byte-identity:
-measured, it reproduces the baseline digest exactly, since the pool keeps its
-length. It is rejected on the failure mode. The pools page exists so an
-operator can replace a pool, the documented format is the bare name, and a
-bare-name replacement would silently turn every address into "Botticelli 90"
-with no error and no counter. It also inverts the rule batch 1 wrote into
-both file headers one commit ago, and it ends the freedom to mix an Italian
-pool with a French prefix.
+The objection against B is NOT withdrawn, and it cannot be validated away.
+Nothing in a value can tell the executor whether a type word is present:
+Damrak is a complete Dutch street name and Garibaldi is not a street name at
+all, and no rule separates them. A heuristic would fire on the legitimate
+Dutch entries and pass the broken Italian ones. The answer is visibility
+rather than a guard: the step log prints the street pool in effect with its
+size and first value, always, including at the default.
 
-A "#prefix=" directive in the pool header is rejected on the compatibility
-direction: a "#" line is by the format's own contract IGNORED, so a newer
-pool file read by an older build produces "Via Voltaire" silently, and
-external pool directories are shared across installations that are not
-upgraded together.
+TWO THINGS THE DECISION PULLS IN, BOTH FOUND BY READING
+- MaskGenerators:88 has "Roma" as the fallback for an EMPTY pool. With the
+  constant removed that path yields "Roma 47" instead of "Via Roma 47", so
+  the fallback becomes "Via Roma". One word, in a branch nothing normally
+  reaches, which is why it would have survived a review of the diff.
+- Byte-identity holds only if every one of the 60 lines of streets_it.txt
+  gains "Via ". One line missed changes that value's output for every
+  customer who draws it and nothing fails, so the migration is verified by
+  digest over the whole pool, never by reading the file.
 
-VERIFIED (9 assertions, javac --release 8, real MaskEngine/MaskPools/
-MaskGenerators, 2000 values per measurement)
-- Stream.nextInt(bound) rejection-samples ON THE BOUND. Windows: 16 of 2^32
-  at bound 60, 57 at 61, 46 at 250. After nextInt(60) and nextInt(61) on the
-  same seed the next byte was identical 2000/2000, so consumption is
-  bound-independent in practice but not by construction, and nothing
-  proposed here changes a bound.
-- A pool one entry longer moves the drawn index for 1962 of 2000 values. It
-  is the index that moves, not the stream position.
-- The recommended design renders SHA-256 284b372f7a589eb875c25faa9fd16a546
-  83045793a40e9a6cd8ad1cc59c76f8d at the default template, which is the
-  digest of the shipped address() over the same 2000 values. The stream is
-  then probed one byte further and matches 2000/2000 - a measurement of the
-  stream POSITION, not an argument about it.
-- Registration read rather than predicted: WorkflowXmlParser:175-176 and
-  WorkflowXmlWriter:204-207 handle every <param> generically, and
-  designer.html:444 does the same in buildXml. No parser, writer, DTO or
-  buildXml change is needed. This is the elarxml <param> case, not the
-  reportQuery new-element case.
+Batch 1's own artefacts invert one commit later: both file headers, the
+USAGE.md paragraph and the CLAUDE.md lines it added. That is part of the
+change, not decoration - the stale-text defect on record was a feature
+landing while the prose still described the old behaviour.
 
-RECORDED BECAUSE IT WAS GOT WRONG ONCE
-The first run reported the two decisive measurements as FAILING. The harness
-was wrong, not the code: it seeded the stream with the raw value while
-MaskGenerators seeds it with norm(value), upper-cased under the default
-trimUpper. Taken at face value it would have argued against the recommended
-option on false evidence.
+VERIFIED
+- Charset checked rather than assumed: every character in all four pool
+  files is inside BOTH ISO-8859-1 and windows-1252, zero outside either. So
+  German strasse with an eszett (0xDF in both) can be used, and a masked
+  value still survives a Latin-1 sink downstream.
+- The measurements from the first revision stand unchanged; M4a is now the
+  load-bearing one rather than M3.
+
+OPEN, AND IT CANNOT WAIT (section 10.9)
+streets_international.txt is ONE file mixing seven countries, so a single
+delivery would carry Oakwood Street, Rue Voltaire and Bahnhofstrasse in the
+same column. The alternative is one file per country, so the dropdown
+selects a language as well as a set of names. Recommended: split. It must be
+decided BEFORE first use, because changing a pool moves the address of
+nearly every customer already delivered - 1962 of 2000 for a single added
+line - and answer 4 says the pool has never run, so this is the one moment
+the layout is free.
 
 NOT VERIFIED
-- mvn clean package. Nothing in this commit is compiled into the WAR: the
-  only file added is a markdown spec.
-- The design itself. Five Gate 0 questions in section 6 are open and
-  implementation waits on them.
+- mvn clean package. Nothing here is in the WAR: one markdown file changed.
+- The implementation, which is not in this commit.

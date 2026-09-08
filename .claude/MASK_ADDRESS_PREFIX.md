@@ -7,6 +7,12 @@ produce something other than `Via Oakwood 42`.
 
 Base: `1b08084`. Every number below was measured against that tree, not inferred.
 
+**Revision A (`3bc3baa`, Gate 0 answered): the recommendation below was NOT adopted.**
+Fabiano chose option B — the type word lives in the pool values and there is no new
+parameter at all. The original analysis is left standing with strikethrough rather than
+rewritten, because the decision only reads as a decision beside what it overruled.
+**Read section 10 first; sections 4 and 5 are superseded by it.**
+
 ---
 
 ## 1. What is true today
@@ -115,7 +121,7 @@ position, so A1 buys `Rue`, `Calle`, `Strasse` and buys nothing at all for `Oakw
 `Bahnhofstrasse` or `Damrak`. That is UK, US, DE and NL — four of the seven provenances now
 in the file.
 
-### A2 — a format template, `addressFormat` — **RECOMMENDED**
+### ~~A2 — a format template, `addressFormat` — RECOMMENDED~~ NOT ADOPTED (see §10)
 
 Default `Via {street} {number}`. Two placeholders, everything else literal.
 
@@ -143,7 +149,7 @@ refusing a bad template at step start rather than by rendering it.
 Byte-identical at the default (M4a), and it puts the word order inside the data, which is
 genuinely attractive for a file spanning seven countries.
 
-**Rejected on the failure mode.** The pools page exists so an operator can replace a pool
+~~**Rejected on the failure mode.**~~ **CHOSEN — see §10.** The objection stands and is not withdrawn; it is answered in §10.3 with visibility rather than with a guard. The pools page exists so an operator can replace a pool
 without a rebuild, and the format they will replace it with is the one documented — which
 until yesterday, and in every other pool file, is the bare name. Upload a bare-name list and
 every address silently becomes `Botticelli 90`: no error, no counter, a masked dataset that
@@ -169,7 +175,9 @@ upgraded together, so this is a live shape, not a hypothetical one. It also inhe
 loss of mixability, and it gives `#` a second meaning in a file whose only rule today is
 "`#` means nothing".
 
-## 5. The recommended design in detail
+## 5. ~~The recommended design in detail~~ SUPERSEDED by section 10
+
+Kept for the record. None of it is implemented.
 
 ### Parameter
 
@@ -275,3 +283,129 @@ wrong, not the code: it seeded the stream with the raw input value while `MaskGe
 seeds it with `norm(value)`, which under the default `trimUpper` is upper-cased. Two
 digests that disagree because the probe and the product disagree about the seed would, taken
 at face value, have argued against the recommended option on false evidence.
+
+---
+
+# 10. Revision A — the decision, and what it actually costs
+
+Base `3bc3baa`. Gate 0 is closed. Sections 4 and 5 above are superseded by this one.
+
+## 10.1 The answers
+
+| # | Question | Answer |
+|---|---|---|
+| 1 | Free text or a preset dropdown for the template? | **Neither.** No parameter, no template, nothing for the author to decide. The full street — `Oakwood Street`, `Bahnhofstraße`, `Rue Voltaire`, `Via Garibaldi` — lives in the pool file, exactly as the original executor behaved. The only choice is the street-file dropdown, which already exists. |
+| 2 | Unknown `{placeholder}`: fail or emit literally? | Moot. There are no placeholders. |
+| 3 | Is `{number}` optional? | Moot. |
+| 4 | Is `Via Oakwood 42` acceptable meanwhile? | **No** — the international street pool is unusable until this ships. Batch 2 is what makes batch 1 useful, not an improvement on it. |
+| 5 | Per column or per step? | **Per step, absolutely.** No per-column syntax, now or later. |
+
+So: **option B**, and the change to the code is the removal of one constant.
+
+## 10.2 One argument for B that section 4 undersold
+
+Section 4 rejected A1 partly because the constant sits in *prefix* position and therefore
+cannot produce `Oakwood Street` or `Bahnhofstraße`. Under B that objection **disappears
+entirely**: the word order is inside the value, so choosing the file chooses the order too.
+A2 could only reach the same place by having someone type the right template per feed — a
+decision B removes rather than answers. For a pool that is per-country, the type word
+genuinely belongs to the data.
+
+## 10.3 The failure mode stands, and it cannot be validated away
+
+The objection in §4B is not withdrawn: the Pool files page lets an operator replace a pool
+without a rebuild, and a bare-name replacement turns every address into `Botticelli 90` with
+no error and no counter (measured, M4b).
+
+**Nothing in a value can tell the executor whether a type word is present.** `Damrak` is a
+complete Dutch street name and `Garibaldi` is not a street name at all, and no rule
+separates them. A heuristic here would be worse than nothing — it would fire on the
+legitimate Dutch entries and pass the broken Italian ones.
+
+So the answer is **visibility, not a guard**, and it is stated as such:
+
+* The step log prints the street pool in effect on every run — its file name, its size and
+  the first value, e.g. `street pool: streets_it.txt, 60 values, e.g. "Via Garibaldi"`.
+  Printed **always**, including at the default, because a line that only appears when
+  something is unusual trains people not to look for it (`ElarCounters` rule).
+* Both file headers and `USAGE.md` state that the value is the complete street.
+
+An operator who replaces the pool badly still gets a wrong dataset. They get one line in the
+log that says what shape is in effect, which is the most this design can offer without
+inventing a rule that does not exist.
+
+## 10.4 Byte-identity: what has to be true
+
+Measured (M4a): baking the type word into every value reproduces the baseline digest
+exactly, because `pool.length` is unchanged and the index mapping with it.
+
+That holds **only if every one of the 60 lines of `streets_it.txt` gains `Via `**. One line
+missed changes that value's output for every customer who draws it, and nothing fails. The
+migration is therefore verified by digest over the whole pool — the no-op proof of batch 1,
+re-run — and never by reading the file.
+
+## 10.5 A second line has to change, found by reading rather than predicted
+
+`MaskGenerators:88`:
+
+```java
+String street = pick(pools.get(streetFile), s, "Roma");
+```
+
+`"Roma"` is the fallback used when the pool is **empty** — a missing or unreadable file.
+With the constant removed, that path yields `Roma 47` instead of today's `Via Roma 47`. The
+fallback must become `"Via Roma"`. It is one word in a branch nothing normally reaches,
+which is exactly why it would have survived a review of the diff.
+
+## 10.6 Batch 1's own artefacts invert, one commit later
+
+Batch 1 wrote the bare-name rule into three places. All three are part of this change, not
+decoration — the stale-text defect in `CLAUDE.md` was precisely a feature landing while the
+prose still described the old behaviour.
+
+* the first line of `streets_it.txt` and of `streets_international.txt`;
+* the `USAGE.md` paragraph added by batch 1, including its closing sentence saying the
+  prefix is fixed and not configurable in that release;
+* the `CLAUDE.md` mask-pools lines added by batch 1.
+
+## 10.7 Charset, checked rather than assumed
+
+German `straße` (`ß`, U+00DF) and Swiss `strasse` differ, and both are wanted. Every
+character in the four shipped pool files is inside **ISO-8859-1 and windows-1252** — checked
+across `streets_it`, `cities_it`, `streets_international`, `cities_international`, zero
+characters outside either. `ß` is `0xDF` in both. A masked value can therefore reach a
+Latin-1 sink downstream without a substitution, which is not true of every character that
+might otherwise have looked natural in a German street name.
+
+## 10.8 Files touched by the implementation
+
+* `streets_it.txt` — 60 values gain `Via `; header inverted.
+* `streets_international.txt` — 177 values gain their own type word, in their own position
+  and language; header inverted.
+* `MaskGenerators.java` — `address()` loses `"Via " +`; the fallback becomes `"Via Roma"`.
+* `InternalSteps.runMask` — the street-pool log line (§10.3).
+* `USAGE.md`, `CLAUDE.md`, and a `.claude/` note.
+
+No parameter, so no designer change, no `clientValidate`, no `PARAM_OPTIONS`, and — as §5
+already established by reading the emission — no parser, writer, DTO or `buildXml` change.
+
+## 10.9 The one question left open, and why it cannot wait
+
+`streets_international.txt` today is **one file mixing seven countries**. With the type word
+inside the values, a single file produces `Oakwood Street 12`, `Rue Voltaire 12` and
+`Bahnhofstraße 12` in the same column of the same delivery.
+
+The alternative is one file per country — `streets_uk.txt`, `streets_us.txt`, `streets_de.txt`,
+`streets_fr.txt`, `streets_es.txt`, `streets_nl.txt`, `streets_ch.txt` — so that the dropdown
+selects a language as well as a set of names, which is closer to what "choose the file" means
+under this design. Cost: seven `BUNDLED` entries instead of one and seven dropdown rows
+instead of two.
+
+**It has to be decided before the pool is used for the first time, not after.** M2: changing
+a pool's contents or length moves the address of nearly every customer already delivered
+(1 962 of 2 000 for a single added line). The international pool has never run — answer 4 —
+so this is the one moment when the layout is free to choose. After the first delivery it is
+not.
+
+Recommendation: **split per country.** It makes the dropdown mean what the decision says it
+means, and it is the only part of this that is expensive to change later.
