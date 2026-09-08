@@ -65,7 +65,8 @@ public final class MaskPools {
     public static final String[] BUNDLED = {
         "firstnames_it.txt", "firstnames_international.txt",
         "lastnames_it.txt", "lastnames_international.txt",
-        "cities_it.txt", "caps_it.txt", "streets_it.txt",
+        "cities_it.txt", "cities_international.txt", "caps_it.txt",
+        "streets_it.txt", "streets_international.txt",
         "company_animals_it.txt", "company_animals_international.txt",
         "company_colors_it.txt", "company_colors_international.txt",
         "company_actions_it.txt", "company_actions_international.txt",

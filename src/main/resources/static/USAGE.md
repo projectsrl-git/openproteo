@@ -288,10 +288,9 @@ delivery steps loop over the parts.
 
 ## Masking pools
 
-Pool-based mask strategies (first names, surnames, cities, streets, company parts) read values
-from pool files. In the mask step you choose **which file** each category uses from a dropdown
-— Italian or international, freely mixable (e.g. Italian animals with international colors).
-Empty means the bundled default.
+Pool-based mask strategies (first names, surnames, cities, streets, company parts) read values from pool files. In the mask step you choose **which file** each category uses from a dropdown — Italian or international, freely mixable (e.g. Italian animals with international colors). Empty means the bundled default.
+
+**The street pool holds the name only.** `streets_it.txt` contains `Garibaldi`, not `Via Garibaldi`, and `streets_international.txt` follows the same rule (`Oakwood`, not `Oakwood Street`), because the address strategy writes the type word itself. That type word is currently the fixed prefix `Via `, in the code and not in the pool, so selecting the international street pool produces `Via Oakwood 42`: the street names change, the prefix does not. Making it configurable is a separate change and is not in this release.
 
 Pool files are bundled in the application. Setting an external directory
 (`orchestrator.mask-pools-dir`) lets you **view and replace** them without a rebuild, from the

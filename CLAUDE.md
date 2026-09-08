@@ -340,9 +340,14 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   presente, altrimenti bundled in /maskdata/. Upload/replace SOLO se mask-pools-dir e' settata.
 * Endpoint: GET /api/mask/pools/files (catalogo bundled∪esterni), GET .../download?path=,
   POST .../files (upload/replace), POST .../files/create, POST .../files/delete,
-  GET .../alias-suggest. MaskPools.BUNDLED (15 nomi), hasExternal, readRaw.
+  GET .../alias-suggest. MaskPools.BUNDLED (17 nomi), hasExternal, readRaw.
 * Dati pool: nomi/cognomi it+intl con lettere interne invertite (one-off, fake);
-  company_animals/colors/actions/suffixes in *_it e *_international.
+  company_animals/colors/actions/suffixes in *_it e *_international; cities e streets
+  in *_it e *_international. Solo caps_it non ha coppia (e nessun generatore lo legge:
+  e' selezionabile come pool Cities perche' la tendina filtra su ['cities','caps']).
+* streets_*.txt contengono il NOME NUDO ("Garibaldi", non "Via Garibaldi"): il tipo
+  di via e' il prefisso costante "Via " in MaskGenerators.address(), non un valore
+  della pool. Cambiare solo il file dati produce "Via Oakwood 42".
 
 ## This batch (split / docs / UI)
 

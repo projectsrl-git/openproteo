@@ -1,30 +1,68 @@
-Data sources: the same dead Edit button, found before it was reported
+Mask pools: international streets and cities, and the bare-name rule
 
-The FTPS targets page had its row buttons serialise the whole record into the
-onclick attribute, and an apostrophe in a path killed them. That commit noted
-this page carries the same pattern and left it alone because nobody had hit
-it. Fixing it now, and it is not hypothetical: the field most likely to carry
-an apostrophe here is the test query, because a SQL statement normally
-contains a string literal.
+Batch 1 of two. Data plus the one line of registration that makes the data
+reachable; the "Via " prefix stays a constant and is batch 2.
 
-Both row buttons now name a connection by INDEX into the loaded list. Nothing
-else changes: same columns, same handlers, same endpoints.
+New src/main/resources/maskdata/streets_international.txt (177 names) and
+cities_international.txt (513 cities), both spread over UK, US, DE, FR, ES,
+NL and CH. MaskPools.BUNDLED goes 15 -> 17.
+
+The two files alone would have done nothing visible. MaskPools.get() finds a
+bundled pool on the classpath, but ApiController.poolList() builds the
+catalogue from BUNDLED plus whatever sits in the external mask-pools-dir, so
+a file bundled in the WAR and absent from BUNDLED is missing from the
+designer dropdown on every installation without an external pools directory
+- which is the normal installation. That is why a data batch touches a .java.
+Nothing else was needed: designer.html already filters the Streets dropdown
+on "streets" and the Cities dropdown on "cities"/"caps".
+
+The street pool holds the NAME ONLY - streets_it.txt has Garibaldi, not Via
+Garibaldi - because MaskGenerators.address() writes "Via " + street + " " +
+num and the type word is a Java constant. The first line of each new file
+states that rule and the reason, so the next pool added does not arrive as
+"Oakwood Street" and produce "Via Oakwood Street 42" with nothing failing.
+
+UTF-8 without a BOM is correctness here, not style: get() skips a comment by
+testing the first character after String.trim(), and trim() does not remove
+U+FEFF. With a BOM the header line would be loaded as a masking value.
+
+USAGE.md said streets and cities were freely selectable it/international when
+they were not. Rewritten to what is delivered, plus a paragraph saying the
+prefix is fixed and the international pool therefore yields "Via Oakwood 42".
+CLAUDE.md's mask section was stale in the same way (BUNDLED 15, only the
+company pools listed as having a twin) and is corrected in place rather than
+appended, so it cannot conflict with another patch at the tail.
 
 VERIFIED
-- The defect is reproduced first, against the page as it was: with a test
-  query reading SELECT 1 FROM SYSIBM.SYSDUMMY1 WHERE 'a' = 'a', clicking Edit
-  raises "Invalid or unexpected token" and leaves the form empty. 8 of 16
-  assertions fail. After the change all 16 pass.
-- The fixture carries two connections, not one, so a button resolving to index
-  0 would open or delete the wrong record: the second row is the one edited
-  and the one deleted. The lesson is now three pages old - an assertion proves
-  nothing about an index when there is only one thing to index.
-- Every row button is asserted to match editAt(n) or delAt(n) exactly.
-- 5 mutations, 5 caught: each of editAt and delAt ignoring its index, delAt
-  not resolving the id, the list not being kept, and the payload put back into
-  the attribute.
+- 754 assertions green, javac --release 8, against the real MaskEngine,
+  MaskPools and MaskGenerators. Raw-byte checks (no BOM, no CR anywhere,
+  strict UTF-8 decode, no blank lines, no trailing spaces, exactly one
+  comment line, no duplicates including case-insensitive), value counts read
+  back through the real MaskPools (177 and 513, comment skipped), an accented
+  city surviving the read, every BUNDLED entry present on disk, and the
+  dropdown prefix filter yielding 2 street files and 3 city files.
+- Positive control: the same suite fails 5 assertions against the tree before
+  the BUNDLED edit, so it is capable of finding something.
+- No-op proof, digests rather than assertions: the mask package compiled from
+  a clean clone of f437d43 and from the patched tree, both run over 3010
+  values with the DEFAULT Italian pools across address, city, fullName,
+  company and customerDescription. Identical SHA-256
+  dd104f43c4d6f5b3cf3bfab6742fd115d20335dfe72c1673fd822538746da036 and the
+  same sample "Via Petrarca 47". No existing feed changes output.
+- Measured rather than predicted: with streets_international selected,
+  address() returns "Via Hazelmere 67".
+- 14 jsdom assertions running docs.html's own render() over the real
+  USAGE.md: each new paragraph is a single <p>, backticks become <code>, no
+  raw Markdown leaks, and the wrapped-paragraph count goes 113 -> 111.
+- An assertion of mine was wrong rather than the code: I expected the wrap
+  count to drop by 3 and it dropped by 2, because the third source line ended
+  in a full stop and the checker keys on the line that ENDS. Corrected in the
+  harness with the reason recorded beside it.
 
 NOT VERIFIED
-- mvn clean package, unchanged. This commit touches one template and no Java.
-- Whether any connection in use actually carries an apostrophe today. The fix
-  does not depend on it.
+- mvn clean package. Maven Central is unreachable from the sandbox;
+  MaskPools.java was compiled standalone with --release 8, not against the
+  Spring tree. The build on the deploy machine is the only final proof.
+- The dropdown rendered in the UBS browser. The prefix filter was exercised
+  as logic, not as a rendering. designer.html is unchanged by this patch.
+- The pools page and any external mask-pools-dir override.
