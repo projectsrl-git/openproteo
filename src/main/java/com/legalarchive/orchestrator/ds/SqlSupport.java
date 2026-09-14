@@ -73,9 +73,21 @@ public class SqlSupport {
         return DriverManager.getConnection(url.toString(), p);
     }
 
+    /**
+     * The connection test query. An explicit one on the datasource always wins; otherwise it is derived
+     * from the JDBC URL, because "SELECT 1" is not universal: Oracle rejects a SELECT without a FROM
+     * clause (ORA-00923) and DB2 needs its one-row catalogue table. With the old generic default those
+     * two answered a healthy connection with a syntax error, which reads to an operator as a connection
+     * failure on the very first thing they try. The Datasources page now also fills the field per
+     * vendor; this is the fallback for a field left empty and for connections saved before that.
+     */
     public String testQuery(DataSourceDef d) {
         if (d.testQuery != null && !d.testQuery.trim().isEmpty()) return d.testQuery.trim();
-        return "custom".equalsIgnoreCase(d.type) ? "SELECT 1" : "SELECT 1 FROM SYSIBM.SYSDUMMY1";
+        if (!"custom".equalsIgnoreCase(d.type)) return "SELECT 1 FROM SYSIBM.SYSDUMMY1";
+        String url = d.jdbcUrl == null ? "" : d.jdbcUrl.trim().toLowerCase();
+        if (url.startsWith("jdbc:oracle")) return "SELECT 1 FROM DUAL";
+        if (url.startsWith("jdbc:db2") || url.startsWith("jdbc:as400")) return "SELECT 1 FROM SYSIBM.SYSDUMMY1";
+        return "SELECT 1";
     }
 
     /** Run a query (or update) and capture up to maxRows rows. */

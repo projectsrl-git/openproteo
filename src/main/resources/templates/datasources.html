@@ -19,9 +19,10 @@
 
 <div class="wrap" style="max-width:1100px">
     <h1>Data sources</h1>
-    <p class="page-sub">Reusable JDBC connections referenced by id from SQL and file-copy steps. Any database with a
-        JDBC driver on the server classpath can be used; the presets below fill in the URL shape and the driver class
-        for the common ones. Passwords are stored in the datasources
+    <p class="page-sub">Reusable JDBC connections referenced by id from SQL and file-copy steps. Pick the database in
+        the <b>Database</b> dropdown and the URL shape, the driver class and the connection-test query are filled in
+        for you; pick <i>JDBC — any other database</i> when the vendor is not listed and type the two fields yourself.
+        Any database whose JDBC driver is on the server classpath can be used. Passwords are stored in the datasources
         JSON file — protect it with filesystem permissions.</p>
 
     <div class="banner ok" id="okBanner" style="display:none"></div>
@@ -40,9 +41,8 @@
                 <div class="form-row">
                     <div class="field"><label>Id *</label><input id="d_id" placeholder="DWH-PROD"></div>
                     <div class="field"><label>Name</label><input id="d_name" placeholder="Data warehouse (production)"></div>
-                    <div class="field"><label>Type</label>
-                        <select id="d_type" onchange="typeChanged()">
-                            <option value="custom">JDBC &mdash; any database</option>
+                    <div class="field"><label>Database</label>
+                        <select id="d_type" onchange="typeChanged(true)">
                             <option value="as400">IBM i &mdash; native (also carries the IFS file-copy credentials)</option>
                         </select>
                     </div>
@@ -60,11 +60,6 @@
                 </div>
                 <div id="customFields" style="display:none">
                     <div class="form-row">
-                        <div class="field"><label>Preset</label>
-                            <select id="d_preset" onchange="presetChanged()">
-                                <option value="">(choose a database&hellip;)</option>
-                            </select>
-                        </div>
                         <div class="field wide"><label>JDBC URL *</label><input id="d_jdbcUrl" placeholder="jdbc:&lt;vendor&gt;://host:port/database"></div>
                     </div>
                     <div class="form-row">
@@ -97,10 +92,43 @@
     function banner(ok, msg){ var b=document.getElementById(ok?'okBanner':'errBanner'); var o=document.getElementById(ok?'errBanner':'okBanner');
         b.style.display='block'; b.textContent=msg; o.style.display='none'; }
 
-    function typeChanged(){
+    /* The Database dropdown carries BOTH stored types and the vendor choice in one control, because the
+       two-step "pick custom, then pick a preset" hid every vendor behind a dropdown that only appeared
+       after the first step - and the form opens on IBM i, so the preset list was never on screen at all.
+       Values: 'as400' (native), 'ds:<presetId>' (a known vendor), 'custom' (anything else).
+       What gets STORED is still only as400 | custom: the vendor is recovered from driverClass on edit,
+       so nothing migrates and every connection saved before this keeps working untouched. */
+    function presetById(id){
+        for(var i=0;i<DS_PRESETS.length;i++){ if(DS_PRESETS[i].id===id) return DS_PRESETS[i]; }
+        return null;
+    }
+    function presetByDriver(driverClass){
+        var d=(driverClass||'').trim();
+        if(!d) return null;
+        for(var i=0;i<DS_PRESETS.length;i++){ if(DS_PRESETS[i].driver===d) return DS_PRESETS[i]; }
+        return null;
+    }
+
+    /* apply=true only when the OPERATOR changed the dropdown. Called with false while loading a saved
+       connection: showing the right fields must never overwrite what that connection actually holds. */
+    function typeChanged(apply){
         var t=document.getElementById('d_type').value;
-        document.getElementById('as400Fields').style.display = t==='as400'?'block':'none';
-        document.getElementById('customFields').style.display = t==='custom'?'block':'none';
+        var isNative = t==='as400';
+        document.getElementById('as400Fields').style.display = isNative?'block':'none';
+        document.getElementById('customFields').style.display = isNative?'none':'block';
+        var hint=document.getElementById('d_presetHint');
+        var p = t.indexOf('ds:')===0 ? presetById(t.substring(3)) : null;
+        if(!p){ if(hint) hint.textContent=''; return; }
+        if(apply){
+            var u=document.getElementById('d_jdbcUrl'), dc=document.getElementById('d_driverClass'),
+                tq=document.getElementById('d_testQuery');
+            // URL and test query are TEMPLATES to edit, so an already-filled one is never silently
+            // overwritten; the driver class is always corrected, being the field nobody remembers.
+            if(!u.value.trim()) u.value=p.url;
+            if(!tq.value.trim()) tq.value=p.test;
+            dc.value=p.driver;
+        }
+        if(hint) hint.textContent='Driver JAR: '+p.jar+' \u2014 place it in CATALINA_HOME/lib and restart Tomcat if the test says the class is missing.';
     }
 
     /* The loaded connections, kept here so a row button can name one by INDEX.
@@ -115,7 +143,7 @@
             DATASOURCES = list || [];
             var h='<div class="panel"><table><thead><tr><th>Id</th><th>Type</th><th>Host / URL</th><th>User</th><th style="width:160px"></th></tr></thead><tbody>';
             DATASOURCES.forEach(function(d, i){
-                h += '<tr><td class="mono"><span class="feed-id">'+esc(d.id)+'</span></td><td class="mono small">'+esc(d.type)+'</td>'+
+                h += '<tr><td class="mono"><span class="feed-id">'+esc(d.id)+'</span></td><td class="mono small">'+esc(typeLabel(d))+'</td>'+
                     '<td class="mono small dim">'+esc(d.type==='custom'?d.jdbcUrl:d.host)+'</td><td class="small dim">'+esc(d.user)+'</td>'+
                     '<td><button class="btn sm" onclick="editAt('+i+')">Edit</button> '+
                     '<button class="btn sm danger" onclick="delAt('+i+')">Delete</button></td></tr>';
@@ -126,12 +154,21 @@
         });
     }
 
+    /* The list said 'custom' for every JDBC connection, which tells an operator scanning the page
+       nothing: name the vendor when the driver class identifies one, and fall back to the stored
+       value when it does not. Presentation only - what is stored is untouched. */
+    function typeLabel(d){
+        if((d.type||'as400')==='as400') return 'IBM i (native)';
+        var p=presetByDriver(d.driverClass);
+        return p ? p.label : 'JDBC';
+    }
+
     function editAt(i){ if (DATASOURCES[i]) edit(DATASOURCES[i]); }
     function delAt(i){ if (DATASOURCES[i]) del(DATASOURCES[i].id); }
 
     function newDs(){
         ['d_id','d_name','d_host','d_user','d_password','d_properties','d_jdbcUrl','d_driverClass','d_user2','d_password2','d_testQuery'].forEach(function(id){document.getElementById(id).value='';});
-        document.getElementById('d_type').value='as400'; typeChanged();
+        document.getElementById('d_type').value='as400'; typeChanged(false);
         document.getElementById('d_id').readOnly=false; document.getElementById('d_id').style.opacity=1;
         document.getElementById('formTitle').textContent='New connection';
         document.getElementById('testResult').textContent='';
@@ -140,7 +177,6 @@
     function edit(d){
         document.getElementById('d_id').value=d.id; document.getElementById('d_id').readOnly=true; document.getElementById('d_id').style.opacity=0.6;
         document.getElementById('d_name').value=d.name||'';
-        document.getElementById('d_type').value=d.type||'as400'; typeChanged();
         document.getElementById('d_host').value=d.host||'';
         document.getElementById('d_user').value=d.user||'';
         document.getElementById('d_user2').value=d.user||'';
@@ -150,6 +186,15 @@
         document.getElementById('d_jdbcUrl').value=d.jdbcUrl||'';
         document.getElementById('d_driverClass').value=d.driverClass||'';
         document.getElementById('d_testQuery').value=d.testQuery||'';
+        /* The dropdown is chosen LAST and with apply=false: a saved connection whose driver class matches
+           a known vendor reopens on that vendor, one that does not reopens on the generic entry, and in
+           neither case is a stored URL, driver class or test query touched. */
+        var sel='as400';
+        if(!( (d.type||'as400')==='as400' )){
+            var p=presetByDriver(d.driverClass);
+            sel = p ? ('ds:'+p.id) : 'custom';
+        }
+        document.getElementById('d_type').value=sel; typeChanged(false);
         document.getElementById('formTitle').textContent='Edit '+d.id;
         document.getElementById('testResult').textContent='';
     }
@@ -160,50 +205,57 @@
        (CATALINA_HOME/lib) and is picked up by Class.forName at connection time, which is also how the
        existing IBM i connections have always worked. The test button says plainly when it is absent. */
     var DS_PRESETS = [
+        /* ojdbc8, NOT ojdbc11: ojdbc11 is Java 11 bytecode and this runtime is Java 8 on Tomcat 8.5,
+           where it dies with UnsupportedClassVersionError. The driver class is the same in both. */
         { id:'oracle',   label:'Oracle',                driver:'oracle.jdbc.OracleDriver',
-          url:'jdbc:oracle:thin:@//host:1521/SERVICE',  jar:'ojdbc11.jar' },
+          url:'jdbc:oracle:thin:@//host:1521/SERVICE',  jar:'ojdbc8.jar',
+          /* Oracle rejects a SELECT without FROM (ORA-00923): the generic SELECT 1 reports a syntax
+             error on a connection that is perfectly fine, which reads as a connection failure. */
+          test:'SELECT 1 FROM DUAL' },
         { id:'mssql',    label:'Microsoft SQL Server',  driver:'com.microsoft.sqlserver.jdbc.SQLServerDriver',
-          url:'jdbc:sqlserver://host:1433;databaseName=DB;encrypt=true', jar:'mssql-jdbc-*.jre8.jar' },
+          url:'jdbc:sqlserver://host:1433;databaseName=DB;encrypt=true;trustServerCertificate=true',
+          jar:'mssql-jdbc-*.jre8.jar',                  test:'SELECT 1' },
         { id:'postgres', label:'PostgreSQL',            driver:'org.postgresql.Driver',
-          url:'jdbc:postgresql://host:5432/database',   jar:'postgresql-*.jar' },
+          url:'jdbc:postgresql://host:5432/database',   jar:'postgresql-*.jar',
+          test:'SELECT 1' },
         { id:'mysql',    label:'MySQL',                 driver:'com.mysql.cj.jdbc.Driver',
-          url:'jdbc:mysql://host:3306/database',        jar:'mysql-connector-j-*.jar' },
+          url:'jdbc:mysql://host:3306/database',        jar:'mysql-connector-j-*.jar',
+          test:'SELECT 1' },
         { id:'mariadb',  label:'MariaDB',               driver:'org.mariadb.jdbc.Driver',
-          url:'jdbc:mariadb://host:3306/database',      jar:'mariadb-java-client-*.jar' },
+          url:'jdbc:mariadb://host:3306/database',      jar:'mariadb-java-client-*.jar',
+          test:'SELECT 1' },
         { id:'db2',      label:'IBM DB2 (LUW / z/OS)',  driver:'com.ibm.db2.jcc.DB2Driver',
-          url:'jdbc:db2://host:50000/DATABASE',         jar:'jcc-*.jar' },
+          url:'jdbc:db2://host:50000/DATABASE',         jar:'jcc-*.jar',
+          test:'SELECT 1 FROM SYSIBM.SYSDUMMY1' },
         { id:'ibmi',     label:'IBM i (DB2 for i, via JDBC only)', driver:'com.ibm.as400.access.AS400JDBCDriver',
-          url:'jdbc:as400://host',                      jar:'jt400.jar (already on the server)' },
+          url:'jdbc:as400://host',                      jar:'jt400.jar (already on the server)',
+          test:'SELECT 1 FROM SYSIBM.SYSDUMMY1' },
         { id:'h2',       label:'H2',                    driver:'org.h2.Driver',
-          url:'jdbc:h2:file:D:/data/mydb',              jar:'(already bundled)' },
+          url:'jdbc:h2:file:D:/data/mydb',              jar:'(already bundled)',
+          test:'SELECT 1' },
         { id:'sqlite',   label:'SQLite',                driver:'org.sqlite.JDBC',
-          url:'jdbc:sqlite:D:/data/mydb.db',            jar:'sqlite-jdbc-*.jar' }
+          url:'jdbc:sqlite:D:/data/mydb.db',            jar:'sqlite-jdbc-*.jar',
+          test:'SELECT 1' }
     ];
-    function fillPresets(){
-        var sel=document.getElementById('d_preset');
+
+    /* One option per vendor between the native entry (already in the markup) and the generic one, so
+       the whole catalogue is visible without opening anything first. The generic entry stays LAST and
+       keeps the stored value 'custom': it is the escape hatch for a vendor nobody listed, not a step
+       the operator has to walk through to reach the listed ones. */
+    function fillTypes(){
+        var sel=document.getElementById('d_type');
         for(var i=0;i<DS_PRESETS.length;i++){
             var o=document.createElement('option');
-            o.value=DS_PRESETS[i].id; o.textContent=DS_PRESETS[i].label;
+            o.value='ds:'+DS_PRESETS[i].id; o.textContent=DS_PRESETS[i].label;
             sel.appendChild(o);
         }
-    }
-    function presetChanged(){
-        var v=document.getElementById('d_preset').value;
-        var hint=document.getElementById('d_presetHint');
-        if(!v){ if(hint) hint.textContent=''; return; }
-        for(var i=0;i<DS_PRESETS.length;i++){
-            if(DS_PRESETS[i].id!==v) continue;
-            var p=DS_PRESETS[i];
-            var u=document.getElementById('d_jdbcUrl'), d=document.getElementById('d_driverClass');
-            // the URL is a TEMPLATE to edit, so an already-filled one is never silently overwritten
-            if(!u.value.trim()) u.value=p.url;
-            d.value=p.driver;
-            if(hint) hint.textContent='Driver JAR: '+p.jar+' \u2014 place it in CATALINA_HOME/lib and restart Tomcat if the test says the class is missing.';
-        }
+        var g=document.createElement('option');
+        g.value='custom'; g.textContent='JDBC \u2014 any other database';
+        sel.appendChild(g);
     }
 
     function collect(){
-        var t=document.getElementById('d_type').value;
+        var t=document.getElementById('d_type').value==='as400' ? 'as400' : 'custom';
         var d={ id:document.getElementById('d_id').value.trim(), name:document.getElementById('d_name').value.trim(),
             type:t, testQuery:document.getElementById('d_testQuery').value.trim() };
         if(t==='as400'){
@@ -245,7 +297,7 @@
         }, { danger:true, okText:'Delete' });
     }
 
-    fillPresets(); typeChanged(); load();
+    fillTypes(); typeChanged(false); load();
 </script>
 <script th:src="@{/js/modal.js(v=${buildId})}"></script>
 <script th:src="@{/js/theme.js(v=${buildId})}"></script>
