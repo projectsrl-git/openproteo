@@ -83,12 +83,38 @@ for (const p of shape) {
   flagged.push(p);
 }
 
+// A SECOND check, keyed on the HELPER rather than on the parameter name. The first one cannot see a
+// broken helper whose parameter is ALSO redrawn correctly somewhere else: `listSource` is written by
+// ifscopy's helper and by filecopy/safecopy's, so removing renderNodes() from one of them leaves the
+// name in `redraws` and the scan reports a clean run. Found by a positive control, not by review -
+// the mutation was caught by the panel's jsdom suite and by nothing here.
+// Narrow on purpose: only NAMED helpers that write a shape-deciding parameter are considered, which
+// is a handful of functions, so this cannot become the thirteen-false-alarms-out-of-thirteen that
+// gets a diagnostic switched off within a week.
+const brokenHelpers = [];
+// Bodies with no nested braces, which is what every one of these helpers is: a single line that
+// stores the value and redraws. Written that way deliberately - requiring a newline before the
+// closing brace matched none of them at all, and a greedy body would swallow past the function.
+// A helper complex enough to contain a block is not considered here; stated rather than silent.
+const helperRe = /function\s+(\w+)\s*\([^)]*\)\s*\{([^{}]*)\}/g;
+let hm;
+while ((hm = helperRe.exec(src)) !== null) {
+  const body = hm[2];
+  const writes = [...body.matchAll(/setNodeParam\([^,]+,\s*'([A-Za-z0-9_.]+)'/g)].map(x => x[1]);
+  const shapeWrites = writes.filter(w => shape.has(w));
+  if (shapeWrites.length && body.indexOf('renderNodes()') < 0) {
+    brokenHelpers.push(hm[1] + ' writes ' + [...new Set(shapeWrites)].join(', ') + ' and never redraws');
+  }
+}
+
 console.log('panel redraw scan on ' + file);
 console.log('  parameters written by a control : ' + writtenByAnyControl.size);
 console.log('  parameters deciding panel shape : ' + shape.size);
 console.log('  excluded as text inputs         : ' + textInputs.size);
 console.log('  already redrawing               : ' + redraws.size);
-if (!flagged.length) {
+console.log('  named helpers writing a shape param, without a redraw : ' + brokenHelpers.length);
+for (const h of brokenHelpers) console.log('     ' + h);
+if (!flagged.length && !brokenHelpers.length) {
   console.log('  -> no control changes the panel without redrawing');
 } else {
   console.log('  -> REVIEW, not necessarily a defect:');

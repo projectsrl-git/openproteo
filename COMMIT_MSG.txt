@@ -1,86 +1,77 @@
-Copy file list: the filecopy and safecopy executors (batch 2)
+Copy file list: the designer panels for filecopy and safecopy (batch 3)
 
-engine/LocalCopySupport, JDK only, is the transfer half of the option whose
-reading half batch 1 extracted. InternalSteps.runCopyList is the one body
-both executors share - they differ only in whether each file is staged
-under a temporary name first. Both gain the listSource switch, filecopy
-finally receives resolvedParams (it was the only copy executor that did
-not), and ifscopy is untouched: CopyListSupport is byte-unchanged by this
-batch, asserted rather than assumed.
+Makes the option reachable. Batch 2 delivered the engine and until now
+nobody could configure it through the interface at all.
 
-Engine only. The option is NOT reachable from the designer yet - no panel,
-and clientValidate still requires source unconditionally. That is batch 3.
+Both executors get the Files to copy switch, the same one ifscopy has,
+wired through copySetListSource - which stores the value AND redraws. The
+panels show different fields in the two shapes, so a select that only
+stored the value would leave the page contradicting itself: that is the
+defect already recorded for contentSource and for batchBy. One
+copyListFields builder serves both panels, for the reason the reader itself
+is shared: two copies drift.
 
-Decisions worth the words:
+In the list shape the source field is relabelled rather than hidden - that
+fallback IS the "directory + file name from the CSV" combination and should
+be visible where it operates - the pattern is hidden, and clientValidate
+stops demanding source while requiring dest and both CSV fields, reporting
+both missing ones rather than the first.
 
-* The pre-scan is why the local shape differs from ifscopy. Over IFS an
-  existence check is a round trip per file and buys nothing the failure
-  message does not already say; here it is a Files.isRegularFile on the
-  filesystem the copy is about to read anyway, so the step refuses BEFORE
-  copying anything instead of stopping half way. It matters most on
-  safecopy, whose whole purpose is that a process watching the landing zone
-  never sees something incomplete - a half-done run leaves real, correctly
-  renamed files there with nothing saying the delivery was short.
+filecopy's Mode field stays VISIBLE under a list, with the panel saying in
+red that only copy is allowed. The executor refuses the other two rather
+than ignoring them, so hiding the field would leave a stored move
+uncorrectable. clientValidate refuses it at save as well.
 
-* A listed name already ending in the temp suffix is REFUSED, not skipped.
-  Under a pattern, skipping is right: it is somebody else's in-flight file
-  and nobody asked for it. In a list it was asked for BY NAME, and
-  delivering it would put a file into the landing zone under a name every
-  watcher is built to ignore - a delivery that silently never arrives.
-
-* A bare name with no base at all is refused, where ifscopy only logs.
-  There a bare name still lands in the connection's home directory; here it
-  would resolve against Tomcat's working directory. The message names both
-  fields that fix it.
-
-* mode=move and mode=list are refused with a list (Gate 0), naming the mode
-  rather than silently downgrading to a copy or ignoring the setting.
+buildXml, the parser, the writer, the DTO and PARAM_OPTIONS needed no
+change: every field is a <param>, and variables.html already carries
+listSource, hasHeader, onMissingFile and onNameCollision with these very
+defaults. Asserted, not assumed.
 
 Verified:
 
-* THE EXECUTORS ARE RUN, NOT REVIEWED. runFileCopy, runSafeCopy,
-  runCopyList and their four helpers are lifted VERBATIM out of
-  InternalSteps.java at build time and compiled against the real StepDef,
-  VarResolver and StepExecutor.Result - all Spring-free - then exercised
-  against real files on disk. 141 assertions, 14 mutations of the real
-  sources, all caught.
+* 88 jsdom assertions against the real template; the same suite scores 36
+  passed, 48 failed against the pre-patch one. The DOM is built FROM the
+  real template with its scripts stripped, so every id the page bootstraps
+  against exists by construction. Controls are driven by evaluating their
+  own onchange ATTRIBUTE with `this` bound, as a browser does - jsdom does
+  not run inline handlers, and calling the helper directly would supply the
+  very step the page is meant to take.
 
-* The pattern shape is proved unchanged the way batch 1 proved the reader:
-  pre-patch and post-patch bodies over identical trees across eight
-  pattern/mode scenarios, comparing exit code, every published variable,
-  the destination listing, the source listing afterwards and the whole log.
+* Structure is asserted by NESTING, not by presence. An unbalanced tag does
+  not throw, it re-parents what follows, so an escaped subsection is still
+  findable from the document and an innerHTML string test would pass. The
+  stray-</div> mutation came back GREEN against the first version of that
+  assertion, which is why it is written this way.
 
-* That safecopy stages under the temp name cannot be deduced from the
-  result, so the destination is WATCHED WHILE THE COPY RUNS and the
-  in-flight name has to be seen. The mutation that writes straight to the
-  final name is caught by that assertion and by nothing else.
+* 13 mutations, all caught: twelve by the panel suite, one - a literal
+  escape sequence introduced into the JS - by the build checks.
 
 Three things the run found and review would not have:
 
-* A mutation reported as caught and was not: the collision-guard anchor
-  occurs TWICE in InternalSteps, runIfsCopyList carrying the identical
-  line, so the edit landed on ifscopy, which this suite does not exercise.
-  It still read as caught because the suite was flaking at that moment -
-  two independent faults agreeing to produce a pass.
+* A mutation runner piped into `head` left the tree mutated: SIGPIPE killed
+  it before its restore. My check that the tree was clean, a grep for the
+  condition, MATCHED A DIFFERENT LINE and reported all-clear. Restore is now
+  in atexit and each line is flushed. A check that finds a match is not a
+  check that found the right match.
 
-* The suite was flaky, 2 runs in 10: the in-flight watcher also asserted it
-  had seen the FINAL name, which races its own shutdown and is redundant
-  with the final listing. Removed, then 15 consecutive clean runs before
-  any mutation result was trusted.
+* An anchor occurred twice again - the Delimiter field line is identical in
+  ifscopy's branch - so the runner now refuses a non-unique anchor outright
+  instead of silently taking the first.
 
-* An assertion of mine was wrong rather than the code: FileTime.equals
-  compares nanoseconds and this filesystem truncates them, so "attributes
-  preserve the modification time" failed while working. It now stamps the
-  source in 2020 and asserts filecopy keeps that time and safecopy does
-  not - the actual difference between the two, never asserted before.
+* One green mutation was a genuinely bad mutation rather than a gap:
+  dropping ` selected` changes nothing, because the browser selects the
+  first option and fail is first. Replaced by reordering the options.
 
-Known duplication, deliberately not removed: runCopyList repeats much of
-runIfsCopyList's parameter reading and reporting. Merging them would change
-ifscopy's log wording, which no feed asked for; the part where a divergence
-would cost something, the reader, is already shared.
+tools/scan_panel_redraw.js is also touched. It reported a clean run with
+this control's redraw removed, and the reason is structural: it is keyed on
+the PARAMETER NAME, and listSource is also written by ifsSetListSource,
+which still redraws - one broken helper hiding behind another executor's
+correct one. A second check was added, keyed on the helper, narrow enough
+that it cannot cry wolf, still advisory. Its own first version matched
+nothing at all, requiring a newline before the closing brace while every one
+of these helpers is a single line - the exact property the file exists to
+check for, occurring in the file itself. Proved to bite on all five helpers.
 
-Not verified: mvn clean package, and InternalSteps.java as a whole. Not run
-on Windows - the separator and drive-letter rules are batch 1's, whose
-Windows half remains an argument from the documented semantics of Paths.
-Not exercised on a list of tens of thousands of files: the list is held
-whole, as ifscopy holds it, and one log line per file still stands.
+Not verified: mvn clean package; the UBS browser (flex with wrap throughout
+and no new CSS variable, which is an argument and not a rendering); and the
+panel's fetch calls, since rendering is exercised and the network is not.

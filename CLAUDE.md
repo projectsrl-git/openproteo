@@ -2999,3 +2999,39 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   asked for; the shared parts that matter (the reader) already are shared. Revisit only with a decision
   about that log.
 * Note in `.claude/2026-09-14-copy-file-list-batch2.md`.
+
+## copy file list — Batch 3: the designer panels
+* `filecopy` and `safecopy` get the **Files to copy** switch, wired through `copySetListSource`, which
+  sets the param AND redraws — the panels show different fields in the two shapes, so a bare
+  `setNodeParam` is the `contentSource` / `batchBy` defect a third time. **One `copyListFields(i, n)`
+  builder serves both**, for the reason the reader is shared: two copies drift.
+* The source field is **relabelled, not hidden**, in the list shape — that fallback IS the "directory +
+  file name from the CSV" combination and belongs where it operates. `filecopy`'s **Mode stays visible**
+  with the panel saying in red that only `copy` is allowed: the executor REFUSES the other two, so
+  hiding the field would leave a stored `move` uncorrectable. `clientValidate` refuses it at save too.
+* `buildXml`, parser, writer, DTO and `PARAM_OPTIONS` needed **no change** — every field is a `<param>`,
+  and the four enums are already in `variables.html` with these defaults. Asserted, not assumed.
+* **88 jsdom assertions against the real template; the same suite scores 48 failures against the
+  pre-patch one.** The DOM is built FROM the real template with its scripts stripped, so every id the
+  page bootstraps against exists by construction. Controls are driven by evaluating their own `onchange`
+  ATTRIBUTE with `this` bound — jsdom does not run inline handlers, and calling the helper directly
+  would supply the step the page is meant to take.
+* **Structure is asserted by NESTING, not presence**: an unbalanced tag does not throw, it re-parents
+  what follows, so an escaped subsection is still findable and any innerHTML string test passes. The
+  stray-`</div>` mutation was GREEN against the first version of that assertion.
+* **A mutation runner piped into `head` left the tree mutated.** SIGPIPE killed it before its restore,
+  and my check that the tree was clean — a `grep -c` — **matched a different line** and said all-clear.
+  Restore is now in `atexit` and output is flushed per line. **A check that finds a match is not a check
+  that found the right match.**
+* An anchor occurred twice again (the Delimiter line is identical in `ifscopy`'s branch); the runner now
+  refuses a non-unique anchor outright. And one green mutation was a genuinely BAD one: dropping
+  ` selected` changes nothing, since the browser picks the first option and `fail` is first — replaced
+  by reordering the options, which bites. 13 mutations, all caught.
+* **`tools/scan_panel_redraw.js` could not see this defect**: it is keyed on the PARAMETER NAME, and
+  `listSource` is also written by `ifsSetListSource`, which still redraws — one broken helper hiding
+  behind another executor's correct one. Added a second check keyed on the HELPER (a named helper that
+  writes a shape param and never calls `renderNodes()`), narrow so it cannot cry wolf, still advisory.
+  **Its own first version matched nothing**, requiring a newline before the closing brace while every
+  such helper is one line — the exact property the file exists to check for, occurring in the file
+  itself. Proved to bite on all five helpers.
+* Note in `.claude/2026-09-14-copy-file-list-batch3.md`.

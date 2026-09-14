@@ -1,7 +1,7 @@
 # Copying the files listed in a CSV: `filecopy` and `safecopy`
 
 Batch 0 — specification only, base commit `a43b648`, committed as `f900d99`.
-Gate 0 answered on 2026-09-14; batch 1 delivered on `f900d99`, batch 2 on `0861916`. Corrections below are struck through
+Gate 0 answered on 2026-09-14; batch 1 delivered on `f900d99`, batch 2 on `0861916`, batch 3 on `8da7a93`. Corrections below are struck through
 rather than rewritten, so an answer reads as a decision beside what it overruled.
 
 ## 1. What was asked, and the part of it that already exists
@@ -276,7 +276,8 @@ becomes a hash set, which is a different batch.*
    local pre-scan, and the refusal of `mode=move` / `mode=list` under a list. Engine only — the option
    is **not reachable from the designer until batch 3**, which is where the panels and `clientValidate`
    live.
-3. Designer panels for both, under jsdom against the real template.
+3. **DELIVERED on `8da7a93`.** Designer panels for both, plus `clientValidate`, under jsdom
+   against the real template. The option is reachable from the interface from here on.
 4. `USAGE.md`: the existing «ifscopy: copying the files listed in a CSV» section becomes one section
    covering all three, rendered through `docs.html`'s own `render()`. One section, not three, because
    three would drift — the same reason the reader is shared.

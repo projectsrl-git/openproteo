@@ -439,6 +439,36 @@
     // the same reason: a control that changes what the panel SAYS must not leave the old wording under
     // the new choice. Milder than a missing field, the same class of defect.
     function elarSetBatchBy(i, v) { setNodeParam(i, 'batchBy', v); renderNodes(); }
+    // filecopy / safecopy: the same switch ifscopy has. It shows a DIFFERENT set of fields in the two
+    // shapes, so it must redraw - a select that only stores the value leaves IFS selected with the
+    // LOCAL fields still under it, which is the defect already recorded for contentSource and batchBy.
+    function copySetListSource(i, v) { setNodeParam(i, 'listSource', v); renderNodes(); }
+
+    /**
+     * The CSV file-list subsection, shared by filecopy and safecopy. ONE builder, not one per
+     * executor: the two would drift, which is the same argument that made the reader itself shared.
+     */
+    function copyListFields(i, n) {
+        return '<div class="subsection"><div class="sub-label">File list &mdash; one column of a CSV holds the file name (typically produced by an earlier step)</div>' +
+            '<div class="form-row">' +
+            '<div class="field wide"><label>File list CSV *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'listFile')) + '" placeholder="${dir.EXTRACT}/documents.csv" oninput="setNodeParam(' + i + ',\'listFile\',this.value)"></div>' +
+            '<div class="field"><label>Column with the file name *</label><input value="' + attresc(nodeParam(n, 'listColumn')) + '" placeholder="DOCPATH or 3" oninput="setNodeParam(' + i + ',\'listColumn\',this.value)"></div>' +
+            '<div class="field"><label>Delimiter</label><input value="' + attresc(nodeParam(n, 'listDelimiter')) + '" placeholder="(detect)" oninput="setNodeParam(' + i + ',\'listDelimiter\',this.value)"></div></div>' +
+            '<div class="form-row">' +
+            '<div class="field wide"><label>Path to prepend</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'listPathPrefix')) + '" placeholder="(empty = the source directory above)" oninput="setNodeParam(' + i + ',\'listPathPrefix\',this.value)"></div>' +
+            '<div class="field"><label>Has header</label><select onchange="setNodeParam(' + i + ',\'hasHeader\',this.value)">' +
+            '<option value="true"' + (nodeParam(n, 'hasHeader') !== 'false' ? ' selected' : '') + '>yes</option>' +
+            '<option value="false"' + (nodeParam(n, 'hasHeader') === 'false' ? ' selected' : '') + '>no</option></select></div>' +
+            '<div class="field"><label>Charset</label><input value="' + attresc(nodeParam(n, 'listCharset')) + '" placeholder="UTF-8" oninput="setNodeParam(' + i + ',\'listCharset\',this.value)"></div></div>' +
+            '<div class="form-row">' +
+            '<div class="field"><label>A listed file is not there</label><select title="The list is checked BEFORE anything is copied, so &quot;fail&quot; means nothing is copied at all rather than stopping half way through." onchange="setNodeParam(' + i + ',\'onMissingFile\',this.value)">' +
+            '<option value="fail"' + (nodeParam(n, 'onMissingFile') === 'skip' ? '' : ' selected') + '>fail before copying anything</option>' +
+            '<option value="skip"' + (nodeParam(n, 'onMissingFile') === 'skip' ? ' selected' : '') + '>skip it and count it</option></select></div>' +
+            '<div class="field"><label>Two listed files share a name</label><select onchange="setNodeParam(' + i + ',\'onNameCollision\',this.value)">' +
+            '<option value="fail"' + (nodeParam(n, 'onNameCollision') === 'overwrite' ? '' : ' selected') + '>fail the step</option>' +
+            '<option value="overwrite"' + (nodeParam(n, 'onNameCollision') === 'overwrite' ? ' selected' : '') + '>let the later one win</option></select></div>' +
+            '<div class="field wide"><label></label><span class="dim small">A complete path (starting with / or \\, a drive letter, or a UNC name) is taken as it stands and the prefix is not applied &mdash; which is what lets one column hold both. The destination is ONE FLAT directory. Repeated names are copied once; a row with an empty cell is counted and its line number logged.</span></div></div></div>';
+    }
     function diffMatches(n) {
         var byIdx = {};
         if (n.params) n.params.forEach(function (p) {
@@ -1113,13 +1143,23 @@
                     h += '<div class="subsection dim small" style="padding-bottom:12px">outputs: ##VAR filesCopied, bytesCopied, matchedFiles' +
                         (ifsList ? ', listRows, listedFiles, duplicatesInList, blankNames, missingFiles, skippedExisting' : '') + '</div>';
                 } else if (ex === 'filecopy') {
+                    var fcList = (nodeParam(n, 'listSource') === 'csv');
+                    var fcMode = n.mode || 'copy';
                     h += '<div class="form-row">' +
-                        '<div class="field wide"><label>Source dir *</label><input value="' + attresc(n.source) + '" placeholder="${landingIn}" oninput="updNode(' + i + ',\'source\',this.value)"></div>' +
+                        '<div class="field"><label>Files to copy</label><select onchange="copySetListSource(' + i + ',this.value)">' +
+                        '<option value=""' + (fcList ? '' : ' selected') + '>directory + pattern</option>' +
+                        '<option value="csv"' + (fcList ? ' selected' : '') + '>the ones listed in a CSV column</option></select></div>' +
+                        '<div class="field wide"><label>Source dir' + (fcList ? ' &mdash; base for names that are not complete paths' : ' *') + '</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${landingIn}" oninput="updNode(' + i + ',\'source\',this.value)"></div>' +
                         '<div class="field"><label>Mode</label><select onchange="updNodeR(' + i + ',\'mode\',this.value)">' +
-                        ['copy','move','list'].map(function(m){return '<option value="'+m+'"'+((n.mode||'copy')===m?' selected':'')+'>'+m+'</option>';}).join('') + '</select></div>' +
-                        '<div class="field"><label>Pattern</label><input value="' + attresc(n.pattern) + '" placeholder="*.csv" oninput="updNode(' + i + ',\'pattern\',this.value)"></div></div>' +
-                        ((n.mode||'copy') !== 'list' ? '<div class="form-row"><div class="field wide"><label>Destination dir *</label><input value="' + attresc(n.dest) + '" placeholder="${dir.next_step}" oninput="updNode(' + i + ',\'dest\',this.value)"></div></div>' : '') +
-                        '<div class="subsection dim small" style="padding-bottom:12px">outputs: ##VAR matchedCount, matchedFiles' + ((n.mode||'copy')!=='list' ? ', bytesCopied' : '') + ' &nbsp;(list = scan only)</div>';
+                        ['copy','move','list'].map(function(m){return '<option value="'+m+'"'+(fcMode===m?' selected':'')+'>'+m+'</option>';}).join('') + '</select></div>' +
+                        (fcList ? '' : '<div class="field"><label>Pattern</label><input value="' + attresc(n.pattern) + '" placeholder="*.csv" oninput="updNode(' + i + ',\'pattern\',this.value)"></div>') + '</div>' +
+                        ((fcList || fcMode !== 'list') ? '<div class="form-row"><div class="field wide"><label>Destination dir *</label><input class="sugin" list="pathsug" value="' + attresc(n.dest) + '" placeholder="${dir.next_step}" oninput="updNode(' + i + ',\'dest\',this.value)"></div></div>' : '') +
+                        // stated, not hidden: the step REFUSES the other two modes with a list rather
+                        // than ignoring the setting, so the field has to stay visible to be corrected
+                        (fcList && fcMode !== 'copy' ? '<div class="form-row"><div class="field wide"><span class="dim small" style="color:var(--fail)">With a file list the step can only <b>copy</b>. Mode <b>' + esc(fcMode) + '</b> is refused when it runs &mdash; set it back to copy, or switch Files to copy back to &laquo;directory + pattern&raquo;.</span></div></div>' : '') +
+                        (fcList ? copyListFields(i, n) : '') +
+                        '<div class="subsection dim small" style="padding-bottom:12px">outputs: ##VAR matchedCount, matchedFiles' + ((fcList || fcMode !== 'list') ? ', bytesCopied' : '') +
+                        (fcList ? ', listRows, listedFiles, duplicatesInList, blankNames, missingFiles' : ' &nbsp;(list = scan only)') + '</div>';
                 } else if (ex === 'setvar') {
                     h += '<div class="subsection"><div class="sub-label">Assignments — Name = expression (${vars}, plus integer math: A + B - C, left to right, spaces around each operator required)</div>';
                     n.params.forEach(function (p, j) {
@@ -1225,13 +1265,19 @@
                     h += '<div class="dim small">Each category is chosen independently &mdash; e.g. Italian animals + international colors. Empty = bundled default. View / replace these files in the <b>Pool files</b> page (topbar).</div></div>';
                     h += '<div class="dim small" style="margin-top:6px">Deterministic streaming masking (constant memory, ~1GB ok). Driven by displayschema <code>anonType</code>. Strategies: <code>date</code> (passthrough, priority), <code>numericFixed</code>, <code>alphanumericFixed</code>, <code>cid</code> (format-preserving / partial / hash), <code>firstName/lastName/fullName/city/address/company</code> (pools bundled in WAR; nome&times;cognome cross-joined; Italian-vs-international by %), <code>customerDescription</code> (person or company by %), <code>freeText</code> (lorem, exact length). Same value &rarr; same output (joins survive). Secret + pools in application.properties (orchestrator.masking-secret / orchestrator.mask-pools-dir). outputs: ##VAR outputFile, dataRows, columns</div>';
                 } else if (ex === 'safecopy') {
+                    var scList = (nodeParam(n, 'listSource') === 'csv');
                     h += '<div class="form-row">' +
-                        '<div class="field wide"><label>Source directory *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${landingOut} | D:/landing/in" oninput="updNode(' + i + ',\'source\',this.value)"></div></div>';
+                        '<div class="field"><label>Files to copy</label><select onchange="copySetListSource(' + i + ',this.value)">' +
+                        '<option value=""' + (scList ? '' : ' selected') + '>directory + pattern</option>' +
+                        '<option value="csv"' + (scList ? ' selected' : '') + '>the ones listed in a CSV column</option></select></div>' +
+                        '<div class="field wide"><label>Source directory' + (scList ? ' &mdash; base for names that are not complete paths' : ' *') + '</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${landingOut} | D:/landing/in" oninput="updNode(' + i + ',\'source\',this.value)"></div></div>';
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Dest directory *</label><input class="sugin" list="pathsug" value="' + attresc(n.dest) + '" placeholder="${sharedDir} | D:/landing/out" oninput="updNode(' + i + ',\'dest\',this.value)"></div></div>';
                     h += '<div class="form-row">' +
-                        '<div class="field"><label>Wildcard pattern(s)</label><input value="' + attresc(n.pattern) + '" placeholder="*.csv | *.md5, *.tar" oninput="updNode(' + i + ',\'pattern\',this.value)"></div>' +
+                        (scList ? '' : '<div class="field"><label>Wildcard pattern(s)</label><input value="' + attresc(n.pattern) + '" placeholder="*.csv | *.md5, *.tar" oninput="updNode(' + i + ',\'pattern\',this.value)"></div>') +
                         '<div class="field"><label>Temp suffix</label><input value="' + attresc(nodeParam(n,'tmpSuffix')) + '" placeholder=".on_fly_" oninput="setNodeParam(' + i + ',\'tmpSuffix\',this.value)"></div></div>';
+                    if (scList) h += copyListFields(i, n) +
+                        '<div class="dim small" style="margin-top:6px">The staging through <code>&lt;name&gt;.on_fly_</code> and the atomic rename apply to a listed file exactly as to a matched one. A listed name that <i>already</i> ends in the temp suffix is <b>refused</b>, not skipped: it was asked for by name, and delivering it under a name every watcher ignores would be a delivery that silently never arrives. Outputs also <code>${listRows}</code>, <code>${listedFiles}</code>, <code>${duplicatesInList}</code>, <code>${blankNames}</code>, <code>${missingFiles}</code>.</div>';
                     h += '<div class="dim small" style="margin-top:6px">Copies matching files from the source directory to the dest directory (several patterns can be separated by commas, e.g. <code>*.md5, *.tar</code>). Each file is written as <code>&lt;name&gt;.on_fly_</code> and renamed (atomic move when possible) to the final name only after the copy completes, so a downstream process watching the landing zone never sees a partial file. Outputs <code>${matchedFiles}</code>, <code>${matchedCount}</code>, <code>${bytesCopied}</code>.</div>';
                 } else if (ex === 'dequote') {
                     h += '<div class="form-row">' +
@@ -1928,8 +1974,17 @@
                     }
                 }
                 if (ex === 'filecopy') {
-                    if (!n.source) errs.push(label + ' (' + n.id + '): source is required');
-                    if ((n.mode || 'copy') !== 'list' && !n.dest) errs.push(label + ' (' + n.id + '): dest is required unless mode=list');
+                    if (nodeParam(n, 'listSource') === 'csv') {
+                        // source is NOT required here: with a column of complete paths there is nothing
+                        // for it to mean. Both missing CSV fields are reported, not just the first.
+                        if (!n.dest) errs.push(label + ' (' + n.id + '): dest is required');
+                        if (!nodeParam(n, 'listFile')) errs.push(label + ' (' + n.id + '): the file list CSV is required');
+                        if (!nodeParam(n, 'listColumn')) errs.push(label + ' (' + n.id + '): the column holding the file name is required');
+                        if ((n.mode || 'copy') !== 'copy') errs.push(label + ' (' + n.id + '): with a file list the step can only copy - mode=' + (n.mode || 'copy') + ' is refused when it runs');
+                    } else {
+                        if (!n.source) errs.push(label + ' (' + n.id + '): source is required');
+                        if ((n.mode || 'copy') !== 'list' && !n.dest) errs.push(label + ' (' + n.id + '): dest is required unless mode=list');
+                    }
                 }
                 if (ex === 'setvar' && (!n.params || !n.params.length)) errs.push(label + ' (' + n.id + '): at least one assignment is required');
                 if (ex === 'split' && !n.source) errs.push(label + ' (' + n.id + '): input file (source) is required');
@@ -2056,7 +2111,15 @@
                     // switch back to IFS after it was ticked, or an imported workflow carrying it
                     errs.push(label + ' (' + n.id + '): deleteContentAfterEmbed is set but the content source is IFS, where deleting is refused - it is for the local copies an ifscopy step staged');
                 }
-                if (ex === 'safecopy' && (!n.source || !n.dest)) errs.push(label + ' (' + n.id + '): source and dest directories are required');
+                if (ex === 'safecopy') {
+                    if (nodeParam(n, 'listSource') === 'csv') {
+                        if (!n.dest) errs.push(label + ' (' + n.id + '): dest directory is required');
+                        if (!nodeParam(n, 'listFile')) errs.push(label + ' (' + n.id + '): the file list CSV is required');
+                        if (!nodeParam(n, 'listColumn')) errs.push(label + ' (' + n.id + '): the column holding the file name is required');
+                    } else if (!n.source || !n.dest) {
+                        errs.push(label + ' (' + n.id + '): source and dest directories are required');
+                    }
+                }
                 if (ex === 'dequote' && !n.source) errs.push(label + ' (' + n.id + '): input CSV (source) is required');
             } else if (n.kind === 'LOOP') {
                 if (!n.over) errs.push(label + ' (' + n.id + '): "over" (list expression) is required');
