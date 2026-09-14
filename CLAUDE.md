@@ -2958,3 +2958,44 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   to fail here. The mutations do prove the explicit test is load-bearing for `\logs`, UNC and `D:\`.
   Same class as `ofPattern("DD")` behaving differently on the sandbox JDK than on Java 8.
 * Note in `.claude/2026-09-14-copy-file-list-batch1.md`.
+
+## copy file list — Batch 2: the filecopy and safecopy executors
+* `engine/LocalCopySupport` (JDK only) is the transfer half; `InternalSteps.runCopyList` is the one body
+  both executors share, differing only in whether each file is staged under a temp name first. Engine
+  only: **the option is NOT reachable from the designer until batch 3** — no panel, and `clientValidate`
+  still requires `source` unconditionally.
+* **The pre-scan is the whole point of the local shape, and the only assertion that can tell a pre-scan
+  from a check inside the loop is one where the miss is LAST**: 20 files present, the 21st absent, and
+  the destination must be EMPTY. Over IFS that check is a round trip per file and `ifscopy` rightly
+  skips it; here it is a `Files.isRegularFile` on the filesystem the copy is about to read anyway.
+* **A listed name already ending in the temp suffix is REFUSED, not skipped.** Under a pattern skipping
+  is right — it is somebody else's in-flight file and nobody asked for it. In a list it was asked for BY
+  NAME, and delivering it would put a file into the landing zone under a name every watcher is built to
+  ignore: a delivery that silently never arrives.
+* **A bare name with NO base is refused**, where `ifscopy` only logs. There a bare name still lands in
+  the connection's home directory; here it would resolve against Tomcat's working directory, which is
+  never what anybody meant. The message names both fields that fix it.
+* **The executors are RUN, not reviewed**: `runFileCopy`, `runSafeCopy` and `runCopyList` are lifted
+  VERBATIM out of `InternalSteps.java` at build time and compiled against the real `StepDef`,
+  `VarResolver` and `StepExecutor.Result` — all Spring-free — then exercised against real files. 141
+  assertions, 14 mutations all caught. The pattern shape is proved unchanged the way batch 1 proved the
+  reader: pre-patch and post-patch bodies over the same tree, comparing variables, destination, source
+  and log across 8 pattern/mode scenarios.
+* **That safecopy stages under the temp name cannot be deduced from the result** — the final directory
+  looks identical either way — so the destination is WATCHED WHILE THE COPY RUNS and `big.bin.on_fly_`
+  has to be seen. The mutation that writes straight to the final name is caught by that and nothing else.
+* **A mutation reported as caught, was not, and the reason is worth keeping**: the anchor
+  `if (!lr.collisions.isEmpty() && failOnCollision) {` occurs TWICE — `runIfsCopyList` has the same line —
+  so `replace(..., 1)` mutated `ifscopy`, which this suite does not exercise. It read as caught only
+  because the suite was flaking at the time. **Two independent faults agreeing to produce a pass**; the
+  anchor is now unique and the flake (a watcher assertion racing its own shutdown, and redundant with
+  the final listing) is gone. 15 consecutive clean runs before the mutations were trusted.
+* **An assertion of mine was wrong rather than the code**: `FileTime.equals` compares NANOSECONDS and
+  this filesystem truncates them, so "COPY_ATTRIBUTES preserves the mtime" failed while working. It now
+  stamps the source in 2020 and asserts `filecopy` keeps it while `safecopy` does not — which is the
+  difference between the two executors, and was never asserted before.
+* **Known duplication, deliberately not removed**: `runCopyList` repeats much of `runIfsCopyList`'s
+  parameter reading and reporting. Merging them would change `ifscopy`'s log wording, which no feed
+  asked for; the shared parts that matter (the reader) already are shared. Revisit only with a decision
+  about that log.
+* Note in `.claude/2026-09-14-copy-file-list-batch2.md`.

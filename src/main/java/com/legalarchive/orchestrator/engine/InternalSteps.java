@@ -77,7 +77,7 @@ public class InternalSteps {
             } else if ("ifscopy".equals(kind)) {
                 runIfsCopy(step, resolvedParams, vars, res, line);
             } else if ("filecopy".equals(kind)) {
-                runFileCopy(step, vars, res, line);
+                runFileCopy(step, resolvedParams, vars, res, line);
             } else if ("setvar".equals(kind)) {
                 runSetVar(resolvedParams, vars, res, line);
             } else if ("validate".equals(kind)) {
@@ -1920,9 +1920,184 @@ public class InternalSteps {
         res.exitCode = 0;
     }
 
+    /**
+     * Copy the files named in one column of a CSV to one flat destination directory. Shared by
+     * {@code filecopy} and {@code safecopy}, which differ only in whether each file is staged under a
+     * temporary name first - and in nothing else, which is why there is one method and not two.
+     *
+     * <p>The list is read whole and reported BEFORE anything is transferred - how many rows, how many
+     * names, how many duplicates, how many blanks, which column, which base path, and how many listed
+     * files are not there - so an operator reading the log knows what the step was about to do even
+     * when it then refuses. Duplicates are collapsed rather than copied twice; a blank cell is counted
+     * and its line named rather than being an invisible short delivery.</p>
+     *
+     * <p>Two listed files whose paths differ but whose NAME is the same would land on top of each other
+     * in the one flat destination. That is refused by default ({@code onNameCollision=fail}), because
+     * the loss would be silent and the step would report a success with fewer files than it copied.</p>
+     */
+    private void runCopyList(String kind, StepDef step, Map<String, String> params, Map<String, String> vars,
+                             StepExecutor.Result res, java.util.function.Consumer<String> line,
+                             String tmpSuffix, boolean copyAttributes) throws Exception {
+        String listFile = blankToNull(VarResolver.resolve(params.get("listFile"), vars));
+        String column = blankToNull(VarResolver.resolve(params.get("listColumn"), vars));
+        String dest = blankToNull(VarResolver.resolve(step.dest, vars));
+        List<String> missingCfg = new ArrayList<String>();
+        if (listFile == null) missingCfg.add("listFile");
+        if (column == null) missingCfg.add("listColumn");
+        if (dest == null) missingCfg.add("dest");
+        if (!missingCfg.isEmpty()) {
+            // all of them named at once: nobody should run a step three times to be told three things
+            line.accept(kind + ": missing required parameter(s) for a CSV file list: " + String.join(", ", missingCfg));
+            res.lastLines = "missing parameter(s): " + String.join(", ", missingCfg);
+            res.exitCode = 2;
+            return;
+        }
+
+        // the explicit prefix wins; without one the existing source directory is the base, so a list of
+        // bare file names needs no second copy of the directory it came from. That fallback IS the
+        // "directory + file name from the CSV" combination, and which base was used is in the log so it
+        // never has to be inferred.
+        String prefix = blankToNull(VarResolver.resolve(params.get("listPathPrefix"), vars));
+        String base = prefix != null ? prefix : blankToNull(VarResolver.resolve(step.source, vars));
+        String baseFrom = prefix != null ? "listPathPrefix" : "the source directory";
+
+        java.io.File csv = new java.io.File(rebaseRel(listFile, vars));
+        if (!csv.isFile()) {
+            line.accept(kind + ": file list not found: " + csv.getPath());
+            res.lastLines = "file list not found: " + csv.getPath();
+            res.exitCode = 2;
+            return;
+        }
+
+        String charset = xStr(VarResolver.resolve(params.get("listCharset"), vars), "UTF-8");
+        String dl = VarResolver.resolve(params.get("listDelimiter"), vars);
+        char delim = (dl != null && !dl.isEmpty()) ? dl.charAt(0) : detectDelim(csv, ';');
+        boolean hasHeader = !"false".equalsIgnoreCase(xStr(params.get("hasHeader"), "true"));
+        boolean failOnMissing = !"skip".equalsIgnoreCase(xStr(params.get("onMissingFile"), "fail"));
+        boolean failOnCollision = !"overwrite".equalsIgnoreCase(xStr(params.get("onNameCollision"), "fail"));
+
+        String glob = blankToNull(VarResolver.resolve(step.pattern, vars));
+        if (glob != null) line.accept(kind + ": the pattern '" + glob + "' is IGNORED when the list comes from a CSV");
+
+        CopyListSupport.ListResult lr = CopyListSupport.read(csv, charset, delim, column, hasHeader,
+                base, CopyListSupport.Flavour.LOCAL);
+        if (lr.error != null) {
+            line.accept(kind + ": " + lr.error);
+            res.lastLines = lr.error;
+            res.exitCode = 2;
+            return;
+        }
+
+        line.accept(kind + " from the list " + csv.getPath() + "  ->  " + dest
+                + (tmpSuffix == null ? "" : "  (temp suffix " + tmpSuffix + ")"));
+        line.accept(kind + ": delimiter '" + delim + "', " + (hasHeader ? "with" : "without")
+                + " header, charset " + charset + ", file name in " + lr.columnLabel);
+        line.accept(kind + ": " + lr.dataRows + " row(s) read, " + lr.paths.size() + " file(s) to copy, "
+                + lr.duplicates + " duplicate(s) collapsed, " + lr.blankRows + " row(s) with no file name");
+        if (!lr.blankLines.isEmpty()) {
+            line.accept(kind + ": no file name at line(s) " + String.join(", ", lr.blankLines)
+                    + (lr.blankRows > lr.blankLines.size() ? " ... (" + lr.blankRows + " in total)" : ""));
+        }
+        line.accept(kind + ": names that are not already complete paths are resolved under "
+                + (base == null ? "(nothing)" : base + " (from " + baseFrom + ")"));
+
+        // With no base at all, a bare name would be resolved against the process working directory -
+        // Tomcat's, which is never what anybody meant. ifscopy only logs this because there a bare name
+        // still lands in the connection's home directory; here it is refused, and the refusal names the
+        // two fields that fix it.
+        if (base == null) {
+            List<String> bare = new ArrayList<String>();
+            for (String pth : lr.paths) {
+                if (!CopyListSupport.isCompleteLocal(pth) && bare.size() < CopyListSupport.MAX_REPORTED) bare.add(pth);
+            }
+            if (!bare.isEmpty()) {
+                String msg = bare.size() + " listed name(s) are not complete paths and there is no base"
+                        + " to resolve them under: set listPathPrefix, or the source directory - "
+                        + String.join(", ", bare);
+                line.accept(kind + ": " + msg);
+                res.lastLines = msg;
+                res.exitCode = 2;
+                return;
+            }
+        }
+
+        for (String c : lr.collisions) line.accept(kind + ": destination name collision - " + c);
+        if (!lr.collisions.isEmpty() && failOnCollision) {
+            String msg = lr.collisions.size() + " listed file(s) would overwrite each other in " + dest
+                    + "; rename them, copy them in separate steps, or set onNameCollision=overwrite";
+            line.accept(kind + ": " + msg);
+            res.lastLines = msg;
+            res.exitCode = 1;
+            return;
+        }
+
+        LocalCopySupport.Options o = new LocalCopySupport.Options();
+        o.paths = lr.paths;
+        o.dest = new java.io.File(dest);
+        o.tmpSuffix = tmpSuffix;
+        o.failOnMissing = failOnMissing;
+        o.copyAttributes = copyAttributes;
+        o.label = kind;
+        LocalCopySupport.Result cr = LocalCopySupport.run(o, line);
+
+        String sep = step.delimiter == null ? ";" : step.delimiter;
+        res.outVars.put("matchedCount", String.valueOf(cr.filesCopied));
+        res.outVars.put("matchedFiles", String.join(sep, cr.names));
+        res.outVars.put("bytesCopied", String.valueOf(cr.bytesCopied));
+        res.outVars.put("listRows", String.valueOf(lr.dataRows));
+        res.outVars.put("listedFiles", String.valueOf(lr.paths.size()));
+        res.outVars.put("duplicatesInList", String.valueOf(lr.duplicates));
+        res.outVars.put("blankNames", String.valueOf(lr.blankRows));
+        res.outVars.put("missingFiles", String.valueOf(cr.missing));
+        for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
+
+        if (cr.failure != null) {
+            line.accept(kind + ": " + cr.failure);
+            res.lastLines = cr.failure;
+            res.exitCode = 1;
+            return;
+        }
+        if (cr.missing > 0) {
+            line.accept(kind + ": " + cr.missing + " listed file(s) were skipped (onMissingFile=skip): "
+                    + String.join(", ", cr.missingNames)
+                    + (cr.missing > cr.missingNames.size() ? " ..." : ""));
+        }
+        res.exitCode = 0;
+    }
+
     // ------------------------------------------------------------ filecopy
-    private void runFileCopy(StepDef step, Map<String, String> vars,
+    /**
+     * {@code listSource} selects the shape, exactly as on {@code ifscopy}: absent or {@code pattern} is
+     * what this executor has always done, byte for byte; {@code csv} copies exactly the files named in
+     * one column of a CSV. An unrecognised value FAILS rather than falling back to the pattern shape -
+     * a typo would otherwise be answered by a directory copy whose pattern defaults to {@code *}.
+     */
+    private void runFileCopy(StepDef step, Map<String, String> params, Map<String, String> vars,
                              StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        String listSource = xStr(VarResolver.resolve(params.get("listSource"), vars), "pattern");
+        if ("csv".equalsIgnoreCase(listSource)) {
+            String mode = step.mode == null ? "copy" : step.mode.trim().toLowerCase();
+            // decided at Gate 0: with a list the step may only COPY. Refused rather than ignored - a
+            // CSV read as an instruction to REMOVE files is the outcome a refusal is cheap insurance
+            // against, and a mode that can be set but has no effect is worse than one that is absent.
+            if (!"copy".equals(mode)) {
+                String msg = "filecopy: mode=" + mode + " cannot be combined with a CSV file list;"
+                        + " with a list the step may only copy - set mode=copy, or switch the step back"
+                        + " to 'directory + pattern' to " + ("move".equals(mode) ? "move" : "list") + " files";
+                line.accept(msg);
+                res.lastLines = msg;
+                res.exitCode = 2;
+                return;
+            }
+            runCopyList("filecopy", step, params, vars, res, line, null, true);
+            return;
+        }
+        if (!"pattern".equalsIgnoreCase(listSource)) {
+            line.accept("filecopy: listSource must be 'pattern' or 'csv', not '" + listSource + "'");
+            res.lastLines = "invalid listSource";
+            res.exitCode = 2;
+            return;
+        }
         String source = VarResolver.resolve(step.source, vars);
         String dest = VarResolver.resolve(step.dest, vars);
         String glob = VarResolver.resolve(step.pattern, vars);
@@ -1975,6 +2150,19 @@ public class InternalSteps {
      */
     private void runSafeCopy(StepDef step, Map<String, String> params, Map<String, String> vars,
                              StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        String listSource = xStr(VarResolver.resolve(params.get("listSource"), vars), "pattern");
+        if ("csv".equalsIgnoreCase(listSource)) {
+            String tmpSfx = params.get("tmpSuffix");
+            if (tmpSfx == null || tmpSfx.trim().isEmpty()) tmpSfx = ".on_fly_";
+            runCopyList("safecopy", step, params, vars, res, line, tmpSfx, false);
+            return;
+        }
+        if (!"pattern".equalsIgnoreCase(listSource)) {
+            line.accept("safecopy: listSource must be 'pattern' or 'csv', not '" + listSource + "'");
+            res.lastLines = "invalid listSource";
+            res.exitCode = 2;
+            return;
+        }
         String source = VarResolver.resolve(step.source, vars);
         String dest = VarResolver.resolve(step.dest, vars);
         String glob = VarResolver.resolve(step.pattern, vars);

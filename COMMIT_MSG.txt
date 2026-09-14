@@ -1,77 +1,86 @@
-Copy file list: the CSV reader extracted and shared (batch 1)
+Copy file list: the filecopy and safecopy executors (batch 2)
 
-Gate 0 of .claude/COPY_FILE_LIST.md is answered and recorded in the spec,
-with the one reversal struck through rather than rewritten: with a list the
-step may only COPY, so filecopy's move and list modes will be refused in
-batch 2 rather than ignored. ifscopy is finished as it stands, the column
-holds bare names or complete paths decided per value, and the destination is
-one flat directory.
+engine/LocalCopySupport, JDK only, is the transfer half of the option whose
+reading half batch 1 extracted. InternalSteps.runCopyList is the one body
+both executors share - they differ only in whether each file is staged
+under a temporary name first. Both gain the listSource switch, filecopy
+finally receives resolvedParams (it was the only copy executor that did
+not), and ifscopy is untouched: CopyListSupport is byte-unchanged by this
+batch, asserted rather than assumed.
 
-This batch is the extraction and nothing else. engine/CopyListSupport, JDK
-only and free of Spring, JTOpen and the orchestrator's own types, absorbs
-engine/IfsListSupport, which is deleted; runIfsCopyList is its one call site
-and asks for Flavour.IFS. The LOCAL flavour exists and is tested but nothing
-calls it yet: no executor gains a parameter, no template changes, and no
-feed can behave differently. A facade keeping the old name was rejected - it
-would claim only ifscopy uses the class, which is the opposite of why it was
-extracted.
+Engine only. The option is NOT reachable from the designer yet - no panel,
+and clientValidate still requires source unconditionally. That is batch 3.
 
-Exactly one rule differs between the two flavours: how a base and a listed
-name are joined, and therefore what the file is called in the destination.
+Decisions worth the words:
 
-Paths.get(name).isAbsolute() is NOT the local test. On Windows
-Paths.get("/logs/x.pdf").isAbsolute() is false, because a leading slash
-there means the root of the CURRENT drive - and that is exactly the shape a
-list produced by an earlier ifscopy step carries, so it would have been
-joined under the source directory. The rule is an explicit first-character
-test for / or \ (which also covers UNC), then an explicit drive-letter test,
-with Paths consulted only as a last net. A drive-qualified name with no
-separator is treated as complete: it is relative to that drive, not to ours.
-The join separator follows the base, falling back to the platform's, because
-a fixed character produces D:\landing\in/x.pdf - which works and reads as a
-mistake in every log line that quotes it.
+* The pre-scan is why the local shape differs from ifscopy. Over IFS an
+  existence check is a round trip per file and buys nothing the failure
+  message does not already say; here it is a Files.isRegularFile on the
+  filesystem the copy is about to read anyway, so the step refuses BEFORE
+  copying anything instead of stopping half way. It matters most on
+  safecopy, whose whole purpose is that a process watching the landing zone
+  never sees something incomplete - a half-done run leaves real, correctly
+  renamed files there with nothing saying the delivery was short.
+
+* A listed name already ending in the temp suffix is REFUSED, not skipped.
+  Under a pattern, skipping is right: it is somebody else's in-flight file
+  and nobody asked for it. In a list it was asked for BY NAME, and
+  delivering it would put a file into the landing zone under a name every
+  watcher is built to ignore - a delivery that silently never arrives.
+
+* A bare name with no base at all is refused, where ifscopy only logs.
+  There a bare name still lands in the connection's home directory; here it
+  would resolve against Tomcat's working directory. The message names both
+  fields that fix it.
+
+* mode=move and mode=list are refused with a list (Gate 0), naming the mode
+  rather than silently downgrading to a copy or ignoring the setting.
 
 Verified:
 
-* THE NO-OP IS MEASURED, not asserted. The pre-patch IfsListSupport taken
-  out of f900d99 and the post-patch CopyListSupport compiled side by side
-  and run over the same corpus, comparing every field of ListResult plus
-  join, localName and MAX_REPORTED: 22018 cases, 0 mismatches. The corpus
-  crosses 16 files against 3 charsets, 2 delimiters, header and no header,
-  13 column specifications and 10 bases, and includes quoting, a BOM on the
-  header and on a first data row, ISO-8859-1, degenerate files and two files
-  of 130 rows that push past the 50-line reporting cap in both directions.
+* THE EXECUTORS ARE RUN, NOT REVIEWED. runFileCopy, runSafeCopy,
+  runCopyList and their four helpers are lifted VERBATIM out of
+  InternalSteps.java at build time and compiled against the real StepDef,
+  VarResolver and StepExecutor.Result - all Spring-free - then exercised
+  against real files on disk. 141 assertions, 14 mutations of the real
+  sources, all caught.
 
-* Fourteen mutations, all caught, each applied by a runner that asserts its
-  anchor is present before editing. Two came back green and neither was a
-  pass: one anchor never matched, and one was a real corpus gap - no file
-  held a whitespace-only line. Added, together with a delimiters-only line,
-  which is the opposite case and must stay a row. That mutation now fails by
-  900 mismatches.
+* The pattern shape is proved unchanged the way batch 1 proved the reader:
+  pre-patch and post-patch bodies over identical trees across eight
+  pattern/mode scenarios, comparing exit code, every published variable,
+  the destination listing, the source listing afterwards and the whole log.
 
-* Every LOCAL mutation leaves the differential suite green. Breaking the new
-  flavour cannot change what ifscopy does, which makes the inertness a
-  property of the structure rather than of my care.
+* That safecopy stages under the temp name cannot be deduced from the
+  result, so the destination is WATCHED WHILE THE COPY RUNS and the
+  in-flight name has to be seen. The mutation that writes straight to the
+  final name is caught by that assertion and by nothing else.
 
-* 52 assertions on LOCAL, which has no predecessor to be compared against,
-  including one real read where the base falls back, a rooted name ignores
-  it, a duplicate collapses, a blank is counted with its line number and the
-  collision guard fires - with the same list read as IFS reporting no
-  collision, because there the two names differ. An unexpected throw in that
-  suite is now a failure rather than a stack trace that stops the report.
+Three things the run found and review would not have:
 
-* javac --release 8 on both classes; brace, parenthesis and bracket balance
-  on InternalSteps.java with strings and comments stripped; by reflection,
-  every ListResult member runIfsCopyList touches exists on the new class and
-  the seven-argument read signature matches the call; and the class in this
-  patch is byte-identical to the one the suites ran against, compared by
-  SHA-256.
+* A mutation reported as caught and was not: the collision-guard anchor
+  occurs TWICE in InternalSteps, runIfsCopyList carrying the identical
+  line, so the edit landed on ifscopy, which this suite does not exercise.
+  It still read as caught because the suite was flaking at that moment -
+  two independent faults agreeing to produce a pass.
 
-Not verified: mvn clean package, and InternalSteps.java itself, which needs
-the Spring tree from the internal Nexus. CopyListSupport is in the same
-package, so the change adds no import. Not reproducible here either: the
-Windows half of the isCompleteLocal rule, since on Linux
-Paths.get("/logs/x.pdf").isAbsolute() is already true and the case the rule
-exists for cannot be made to fail. The mutations do prove the explicit test
-is load-bearing for \logs, UNC and D:\ - for the leading slash on Windows
-the argument is the documented semantics of Paths, not a measurement.
+* The suite was flaky, 2 runs in 10: the in-flight watcher also asserted it
+  had seen the FINAL name, which races its own shutdown and is redundant
+  with the final listing. Removed, then 15 consecutive clean runs before
+  any mutation result was trusted.
+
+* An assertion of mine was wrong rather than the code: FileTime.equals
+  compares nanoseconds and this filesystem truncates them, so "attributes
+  preserve the modification time" failed while working. It now stamps the
+  source in 2020 and asserts filecopy keeps that time and safecopy does
+  not - the actual difference between the two, never asserted before.
+
+Known duplication, deliberately not removed: runCopyList repeats much of
+runIfsCopyList's parameter reading and reporting. Merging them would change
+ifscopy's log wording, which no feed asked for; the part where a divergence
+would cost something, the reader, is already shared.
+
+Not verified: mvn clean package, and InternalSteps.java as a whole. Not run
+on Windows - the separator and drive-letter rules are batch 1's, whose
+Windows half remains an argument from the documented semantics of Paths.
+Not exercised on a list of tens of thousands of files: the list is held
+whole, as ifscopy holds it, and one log line per file still stands.
