@@ -1,6 +1,8 @@
 # Copying the files listed in a CSV: `filecopy` and `safecopy`
 
-Batch 0 — specification only. No code in this commit. Base commit `a43b648`.
+Batch 0 — specification only, base commit `a43b648`, committed as `f900d99`.
+Gate 0 answered on 2026-09-14; batch 1 delivered on `f900d99`. Corrections below are struck through
+rather than rewritten, so an answer reads as a decision beside what it overruled.
 
 ## 1. What was asked, and the part of it that already exists
 
@@ -105,6 +107,13 @@ case has already been handled separately.
 
 Backslashes inside a name are left alone under `LOCAL` as they are under `IFS`, but for the opposite
 reason: there they are legal in a name, here they are a separator the platform already understands.
+That divergence is asserted directly — the same string gives `back\slash.pdf` as an IFS destination name
+and `slash.pdf` as a local one — because if the two flavours ever agree on it, one of them is wrong.
+
+**Q2 answered:** the column holds **bare names or complete paths**, and which one it is is decided per
+value, not per step — exactly the shape `ifscopy` already reads. A relative path carrying subdirectories
+is not a case the feeds produce; it is joined to the base rather than refused, because refusing it would
+be a rule with nothing behind it.
 
 ### 5.2 The destination stays flat
 
@@ -116,8 +125,9 @@ the silent short delivery this project keeps meeting.
 
 Preserving the relative tree under `dest` is a real alternative and is **not** in this specification: it
 would need a rule for what the paths are relative *to*, and under an absolute-path list there is no
-honest answer to that. Gate 0 Q3 asks whether the tree matters; if it does, it is its own parameter and
-its own batch, not a default.
+honest answer to that. ~~Gate 0 Q3 asks whether the tree matters; if it does, it is its own parameter and
+its own batch, not a default.~~ **Q3 answered: one flat destination directory, no tree.** The question is
+closed, so `preserveTree` is not a deferred parameter — it does not exist.
 
 ### 5.3 A local list IS pre-scanned, and that diverges from `ifscopy` on purpose
 
@@ -135,18 +145,21 @@ the delivery was short. Under `onMissingFile=skip` the pre-scan only counts and 
 The divergence is recorded here so that the two executors reading differently is a decision rather than
 something discovered later by whoever compares them.
 
-### 5.4 `filecopy` modes
+### 5.4 `filecopy` modes — with a list, only `copy`
 
-`mode` is `copy` / `move` / `list`, and all three keep meaning something with a list:
+~~`mode` is `copy` / `move` / `list`, and all three keep meaning something with a list: `copy` the
+obvious one; `move` removes the listed files from where they were, which is the same promise the mode
+already makes and a list makes precise instead of pattern-shaped; `list` copies nothing and answers
+which of these files are actually there, which falls out of the pre-scan for free.~~
 
-* `copy` — the obvious one.
-* `move` — the listed files are removed from where they were. This is the same promise the mode already
-  makes; a list makes it precise instead of pattern-shaped, which is safer, not riskier. Gate 0 Q4 asks
-  for confirmation because the CSV then becomes a deletion instruction and that deserves a yes rather
-  than an inference.
-* `list` — copies nothing and publishes `matchedFiles` / `matchedCount` / `missingFiles`, i.e. it
-  answers *which of these files are actually there*. That is a useful step in its own right and falls
-  out of the pre-scan for free.
+**Q4 answered: with a list the step may only copy.** `mode=move` or `mode=list` together with
+`listSource=csv` is **refused at run time** (`exitCode=2`) and by `clientValidate`, naming both settings
+and saying which one to change. It is not silently downgraded to a copy and the mode is not silently
+ignored: a CSV read as an instruction to *remove* files is precisely the outcome a refusal is cheap
+insurance against, and a `mode` that can be set but has no effect is the thing this project keeps
+recording as worse than one that is absent.
+
+`safecopy` has no `mode`, so nothing changes there.
 
 ### 5.5 `safecopy` keeps everything that makes it `safecopy`
 
@@ -214,39 +227,51 @@ The panel will be **executed under jsdom against the real template**, not inspec
 switching back leaves the step byte-identical, and an unrecognised stored value not opening the CSV
 panel.
 
-## 9. Gate 0 — these block batch 1
+## 9. Gate 0 — ANSWERED 2026-09-14, batch 1 unblocked
 
-**Q1. Is `ifscopy` finished, or is a union wanted?** §1 reads the request as: `ifscopy` already has both
+**Q1 — ANSWERED: `ifscopy` is finished.** No union. The work is `filecopy` and `safecopy`.
+
+~~Q1. Is `ifscopy` finished, or is a union wanted?~~ §1 reads the request as: `ifscopy` already has both
 halves, so the work is `filecopy` and `safecopy`. The alternative reading is a third shape — the
 directory pattern **and** the CSV list together, copied as one set. *Recommendation: `ifscopy` is
 finished. A union is easy to add later to all three at once, and nothing in the request asks for one
 source to be topped up by another.*
 
-**Q2. Does the column hold bare file names, full paths, or both — and produced by what?** The rule in
+**Q2 — ANSWERED: bare names or complete paths, decided per value.** See §5.1.
+
+~~Q2. Does the column hold bare file names, full paths, or both — and produced by what?~~ The rule in
 §5.1 is written for "both", which is what an earlier step in the same workflow tends to produce. If the
 list comes from a query against a Windows system it will carry `D:\...` or UNC paths, which the rule
 also handles; if it can carry a *relative* path with subdirectories (`2026/09/x.pdf`) then §5.2's
 flattening becomes a live question rather than a theoretical one. *Recommendation: none needed if a real
 sample CSV can be attached — one file answers this better than any answer.*
 
-**Q3. Must the destination preserve the directory tree?** *Recommendation: no. Flat, with the collision
+**Q3 — ANSWERED: no. One flat destination directory.** See §5.2.
+
+~~Q3. Must the destination preserve the directory tree?~~ *Recommendation: no. Flat, with the collision
 guard, matching what all three executors do today. Say so if a tree is needed and it becomes its own
 parameter in its own batch.*
 
-**Q4. `filecopy` with `mode=move` and a list — wanted?** It turns the CSV into an instruction to remove
+**Q4 — ANSWERED: no. With a list, copy only**, and the other two modes are refused rather than ignored. See §5.4 — this REVERSES the recommendation that stood there.
+
+~~Q4. `filecopy` with `mode=move` and a list — wanted?~~ It turns the CSV into an instruction to remove
 files from where they are. *Recommendation: yes, allow it; it is what the mode already means and a list
 is more precise than a glob. Veto it and the shape refuses `move` explicitly instead of silently doing
 something destructive.*
 
-**Q5. How many rows, at the top end?** The list is read whole before anything is copied, as `ifscopy`
+**Q5 — ANSWERED: keep the shape and declare the limit.** The limit is written into the class javadoc where someone changing the reader will meet it, not only here.
+
+~~Q5. How many rows, at the top end?~~ The list is read whole before anything is copied, as `ifscopy`
 does — a million-row CSV is a million strings held for the duration. *Recommendation: keep the shape and
 state the limit; if lists of that size are real, the reader streams instead and the collision check
 becomes a hash set, which is a different batch.*
 
 ## 10. Batches
 
-1. `CopyListSupport` extracted, `ifscopy` moved onto it, **proved a no-op differentially** (§4). No new
-   behaviour, nothing new reachable from the UI.
+1. **DELIVERED on `f900d99`.** `CopyListSupport` extracted, `IfsListSupport` absorbed and deleted,
+   `ifscopy` moved onto it, proved a no-op differentially (§4) over 22 018 compared cases. The `LOCAL`
+   flavour exists and is tested but nothing calls it yet: no new behaviour, nothing new reachable from
+   the UI, and no existing feed can change.
 2. `filecopy` and `safecopy` executors, including the local pre-scan, run against real files on disk.
 3. Designer panels for both, under jsdom against the real template.
 4. `USAGE.md`: the existing «ifscopy: copying the files listed in a CSV» section becomes one section

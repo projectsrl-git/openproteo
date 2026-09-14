@@ -2926,3 +2926,35 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   needs no change here — unlike `reportQuery`, which was a new child ELEMENT. But `runFileCopy` is
   dispatched WITHOUT `resolvedParams` today, the only copy executor that is, so the dispatch line does
   change.
+
+## copy file list — Batch 1: the reader extracted, ifscopy proved unchanged
+* Gate 0 answered: `ifscopy` is finished (no union), the column holds bare names OR complete paths
+  decided per value, the destination is ONE FLAT directory, and **with a list the step may only COPY** —
+  `mode=move` / `mode=list` are refused rather than ignored, which REVERSES the spec's own
+  recommendation and is struck through there rather than rewritten.
+* `engine/CopyListSupport` (JDK only) absorbs `engine/IfsListSupport`, which is **deleted**;
+  `runIfsCopyList` is the one call site. A delegating facade keeping the old name was rejected: it would
+  claim only `ifscopy` uses the class, which is the opposite of why it was extracted. The `LOCAL`
+  flavour exists and is tested but **nothing calls it yet** — no parameter, no template, no feed changes.
+* **`Paths.get(name).isAbsolute()` is NOT the local test.** On Windows `"/logs/x.pdf"` answers **false**
+  — a leading slash there is the root of the CURRENT DRIVE — and that is exactly the shape a list from
+  an earlier `ifscopy` step carries, so it would have been joined under the source directory. Explicit
+  first-character test for `/` or `\` (covering UNC), explicit drive-letter test, `Paths` only as a last
+  net. `C:x.pdf` counts as complete: it is relative to THAT drive, not to ours.
+* **The join separator follows the base** — backslash base, backslash join — falling back to the
+  platform's. A fixed character works and produces `D:\landing\in/x.pdf`, which reads as a mistake in
+  every log line that quotes it.
+* **The no-op is MEASURED**: pre-patch and post-patch classes compiled side by side, every field of
+  `ListResult` compared over **22 018 cases, 0 mismatches**. A reconstructed list of the original 73
+  assertions would only have proved the transcription.
+* **Two green mutations, and neither was a pass.** One anchor never matched (shell quoting) — the runner
+  now fails on a missing anchor. One was a real **corpus** gap: no file held a whitespace-only line.
+  Added, with a delimiters-only line as its opposite (a legitimate row of empty fields). Now 900
+  mismatches. Fourteen mutations, all caught.
+* **Every LOCAL mutation leaves the differential suite green**, which is the load-bearing fact: breaking
+  the new flavour cannot change what `ifscopy` does. Inertness by structure, not by care.
+* **The Windows half of the rule is an argument, not a measurement** — on Linux
+  `Paths.get("/logs/x.pdf").isAbsolute()` is already true, so the case the rule exists for cannot be made
+  to fail here. The mutations do prove the explicit test is load-bearing for `\logs`, UNC and `D:\`.
+  Same class as `ofPattern("DD")` behaving differently on the sandbox JDK than on Java 8.
+* Note in `.claude/2026-09-14-copy-file-list-batch1.md`.

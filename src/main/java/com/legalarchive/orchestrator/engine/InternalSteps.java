@@ -1862,8 +1862,9 @@ public class InternalSteps {
         String glob = blankToNull(VarResolver.resolve(step.pattern, vars));
         if (glob != null) line.accept("ifscopy: the pattern '" + glob + "' is IGNORED when the list comes from a CSV");
 
-        IfsListSupport.ListResult lr =
-                IfsListSupport.read(csv, charset, delim, column, hasHeader, base);
+        CopyListSupport.ListResult lr =
+                CopyListSupport.read(csv, charset, delim, column, hasHeader, base,
+                        CopyListSupport.Flavour.IFS);
         if (lr.error != null) {
             line.accept("ifscopy: " + lr.error);
             res.lastLines = lr.error;
