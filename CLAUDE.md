@@ -3035,3 +3035,35 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   such helper is one line — the exact property the file exists to check for, occurring in the file
   itself. Proved to bite on all five helpers.
 * Note in `.claude/2026-09-14-copy-file-list-batch3.md`.
+
+## copy file list — Batch 4: USAGE.md, and the feature is complete
+* «ifscopy: copying the files listed in a CSV» becomes «Copying the files listed in a CSV (ifscopy,
+  filecopy, safecopy)». **One section, not three** — three would drift, and most of what there is to say
+  is identical, so three copies would mostly be three chances to contradict each other. The `filecopy`
+  and `safecopy` entries in the executor list said nothing about the option at all; `ifscopy`'s
+  cross-reference pointed at the old title.
+* What differs between the three is written AS a difference with its reason: what counts as a complete
+  path on each side (and why a leading slash is in the local list — on Windows it means the root of the
+  CURRENT drive); the backslash left alone in both for opposite reasons; the pre-scan that `ifscopy`
+  deliberately lacks; `safecopy`'s refusal of a name already ending in the temp suffix; `filecopy`
+  copy-only; the flat destination; and the output names kept as they were rather than renamed for
+  symmetry, which would break every existing gate.
+* **31 assertions through `docs.html`'s own `render()`; 20 failures against the pre-patch file; 8
+  mutations all caught.** Asserted with positive controls: no bold marker or backtick outside code, no
+  single asterisk in the new section (the renderer's bold is `\*\*([^*]+)\*\*` and it has NO italics),
+  no markdown table anywhere (this renderer has no table support), no paragraph ending mid-sentence, and
+  the TOC anchor resolving to a real element — worth checking for a heading carrying parentheses.
+* **The suite was reading the WRONG PART of the document.** Splitting the HTML on `<h2` and taking the
+  first chunk mentioning the title picked the EXECUTOR LIST, because its entries cross-reference the
+  section by name. Every fact assertion was testing the wrong chunk. Now the chunk must BEGIN with the
+  heading, and a second assertion requires other chunks to cross-reference it, so the two cannot be
+  confused again.
+* Two checks were unscoped and reported the file's pre-existing noise (13 asterisks, 49 fragments, none
+  of them mine); scoped, as the wrap check already was. **122 wrapped paragraphs elsewhere are left
+  alone** and the count is reported so it cannot quietly grow.
+* One green mutation was a genuinely BAD mutation — it edited prose no assertion covers, which is not a
+  defect a suite should catch. Replaced by two that remove facts the suite names.
+* **Feature complete**: 22 018 compared cases, 141 + 88 + 31 assertions, 50 mutations across four
+  batches, three of them green first and all three opened rather than filed. Remaining gates are the
+  ones the sandbox cannot close — `mvn clean package`, a run on Windows, and a first real list.
+* Note in `.claude/2026-09-14-copy-file-list-batch4.md`.

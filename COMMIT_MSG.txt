@@ -1,77 +1,69 @@
-Copy file list: the designer panels for filecopy and safecopy (batch 3)
+Copy file list: USAGE.md, and the feature is complete (batch 4)
 
-Makes the option reachable. Batch 2 delivered the engine and until now
-nobody could configure it through the interface at all.
+The section «ifscopy: copying the files listed in a CSV» becomes «Copying
+the files listed in a CSV (ifscopy, filecopy, safecopy)» and covers all
+three. One section, not three: three would drift, which is the argument
+that made the reader shared in batch 1 and the panel builder shared in
+batch 3, and most of what there is to say is identical, so three copies
+would mostly be three chances to contradict each other. The filecopy and
+safecopy entries in the executor list said nothing about the option at all,
+and ifscopy's cross-reference pointed at the old title.
 
-Both executors get the Files to copy switch, the same one ifscopy has,
-wired through copySetListSource - which stores the value AND redraws. The
-panels show different fields in the two shapes, so a select that only
-stored the value would leave the page contradicting itself: that is the
-defect already recorded for contentSource and for batchBy. One
-copyListFields builder serves both panels, for the reason the reader itself
-is shared: two copies drift.
-
-In the list shape the source field is relabelled rather than hidden - that
-fallback IS the "directory + file name from the CSV" combination and should
-be visible where it operates - the pattern is hidden, and clientValidate
-stops demanding source while requiring dest and both CSV fields, reporting
-both missing ones rather than the first.
-
-filecopy's Mode field stays VISIBLE under a list, with the panel saying in
-red that only copy is allowed. The executor refuses the other two rather
-than ignoring them, so hiding the field would leave a stored move
-uncorrectable. clientValidate refuses it at save as well.
-
-buildXml, the parser, the writer, the DTO and PARAM_OPTIONS needed no
-change: every field is a <param>, and variables.html already carries
-listSource, hasHeader, onMissingFile and onNameCollision with these very
-defaults. Asserted, not assumed.
+What differs between the three is written AS a difference, with its reason:
+what counts as a name that already says where the file is on each side, and
+why a leading slash is in the local list - on Windows it means the root of
+the CURRENT drive, which is exactly the shape a list from an earlier
+ifscopy step carries; the backslash left alone in both, for opposite
+reasons; the pre-scan filecopy and safecopy have and ifscopy deliberately
+does not, so the default policy copies nothing at all rather than stopping
+half way; safecopy's refusal of a listed name already ending in the temp
+suffix; filecopy being copy-only with a list; the one flat destination; and
+the output names kept as they were rather than renamed for symmetry, which
+would break every existing gate.
 
 Verified:
 
-* 88 jsdom assertions against the real template; the same suite scores 36
-  passed, 48 failed against the pre-patch one. The DOM is built FROM the
-  real template with its scripts stripped, so every id the page bootstraps
-  against exists by construction. Controls are driven by evaluating their
-  own onchange ATTRIBUTE with `this` bound, as a browser does - jsdom does
-  not run inline handlers, and calling the helper directly would supply the
-  very step the page is meant to take.
+* RENDERED, NOT PROOF-READ. render() is extracted from docs.html at build
+  time and run over the real USAGE.md: 31 assertions, against 9 passed and
+  20 failed on the pre-patch file. Eight mutations, all caught, each anchor
+  asserted present and unique first.
 
-* Structure is asserted by NESTING, not by presence. An unbalanced tag does
-  not throw, it re-parents what follows, so an escaped subsection is still
-  findable from the document and an innerHTML string test would pass. The
-  stray-</div> mutation came back GREEN against the first version of that
-  assertion, which is why it is written this way.
+* Each check carries a positive control proving it can fire: no bold marker
+  or backtick outside code, no single asterisk in the new section (the
+  renderer's bold is \*\*([^*]+)\*\* and it has no italics at all), no
+  markdown table anywhere in the file since this renderer has no table
+  support, no paragraph in the section ending mid-sentence, and the TOC
+  anchor resolving to a real element - worth checking rather than assuming
+  for a heading that carries parentheses.
 
-* 13 mutations, all caught: twelve by the panel suite, one - a literal
-  escape sequence introduced into the JS - by the build checks.
+* The wrap check keys on the line that ENDS, not on what the next one
+  starts with, because a continuation beginning with a dash slipped past an
+  earlier version. 122 wrapped paragraphs already exist elsewhere in the
+  file and are deliberately left alone - rewrapping hundreds of lines of
+  unrelated prose inside a patch about one section is the churn that makes
+  a diff unreviewable - and the count is reported so it cannot grow
+  quietly.
 
-Three things the run found and review would not have:
+Two harness defects the run exposed:
 
-* A mutation runner piped into `head` left the tree mutated: SIGPIPE killed
-  it before its restore. My check that the tree was clean, a grep for the
-  condition, MATCHED A DIFFERENT LINE and reported all-clear. Restore is now
-  in atexit and each line is flushed. A check that finds a match is not a
-  check that found the right match.
+* The suite was reading the WRONG PART of the document. Splitting the
+  rendered HTML on <h2 and taking the first chunk that mentions the title
+  picked the EXECUTOR LIST, because its two entries cross-reference the
+  section by name; every fact assertion was testing the wrong chunk. The
+  chunk must now BEGIN with the heading, and a second assertion requires
+  the other chunks to cross-reference it, so the two cannot be confused.
 
-* An anchor occurred twice again - the Delimiter field line is identical in
-  ifscopy's branch - so the runner now refuses a non-unique anchor outright
-  instead of silently taking the first.
+* Two checks were unscoped and reported the file's pre-existing noise - 13
+  single asterisks and 49 sentence fragments, none of them in the added
+  section. Scoped, as the wrap check already was.
 
-* One green mutation was a genuinely bad mutation rather than a gap:
-  dropping ` selected` changes nothing, because the browser selects the
-  first option and fail is first. Replaced by reordering the options.
+* One mutation came back green and it was a genuinely bad mutation rather
+  than a gap: it edited prose no assertion covers, which is not a defect a
+  suite should catch. Replaced by two that remove facts the suite names.
 
-tools/scan_panel_redraw.js is also touched. It reported a clean run with
-this control's redraw removed, and the reason is structural: it is keyed on
-the PARAMETER NAME, and listSource is also written by ifsSetListSource,
-which still redraws - one broken helper hiding behind another executor's
-correct one. A second check was added, keyed on the helper, narrow enough
-that it cannot cry wolf, still advisory. Its own first version matched
-nothing at all, requiring a newline before the closing brace while every one
-of these helpers is a single line - the exact property the file exists to
-check for, occurring in the file itself. Proved to bite on all five helpers.
+Not updated: README.md, which CLAUDE.md already records as behind USAGE.md
+by several major features. It was not made worse here. Not rendered in the
+UBS browser - the checks are against the renderer, not the page. mvn clean
+package is untouched: USAGE.md is a static resource.
 
-Not verified: mvn clean package; the UBS browser (flex with wrap throughout
-and no new CSS variable, which is an argument and not a rendering); and the
-panel's fetch calls, since rendering is exercised and the network is not.
+This completes the feature as specified in .claude/COPY_FILE_LIST.md.
