@@ -1,71 +1,56 @@
-Mask: the street type word moves from the code into the pool values
+Copy file list: specification only (batch 0)
 
-Implements .claude/MASK_ADDRESS_PREFIX.md section 10. No new parameter, no
-designer change, nothing for the author to decide: the street pool carries
-the complete street and the dropdown that already exists selects it, which
-is how the executor behaved originally.
+Spec at .claude/COPY_FILE_LIST.md for the "copy the files listed in a CSV"
+option on filecopy and safecopy. No code: the five Gate 0 questions in
+section 9 gate batch 1, and the first of them can change a third of the
+work.
 
-MaskGenerators.address() loses its "Via " constant and returns street plus
-number. The two draws are untouched and in the same order - that is the
-whole constraint. streets_it.txt gains "Via " on all 60 values;
-streets_international.txt gains its own type word on all 177, in each
-country's word order: Oakwood Street, Bahnhofstrasse, Rue Voltaire, Calle
-Serrano, Amstelstraat, Aarestrasse. Four Dutch entries - Damrak, Rokin, Spui,
-Overtoom - are complete streets on their own and correctly carry no suffix.
+ifscopy already has the feature, delivered on 2026-08-21 as 554ed4f. Both
+halves of the request are in it: listSource=csv copies exactly the files
+named in one column, and the "directory + file name from the CSV"
+combination is that shape with listPathPrefix left empty, where the step's
+existing IFS source path becomes the base for any name that is not already
+a full path. Q1 asks only whether that is the reading, because the other
+possible one is a union of the pattern and the list, which no executor has
+today and which would be a third shape for all three.
 
-The same method's empty-pool fallback "Roma" becomes "Via Roma". That branch
-is reached only when the pool file is missing or unreadable, and without this
-it would have started emitting "Roma 47". Found by reading the line, not by
-reviewing the diff.
+Decisions the spec argues rather than states:
 
-Nothing in a value can tell the executor whether the type word is present:
-Damrak is a complete Dutch street and Garibaldi is not a street name at all,
-so a heuristic would fire on the legitimate Dutch entries and pass a broken
-Italian pool. There is therefore no guard, only visibility: runMask logs the
-street pool in effect on every run with its size and first value. Both file
-headers and USAGE.md say to keep the type word when replacing a pool.
+* The reader is EXTRACTED into engine/CopyListSupport (JDK only, no Spring),
+  absorbing IfsListSupport, with a two-valued flavour for the one rule that
+  genuinely differs between an IFS and a local path. Two implementations of
+  one rule that quietly disagree is the failure already met with FileMask
+  against elarcheck's matcher. The no-op for ifscopy will be proved
+  differentially, pre-patch and post-patch classes compiled side by side and
+  compared field by field over a generated corpus, because a reconstructed
+  list of the original assertions would only prove the transcription.
 
-Batch 1's own prose is inverted one commit later - both file headers, the
-USAGE.md paragraph and the CLAUDE.md lines. That is part of the change.
+* Paths.get(name).isAbsolute() is not a sufficient test on Windows: a
+  leading / there means root of the current drive and answers false, so a
+  Unix-flavoured list - which is exactly what an earlier ifscopy step
+  produces - would be joined under the source directory. The rule is
+  isAbsolute() OR a first character of / or \, which also covers UNC.
 
-VERIFIED
-- The proof is a digest, not assertions. The mask package compiled from a
-  clean clone of 3921bd5 and from the patched tree, both run over 3010
-  values with the default pools across address, city, fullName, company and
-  customerDescription: identical SHA-256
-  dd104f43c4d6f5b3cf3bfab6742fd115d20335dfe72c1673fd822538746da036 and the
-  same sample "Via Petrarca 47". That is the same digest measured before
-  batch 1 at f437d43, so the default output has not moved once in this whole
-  piece of work. The empty-pool fallback matches too: "Via Roma 142" both
-  sides.
-- Why it holds: pool.length is unchanged at 60, so nextInt(pool.length)
-  draws the same index from the same stream position and the type word rides
-  on the value instead of being concatenated after it. The counter-case was
-  measured earlier - a pool one entry LONGER moves 1962 of 2000 addresses.
-  Content may change freely; length may not.
-- 828 assertions green, javac --release 8, against the real MaskEngine,
-  MaskPools and MaskGenerators, including two new invariants: every
-  streets_it value starts with "Via ", and no streets_international value
-  does.
-- The log line was COMPILED AND RUN, not just written. InternalSteps needs
-  the Spring tree, so the added statements are lifted verbatim from the real
-  file - asserted character-identical - into a stub compiled against the real
-  MaskPools, and executed for the Italian pool, the international pool and a
-  missing file.
-- Charset: every character in all four pool files is inside both ISO-8859-1
-  and windows-1252, eszett included, so a masked value survives a Latin-1
-  sink downstream.
+* The local shape is pre-scanned and ifscopy deliberately is not. Over IFS
+  an existence check is a round trip per file and buys nothing the failure
+  message does not already say; locally it is a Files.exists on the
+  filesystem the copy is about to read anyway. It matters most on safecopy,
+  whose whole point is that a process watching the landing zone never sees
+  something incomplete - a half-done run leaves correctly renamed files
+  there with nothing saying the delivery was short.
 
-A STALE READ OF MY OWN, CAUGHT BY AN ASSERTION
-The first attempt to edit address() failed its match: I had the javadoc as
-"Via <n> <number>" and the file says "Via <name> <number>". Nothing was
-written, because the script asserts before it writes. The exact text of a
-line already read this session was still not what I remembered.
+* Parameter names and defaults are ifscopy's. PARAM_OPTIONS in
+  variables.html is keyed by parameter name with no executor context and
+  already carries listSource, hasHeader, onMissingFile and onNameCollision
+  with these defaults; reusing a name with a different default is the trap
+  recorded for inputCharset between the two ELAR executors.
 
-NOT VERIFIED
-- mvn clean package. The mask package compiles standalone with --release 8;
-  InternalSteps does not, and only its added statements were compiled, in a
-  stub.
-- A real feed run: the log line and the international pool have not been
-  through Tomcat.
-- The designer, unchanged by this batch and not re-tested.
+Read rather than predicted: buildXml emits every <param> generically, so it
+needs no change here, unlike reportQuery which was a new child element. But
+runFileCopy is dispatched without resolvedParams today - the only copy
+executor that is - so the dispatch line in InternalSteps.run() does change.
+
+Verified: nothing to verify, this batch is a markdown file and an entry in
+CLAUDE.md. Every statement of fact about the existing code was read in the
+tree at a43b648 and the commit that added the ifscopy option was confirmed
+on main by hash.

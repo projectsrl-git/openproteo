@@ -2893,3 +2893,36 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   repairable here — that stays with `dequote` (`embeddedNewlines`) or the extraction
   upstream. The designer hint states this so the control does not promise more than it
   does. Note in `.claude/2026-09-04-csvsql-newlines-in-values.md`.
+
+## copy file list — Batch 0 (spec only)
+* Spec at `.claude/COPY_FILE_LIST.md`, self-contained. **No code in this commit.** The ask was a CSV
+  file list on `copy`, `safecopy` and `ifscopy`, with the directory still available as the base for a
+  bare name.
+* **`ifscopy` already has both halves**, delivered 2026-08-21 as `554ed4f`: `listSource=csv` copies the
+  files named in one column, and the "directory + file name from the CSV" combination IS that shape
+  with `listPathPrefix` empty, where the existing IFS source path becomes the base. So the work is
+  `filecopy` and `safecopy`, and Q1 of Gate 0 exists only to confirm that reading — the other one is a
+  **union** of pattern and list, which no executor has today.
+* **The reader is EXTRACTED, not copied**: `engine/CopyListSupport`, JDK-only, absorbing
+  `IfsListSupport`, with a two-valued flavour for the one thing that really differs — how a base and a
+  name are joined. Two implementations of one rule quietly disagreeing is the failure already met with
+  `FileMask` and with the displayschema join. **The no-op will be proved differentially**: pre-patch and
+  post-patch classes compiled side by side and compared field by field over a generated corpus, because
+  a reconstructed assertion list would only prove the transcription.
+* **`Paths.get(name).isAbsolute()` is NOT enough on Windows**: a leading `/` there means *root of the
+  current drive* and answers false, so a Unix-flavoured list — exactly what an earlier `ifscopy` step
+  produces — would be joined under the source directory. The test is `isAbsolute()` OR a first character
+  of `/` or `\`, which also covers the UNC form.
+* **The local shape IS pre-scanned and `ifscopy` is not, deliberately.** There a per-file existence check
+  is a round trip each and buys nothing the failure message does not say; locally it is a `Files.exists`
+  on the filesystem the copy is about to read anyway. It matters most on `safecopy`, whose point is that
+  the landing zone never shows something incomplete — a half-done run leaves correctly renamed files
+  there with nothing saying the delivery was short.
+* **Param names and defaults are `ifscopy`'s on purpose.** `PARAM_OPTIONS` in `variables.html` is keyed
+  by name with no executor context and already carries `listSource`, `hasHeader`, `onMissingFile` and
+  `onNameCollision` with these defaults — reusing a name with a *different* default is the trap recorded
+  for `inputCharset` and for `onMissingFile` between `ifscopy` and `elarxml`.
+* **Read the emission rather than predicting it**: `buildXml` emits every `<param>` generically, so it
+  needs no change here — unlike `reportQuery`, which was a new child ELEMENT. But `runFileCopy` is
+  dispatched WITHOUT `resolvedParams` today, the only copy executor that is, so the dispatch line does
+  change.
