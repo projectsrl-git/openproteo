@@ -1,8 +1,9 @@
 # Object submission packager (`objpack`) — specification
 
-Status: **Batch 0 — design, Gate 0 open. No code written.** Nine questions in §9 decide details that
-cannot be inferred from the sources; five of them come from contradictions inside the Transarch page
-itself and cannot be resolved by reading it again.
+Status: **Batch 1 delivered** — the ustar writer and the MD5 file, standalone and unwired. §9.1 and
+§9.3 are answered; seven Gate 0 questions remain open and block **batch 2**, not batch 1, which
+depends on none of them. The earlier claim that Gate 0 blocked batch 1 was wrong and is corrected
+here.
 
 Builds a Transarch **TAR-packaged object submission** — audit JSON, metadata CSV, renamed object
 files, control file, tar, md5 — replacing `Object_CS_Archiving_v4_UK_PS5.ps1`. Target is the
@@ -212,7 +213,6 @@ and the writer must refuse rather than truncate.
 | `orderBy` | `name` | only for `objectSource=order` |
 | `include` / `exclude` | `*` / the five output patterns | as the script's `$Include`/`$Exclude` |
 | `dataschema` | — | optional; pre-flight only, never packaged (§3.1) |
-| `oidPadding` | `auto` | `auto` (from object count, §3.3) or a fixed width — §9.1 |
 | `packageMode` | `tar` | `tar` only in batch 1 |
 | `compression` | `none` | §9.4 |
 | `outputDir` | `${stepDir}` | |
@@ -249,27 +249,27 @@ package`, a run on Windows, and an actual Transarch ingestion of a generated pac
 ## 8. Batches
 
 - **0** — this spec (current).
-- **1** — ustar writer + md5, standalone, proved against GNU tar. Nothing wired.
+- **1** — ustar writer + md5, standalone, proved against GNU tar. Nothing wired. **Delivered**; see §10.
 - **2** — the executor: pairing, mapping, pre-flight, the five artifacts, registration.
 - **3** — designer panel, including the `<column>` role repeater.
 - **4** — `USAGE.md`.
 
-## 9. Gate 0 — to be answered before batch 1
+## 9. Gate 0 — answered and open
 
-**9.1 OID padding.** `auto` per §3.3 (5 objects → `OID1`), or fixed 6 as the script does
-(`SeqPad=6` → `OID000001`)? The live feeds were built by the script, so `auto` would change the file
-names of an established feed. Which is authoritative — and if `auto`, does it apply only to new
-feeds?
+**9.1 OID padding. — ANSWERED 2026-09-18: `auto`.** Width is a fixed function of the object count,
+per §3.3, for every feed and not only new ones. Renaming against what the script produced is
+accepted rather than avoided: keeping results apart is the author's job, by pointing each step at
+its own `outputDir`. `oidPadding` therefore has no `fixed` value to choose — it is dropped as a
+parameter, because a parameter whose only correct value is the default is a way to get it wrong.
 
 **9.2 Version padding.** `V001` per §2, or `V1` per §3.5's examples? The script emits `V001`. If the
 delivered packages so far were named `V001` and were accepted, that settles it — but it is worth
 saying so explicitly, because §3.5 is the section that describes the tar.
 
-**9.3 Mime type.** Does the `mime_type` column carry the dotted extension (`.pdf`) as every example
-shows and §4's "mime type against file name" check implies, or a real media type
-(`application/pdf`) as §3.2's reference to the records-management requirements implies? This decides
-whether the pre-flight compares the column to the extension or maps it through a media-type table.
-A question for Soffici.
+**9.3 Mime type. — ANSWERED 2026-09-18: dotted extension.** `mime_type` carries `.pdf`, `.jpeg`
+and so on, as every example in §3.1.1 and §3.2 shows. The pre-flight compares the column against
+the object file's own extension, case-insensitively, and no media-type table is needed. The value is
+copied verbatim into both the metadata CSV and the audit JSON.
 
 **9.4 Compression.** Confirm `none`. The script produces an uncompressed `.tar` and that is what has
 been delivered; §3.5's "Do only use" list reads as permission, not obligation, and a `.tar.gz` named
@@ -299,3 +299,18 @@ an explicit feed variable, set once per submission.
 Should a CSV row whose object is missing fail the whole package (the script's behaviour, via the
 count check) or be skippable into a `.skipped` discards file as `elarxml` does? The count rule in §4
 argues for failing; operational experience with 100K-object submissions may argue otherwise.
+
+---
+
+## 10. Batch 1 as built
+
+`objpack/UstarWriter.java` and `objpack/Md5.java`, Spring-free, `javac --release 8`. Unwired: batch 2
+adds the dispatch, `internalKind`, and the panel comes in batch 3.
+
+93 assertions green; 16 mutations all caught; three of those were green on the first run and all
+three were opened rather than filed — one was a real gap in the suite (a dropped terminating zero
+block is invisible at the default blocking factor, since the padding zeroes the tail either way) and
+two were bad mutations. Verified by GNU tar and by python `tarfile`, which share no code; `md5sum`
+agrees with `Md5` on the same archive. bsdtar is absent here and was skipped rather than passed.
+
+Not verified: `mvn clean package`, any run on Windows, any real Transarch ingestion.

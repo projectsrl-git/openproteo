@@ -1,52 +1,61 @@
-objpack: Transarch object-feed spec transcription and Gate 0
+objpack: Transarch object-feed spec, and the ustar writer
 
-Batch 0 of the object-submission packager. No code: two documents in
-.claude/, per the spec-first rule.
+Batches 0 and 1 of the object-submission packager, which replaces
+Object_CS_Archiving_v4_UK_PS5.ps1. Batch 1 is unwired: no dispatch, no
+internalKind, no designer, so no workflow can reach it yet.
 
-TRANSARCH_OBJECT_SUBMISSION_SPEC.md transcribes the UBS Confluence page
-"Object (e.g. pdf, jpeg, xml, json)" (pageId=1221950108) from screenshots,
-because the page is unreachable from where the executor is developed. It
-covers the naming convention, the audit JSON, the metadata CSV and its
-mandatory fields, object-file naming and OID padding, the control file,
-the TAR package and the MD5 checksum, and the validation rules. Section 6
-records five contradictions that are IN THE SOURCE and are not resolved
-here: version padding V001 vs V1, OID padding by count vs the examples,
-mime type as dotted extension vs media type, whether compression is
-permitted for a .tar-named submission, and the type of object_id.
+SPEC. .claude/TRANSARCH_OBJECT_SUBMISSION_SPEC.md transcribes the UBS
+Confluence page (pageId=1221950108) from screenshots, because it is not
+reachable from where this is built. Its section 6 records five
+contradictions that are IN THE SOURCE, not resolved: V001 vs V1, OID
+padding by count vs the audit example, mime type as media type vs dotted
+extension, whether compression is allowed for a .tar-named submission,
+and object_id as Integer vs "type":"string".
 
-OBJECT_PACKAGE_EXECUTOR.md is the design. Three points answer questions
-asked directly, and two of them are measured rather than argued:
+Two are answered and are in the design: OID padding is auto, width as a
+function of the object count, for every feed - renaming against what the
+script produced is accepted, since keeping results apart is the author's
+job via outputDir. oidPadding is therefore DROPPED as a parameter: one
+whose only correct value is the default is a way to get it wrong. And
+mime_type carries the dotted extension, so the pre-flight compares it to
+the object's own extension and no media-type table is needed. Seven
+questions stay open and block batch 2, not batch 1 - an earlier claim
+that they blocked batch 1 was wrong and is corrected in the spec.
 
-- samples/dataschema.json and the Transarch metadata schema have the SAME
-  shape, [{"name","nullable","type"}]. The feed's existing dataschema is
-  therefore usable as-is for pre-flight validation of column order and
-  nullability. It is NOT a package member: it appears nowhere in the tar
-  listing, and shipping it would add an unexpected member.
-- tar -cf t.tar -C stg -- f1 f2 stores BARE member names, magic "ustar ",
-  no "./" prefix. The PS1 script's ^[.][/\] normalisation defends against
-  a tar that prefixes them; it does not describe the expected output.
-- The tar writer will be hand-written ustar in pure JDK. Java 8 has no tar
-  anywhere, and commons-compress cannot be confirmed on the internal Nexus
-  from this sandbox, so a dependency-based design might have to be redone
-  after the fact. ustar is small enough to prove against the real GNU tar
-  present in the sandbox.
+Measured rather than argued: samples/dataschema.json and the Transarch
+metadata schema have the SAME shape, so the feed's existing dataschema is
+usable as-is for pre-flight validation, stays optional, and is NOT a
+package member.
 
-Field mapping is declared on the step as <column role= source=/> children,
-with the four mandatory roles falling back to the Transarch names when
-unmapped, so a CSV that already uses them needs no mapping at all.
-Recursive object lookup is configurable and defaults to no; the object
-path may come from a CSV column, resolved against objectsDir and refused
-if it escapes it.
+WRITER. Hand-written POSIX ustar in pure JDK. Java 8 has no tar anywhere
+and commons-compress cannot be confirmed on the internal Nexus from the
+sandbox, so a dependency-based design might have had to be redone after
+the build. Measured: real tar -C dir -- a b stores BARE member names with
+no "./" prefix; the PS1 script's ^[.][/\] strip is defensive, not
+descriptive. Flat names are structural - a name with a separator is
+refused - and a name over 100 bytes is refused, never truncated and never
+split into the prefix field, because a truncated name passes packaging
+and fails Transarch naming validation. Ownership and permissions are
+fixed so the same inputs give the same archive on any account. The file
+is streamed: the script staged every object into %TEMP% before calling
+tar.exe, which at the 20 GB CS ceiling is 20 GB written and read for
+nothing.
 
-The script stages every object into %TEMP% before invoking tar.exe. At the
-documented 20 GB ceiling that is 20 GB written and read for nothing; the
-Java writer streams from the landing zone.
+Md5.writeSidecar writes the bare hash, 32 bytes, no file name, no "*", no
+newline - deliberately not md5sum's format.
 
-VERIFIED: the dataschema shapes, by reading both files; the tar member
-naming and magic, by running GNU tar and parsing the headers.
-NOT VERIFIED: nothing is compiled or run, because nothing was written.
+VERIFIED: 93 assertions green (69 structural/refusal/MD5, 24 cross-reader)
+and 16 mutations all caught. Read back by GNU tar AND python tarfile,
+which share no code; md5sum agrees with Md5 on the same archive. THREE
+mutations were green on the first run and all three were opened rather
+than filed: one exposed a real gap in the suite - a dropped terminating
+zero block is invisible at the default blocking factor because the
+padding zeroes the tail either way, and only blockingFactor=1 shows it,
+which the suite now tests - and two were bad mutations of mine, since a
+trailing space IS a legal POSIX numeric terminator and HEX[0] IS '0', so
+that one was a no-op. The mutation runner mutates copies in a scratch
+tree, so it cannot leave the working tree dirty.
 
-Nine Gate 0 questions in section 9 are open and block batch 1. Five come
-from the contradictions above and need Soffici or the onboarding team;
-the Accepted Delimiters List page was not captured and is needed before
-outDelimiter can be validated rather than merely accepted.
+NOT VERIFIED: mvn clean package; any run on Windows; any real Transarch
+ingestion. bsdtar is not installed in the sandbox and was skipped, not
+silently passed. The suite is not committed, as the elar suites are not.

@@ -3067,3 +3067,41 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   batches, three of them green first and all three opened rather than filed. Remaining gates are the
   ones the sandbox cannot close — `mvn clean package`, a run on Windows, and a first real list.
 * Note in `.claude/2026-09-14-copy-file-list-batch4.md`.
+
+## objpack — Batch 0+1: Transarch object feeds, spec and the ustar writer
+* `.claude/TRANSARCH_OBJECT_SUBMISSION_SPEC.md` transcribes the UBS Confluence page
+  (pageId=1221950108) from screenshots, because it is unreachable from where the executor is built.
+  **Its §6 lists five contradictions that are IN THE SOURCE** and are recorded rather than resolved:
+  `V001` (§2) vs `V1` (§3.5's own tar/md5 examples); OID padding by object count (§3.3) vs the
+  `OID000001` in the §3.1.1 audit example for a 2-object submission; mime type as a records-management
+  media type vs the dotted extension every example carries; whether compression is permitted for a
+  `.tar`-named submission; and `object_id` as Integer vs `"type":"string"`.
+* **Two of them are answered.** OID padding is `auto` — width as a function of the object count, for
+  every feed, renaming against what the script produced being accepted rather than avoided, since
+  keeping results apart is the author's job via `outputDir`. So `oidPadding` was **dropped as a
+  parameter**: one whose only correct value is the default is a way to get it wrong. And `mime_type`
+  carries the **dotted extension**, so the pre-flight compares it to the object's own extension and
+  no media-type table is needed. Seven questions remain open and block batch 2.
+* **The feed's dataschema is already the right file.** Measured: `samples/dataschema.json` and the
+  Transarch metadata schema have the SAME shape, `[{"name","nullable","type"}]`. It is used for
+  pre-flight validation of column order and nullability, stays optional, and is **NOT a package
+  member** — it appears in no tar listing, and shipping it would add an unexpected member.
+* **Field mapping lives on the step** as `<column role= source=/>` children, four mandatory roles
+  falling back to the Transarch names so a conforming CSV needs no mapping at all. A mapped
+  `objectId` that is not ascending from 1 is **refused, not renumbered**. Recursion is configurable
+  and defaults to `no`; the object path may come from a CSV column, resolved against `objectsDir`
+  and refused if it escapes it; in `name` mode an ambiguous match across sub-directories fails
+  naming both paths rather than picking one.
+* **The tar writer is hand-written ustar in pure JDK** — Java 8 has none and commons-compress cannot
+  be confirmed on Nexus from the sandbox. Measured: real `tar -C dir -- a b` stores **bare names, no
+  `./`**; the script's `^[.][/\]` strip is defensive, not descriptive. Flat names, refusal of `/`,
+  and refusal (never truncation) of names over 100 bytes are structural.
+* **93 assertions green, 16 mutations all caught.** Verified by GNU tar AND python `tarfile`, which
+  share no code. **Three mutations were green first and all three were opened**: one exposed a real
+  suite gap (a missing terminating zero block is invisible at the default blocking factor because
+  the padding fills the tail with zeros either way — only `blockingFactor=1` shows it), and two were
+  bad mutations of mine (a trailing space IS a legal POSIX numeric terminator; `HEX[0]` IS `'0'`, so
+  that one was a no-op).
+* The script staged every object into `%TEMP%` before calling `tar.exe`; at the documented 20 GB CS
+  ceiling that is 20 GB written and read for nothing. This writer streams from the landing zone.
+* Notes in `.claude/2026-09-18-objpack-batch1-ustar.md`.
