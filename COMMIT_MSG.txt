@@ -1,69 +1,52 @@
-Copy file list: USAGE.md, and the feature is complete (batch 4)
+objpack: Transarch object-feed spec transcription and Gate 0
 
-The section «ifscopy: copying the files listed in a CSV» becomes «Copying
-the files listed in a CSV (ifscopy, filecopy, safecopy)» and covers all
-three. One section, not three: three would drift, which is the argument
-that made the reader shared in batch 1 and the panel builder shared in
-batch 3, and most of what there is to say is identical, so three copies
-would mostly be three chances to contradict each other. The filecopy and
-safecopy entries in the executor list said nothing about the option at all,
-and ifscopy's cross-reference pointed at the old title.
+Batch 0 of the object-submission packager. No code: two documents in
+.claude/, per the spec-first rule.
 
-What differs between the three is written AS a difference, with its reason:
-what counts as a name that already says where the file is on each side, and
-why a leading slash is in the local list - on Windows it means the root of
-the CURRENT drive, which is exactly the shape a list from an earlier
-ifscopy step carries; the backslash left alone in both, for opposite
-reasons; the pre-scan filecopy and safecopy have and ifscopy deliberately
-does not, so the default policy copies nothing at all rather than stopping
-half way; safecopy's refusal of a listed name already ending in the temp
-suffix; filecopy being copy-only with a list; the one flat destination; and
-the output names kept as they were rather than renamed for symmetry, which
-would break every existing gate.
+TRANSARCH_OBJECT_SUBMISSION_SPEC.md transcribes the UBS Confluence page
+"Object (e.g. pdf, jpeg, xml, json)" (pageId=1221950108) from screenshots,
+because the page is unreachable from where the executor is developed. It
+covers the naming convention, the audit JSON, the metadata CSV and its
+mandatory fields, object-file naming and OID padding, the control file,
+the TAR package and the MD5 checksum, and the validation rules. Section 6
+records five contradictions that are IN THE SOURCE and are not resolved
+here: version padding V001 vs V1, OID padding by count vs the examples,
+mime type as dotted extension vs media type, whether compression is
+permitted for a .tar-named submission, and the type of object_id.
 
-Verified:
+OBJECT_PACKAGE_EXECUTOR.md is the design. Three points answer questions
+asked directly, and two of them are measured rather than argued:
 
-* RENDERED, NOT PROOF-READ. render() is extracted from docs.html at build
-  time and run over the real USAGE.md: 31 assertions, against 9 passed and
-  20 failed on the pre-patch file. Eight mutations, all caught, each anchor
-  asserted present and unique first.
+- samples/dataschema.json and the Transarch metadata schema have the SAME
+  shape, [{"name","nullable","type"}]. The feed's existing dataschema is
+  therefore usable as-is for pre-flight validation of column order and
+  nullability. It is NOT a package member: it appears nowhere in the tar
+  listing, and shipping it would add an unexpected member.
+- tar -cf t.tar -C stg -- f1 f2 stores BARE member names, magic "ustar ",
+  no "./" prefix. The PS1 script's ^[.][/\] normalisation defends against
+  a tar that prefixes them; it does not describe the expected output.
+- The tar writer will be hand-written ustar in pure JDK. Java 8 has no tar
+  anywhere, and commons-compress cannot be confirmed on the internal Nexus
+  from this sandbox, so a dependency-based design might have to be redone
+  after the fact. ustar is small enough to prove against the real GNU tar
+  present in the sandbox.
 
-* Each check carries a positive control proving it can fire: no bold marker
-  or backtick outside code, no single asterisk in the new section (the
-  renderer's bold is \*\*([^*]+)\*\* and it has no italics at all), no
-  markdown table anywhere in the file since this renderer has no table
-  support, no paragraph in the section ending mid-sentence, and the TOC
-  anchor resolving to a real element - worth checking rather than assuming
-  for a heading that carries parentheses.
+Field mapping is declared on the step as <column role= source=/> children,
+with the four mandatory roles falling back to the Transarch names when
+unmapped, so a CSV that already uses them needs no mapping at all.
+Recursive object lookup is configurable and defaults to no; the object
+path may come from a CSV column, resolved against objectsDir and refused
+if it escapes it.
 
-* The wrap check keys on the line that ENDS, not on what the next one
-  starts with, because a continuation beginning with a dash slipped past an
-  earlier version. 122 wrapped paragraphs already exist elsewhere in the
-  file and are deliberately left alone - rewrapping hundreds of lines of
-  unrelated prose inside a patch about one section is the churn that makes
-  a diff unreviewable - and the count is reported so it cannot grow
-  quietly.
+The script stages every object into %TEMP% before invoking tar.exe. At the
+documented 20 GB ceiling that is 20 GB written and read for nothing; the
+Java writer streams from the landing zone.
 
-Two harness defects the run exposed:
+VERIFIED: the dataschema shapes, by reading both files; the tar member
+naming and magic, by running GNU tar and parsing the headers.
+NOT VERIFIED: nothing is compiled or run, because nothing was written.
 
-* The suite was reading the WRONG PART of the document. Splitting the
-  rendered HTML on <h2 and taking the first chunk that mentions the title
-  picked the EXECUTOR LIST, because its two entries cross-reference the
-  section by name; every fact assertion was testing the wrong chunk. The
-  chunk must now BEGIN with the heading, and a second assertion requires
-  the other chunks to cross-reference it, so the two cannot be confused.
-
-* Two checks were unscoped and reported the file's pre-existing noise - 13
-  single asterisks and 49 sentence fragments, none of them in the added
-  section. Scoped, as the wrap check already was.
-
-* One mutation came back green and it was a genuinely bad mutation rather
-  than a gap: it edited prose no assertion covers, which is not a defect a
-  suite should catch. Replaced by two that remove facts the suite names.
-
-Not updated: README.md, which CLAUDE.md already records as behind USAGE.md
-by several major features. It was not made worse here. Not rendered in the
-UBS browser - the checks are against the renderer, not the page. mvn clean
-package is untouched: USAGE.md is a static resource.
-
-This completes the feature as specified in .claude/COPY_FILE_LIST.md.
+Nine Gate 0 questions in section 9 are open and block batch 1. Five come
+from the contradictions above and need Soffici or the onboarding team;
+the Accepted Delimiters List page was not captured and is needed before
+outDelimiter can be validated rather than merely accepted.
