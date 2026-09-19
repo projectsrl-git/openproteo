@@ -1,61 +1,70 @@
-objpack: Transarch object-feed spec, and the ustar writer
+objpack: the packager, and mapping that is parameters not <column>
 
-Batches 0 and 1 of the object-submission packager, which replaces
-Object_CS_Archiving_v4_UK_PS5.ps1. Batch 1 is unwired: no dispatch, no
-internalKind, no designer, so no workflow can reach it yet.
+Batch 2. ObjectPack (Spring-free), SubmissionName, AuditJson, Dataschema,
+UstarReader, ObjPackException, InternalSteps.runObjPack, and the four
+registration locations. FlatCsvReader and CsvWriter are REUSED - a second
+CSV implementation here would be the FileMask duplication again.
 
-SPEC. .claude/TRANSARCH_OBJECT_SUBMISSION_SPEC.md transcribes the UBS
-Confluence page (pageId=1221950108) from screenshots, because it is not
-reachable from where this is built. Its section 6 records five
-contradictions that are IN THE SOURCE, not resolved: V001 vs V1, OID
-padding by count vs the audit example, mime type as media type vs dotted
-extension, whether compression is allowed for a .tar-named submission,
-and object_id as Integer vs "type":"string".
+THE BATCH-0 DESIGN SAID <column role= source=/> AND THE CODE REVERSED IT.
+<column> is a parser-level construct shared with xlsx2csv and built to map
+~100 columns in json2csv; putting six fixed roles through it would mean
+touching the parser's column handling for three executors to express what
+six keys already express. diff sets the precedent with match.N.*. With
+map.<role> parameters the parser change for this executor is the whitelist
+and nothing else. The spec is corrected in place rather than quietly
+followed.
 
-Two are answered and are in the design: OID padding is auto, width as a
-function of the object count, for every feed - renaming against what the
-script produced is accepted, since keeping results apart is the author's
-job via outputDir. oidPadding is therefore DROPPED as a parameter: one
-whose only correct value is the default is a way to get it wrong. And
-mime_type carries the dotted extension, so the pre-flight compares it to
-the object's own extension and no media-type table is needed. Seven
-questions stay open and block batch 2, not batch 1 - an earlier claim
-that they blocked batch 1 was wrong and is corrected in the spec.
+THE OBJECTS ARE NEVER COPIED. A tar member's name is independent of where
+its bytes are read from, so the Transarch rename happens while streaming
+straight out of the landing zone. The script staged every object into
+%TEMP% before calling tar.exe, which at the documented 20 GB CS ceiling is
+20 GB written and read to produce nothing. emitObjects materialises the
+renamed copies when they are actually wanted; it is off by default, because
+a TAR submission delivers only the tar and the md5.
 
-Measured rather than argued: samples/dataschema.json and the Transarch
-metadata schema have the SAME shape, so the feed's existing dataschema is
-usable as-is for pre-flight validation, stays optional, and is NOT a
-package member.
+FlatCsvReader is line-based, so a record split by a bare newline cannot be
+rejoined by it. A row whose field count disagrees with the header is
+refused WITH THE FIX NAMED (dequote, csvsql) rather than parsed into
+something plausible.
 
-WRITER. Hand-written POSIX ustar in pure JDK. Java 8 has no tar anywhere
-and commons-compress cannot be confirmed on the internal Nexus from the
-sandbox, so a dependency-based design might have had to be redone after
-the build. Measured: real tar -C dir -- a b stores BARE member names with
-no "./" prefix; the PS1 script's ^[.][/\] strip is defensive, not
-descriptive. Flat names are structural - a name with a separator is
-refused - and a name over 100 bytes is refused, never truncated and never
-split into the prefix field, because a truncated name passes packaging
-and fails Transarch naming validation. Ownership and permissions are
-fixed so the same inputs give the same archive on any account. The file
-is streamed: the script staged every object into %TEMP% before calling
-tar.exe, which at the 20 GB CS ceiling is 20 GB written and read for
-nothing.
+Refusals that exist because the alternative is worse than failing: a mapped
+object_id that does not ascend from 1 is refused, NOT renumbered, since
+replacing an id the feed chose breaks every downstream reference; an
+ambiguous name match under recurse fails naming both paths, because picking
+one would archive a plausible wrong document under a right-looking name; a
+CSV-supplied path that escapes objectsDir is refused, not clamped. Nothing
+is written until every cheap check has run, so a submission that will be
+rejected fails before producing a 20 GB archive.
 
-Md5.writeSidecar writes the bare hash, 32 bytes, no file name, no "*", no
-newline - deliberately not md5sum's format.
+GATE 0. Answered and implemented: OID width derives from the object count
+for every feed; mime_type is the dotted extension, so the pre-flight is a
+comparison and not a media-type lookup; the executor owns all five
+artifacts from the source CSV; transmissionDate is required and never
+defaults to today, because a default would rename the submission on a retry
+the next day, which spec section 2 forbids. Five questions stay open, each
+with a conservative default, and compression refuses anything but none with
+a message that names the question.
 
-VERIFIED: 93 assertions green (69 structural/refusal/MD5, 24 cross-reader)
-and 16 mutations all caught. Read back by GNU tar AND python tarfile,
-which share no code; md5sum agrees with Md5 on the same archive. THREE
-mutations were green on the first run and all three were opened rather
-than filed: one exposed a real gap in the suite - a dropped terminating
-zero block is invisible at the default blocking factor because the
-padding zeroes the tail either way, and only blockingFactor=1 shows it,
-which the suite now tests - and two were bad mutations of mine, since a
-trailing space IS a legal POSIX numeric terminator and HEX[0] IS '0', so
-that one was a no-op. The mutation runner mutates copies in a scratch
-tree, so it cannot leave the working tree dirty.
+VERIFIED: 96 assertions green - 83 running the real pipeline over real
+files, 13 cross-reader on the produced package (GNU tar lists the six
+members in order and extracts them byte-identical including one from a
+sub-directory; python json confirms the type asymmetry the spec requires;
+python csv parses the metadata; md5sum agrees with the sidecar). 20
+mutations, ALL CAUGHT. Two survived the first run and BOTH WERE REAL GAPS
+IN THE SUITE, not bad mutations: ignoring recurse was invisible because in
+order mode the extra nested file is never consumed when the CSV has fewer
+rows than the listing, so the count was 2 either way; and disabling the
+audit record_count check was invisible because write always writes a
+consistent count. Both tests now exist. Three suite assertions also failed
+on their first run and all three were MY EXPECTATIONS, not defects.
 
-NOT VERIFIED: mvn clean package; any run on Windows; any real Transarch
-ingestion. bsdtar is not installed in the sandbox and was skipped, not
-silently passed. The suite is not committed, as the elar suites are not.
+NOT VERIFIED: mvn clean package - the Spring classes need the dependency
+tree, which is not available here. In its place: javac --release 8 on the
+whole objpack package plus its two collaborators; brace balance on all four
+edited files ignoring strings and comments; every helper the new
+InternalSteps code calls confirmed to exist exactly once (intParam,
+longParam, rebaseRel, VarResolver.resolve) and pv/yes confirmed not to be
+duplicates; node --check on the designer's inline JavaScript, with a
+positive control proving the check can fail and a baseline proving it can
+pass. No run on Windows, no Transarch ingestion, no designer panel (batch
+3). The suites are not committed, as the elar suites are not.

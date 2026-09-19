@@ -114,6 +114,8 @@ public class InternalSteps {
                 runDiff(step, resolvedParams, vars, res, line, control);
             } else if ("sqlreport".equals(kind)) {
                 runSqlReport(step, resolvedParams, vars, res, line, control);
+            } else if ("objpack".equals(kind)) {
+                runObjPack(step, resolvedParams, vars, res, line);
             } else {
                 line.accept("unknown internal step kind: " + kind);
                 res.exitCode = -996;
@@ -131,6 +133,146 @@ public class InternalSteps {
             if (log != null) try { log.close(); } catch (Exception ignored) {}
         }
         return res;
+    }
+
+    // -------------------------------------------------------------- objpack
+    /**
+     * Builds a Transarch TAR-packaged object submission: the renamed objects, the metadata CSV, the
+     * audit JSON, the control file, the tar and the md5.
+     *
+     * <p>The work is in {@code objpack.ObjectPack}, which is Spring-free so it can be run against
+     * real files outside the container. This method only reads parameters and reports the outcome,
+     * which is why it has no logic worth testing of its own.
+     *
+     * <p>{@code transmissionDate} is required and is never defaulted to today: §2 of the
+     * specification is explicit that if a submission cannot be transmitted on its intended date the
+     * field must not change, so a default would silently rename the submission on a retry the next
+     * day. Set it from a feed variable, {@code ${currentDate}} included, where that is what the feed
+     * wants.
+     */
+    private void runObjPack(StepDef step, Map<String, String> params, Map<String, String> vars,
+                            StepExecutor.Result res, java.util.function.Consumer<String> line) throws Exception {
+        com.legalarchive.orchestrator.objpack.ObjectPack o =
+                new com.legalarchive.orchestrator.objpack.ObjectPack();
+
+        o.tfId              = pv(params, vars, "tfId");
+        o.transmissionDate  = pv(params, vars, "transmissionDate");
+        o.targetDestination = pv(params, vars, "targetDestination");
+        o.sequenceNr        = intParam(pv(params, vars, "sequenceNr"), 1);
+        o.versionNr         = intParam(pv(params, vars, "versionNr"), 1);
+
+        if (o.tfId == null || o.tfId.trim().isEmpty()) {
+            line.accept("objpack: tfId is required (the TransArch feed id, e.g. tf0000001)"); res.exitCode = 2; return;
+        }
+        if (o.transmissionDate == null || o.transmissionDate.trim().isEmpty()) {
+            line.accept("objpack: transmissionDate is required as yyyyMMdd and is never defaulted to today; "
+                    + "set it from a feed variable"); res.exitCode = 2; return;
+        }
+
+        String metadataCsv = pv(params, vars, "metadataCsv");
+        String objectsDir  = pv(params, vars, "objectsDir");
+        String outputDir   = pv(params, vars, "outputDir");
+        if (metadataCsv == null || metadataCsv.trim().isEmpty()) {
+            line.accept("objpack: metadataCsv (the source metadata CSV) is required"); res.exitCode = 2; return;
+        }
+        if (objectsDir == null || objectsDir.trim().isEmpty()) {
+            line.accept("objpack: objectsDir is required"); res.exitCode = 2; return;
+        }
+        if (outputDir == null || outputDir.trim().isEmpty()) {
+            line.accept("objpack: outputDir is required"); res.exitCode = 2; return;
+        }
+        o.metadataCsv = new java.io.File(rebaseRel(metadataCsv, vars));
+        o.objectsDir  = new java.io.File(rebaseRel(objectsDir, vars));
+        o.outputDir   = new java.io.File(rebaseRel(outputDir, vars));
+
+        String ds = pv(params, vars, "dataschema");
+        if (ds != null && !ds.trim().isEmpty()) o.dataschema = new java.io.File(rebaseRel(ds, vars));
+
+        String inDelim  = pv(params, vars, "inDelimiter");
+        if (inDelim != null && !inDelim.isEmpty()) o.inDelimiter = inDelim.charAt(0);
+        String outDelim = pv(params, vars, "outDelimiter");
+        if (outDelim != null && !outDelim.isEmpty()) o.outDelimiter = outDelim.charAt(0);
+        String cs = pv(params, vars, "inCharset");
+        if (cs != null && !cs.trim().isEmpty()) o.inCharset = cs.trim();
+
+        o.objectSource = pv(params, vars, "objectSource");
+        o.recurse      = yes(pv(params, vars, "recurse"), false);
+        String ob      = pv(params, vars, "orderBy");
+        if (ob != null && !ob.trim().isEmpty()) o.orderBy = ob.trim();
+        o.emitObjects  = yes(pv(params, vars, "emitObjects"), false);
+        String comp    = pv(params, vars, "compression");
+        if (comp != null && !comp.trim().isEmpty()) o.compression = comp.trim();
+
+        o.mapObjectId           = pv(params, vars, "map.objectId");
+        o.mapRecordBusinessDate = pv(params, vars, "map.recordBusinessDate");
+        o.mapMimeType           = pv(params, vars, "map.mimeType");
+        o.mapOriginalObjectName = pv(params, vars, "map.originalObjectName");
+        o.mapObjectPath         = pv(params, vars, "map.objectPath");
+        o.mapNameLabel          = pv(params, vars, "map.nameLabel");
+        o.businessDateFormat    = pv(params, vars, "map.recordBusinessDate.format");
+
+        long mbObj = longParam(pv(params, vars, "maxObjectMb"), 2048L);
+        long mbSub = longParam(pv(params, vars, "maxSubmissionMb"), 20480L);
+        o.maxObjectBytes     = mbObj * 1024L * 1024L;
+        o.maxSubmissionBytes = mbSub * 1024L * 1024L;
+        o.maxObjects         = intParam(pv(params, vars, "maxObjects"), 100000);
+        o.failOnOversize     = yes(pv(params, vars, "failOnOversize"), true);
+        o.failOnStaleBusinessDate = yes(pv(params, vars, "failOnStaleBusinessDate"), false);
+        o.businessDateMonths = intParam(pv(params, vars, "businessDateMonths"), 10);
+        String miss = pv(params, vars, "onMissingObject");
+        if (miss != null && !miss.trim().isEmpty()) o.onMissingObject = miss.trim();
+
+        String inc = pv(params, vars, "include");
+        if (inc != null && !inc.trim().isEmpty()) {
+            o.include.clear();
+            for (String t : inc.split(",")) { String v = t.trim(); if (!v.isEmpty()) o.include.add(v); }
+        }
+        String exc = pv(params, vars, "exclude");
+        if (exc != null && !exc.trim().isEmpty()) {
+            for (String t : exc.split(",")) { String v = t.trim(); if (!v.isEmpty()) o.exclude.add(v); }
+        }
+
+        line.accept("objpack: " + o.tfId + "." + o.transmissionDate
+                + " from " + o.metadataCsv.getName() + " and " + o.objectsDir.getPath());
+        try {
+            o.run();
+        } catch (com.legalarchive.orchestrator.objpack.ObjPackException e) {
+            // A packaging refusal is a configuration or data problem, not a crash: it gets the
+            // same exit code as the other "the step cannot do this" cases, and its message is the
+            // thing the operator has to act on.
+            line.accept("objpack: " + e.getMessage());
+            res.exitCode = 2;
+            res.lastLines = e.getMessage();
+            return;
+        }
+        for (String w : o.warnings) line.accept("objpack: WARNING " + w);
+        line.accept("objpack: " + o.submissionBaseName + " packaged " + o.objectCount + " objects, tar "
+                + o.tarBytes + " bytes, md5 " + o.md5
+                + (o.skippedRows > 0 ? (", " + o.skippedRows + " rows skipped") : ""));
+
+        res.outVars.put("submissionBaseName", o.submissionBaseName);
+        res.outVars.put("objectCount", String.valueOf(o.objectCount));
+        res.outVars.put("metadataRows", String.valueOf(o.metadataRows));
+        res.outVars.put("skippedRows", String.valueOf(o.skippedRows));
+        res.outVars.put("tarFile", o.tarFile.getAbsolutePath());
+        res.outVars.put("md5File", o.md5File.getAbsolutePath());
+        res.outVars.put("tarBytes", String.valueOf(o.tarBytes));
+        res.outVars.put("md5", o.md5);
+    }
+
+    /** A step parameter with variables resolved, or null when it is absent or blank. */
+    private static String pv(Map<String, String> params, Map<String, String> vars, String key) {
+        String v = params.get(key);
+        if (v == null) return null;
+        v = VarResolver.resolve(v, vars);
+        return (v == null || v.trim().isEmpty()) ? null : v.trim();
+    }
+
+    /** yes/true/1/on, case-insensitive; anything else is false; absent is the given default. */
+    private static boolean yes(String v, boolean def) {
+        if (v == null || v.trim().isEmpty()) return def;
+        String s = v.trim().toLowerCase(java.util.Locale.ROOT);
+        return "yes".equals(s) || "true".equals(s) || "1".equals(s) || "on".equals(s);
     }
 
     // -------------------------------------------------------------- ftpsend

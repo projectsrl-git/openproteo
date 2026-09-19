@@ -3105,3 +3105,41 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * The script staged every object into `%TEMP%` before calling `tar.exe`; at the documented 20 GB CS
   ceiling that is 20 GB written and read for nothing. This writer streams from the landing zone.
 * Notes in `.claude/2026-09-18-objpack-batch1-ustar.md`.
+
+## objpack — Batch 2: the packager, and mapping that is parameters rather than `<column>`
+* `ObjectPack` (Spring-free), `SubmissionName`, `AuditJson`, `Dataschema`, `UstarReader`,
+  `ObjPackException`, `InternalSteps.runObjPack`, and the four registration locations.
+  **`FlatCsvReader` and `CsvWriter` are reused**; a second CSV implementation here would be the
+  `FileMask` duplication again.
+* **The batch-0 design said `<column role= source=/>` and the code reversed it.** `<column>` is a
+  parser-level construct shared with `xlsx2csv` and built for ~100 columns in `json2csv`; six fixed
+  roles through it would mean touching the parser's column handling for three executors. `diff`
+  already sets the precedent with `match.N.*`. With `map.<role>` parameters **the parser change for
+  this executor is the whitelist and nothing else**.
+* **The objects are never copied.** A tar member's name is independent of where its bytes come from,
+  so the Transarch rename happens while streaming out of the landing zone. The script staged every
+  object into `%TEMP%` first — 20 GB written and read for nothing at the CS ceiling. `emitObjects`
+  is off by default.
+* **`FlatCsvReader` is line-based**, so a record split by a bare newline cannot be rejoined: a row
+  whose field count disagrees with the header is refused **with the fix named** (`dequote`,
+  `csvsql`) rather than parsed into something plausible.
+* Refusals that exist because the alternative is worse than failing: a mapped `object_id` that does
+  not ascend from 1 is **refused, not renumbered**; an ambiguous name match under `recurse` **fails
+  naming both paths** rather than archiving a plausible wrong document under a right-looking name;
+  a CSV-supplied path that escapes `objectsDir` is refused, not clamped. Nothing is written until
+  every cheap check has run, so a doomed submission fails before producing a 20 GB archive.
+* Gate 0 answered: OID width from the object count, `mime_type` as the dotted extension, the
+  executor owns all five artifacts from the source CSV, and **`transmissionDate` never defaults to
+  today** — a default would rename the submission on a retry, which §2 forbids. Five questions stay
+  open, each with a conservative default; `compression` refuses anything but `none` and its message
+  names the question.
+* **96 assertions, 20 mutations all caught. Two survived first and BOTH were real suite gaps**: the
+  `recurse` flag was never actually measured, because in `order` mode the extra nested file is
+  simply never consumed when the CSV has fewer rows than the listing; and the audit `record_count`
+  check was a net nothing tripped, because `write` always writes a consistent count. Three suite
+  assertions also failed first and all three were **my expectations, not defects**.
+* `mvn clean package` NOT run — the Spring classes need the dependency tree. Instead: `javac
+  --release 8` on the package, brace balance ignoring strings and comments, every called helper
+  confirmed to exist exactly once (`intParam`, `longParam`, `rebaseRel`), and `node --check` on the
+  designer JS **with a positive control proving the check can fail**.
+* Notes in `.claude/2026-09-18-objpack-batch2-executor.md`.

@@ -1,6 +1,6 @@
 # Object submission packager (`objpack`) — specification
 
-Status: **Batch 1 delivered** — the ustar writer and the MD5 file, standalone and unwired. §9.1 and
+Status: **Batch 2 delivered** — the ustar writer and the MD5 file, standalone and unwired. §9.1 and
 §9.3 are answered; seven Gate 0 questions remain open and block **batch 2**, not batch 1, which
 depends on none of them. The earlier claim that Gate 0 blocked batch 1 was wrong and is corrected
 here.
@@ -93,8 +93,17 @@ that silently did not happen is worse than one that is known not to have.
 
 The source metadata CSV comes from another executor and will rarely carry Transarch's four mandatory
 column names. Renaming them upstream would mean a `csvsql` step per feed whose only purpose is
-aliasing. Instead the mapping is declared on the `objpack` step, as `elarxml` and `json2csv` already
-declare theirs, via `<column>` children rather than flat params:
+aliasing. So the mapping is declared on the `objpack` step.
+
+**Corrected in batch 2: these are parameters, not `<column>` children.** The batch-0 draft below
+proposed `<column role= source=/>`, and the code proved it wrong. `<column>` is a *parser-level*
+construct shared with `xlsx2csv` and built to map ~100 columns in `json2csv`; putting six fixed
+roles through it would mean touching the parser's column handling for three executors to express
+what six keys already express. `diff` sets the precedent with its `match.N.*` parameters. The real
+shape is `map.objectId`, `map.recordBusinessDate`, `map.recordBusinessDate.format`, `map.mimeType`,
+`map.originalObjectName`, `map.objectPath` and `map.nameLabel`. The consequence is that the parser
+change for this executor is the whitelist and nothing else. The original sketch is kept below
+because the roles and their fallback behaviour it describes are unchanged:
 
 ```xml
 <step id="pack" exec="objpack">
@@ -250,7 +259,7 @@ package`, a run on Windows, and an actual Transarch ingestion of a generated pac
 
 - **0** — this spec (current).
 - **1** — ustar writer + md5, standalone, proved against GNU tar. Nothing wired. **Delivered**; see §10.
-- **2** — the executor: pairing, mapping, pre-flight, the five artifacts, registration.
+- **2** — the executor: pairing, mapping, pre-flight, the five artifacts, registration. **Delivered**; see §11.
 - **3** — designer panel, including the `<column>` role repeater.
 - **4** — `USAGE.md`.
 
@@ -275,11 +284,9 @@ copied verbatim into both the metadata CSV and the audit JSON.
 been delivered; §3.5's "Do only use" list reads as permission, not obligation, and a `.tar.gz` named
 `.tar` would be a naming violation.
 
-**9.5 Does `objpack` own the whole package?** The task says the metadata CSV and the landing-zone
-copy belong to other executors, but the script also *rewrites* the metadata CSV (adding `object_id`
-and reordering) and creates the audit and control files. Confirm that `objpack` produces
-metadata + audit + control + tar + md5 from a *source* metadata CSV — i.e. that the upstream
-executor's CSV is the input, not the final `<base>.metadata.csv`.
+**9.5 Does `objpack` own the whole package? — ANSWERED 2026-09-18: yes.** It produces
+metadata + audit + control + tar + md5 from the *source* metadata CSV. The upstream executor's CSV
+is the input; `<base>.metadata.csv` is an output.
 
 **9.6 The Accepted Delimiters List.** Not captured in the screenshots. Until it is, `outDelimiter`
 can be accepted but not validated. Can you get that page, or shall the parameter stay free-text with
@@ -290,10 +297,10 @@ months of the submission date (13 for yearly). Should `objpack` enforce this —
 possible place to catch it — and if so, is the feed yearly? Suggested: warn by default, refuse under
 a `failOnStaleBusinessDate` flag, defaulting off per the conservative-defaults rule.
 
-**9.8 Transmission date semantics.** §2 is emphatic that if the file cannot be transmitted on the
-intended date the field must **not** be changed. That means `transmissionDate` cannot default to
-`${currentDate}`, or a retry the next day would silently rename the submission. Confirm it is always
-an explicit feed variable, set once per submission.
+**9.8 Transmission date semantics. — ANSWERED 2026-09-18: never defaulted.** `transmissionDate`
+is a required parameter with no default. Where a feed wants today's date it sets `${currentDate}`
+itself in the executor's configuration, which makes the choice visible in the workflow instead of
+hidden in the executor.
 
 **9.9 Empty submissions and skipped rows.** The script fails when no objects are found (line 187).
 Should a CSV row whose object is missing fail the whole package (the script's behaviour, via the
@@ -314,3 +321,28 @@ two were bad mutations. Verified by GNU tar and by python `tarfile`, which share
 agrees with `Md5` on the same archive. bsdtar is absent here and was skipped rather than passed.
 
 Not verified: `mvn clean package`, any run on Windows, any real Transarch ingestion.
+
+---
+
+## 11. Batch 2 as built
+
+`ObjectPack`, `SubmissionName`, `AuditJson`, `Dataschema`, `UstarReader`, `ObjPackException`, plus
+`InternalSteps.runObjPack` and the four registration locations. `FlatCsvReader` and `CsvWriter` are
+reused rather than reimplemented.
+
+Two design points differ from the batch-0 sketch and both are improvements the code forced:
+
+* **Mapping is parameters, not `<column>`** (§3.2 above), which removes the parser from the change
+  set entirely.
+* **Objects are never copied.** The tar member name is independent of the source path, so the
+  rename happens while streaming from the landing zone; `emitObjects` materialises the renamed
+  copies only when asked.
+
+96 assertions green; 20 mutations all caught. Two mutations survived the first run and both were
+real gaps in the suite — `recurse` was not actually being measured, and the audit `record_count`
+check was a net nothing tripped. Both tests now exist.
+
+Not verified: `mvn clean package`, any run on Windows, any Transarch ingestion. In its place:
+`javac --release 8` on the package, brace balance on the four edited files, every called helper
+confirmed to exist exactly once, and `node --check` on the designer JavaScript with both a positive
+and a negative control.
