@@ -3168,3 +3168,28 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   authority for this file.
 * NOT verified: the panel has never been opened in a browser — no rendering, no click-through.
 * Notes in `.claude/2026-09-18-objpack-batch3-panel.md`.
+
+## objpack — Batch 4: USAGE.md, and the feature is complete
+* A bullet in the Executors list and a `## The objpack step` section shaped like `ftpsend`'s. It
+  leads with the three things that cost an afternoon rather than with the parameter table: **the
+  `.md5` sits beside the tar and not inside it** (it is the checksum *of* the tar, and its content
+  is the bare hash, not `md5sum` format); **`transmissionDate` is never filled in for you**, because
+  a default would rename the whole submission on a retry the next morning; and **re-running can
+  rename objects**, since OID padding depends on the object count — nine yesterday and ten today
+  give `OID1` then `OID01`. The mitigation, one output directory per step, is stated beside the
+  problem instead of being left to be discovered.
+* The line-based CSV limitation has its own subsection, headed *A limitation worth knowing before
+  you debug it*. A known limitation buried in a parameter list is one that gets read after the time
+  is already lost.
+* **A prose batch still has something mechanical to check**, and it is what rots first: does the
+  guide name anything that does not exist? 33 parameters named against 33 the executor reads, **no
+  ghosts and no omissions**; 8 output variables against 8; every claimed default checked against the
+  field initialisers in `ObjectPack`; the XML example's `<param>` keys all real and `exec="objpack"`
+  confirmed in the parser whitelist, because a documented example that would not run is worse than
+  no example.
+* NOT verified: the rendered page was never looked at.
+* **objpack is complete across batches 0-4.** Five Gate 0 questions stay open — version padding,
+  compression, the approved delimiter list, the business-date window, the missing-object policy —
+  each with a conservative default and each named in the guide where an operator meets it. None
+  blocks use.
+* Notes in `.claude/2026-09-18-objpack-batch4-usage.md`.

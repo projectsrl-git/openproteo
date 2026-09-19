@@ -1,6 +1,6 @@
 # Object submission packager (`objpack`) — specification
 
-Status: **Batch 3 delivered** — the ustar writer and the MD5 file, standalone and unwired. §9.1 and
+Status: **Complete — batches 0 to 4 delivered** — the ustar writer and the MD5 file, standalone and unwired. §9.1 and
 §9.3 are answered; seven Gate 0 questions remain open and block **batch 2**, not batch 1, which
 depends on none of them. The earlier claim that Gate 0 blocked batch 1 was wrong and is corrected
 here.
@@ -262,7 +262,7 @@ package`, a run on Windows, and an actual Transarch ingestion of a generated pac
 - **1** — ustar writer + md5, standalone, proved against GNU tar. Nothing wired. **Delivered**; see §10.
 - **2** — the executor: pairing, mapping, pre-flight, the five artifacts, registration. **Delivered**; see §11.
 - **3** — designer panel. **Delivered**; see §12. No role repeater: the roles are six fixed parameters, so they are six fields.
-- **4** — `USAGE.md`.
+- **4** — `USAGE.md`. **Delivered**; see §13.
 
 ## 9. Gate 0 — answered and open
 
@@ -358,3 +358,22 @@ never read, the one difference being `compression`, which is omitted on purpose.
 the preview logic under node, 6 mutations all caught, `node --check` with a positive control.
 
 Not verified: the panel has never been opened in a browser.
+
+---
+
+## 13. Batch 4 as built
+
+`USAGE.md`: a bullet in the Executors list and a `## The objpack step` section modelled on
+`ftpsend`. It leads with the three things that cost time rather than with the parameter table — the
+md5 living outside the tar, why the transmission date is never defaulted, and why re-running can
+rename objects — and gives the line-based CSV limitation its own subsection.
+
+Verified mechanically, because prose rots in exactly one way: 33 parameters named against 33 the
+executor reads, no ghosts and no omissions; 8 output variables against 8; every default the prose
+claims checked against the field initialisers; the XML example's parameters all real and
+`exec="objpack"` confirmed in the parser whitelist. Not verified: the rendered page.
+
+**The feature is complete.** Five Gate 0 questions stay open — 9.2 version padding, 9.4 compression,
+9.6 the approved delimiter list, 9.7 the business-date window, 9.9 the missing-object policy — each
+with a conservative default and each named in the guide at the point an operator meets it. None
+blocks use.

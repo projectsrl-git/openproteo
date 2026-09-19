@@ -133,6 +133,7 @@ OpenProteo deliberately **ships no database driver**. Bundling one per vendor wo
   Can also split the export into parts by row count and/or size (see Splitting below).
 - **json2csv** — read the JSON files matching a wildcard mask in a directory and write one flat CSV whose shape is the feed's dataschema, one row per file. A mapper pairs each dataschema column with a JSON attribute path, with per-column types (String, Number, Date, MIMEType, Serial, ObjectName). Splits by rows and/or MB like the SQL export. See The json2csv step below.
 - **ftpsend** — deliver the files of a packaging directory to an FTPS server over explicit TLS, authenticating with a client certificate held in a PKCS#12 file. An ordered list of file masks decides what is sent and in what order; every upload is verified with `SIZE` against the local byte count and the first failure ends the step. See The ftpsend step below.
+- **objpack** — build a Transarch **object submission**: renamed objects, metadata CSV, audit JSON, control file, `.tar` and `.md5`, from a source metadata CSV and a directory of objects. One CSV row per object. Objects are streamed into the archive from where they already are, so no temporary copy is made. See The objpack step below.
 - **split** — split an **existing file** into parts by rows and/or MB, using the same logic
   as the SQL export. Use it to run a LOOP only over the final steps, after validation and
   anonymization (see Splitting and Loops).
@@ -1005,3 +1006,120 @@ Session reuse depends on the JVM. Where it is not available the transfer proceed
 **ASCII transfers are not implemented.** A mask asking for ASCII fails the step rather than sending the bytes unchanged, which would produce a file that arrives, reports the right size and is wrong. ASCII is deferred together with the z/OS target, along with `SITE` commands and quoted dataset names.
 
 There is no download side, no resume, no active mode, and the step never deletes or renames anything on the server. The only thing it changes locally is the rename you asked for.
+
+## The objpack step
+
+`objpack` builds a **Transarch object submission**: the package a feed sends when the things being archived are files — PDFs, images, XML, JSON — rather than rows. It replaces the PowerShell script that did this job, `Object_CS_Archiving_v4_UK_PS5.ps1`.
+
+It is the last mile only. Producing the source metadata CSV belongs to `sql`, `csvsql` or `json2csv`; getting the objects into a landing directory belongs to `ifscopy`, `filecopy` or `safecopy`; delivering the result belongs to `ftpsend`. `objpack` sits between the last two and turns a CSV plus a directory into the five files Transarch expects.
+
+### What it produces
+
+Every artifact of one submission shares a base name, `<tf#>.<transmission date>.S<sequence>.V<version>`:
+
+```
+tf0002448.20260918.S001.V001.tar       the package
+  ├─ tf0002448.20260918.S001.V001.audit.json     what the submission claims to contain
+  ├─ tf0002448.20260918.S001.V001.metadata.csv   one row per object, the search attributes
+  ├─ tf0002448.20260918.S001.V001.OID1.pdf       the objects, renamed
+  ├─ tf0002448.20260918.S001.V001.OID2.pdf
+  └─ tf0002448.20260918.S001.V001.control        0 bytes, triggers ingestion
+tf0002448.20260918.S001.V001.md5       beside the tar, NOT inside it
+```
+
+The `.md5` sitting outside the archive is the detail worth reading twice: it is the checksum **of** the tar, so it cannot be a member of it. Its content is the bare 32-character lowercase hash and nothing else — no file name, no `*` marker. That is deliberately **not** `md5sum` output format.
+
+### The name, and why the date is not filled in for you
+
+Sequence and version are padded to three digits, `S001`, `V001`. The feed id is lowercased. Raise the **version** to resend a submission that was rejected: `V001` then `V002`.
+
+`transmissionDate` is required and has **no default**. The specification is explicit that if a submission cannot be transmitted on its intended date, the field must not change — so a step that quietly used today's date would rename the whole submission on a retry the next morning, and the retry would arrive as a different, unknown package. Where a feed does want today, write `${currentDate}` in the field yourself. The designer previews the resulting base name under the fields as you type, and says so when the feed id or the date is malformed.
+
+### The OID, and why re-running can rename things
+
+Object files are numbered from 1, and the padding depends on **how many objects the submission has**: 5 objects give `OID1`…`OID5`, 62 give `OID01`…`OID62`, 137 give `OID001`…`OID137`. That is the archive's rule, not a preference.
+
+The consequence is worth stating plainly: a feed that packaged 9 objects yesterday and 10 today produces `OID1` then `OID01` for what may be the same document. Give every packaging step its **own output directory** so two runs never share one, which is why `outputDir` defaults to `${stepDir}`.
+
+### Pairing each CSV row with its object
+
+One row describes exactly one object, and the counts must match. Three ways to find it, set by **Find each object by**:
+
+- **path from a CSV column** — a column holds the object's location relative to the objects directory, subfolders included. This is the reliable one: the CSV says where each file is. The path is resolved **inside** the objects directory and an absolute path, or one climbing out with `..`, is refused rather than clamped. Both slash styles are accepted.
+- **original file name** — the object is looked up by the `original_object_name` value. With **Recurse subfolders** on, the whole tree is searched; if two subfolders hold the same file name, the step **fails naming both paths**. Picking one would archive a plausible wrong document under a right-looking name, which is the exact failure this package format exists to prevent.
+- **row order** — the i-th row takes the i-th file. Kept for parity with the script, and the most fragile of the three: one file added to the directory shifts every pairing after it. Not the default.
+
+**Recurse subfolders is off by default.** Turning it on for an existing step widens what the step sees.
+
+### Column mapping
+
+The source CSV rarely uses Transarch's column names, so the step maps them. Leave a role empty and the source column of that Transarch name is used, which means a CSV already in the right shape needs no mapping at all.
+
+```xml
+<step id="pack" exec="objpack">
+  <param name="tfId" value="tf0002448"/>
+  <param name="transmissionDate" value="${businessDate}"/>
+  <param name="targetDestination" value="https://ubstat1ibamerlanding.blob.core.windows.net/001-tf0002448"/>
+  <param name="metadataCsv" value="${dir.EXTRACT}/source.metadata.csv"/>
+  <param name="objectsDir" value="${landingOut}/objects"/>
+  <param name="map.recordBusinessDate" value="DT_RIFERIMENTO"/>
+  <param name="map.recordBusinessDate.format" value="yyyy-MM-dd"/>
+  <param name="map.mimeType" value="TIPO_FILE"/>
+  <param name="map.originalObjectName" value="NOME_ORIGINALE"/>
+  <param name="map.objectPath" value="PERCORSO"/>
+</step>
+```
+
+The four mandatory columns are written first and in that order, as the archive requires; **every other source column follows unchanged**, so the searchable attributes a feed cares about survive without being listed anywhere.
+
+`object_id` is the exception. Left unmapped, the step numbers the objects 1..N — normally what you want, since the id belongs to the submission rather than to the data. Map it and the values must already ascend from 1 with no gaps: anything else is **refused, not renumbered**, because silently replacing an id the feed chose would break every reference to it elsewhere.
+
+`mime_type` carries the **dotted extension** — `.pdf`, `.jpeg` — and is checked against each object's own extension. A row claiming `.jpeg` for a file named `.pdf` fails the step, which is one of the things the archive validates on arrival.
+
+### The dataschema, if you have one
+
+Point `dataschema` at the feed's shared `dataschema.json` and the step checks the source CSV against it before packaging anything: the declared column order, and that no column marked non-nullable is empty. It is the same file the `sql` and `json2csv` steps already use — the shape Transarch validates against and the shape this project stores are the same.
+
+It is **optional**, and **never goes inside the package**. Without one the step still packages, and says in the log that the check did not run, because a check that silently did not happen is worse than one known to be absent.
+
+### Nothing is copied, and nothing is written early
+
+A tar member's name is independent of where its bytes come from, so the rename happens while the object is streamed straight out of the landing directory. The script this replaces copied every object into `%TEMP%` first: at the documented 20 GB ceiling that is 20 GB written and read to produce nothing. Set **Also write renamed objects** if you want the renamed copies on disk as well — for inspection, or for the non-TAR delivery path — but a TAR submission does not need them.
+
+Everything that can be checked cheaply is checked **before the first artifact is written**, so a submission that was going to be rejected fails in seconds instead of after producing a 20 GB archive.
+
+### Reading the package back
+
+Once the tar is written the step **reads it again with a separate parser** and checks that every member it meant to include is there, at the size it has on disk. Verifying an archive with the code that wrote it would prove very little. This is the check that separates "the archive was written" from "the archive contains what we meant", and it is the reason a partial tar is deleted rather than left looking finished.
+
+### A limitation worth knowing before you debug it
+
+The source CSV is read **one record per line**. A value containing a real line break — a record split across two lines in the file — cannot be rejoined here, and shows up as a row whose field count disagrees with the header. The step refuses it and names the fix: normalise upstream with `dequote`, or with the *line breaks inside values* option of `csvsql`. It is not guessed at, because a guessed record is a wrong document archived under a right-looking name.
+
+### Parameters
+
+Required: `tfId`, `transmissionDate`, `targetDestination`, `metadataCsv`, `objectsDir`.
+
+- `tfId` — the Transarch feed id, `tf` and seven digits, from the onboarding team.
+- `transmissionDate` — `yyyyMMdd`. Never defaulted; see above.
+- `sequenceNr`, `versionNr` — 1 to 999, default 1.
+- `targetDestination` — the landing endpoint URL, from the onboarding team.
+- `metadataCsv`, `inDelimiter`, `inCharset` — the source CSV. An empty delimiter samples the header for `;`, `,`, tab or `|`.
+- `objectsDir`, `objectSource`, `recurse`, `orderBy`, `include`, `exclude`, `onMissingObject`.
+- `map.objectId`, `map.recordBusinessDate`, `map.recordBusinessDate.format`, `map.mimeType`, `map.originalObjectName`, `map.objectPath`, `map.nameLabel` — the last places free text between the base name and the OID, e.g. `….monthly_report.OID2.pdf`.
+- `outputDir` (default `${stepDir}`), `outDelimiter` (default `;`), `emitObjects`.
+- `dataschema`, `maxObjectMb` (2048), `maxSubmissionMb` (20480), `maxObjects` (100000), `failOnOversize` (on), `failOnStaleBusinessDate` (off), `businessDateMonths` (10).
+
+Outputs: `${submissionBaseName}`, `${objectCount}`, `${metadataRows}`, `${skippedRows}`, `${tarFile}`, `${md5File}`, `${tarBytes}`, `${md5}`.
+
+### Two settings that warn rather than fail
+
+**A business date older than the retention window** and **a missing object** are both questions still open with the archive team, so both take the cautious reading for now. A stale date warns and packages; tick *Fail on a business date older than the retention window* to make it fail. A missing object fails, as the script did; set *skip the row and count it* to drop it instead, and read `${skippedRows}`.
+
+### What it does not do yet
+
+**Compression is not implemented.** `compression` accepts only `none` and refuses anything else rather than producing a gzip'd archive named `.tar`, which would be a naming violation. The specification is ambiguous here and the question is open with the archive team; nothing has ever been delivered compressed.
+
+The **non-TAR delivery path** — the one used over AzCopy and Axway, with the same four files and no tar — is not built. It has different size limits and does not need a target destination, and nobody has asked for it.
+
+The **approved delimiter list** was never obtained, so `outDelimiter` is accepted as typed and not validated against it. Choose one the archive has agreed with your feed.

@@ -1,59 +1,53 @@
-objpack: the designer panel
+objpack: USAGE.md, and the feature is complete
 
-Batch 3. Four sections - Submission, Source metadata and objects, Column
-mapping, Package and checks - plus objpackBase, which previews the
-submission base name live under the four fields that produce it.
+Batch 4. A bullet in the Executors list and a "## The objpack step"
+section shaped like the ftpsend one.
 
-WHY THE PREVIEW. Every artifact of a submission shares one base name, and
-spec section 2 makes it the thing that must be unique and must not change
-when a submission is retried. A wrong feed id or a mistyped date is
-therefore not a small error: it is a submission that collides with an
-earlier one or is rejected on arrival. The preview shows
-tf0002448.20260918.S001.V001 as the fields are typed and says what is wrong
-when something is. It mirrors SubmissionName exactly - three-digit padding,
-lowercased feed id - and a ${variable} in the date is passed through and
-NOT flagged, because it resolves at run time and the panel has no business
-calling it malformed.
+The section leads with the three things that will cost someone an
+afternoon, not with the parameter table:
 
-WHAT THE PANEL DELIBERATELY OMITS. compression is not offered: while Gate 0
-9.4 is open its only valid value is none and the executor refuses anything
-else, and a control whose only correct setting is the default is a way to
-get it wrong - the same reason oidPadding was dropped as a parameter in
-batch 2. orderBy appears only when pairing is by row order, because it
-means nothing otherwise. onMissingObject, failOnOversize and
-failOnStaleBusinessDate are present precisely because those are Gate 0
-questions still open: the conservative default is preselected and the
-alternative is one click away instead of being a parameter nobody knows
-exists.
+- The .md5 sits BESIDE the tar, not inside it. It is the checksum OF the
+  tar, so it cannot be a member of it, and its content is the bare
+  32-character lowercase hash - deliberately not md5sum's format.
+- transmissionDate is never filled in for you, and the reason is spelled
+  out rather than asserted: a step that quietly used today's date would
+  rename the whole submission on a retry the next morning, and the retry
+  would arrive as a different, unknown package.
+- Re-running can rename things, because the OID padding depends on how
+  many objects the submission has. Nine objects yesterday and ten today
+  give OID1 then OID01 for what may be the same document. That is the
+  archive's rule; the mitigation, one output directory per step, is
+  stated beside the problem instead of being left to be discovered.
 
-VERIFIED. The panel's parameter names were compared MECHANICALLY against
-what the executor reads: every setNodeParam key from the panel branch
-against every pv(params, vars, ...) key from runObjPack. 32 written, 33
-read, nothing written that is never read, nothing validated that cannot be
-set. The single read-but-absent key is compression, the deliberate omission
-above. This check exists because a panel writing map.objectID while the
-executor reads map.objectId is silently broken and no compiler would ever
-say so. Also: node --check on the extracted inline JavaScript with a
-positive control proving it can fail; 11 assertions on objpackBase run
-under node covering lowercasing, padding, the empty step showing
-placeholders rather than a wrong name, a short feed id, a dashed date, a
-${variable} left alone and a zero sequence clamped; markup tag balance
-inside the panel (55 div, 5 select, 33 label, each matched).
+The line-based CSV limitation gets its own subsection under a heading
+that says what it is for: "A limitation worth knowing before you debug
+it". A known limitation buried in a parameter list is one that gets read
+after the time has already been lost.
 
-6 MUTATIONS OF THE PREVIEW LOGIC, ALL CAUGHT - after the harness was fixed.
-One "survivor" in the first run was nothing of the sort: the sed anchor did
-not match, so the unmutated test ran and passed. The harness now compares
-the file before and after and reports ANCHOR MISSED rather than counting it
-green. That is the same failure as a check reading the wrong exit status,
-which happened earlier in this same session: a test that cannot fail is
-worse than no test.
+VERIFIED. A prose batch still has something mechanical to check, and it
+is the thing that rots first: does the guide name anything that does not
+exist? Every parameter named in the section was extracted and compared
+against every pv(params, vars, ...) key in runObjPack - 33 parameters, 33
+documented, no ghosts and no omissions. Every ${variable} compared against
+the res.outVars.put keys - 8 outputs, 8 documented, none invented. Every
+default the prose claims (maxObjectMb 2048, maxSubmissionMb 20480,
+maxObjects 100000, failOnOversize on, failOnStaleBusinessDate off,
+businessDateMonths 10, outDelimiter ';', recurse off, emitObjects off,
+onMissingObject fail) checked against the field initialisers in
+ObjectPack - none contradicted. The XML example was parsed for its
+<param name> keys, all of which exist, and exec="objpack" confirmed
+present in the parser whitelist, because a documented example that would
+not run is worse than no example. Code fences balanced in the new section
+and in the file as a whole.
 
-The brace-balance tool reports identical counts on designer.html before and
-after this change, so its non-zero figure is the surrounding HTML being
-counted as code rather than a defect introduced here. For this file node
---check is the authority.
+NOT VERIFIED: the rendered page was never looked at. Nothing here touches
+Java or JavaScript, so no suite was re-run and mvn clean package was not
+attempted.
 
-NOT VERIFIED: the panel has never been opened in a browser - no rendering,
-no click-through, no check that the collapsible sections behave. mvn clean
-package was not run. Nothing here touches Java, so the batch-2 suites were
-not re-run. USAGE.md is batch 4.
+objpack is now complete across batches 0-4: the spec transcription and
+Gate 0, the ustar writer, the packager and its registration, the designer
+panel, and this. Five Gate 0 questions stay open - version padding,
+compression, the approved delimiter list, the business-date window and the
+missing-object policy - each with a conservative default in place and each
+named in the guide at the point an operator meets it. None of them blocks
+use.
