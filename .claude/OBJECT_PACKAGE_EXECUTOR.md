@@ -1,6 +1,6 @@
 # Object submission packager (`objpack`) — specification
 
-Status: **Batch 2 delivered** — the ustar writer and the MD5 file, standalone and unwired. §9.1 and
+Status: **Batch 3 delivered** — the ustar writer and the MD5 file, standalone and unwired. §9.1 and
 §9.3 are answered; seven Gate 0 questions remain open and block **batch 2**, not batch 1, which
 depends on none of them. The earlier claim that Gate 0 blocked batch 1 was wrong and is corrected
 here.
@@ -240,8 +240,9 @@ Per CLAUDE.md §"Regola delle 4 location": `InternalSteps.run()` dispatch,
 whitelist and internal set are named in the diff-executor batch notes as part of that count and will
 be **checked against the code, not the table**, since the two disagree.
 
-Designer panel is **batch 3**. Batches 1 and 2 configure with `+ param` and hand-written `<column>`
-entries, as `elarxml` and `json2csv` did.
+Designer panel delivered in **batch 3**: four sections and a live preview of the submission base
+name. `compression` is deliberately absent from it while Gate 0 9.4 is open, since its only valid
+value is the default.
 
 ## 7. Testability
 
@@ -260,7 +261,7 @@ package`, a run on Windows, and an actual Transarch ingestion of a generated pac
 - **0** — this spec (current).
 - **1** — ustar writer + md5, standalone, proved against GNU tar. Nothing wired. **Delivered**; see §10.
 - **2** — the executor: pairing, mapping, pre-flight, the five artifacts, registration. **Delivered**; see §11.
-- **3** — designer panel, including the `<column>` role repeater.
+- **3** — designer panel. **Delivered**; see §12. No role repeater: the roles are six fixed parameters, so they are six fields.
 - **4** — `USAGE.md`.
 
 ## 9. Gate 0 — answered and open
@@ -346,3 +347,14 @@ Not verified: `mvn clean package`, any run on Windows, any Transarch ingestion. 
 `javac --release 8` on the package, brace balance on the four edited files, every called helper
 confirmed to exist exactly once, and `node --check` on the designer JavaScript with both a positive
 and a negative control.
+
+---
+
+## 12. Batch 3 as built
+
+The panel, plus `objpackBase` for the live base-name preview. Verified by comparing every parameter
+name the panel writes against every name `runObjPack` reads — 32 against 33, nothing written that is
+never read, the one difference being `compression`, which is omitted on purpose. 11 assertions on
+the preview logic under node, 6 mutations all caught, `node --check` with a positive control.
+
+Not verified: the panel has never been opened in a browser.

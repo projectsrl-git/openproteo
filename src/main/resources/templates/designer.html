@@ -246,6 +246,21 @@
         var n = parseInt(pad, 10); if (isNaN(n) || n < 0) n = 3;
         var s = '1'; while (s.length < n) s = '0' + s; return s;
     }
+    // Live preview of the Transarch submission base name, so a wrong feed id or date is visible
+    // here rather than after a package has been built. Mirrors SubmissionName: sequence and version
+    // are padded to three digits, the feed id is lowercased.
+    function objpackBase(n) {
+        function p3(v) { var x = parseInt(v, 10); if (isNaN(x) || x < 1) x = 1;
+            var t = String(x); while (t.length < 3) t = '0' + t; return t; }
+        var tf = String(nodeParam(n, 'tfId') || '').trim().toLowerCase();
+        var dt = String(nodeParam(n, 'transmissionDate') || '').trim();
+        var bad = [];
+        if (!tf) { tf = 'tf#######'; } else if (!/^tf[0-9]{7}$/.test(tf)) { bad.push('the feed id must be tf plus 7 digits'); }
+        if (!dt) { dt = 'yyyyMMdd'; } else if (!/^[0-9]{8}$/.test(dt) && dt.indexOf('${') < 0) { bad.push('the transmission date must be yyyyMMdd'); }
+        return { base: tf + '.' + dt + '.S' + p3(nodeParam(n, 'sequenceNr') || 1) + '.V' + p3(nodeParam(n, 'versionNr') || 1),
+                 problems: bad };
+    }
+
     // collapsible subsection header (content after it is hidden when collapsed)
     function subHead(label) {
         return '<div class="subsection sub-collapsible"><div class="sub-label sub-toggle" onclick="toggleSub(this)"><span class="sub-caret">\u2212</span> ' + label + '</div>';
@@ -1734,6 +1749,84 @@
                         '<div class="field"><label>Mask char</label><input maxlength="1" value="' + attresc(nodeParam(n,'maskChar') || '\u2588') + '" oninput="setNodeParam(' + i + ',\'maskChar\',this.value)"></div>' +
                         '<div class="field"><label>k (k-anonymity — Batch 2b)</label><input type="number" min="2" value="' + attresc(nodeParam(n,'k') || '5') + '" oninput="setNodeParam(' + i + ',\'k\',this.value)"></div></div></div>';
                     h += '<div class="dim small" style="margin-top:6px">Batch 2a active now: identifying columns suppressed, free-text columns edited (length-preserving), date columns passed through. Quasi/sensitive generalisation via ARX (k-anonymity) arrives in Batch 2b. Pattern redaction does NOT catch free-form names — use lorem for fields that may contain names. Thresholds in application.properties (orchestrator.anonymize*/date*). outputs: ##VAR outputFile, dataRows, columns, cells, dateColumns, freeTextColumns</div>';
+                } else if (ex === 'objpack') {
+                    var opb = objpackBase(n);
+                    var opSrc = nodeParam(n, 'objectSource') || '';
+                    var opMiss = nodeParam(n, 'onMissingObject') || 'fail';
+
+                    h += '<div class="sub"><div class="sub-h">Submission</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Feed id (tf#) *</label><input value="' + attresc(nodeParam(n, 'tfId')) + '" placeholder="tf0000001" title="Assigned by the Transarch onboarding team. Lowercase tf followed by 7 digits." oninput="setNodeParam(' + i + ',\'tfId\',this.value); renderNodes()"></div>' +
+                        '<div class="field"><label>Transmission date (yyyyMMdd) *</label><input value="' + attresc(nodeParam(n, 'transmissionDate')) + '" placeholder="${currentDate}" title="The INTENDED transmission date. The spec forbids changing it when a submission is retried on another day, so it is never defaulted for you: set ${currentDate} here if that is what this feed wants." oninput="setNodeParam(' + i + ',\'transmissionDate\',this.value); renderNodes()"></div>' +
+                        '<div class="field"><label>Sequence nr</label><input type="number" min="1" max="999" value="' + attresc(nodeParam(n, 'sequenceNr') || '1') + '" title="Counter for consecutive transfers on the same day. Padded to S001." oninput="setNodeParam(' + i + ',\'sequenceNr\',this.value); renderNodes()"></div>' +
+                        '<div class="field"><label>Version nr</label><input type="number" min="1" max="999" value="' + attresc(nodeParam(n, 'versionNr') || '1') + '" title="Raise it to resend a corrected submission: V001 then V002." oninput="setNodeParam(' + i + ',\'versionNr\',this.value); renderNodes()"></div></div>';
+                    h += '<div class="form-row"><div class="field wide"><label>Target destination *</label><input value="' + attresc(nodeParam(n, 'targetDestination')) + '" placeholder="https://ubstat1ibamerlanding.blob.core.windows.net/001-tf0000001" title="The landing endpoint, given by the onboarding team. Required for a TAR-packaged submission." oninput="setNodeParam(' + i + ',\'targetDestination\',this.value)"></div></div>';
+                    h += '<div class="dim small">Every artifact is named <code>' + esc(opb.base) + '</code>.<b>*</b>' +
+                        (opb.problems.length ? ' <span style="color:#c0392b">' + esc(opb.problems.join('; ')) + '</span>' : '') + '</div>';
+                    h += '</div>';
+
+                    h += '<div class="sub"><div class="sub-h">Source metadata and objects</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Source metadata CSV *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'metadataCsv')) + '" placeholder="${dir.EXTRACT}/source.metadata.csv" title="One row per object. This is the INPUT: the packaged metadata.csv is generated from it." oninput="setNodeParam(' + i + ',\'metadataCsv\',this.value)"></div>' +
+                        '<div class="field"><label>Delimiter in</label><input value="' + attresc(nodeParam(n, 'inDelimiter')) + '" placeholder="(detect)" maxlength="1" title="Left empty the header is sampled for ; , tab or |." oninput="setNodeParam(' + i + ',\'inDelimiter\',this.value)"></div>' +
+                        '<div class="field"><label>Charset in</label><input value="' + attresc(nodeParam(n, 'inCharset')) + '" placeholder="UTF-8" oninput="setNodeParam(' + i + ',\'inCharset\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Objects directory *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'objectsDir')) + '" placeholder="${landingOut}/objects" title="The landing zone. Objects are streamed from here into the tar and are never copied." oninput="setNodeParam(' + i + ',\'objectsDir\',this.value)"></div>' +
+                        '<div class="field"><label>Find each object by</label><select onchange="setNodeParam(' + i + ',\'objectSource\',this.value); renderNodes()">' +
+                        '<option value=""' + (opSrc === '' ? ' selected' : '') + '>auto (path when mapped, else order)</option>' +
+                        '<option value="path"' + (opSrc === 'path' ? ' selected' : '') + '>path from a CSV column</option>' +
+                        '<option value="name"' + (opSrc === 'name' ? ' selected' : '') + '>original file name</option>' +
+                        '<option value="order"' + (opSrc === 'order' ? ' selected' : '') + '>row order</option></select></div>' +
+                        '<div class="field"><label>Recurse subfolders</label><select onchange="setNodeParam(' + i + ',\'recurse\',this.value)">' +
+                        '<option value=""' + (nodeParam(n, 'recurse') !== 'true' ? ' selected' : '') + '>no</option>' +
+                        '<option value="true"' + (nodeParam(n, 'recurse') === 'true' ? ' selected' : '') + '>yes</option></select></div></div>';
+                    if (opSrc === 'order') {
+                        h += '<div class="form-row">' +
+                            '<div class="field"><label>Order by</label><select onchange="setNodeParam(' + i + ',\'orderBy\',this.value)">' +
+                            '<option value="name"' + (nodeParam(n, 'orderBy') !== 'path' ? ' selected' : '') + '>file name</option>' +
+                            '<option value="path"' + (nodeParam(n, 'orderBy') === 'path' ? ' selected' : '') + '>full path</option></select></div>' +
+                            '<div class="field wide"><label class="dim small">Row order pairs the i-th CSV row with the i-th file. It is the most fragile of the three: a file added to the directory shifts every pairing after it.</label></div></div>';
+                    }
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Include (comma)</label><input value="' + attresc(nodeParam(n, 'include')) + '" placeholder="*" oninput="setNodeParam(' + i + ',\'include\',this.value)"></div>' +
+                        '<div class="field"><label>Exclude (comma)</label><input value="' + attresc(nodeParam(n, 'exclude')) + '" placeholder="*.tmp" oninput="setNodeParam(' + i + ',\'exclude\',this.value)"></div>' +
+                        '<div class="field"><label>When an object is missing</label><select onchange="setNodeParam(' + i + ',\'onMissingObject\',this.value)">' +
+                        '<option value="fail"' + (opMiss !== 'skip' ? ' selected' : '') + '>fail the step</option>' +
+                        '<option value="skip"' + (opMiss === 'skip' ? ' selected' : '') + '>skip the row and count it</option></select></div></div>';
+                    h += '</div>';
+
+                    h += '<div class="sub"><div class="sub-h">Column mapping</div>';
+                    h += '<div class="dim small" style="margin-bottom:4px">Leave a role empty and the source column of the same Transarch name is used. The four mandatory roles are written first, in this order; every other source column follows, unchanged.</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>object_id</label><input value="' + attresc(nodeParam(n, 'map.objectId')) + '" placeholder="(assign 1..N)" title="Leave empty and the packager numbers the objects 1..N. Map it and the values must already ascend from 1 with no gaps: they are refused, never renumbered." oninput="setNodeParam(' + i + ',\'map.objectId\',this.value)"></div>' +
+                        '<div class="field"><label>record_business_date *</label><input value="' + attresc(nodeParam(n, 'map.recordBusinessDate')) + '" placeholder="record_business_date" title="Drives the retention assigned to the record." oninput="setNodeParam(' + i + ',\'map.recordBusinessDate\',this.value)"></div>' +
+                        '<div class="field"><label>its source format</label><input value="' + attresc(nodeParam(n, 'map.recordBusinessDate.format')) + '" placeholder="(already yyyyMMdd)" title="e.g. yyyy-MM-dd. Empty means the column is already yyyyMMdd." oninput="setNodeParam(' + i + ',\'map.recordBusinessDate.format\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>mime_type *</label><input value="' + attresc(nodeParam(n, 'map.mimeType')) + '" placeholder="mime_type" title="The dotted extension, e.g. .pdf — it is checked against each object own extension." oninput="setNodeParam(' + i + ',\'map.mimeType\',this.value)"></div>' +
+                        '<div class="field"><label>original_object_name *</label><input value="' + attresc(nodeParam(n, 'map.originalObjectName')) + '" placeholder="original_object_name" oninput="setNodeParam(' + i + ',\'map.originalObjectName\',this.value)"></div>' +
+                        '<div class="field"><label>object path</label><input value="' + attresc(nodeParam(n, 'map.objectPath')) + '" placeholder="(only for find-by-path)" title="A path relative to the objects directory, subfolders allowed. Anything that escapes that directory is refused." oninput="setNodeParam(' + i + ',\'map.objectPath\',this.value)"></div>' +
+                        '<div class="field"><label>name label</label><input value="' + attresc(nodeParam(n, 'map.nameLabel')) + '" placeholder="(none)" title="Optional text placed between the base name and the OID, e.g. ....monthly_report.OID2.pdf" oninput="setNodeParam(' + i + ',\'map.nameLabel\',this.value)"></div></div>';
+                    h += '</div>';
+
+                    h += '<div class="sub"><div class="sub-h">Package and checks</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Output directory</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'outputDir')) + '" placeholder="${stepDir}" title="Give each packaging step its own directory: the OID padding depends on how many objects the submission has, so two runs can produce different names." oninput="setNodeParam(' + i + ',\'outputDir\',this.value)"></div>' +
+                        '<div class="field"><label>Delimiter out</label><input value="' + attresc(nodeParam(n, 'outDelimiter')) + '" placeholder=";" maxlength="1" title="Must be one of the Transarch approved delimiters and must not appear anywhere else in the file." oninput="setNodeParam(' + i + ',\'outDelimiter\',this.value)"></div>' +
+                        '<div class="field"><label>Also write renamed objects</label><select onchange="setNodeParam(' + i + ',\'emitObjects\',this.value)">' +
+                        '<option value=""' + (nodeParam(n, 'emitObjects') !== 'true' ? ' selected' : '') + '>no (tar only)</option>' +
+                        '<option value="true"' + (nodeParam(n, 'emitObjects') === 'true' ? ' selected' : '') + '>yes (also on disk)</option></select></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Dataschema (optional)</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'dataschema')) + '" placeholder="${feedDir}/dataschema.json" title="The feed shared schema. Checked before packaging for column order and non-nullable values. It is never put inside the package." oninput="setNodeParam(' + i + ',\'dataschema\',this.value)"></div>' +
+                        '<div class="field"><label>Max object (MB)</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxObjectMb') || '2048') + '" oninput="setNodeParam(' + i + ',\'maxObjectMb\',this.value)"></div>' +
+                        '<div class="field"><label>Max submission (MB)</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxSubmissionMb') || '20480') + '" title="20 GB for CS submissions over the landing zone." oninput="setNodeParam(' + i + ',\'maxSubmissionMb\',this.value)"></div>' +
+                        '<div class="field"><label>Max objects</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxObjects') || '100000') + '" oninput="setNodeParam(' + i + ',\'maxObjects\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label><input type="checkbox"' + (nodeParam(n, 'failOnOversize') === 'false' ? '' : ' checked') + ' onchange="setNodeParam(' + i + ',\'failOnOversize\',this.checked?\'\':\'false\')"> Fail when a size limit is exceeded (untick to only warn)</label></div>' +
+                        '<div class="field wide"><label><input type="checkbox"' + (nodeParam(n, 'failOnStaleBusinessDate') === 'true' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'failOnStaleBusinessDate\',this.checked?\'true\':\'\')"> Fail on a business date older than the retention window (warns by default)</label></div>' +
+                        '<div class="field"><label>Window (months)</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'businessDateMonths') || '10') + '" title="10 months, or 13 for a yearly feed." oninput="setNodeParam(' + i + ',\'businessDateMonths\',this.value)"></div></div>';
+                    h += '</div>';
+
+                    h += '<div class="dim small" style="margin-top:4px">Writes <code>.audit.json</code>, <code>.metadata.csv</code>, <code>.control</code>, <code>.tar</code> and <code>.md5</code>. The md5 sits <b>beside</b> the tar, not inside it. Objects are streamed from the objects directory straight into the archive, so no temporary copy is made. Counters: <b>${submissionBaseName}</b>, <b>${objectCount}</b>, <b>${metadataRows}</b>, <b>${skippedRows}</b>, <b>${tarFile}</b>, <b>${md5File}</b>, <b>${tarBytes}</b>, <b>${md5}</b>.</div>';
                 } else if (ex === 'encoding') {
                     var encFrom = nodeParam(n, 'from');
                     var charsets = ['', 'windows-1252', 'ISO-8859-1', 'ISO-8859-15', 'UTF-8', 'UTF-16', 'UTF-16LE', 'UTF-16BE', 'IBM500', 'Cp1140'];

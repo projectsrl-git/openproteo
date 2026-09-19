@@ -3143,3 +3143,28 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   confirmed to exist exactly once (`intParam`, `longParam`, `rebaseRel`), and `node --check` on the
   designer JS **with a positive control proving the check can fail**.
 * Notes in `.claude/2026-09-18-objpack-batch2-executor.md`.
+
+## objpack — Batch 3: the designer panel
+* Four sections plus `objpackBase`, a **live preview of the submission base name** under the four
+  fields that produce it. Every artifact shares that name and §2 makes it the thing that must be
+  unique and must not change on a retry, so a mistyped feed id or date is a submission that collides
+  or is rejected — the preview makes it visible while it is still cheap. A `${variable}` in the date
+  is passed through and **not** flagged: it resolves at run time and the panel has no business
+  calling it malformed.
+* **`compression` is deliberately not in the panel.** While Gate 0 9.4 is open its only valid value
+  is `none`; a control whose only correct setting is the default is a way to get it wrong, the same
+  reason `oidPadding` was dropped in batch 2. `orderBy` shows only under row-order pairing.
+* **The panel's parameter names were mechanically compared against what the executor reads** —
+  every `setNodeParam` key against every `pv(params, vars, …)` key. 32 written, 33 read, nothing
+  written that is never read. This is the check that catches a panel writing `map.objectID` while
+  the executor reads `map.objectId`, which is silently broken and which no compiler reports.
+* 11 assertions on the preview logic under node; 6 mutations all caught; `node --check` with a
+  positive control. **One first-run "survivor" was an ANCHOR THAT DID NOT MATCH** — the `sed` left
+  the file unchanged, so the unmutated test ran and passed. The harness now diffs before and after
+  and reports the miss, because a test that cannot fail is worse than no test. Same class as the
+  earlier `EXIT=$?` that was reading `head`'s status instead of `javac`'s.
+* The brace-balance tool reports identical counts on designer.html before and after, so its non-zero
+  figure is HTML being counted as code, not a defect introduced here; `node --check` is the
+  authority for this file.
+* NOT verified: the panel has never been opened in a browser — no rendering, no click-through.
+* Notes in `.claude/2026-09-18-objpack-batch3-panel.md`.
