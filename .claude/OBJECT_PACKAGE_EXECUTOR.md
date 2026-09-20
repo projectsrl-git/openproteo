@@ -284,11 +284,12 @@ copied verbatim into both the metadata CSV and the audit JSON.
 **9.4 Compression. — ANSWERED 2026-09-18: follow the specification, allow it.** gzip is implemented
 and delivers `<base>.tar.gz`; the `.md5` holds the hash of that file. bzip2 and xz are permitted by
 the specification but exist nowhere in the Java 8 platform, so they are refused with that reason
-rather thanhalf-supported. The naming reading — that "Do not" forbids compressing package *contents*
-while "Do only use" permits compressing the *archive*, whose extension must then say so — is the
-one decision the specification does not make for us; it is recorded in `SubmissionName.archive`,
-in the guide and in the panel. **Still unconfirmed by the archive team: that they accept
-`.tar.gz`.**
+rather thanhalf-supported. **Correction, 2026-09-19:** the naming was first described here as a
+contradiction the code had to resolve. It is not. §3.5 states that gzip results in a `.tar.gz`
+file, and §2's pattern ends in `.*`, so the two agree — the `.tar` examples are the uncompressed
+case. Naming a compressed archive `.tar` was considered and rejected: readers that sniff magic
+bytes cope, readers that parse ustar headers do not, and the second failure arrives late and
+quietly. **Still unconfirmed by the archive team: that they accept `.tar.gz`.**
 
 **9.5 Does `objpack` own the whole package? — ANSWERED 2026-09-18: yes.** It produces
 metadata + audit + control + tar + md5 from the *source* metadata CSV. The upstream executor's CSV
@@ -396,6 +397,9 @@ would need commons-compress from the Nexus.
 113 assertions, 26 mutations all caught. The md5 check turned out to be a real gap — `PackSuite`
 had only verified the `.md5` file against what the step reported, which is self-consistent whatever
 was hashed.
+
+`compression` defaults to `none`, which delivers the uncompressed `.tar` exactly as every batch
+before this one did. A feed that does not set the parameter is unchanged by this work.
 
 Four Gate 0 questions remain: 9.2, 9.6, 9.7, 9.9. And one new thing to confirm with the archive
 team: **that `.tar.gz` is accepted at all.**

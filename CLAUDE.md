@@ -3199,13 +3199,18 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   and xz **refused with the reason** — measured, not assumed: `GZIPOutputStream` is in the JDK,
   `BZip2OutputStream` is not, tukaani is not, and commons-compress is not in `pom.xml`. Half of a
   compression option is worse than none.
-* **The specification contradicts itself and the code had to choose.** §2 makes every file share one
-  base name ending `.tar`; §3.5 permits gzip, whose archive is `.tar.gz`. The reading taken: "Do
-  not" forbids compressing package *contents* (`.zip`, `.7z` members), "Do only use" permits
-  compressing the *archive*, whose extension must then say so. Naming a gzipped file `.tar` would
-  misdeclare its type to the receiver. Recorded in `SubmissionName.archive`, the guide and the panel
-  so there is one sentence to change if the archive team reads it otherwise. **Still unconfirmed:
-  that they accept `.tar.gz` at all.**
+* **CORRECTED 2026-09-19 — the specification does NOT contradict itself here, and the batch-5 claim
+  that it did was overstated.** §3.5 states gzip is "resulting in a `.tar.gz` file", and §2's
+  pattern ends in `.*`, so the two agree; the `.tar` examples are the uncompressed case, not a rule
+  against the rest. Naming a compressed archive `.tar` anyway was considered and rejected on
+  evidence: **measured here**, GNU tar and bsdtar sniff the magic bytes and unpack it fine, while
+  anything parsing ustar headers directly — commons-compress, a strict system tar, `UstarReader`
+  itself — finds garbage at offset 257. Which one Transarch uses is undocumented, and the failure
+  modes are asymmetric: a wrong extension is rejected at the naming validation, early and loudly,
+  while a compressed file wearing `.tar` passes size and checksum and breaks at extraction, possibly
+  after the source is decommissioned. **Still unconfirmed: that they accept `.tar.gz` at all** — so
+  `compression` defaults to `none` and an untouched feed delivers the same uncompressed `.tar` as
+  before.
 * The compressor wraps the tar stream as it is produced — no uncompressed intermediate — and the
   package is read back **through the decompressor**, so verification covers the file that will
   actually be delivered. `UstarReader` gained a sequential stream reader with a `skipFully` that

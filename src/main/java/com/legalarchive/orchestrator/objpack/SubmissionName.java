@@ -46,14 +46,17 @@ public final class SubmissionName {
     /**
      * The name of the delivered archive for a given compression.
      *
-     * <p>§2 requires every file of a submission to share the base name and its examples all end in
-     * {@code .tar}; §3.5 permits gzip, bzip2 and xz for the archive. Those cannot both hold
-     * literally, because a gzipped archive is {@code .tar.gz}. The reading taken here is that
-     * §3.5's "Do not" box forbids compressing the <b>contents</b> of the package — members ending
-     * {@code .zip} or {@code .7z} — while "Do only use" permits compressing the whole archive with
-     * one of the three named algorithms, in which case the extension has to say so. Naming a
-     * gzipped file {@code .tar} would misdeclare its type to the receiver, which is worse than
-     * extending the name. Recorded as Gate 0 question 9.4.
+     * <p>The specification states this outright and there is nothing to infer: §3.5 says gzip
+     * results in a {@code .tar.gz} file, bzip2 in {@code .tar.bz2}, xz in {@code .tar.xz}. §2's
+     * pattern ends in {@code .*}, a wildcard, so those names satisfy it without strain — its
+     * {@code .tar} examples are the uncompressed case, not a rule against the others.
+     *
+     * <p>Naming a compressed archive {@code .tar} would misdeclare its type to the receiver.
+     * Whether it would still be unpacked depends entirely on the reader: GNU tar and bsdtar sniff
+     * the magic bytes and cope, while anything parsing ustar headers directly — commons-compress,
+     * a strict system tar, {@link UstarReader} itself — sees only garbage at offset 257. That is a
+     * wager on someone else's implementation, and the wrong outcome of it fails late and quietly
+     * rather than at the naming validation.
      */
     public String archive(String compression) {
         String c = compression == null ? "none" : compression.trim().toLowerCase(Locale.ROOT);

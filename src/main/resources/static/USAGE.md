@@ -1120,9 +1120,13 @@ Outputs: `${submissionBaseName}`, `${objectCount}`, `${metadataRows}`, `${skippe
 
 ### Compression, and the file name it changes
 
-The archive can be gzipped: set **Compression** to `gzip` and the package is delivered as `<base>.tar.gz` instead of `<base>.tar`.
+**The default is `none`, and it is the behaviour this step has always had**: an uncompressed `<base>.tar`, byte for byte what the PowerShell script produced. A feed that never touches the setting is unaffected by anything in this section.
 
-The name is the part to read carefully. The specification requires every file of a submission to share one base name and its examples all end `.tar`, yet it also permits gzip, bzip2 and xz for the archive — and a gzipped archive is `.tar.gz`. Those cannot both hold literally. The reading taken here is that the "Do not" box forbids compressing the **contents** of the package, members ending `.zip` or `.7z`, while "Do only use" permits compressing the whole archive with one of the three named algorithms, in which case the extension has to say so. Naming a gzipped file `.tar` would misdeclare its type to the receiver, which is worse than extending the name.
+The archive can also be gzipped: set **Compression** to `gzip` and the package is delivered as `<base>.tar.gz` instead.
+
+The name changes because the specification says it changes: gzip *"resulting in a `.tar.gz` file"*, bzip2 in `.tar.bz2`, xz in `.tar.xz`. The naming convention accommodates that already — its pattern ends in `.*` — so the `.tar` examples elsewhere are simply the uncompressed case.
+
+It is worth knowing why the archive is not just left named `.tar`. It would often work: GNU tar and bsdtar recognise compression from the file's first bytes and unpack it regardless of the name. It would also often not: anything reading the ustar headers directly finds nothing at all where they should be. Which of the two Transarch does is not documented, and the failure modes are not symmetric — a wrong extension is rejected at the naming validation, early and loudly, while a compressed file wearing a `.tar` name passes the size and checksum checks and breaks later, at extraction.
 
 Two consequences follow, and the first has bitten people before:
 

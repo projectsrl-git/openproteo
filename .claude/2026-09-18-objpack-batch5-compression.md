@@ -3,21 +3,24 @@
 Gate 0 9.4 is answered: follow the specification and allow compression where it permits it. gzip is
 implemented; bzip2 and xz are refused with the reason.
 
-## The decision the specification does not make
+## The name, which the specification does state
 
-§2 requires every file of a submission to share one base name and all its examples end `.tar`. §3.5
-permits gzip, bzip2 and xz for the archive. **Those cannot both hold literally**, because a gzipped
-archive is `.tar.gz` — so the code has to choose a name and the choice belongs in the open, not
-buried in an implementation.
+**Corrected 2026-09-19.** This note originally claimed the specification contradicted itself here
+and that the code had to choose a name. That was overstated. §3.5 says gzip is *"resulting in a
+`.tar.gz` file"*, and names `.tar.bz2` and `.tar.xz` for the other two; §2's pattern ends in `.*`,
+a wildcard, so those names satisfy it without strain and its `.tar` examples are the uncompressed
+case rather than a rule against the rest. There was no conflict to resolve — only one I had read
+into it.
 
-The reading taken: §3.5's "Do not" box forbids compressing the **contents** of the package — members
-ending `.zip` or `.7z` — while "Do only use" permits compressing the whole archive with one of the
-three named algorithms, in which case the extension must say so. Naming a gzipped file `.tar` would
-misdeclare its type to the receiver, which is worse than extending the name. The `.md5` keeps its
-own name and holds the hash of whatever is delivered.
+The `.md5` keeps its own name and holds the hash of whatever is delivered.
 
-This is recorded in `SubmissionName.archive`, in the guide and in the panel, so that if the archive
-team reads it differently there is one sentence to change rather than an assumption to hunt for.
+Naming a compressed archive `.tar` anyway was considered and rejected. It would often work — GNU
+tar and bsdtar sniff the magic bytes — and often not: anything parsing ustar headers directly, which
+includes commons-compress, a strict system tar, and `UstarReader` here, finds nothing where the
+header should be. Which one Transarch uses is undocumented, and the failure modes are not
+symmetric: a wrong extension is rejected at the naming validation, early and visibly, while a
+compressed file wearing a `.tar` name passes size and checksum and breaks at extraction, possibly
+after the source has been decommissioned.
 
 ## The platform limit, measured
 
@@ -75,3 +78,30 @@ either direction. Guide re-checked: 33 of 33 parameters documented.
 `mvn clean package`. Any run on Windows. Any Transarch ingestion — in particular **nobody has yet
 confirmed the archive accepts `.tar.gz`**, which is the one thing that would settle the naming
 reading above. The panel has still never been opened in a browser.
+
+---
+
+## Follow-up, 2026-09-19: the correction, and the default restated
+
+The claim that the specification contradicted itself on the archive name was **wrong and is
+withdrawn**, here and in `USAGE.md`, `CLAUDE.md`, the executor spec, the transcription's
+contradiction list and `SubmissionName.archive`'s javadoc. §3.5 names the resulting files itself —
+`.tar.gz`, `.tar.bz2`, `.tar.xz` — and §2's pattern ends in `.*`, so the two agree. I had read a
+conflict into `.tar` examples that describe the uncompressed case.
+
+What remains genuinely unstated is whether compression is *expected* or merely *tolerated*; the
+transcription's item 4 now says that rather than claiming a contradiction.
+
+Naming a compressed archive `.tar` regardless was raised as a way to satisfy both readings, and was
+rejected on measured evidence rather than taste. A gzip stream renamed `.tar`: GNU tar `-tf` and
+`-xf` unpack it, python's `tarfile` in its default mode unpacks it, python in forced-uncompressed
+mode fails with "truncated header", and a direct ustar parser finds no magic at offset 257 at all —
+the category that includes commons-compress, strict system tars and `UstarReader`. Which Transarch
+uses is undocumented. The failure modes are asymmetric, and that is the deciding argument: a wrong
+extension is rejected at the naming validation, early and visibly, while a compressed file wearing
+a `.tar` name passes both the size and the checksum check and breaks at extraction, possibly after
+the source data has been decommissioned. In a legal archive the second is the one you cannot afford.
+
+**No behaviour changed.** `compression` still defaults to `none`, still delivers an uncompressed
+`<base>.tar`, and `USAGE.md` now says so in as many words instead of leaving it to be inferred from
+a parameter table. 103 suite assertions and 26 mutations re-run after the edits, all green.
