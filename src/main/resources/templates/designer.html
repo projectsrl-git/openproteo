@@ -1753,6 +1753,7 @@
                     var opb = objpackBase(n);
                     var opSrc = nodeParam(n, 'objectSource') || '';
                     var opMiss = nodeParam(n, 'onMissingObject') || 'fail';
+                    var opComp = nodeParam(n, 'compression') || '';
 
                     h += '<div class="sub"><div class="sub-h">Submission</div>';
                     h += '<div class="form-row">' +
@@ -1814,7 +1815,13 @@
                         '<div class="field"><label>Delimiter out</label><input value="' + attresc(nodeParam(n, 'outDelimiter')) + '" placeholder=";" maxlength="1" title="Must be one of the Transarch approved delimiters and must not appear anywhere else in the file." oninput="setNodeParam(' + i + ',\'outDelimiter\',this.value)"></div>' +
                         '<div class="field"><label>Also write renamed objects</label><select onchange="setNodeParam(' + i + ',\'emitObjects\',this.value)">' +
                         '<option value=""' + (nodeParam(n, 'emitObjects') !== 'true' ? ' selected' : '') + '>no (tar only)</option>' +
-                        '<option value="true"' + (nodeParam(n, 'emitObjects') === 'true' ? ' selected' : '') + '>yes (also on disk)</option></select></div></div>';
+                        '<option value="true"' + (nodeParam(n, 'emitObjects') === 'true' ? ' selected' : '') + '>yes (also on disk)</option></select></div>' +
+                        '<div class="field"><label>Compression</label><select onchange="setNodeParam(' + i + ',\'compression\',this.value); renderNodes()" title="Compressing changes the delivered file name, so an ftpsend mask of *.tar will stop matching.">' +
+                        '<option value=""' + (opComp !== 'gzip' ? ' selected' : '') + '>none — .tar</option>' +
+                        '<option value="gzip"' + (opComp === 'gzip' ? ' selected' : '') + '>gzip — .tar.gz</option></select></div></div>';
+                    if (opComp === 'gzip') {
+                        h += '<div class="dim small" style="color:#b9770e">The archive is delivered as <code>' + esc(opb.base) + '.tar.gz</code> and the <code>.md5</code> holds the hash of that compressed file. <b>An ftpsend mask of <code>*.tar</code> will no longer match it.</b></div>';
+                    }
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Dataschema (optional)</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'dataschema')) + '" placeholder="${feedDir}/dataschema.json" title="The feed shared schema. Checked before packaging for column order and non-nullable values. It is never put inside the package." oninput="setNodeParam(' + i + ',\'dataschema\',this.value)"></div>' +
                         '<div class="field"><label>Max object (MB)</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxObjectMb') || '2048') + '" oninput="setNodeParam(' + i + ',\'maxObjectMb\',this.value)"></div>' +

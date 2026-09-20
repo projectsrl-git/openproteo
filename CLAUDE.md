@@ -3193,3 +3193,36 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   each with a conservative default and each named in the guide where an operator meets it. None
   blocks use.
 * Notes in `.claude/2026-09-18-objpack-batch4-usage.md`.
+
+## objpack — Batch 5: compression, and the name the spec will not choose
+* Gate 0 9.4 answered: follow the specification and allow compression. **gzip implemented**, bzip2
+  and xz **refused with the reason** — measured, not assumed: `GZIPOutputStream` is in the JDK,
+  `BZip2OutputStream` is not, tukaani is not, and commons-compress is not in `pom.xml`. Half of a
+  compression option is worse than none.
+* **The specification contradicts itself and the code had to choose.** §2 makes every file share one
+  base name ending `.tar`; §3.5 permits gzip, whose archive is `.tar.gz`. The reading taken: "Do
+  not" forbids compressing package *contents* (`.zip`, `.7z` members), "Do only use" permits
+  compressing the *archive*, whose extension must then say so. Naming a gzipped file `.tar` would
+  misdeclare its type to the receiver. Recorded in `SubmissionName.archive`, the guide and the panel
+  so there is one sentence to change if the archive team reads it otherwise. **Still unconfirmed:
+  that they accept `.tar.gz` at all.**
+* The compressor wraps the tar stream as it is produced — no uncompressed intermediate — and the
+  package is read back **through the decompressor**, so verification covers the file that will
+  actually be delivered. `UstarReader` gained a sequential stream reader with a `skipFully` that
+  does not trust `InputStream.skip`.
+* **An `ftpsend` mask of `*.tar` stops matching a compressed package.** Called out in the panel (in
+  orange, the moment gzip is picked), in the guide, and by the mask failing its step — which is the
+  good outcome, since it stops rather than delivering half a package.
+* **113 assertions, 26 mutations all caught.** Three did not pass first time and none was a code
+  defect: one mutation **did not compile** (malformed, repaired); **the md5 gap was real** — hashing
+  the wrong file survived because the suite only checked the `.md5` against what the step reported,
+  which is self-consistent whatever was hashed, and the bash cross-check that did test it is not run
+  by mutations; and the first `skipFully` mutation was **equivalent** — moving `left -= got` out of
+  the branch changes nothing when `got` is zero. Replaced, and a stream whose `skip()` refuses to
+  move more than one byte now forces the guard that `GZIPInputStream` otherwise never exercises.
+* One suite assertion failed first and it was **an expectation that had aged**: it asserted gzip was
+  refused as "not implemented", true until this batch. The code was right; the test recorded the old
+  behaviour.
+* NOT verified: `mvn clean package`, Windows, any ingestion — and nobody has confirmed the archive
+  accepts `.tar.gz`, which is the one thing that would settle the naming reading.
+* Notes in `.claude/2026-09-18-objpack-batch5-compression.md`.

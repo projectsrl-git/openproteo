@@ -1,53 +1,78 @@
-objpack: USAGE.md, and the feature is complete
+objpack: compression, and the name the specification will not choose
 
-Batch 4. A bullet in the Executors list and a "## The objpack step"
-section shaped like the ftpsend one.
+Gate 0 9.4 answered: follow the specification and allow compression where
+it permits it. gzip is implemented; bzip2 and xz are refused with the
+reason.
 
-The section leads with the three things that will cost someone an
-afternoon, not with the parameter table:
+THE DECISION THE SPECIFICATION DOES NOT MAKE. Section 2 requires every
+file of a submission to share one base name and all its examples end
+.tar. Section 3.5 permits gzip, bzip2 and xz for the archive. Those cannot
+both hold literally, because a gzipped archive is .tar.gz - so the code
+has to choose a name, and the choice belongs in the open. The reading
+taken: the "Do not" box forbids compressing the CONTENTS of the package,
+members ending .zip or .7z, while "Do only use" permits compressing the
+whole archive with one of the three named algorithms, in which case the
+extension has to say so. Naming a gzipped file .tar would misdeclare its
+type to the receiver, which is worse than extending the name. The .md5
+keeps its own name and holds the hash of whatever is delivered. This is
+written into SubmissionName.archive, the guide and the panel, so if the
+archive team reads it differently there is one sentence to change rather
+than an assumption to hunt for. STILL UNCONFIRMED BY THE ARCHIVE TEAM:
+that they accept .tar.gz at all.
 
-- The .md5 sits BESIDE the tar, not inside it. It is the checksum OF the
-  tar, so it cannot be a member of it, and its content is the bare
-  32-character lowercase hash - deliberately not md5sum's format.
-- transmissionDate is never filled in for you, and the reason is spelled
-  out rather than asserted: a step that quietly used today's date would
-  rename the whole submission on a retry the next morning, and the retry
-  would arrive as a different, unknown package.
-- Re-running can rename things, because the OID padding depends on how
-  many objects the submission has. Nine objects yesterday and ten today
-  give OID1 then OID01 for what may be the same document. That is the
-  archive's rule; the mitigation, one output directory per step, is
-  stated beside the problem instead of being left to be discovered.
+THE PLATFORM LIMIT, MEASURED NOT ASSUMED. GZIPOutputStream is in the JDK.
+BZip2OutputStream is not, org.tukaani.xz is not, commons-compress is not
+on the classpath and not in pom.xml - all four checked by loading the
+classes. bzip2 and xz would each mean a new dependency that cannot be
+confirmed against the internal Nexus from here, so they are refused with
+that reason rather than silently downgraded to gzip or accepted and
+ignored.
 
-The line-based CSV limitation gets its own subsection under a heading
-that says what it is for: "A limitation worth knowing before you debug
-it". A known limitation buried in a parameter list is one that gets read
-after the time has already been lost.
+HOW IT IS BUILT. The compressor wraps the tar stream as it is produced, so
+no uncompressed intermediate is ever written - the same reasoning that
+keeps the objects from being staged. The finished package is then read
+back THROUGH THE DECOMPRESSOR, so what is verified is the file that will
+actually be delivered. UstarReader gained a sequential stream reader with
+a skipFully that does not trust InputStream.skip to move everything it is
+asked to.
 
-VERIFIED. A prose batch still has something mechanical to check, and it
-is the thing that rots first: does the guide name anything that does not
-exist? Every parameter named in the section was extracted and compared
-against every pv(params, vars, ...) key in runObjPack - 33 parameters, 33
-documented, no ghosts and no omissions. Every ${variable} compared against
-the res.outVars.put keys - 8 outputs, 8 documented, none invented. Every
-default the prose claims (maxObjectMb 2048, maxSubmissionMb 20480,
-maxObjects 100000, failOnOversize on, failOnStaleBusinessDate off,
-businessDateMonths 10, outDelimiter ';', recurse off, emitObjects off,
-onMissingObject fail) checked against the field initialisers in
-ObjectPack - none contradicted. The XML example was parsed for its
-<param name> keys, all of which exist, and exec="objpack" confirmed
-present in the parser whitelist, because a documented example that would
-not run is worse than no example. Code fences balanced in the new section
-and in the file as a whole.
+An ftpsend mask of *.tar stops matching a compressed package. That is a
+real operational trap, so it is called out in three places: the panel
+warns the moment gzip is selected, the guide states it as the first
+consequence, and the mask failing to match fails that step - the good
+outcome, since it stops rather than delivering half a package.
 
-NOT VERIFIED: the rendered page was never looked at. Nothing here touches
-Java or JavaScript, so no suite was re-run and mvn clean package was not
-attempted.
+VERIFIED: 113 assertions green (103 in PackSuite, 10 cross-reader on the
+compressed package: file identifies it as gzip, gunzip -t validates the
+stream, GNU tar lists the same six members in the same order and extracts
+them byte-identical, the .md5 matches md5sum of the .tar.gz, the
+compressed file is smaller, and no uncompressed .tar is left behind). 26
+mutations, ALL CAUGHT. Three did not pass first time and NONE was a code
+defect: one mutation did not compile, being malformed in the runner, and
+was repaired rather than counted; THE MD5 GAP WAS REAL - hashing the wrong
+file survived because the suite only checked the .md5 against what the
+step reported, which is self-consistent whatever was hashed, while the
+bash cross-check that did test it is not run by mutations, so the suite
+now hashes the delivered archive independently; and the first skipFully
+mutation was EQUIVALENT - moving "left -= got" out of the branch changes
+nothing because got is zero on the path that falls through - replaced with
+one that claims the whole skip succeeded, now caught by a test that reads
+the package through a stream whose skip() refuses to move more than one
+byte, since GZIPInputStream otherwise never exercises that loop.
 
-objpack is now complete across batches 0-4: the spec transcription and
-Gate 0, the ustar writer, the packager and its registration, the designer
-panel, and this. Five Gate 0 questions stay open - version padding,
-compression, the approved delimiter list, the business-date window and the
-missing-object policy - each with a conservative default in place and each
-named in the guide at the point an operator meets it. None of them blocks
-use.
+One suite assertion failed on the first run and it was an expectation that
+had aged: it asserted gzip was refused with "not implemented", true until
+this batch. The code was right; the test recorded the old behaviour.
+
+Panel parameter names re-checked against the executor: 33 written, 33
+read, nothing orphaned either way. Guide re-checked: 33 of 33 documented.
+node --check on the designer JS.
+
+NOT VERIFIED: mvn clean package, any run on Windows, any Transarch
+ingestion - in particular nobody has confirmed the archive accepts
+.tar.gz, which is the one thing that would settle the naming reading. The
+panel has still never been opened in a browser.
+
+Four Gate 0 questions remain: 9.2 version padding, 9.6 the approved
+delimiter list, 9.7 the business-date window, 9.9 the missing-object
+policy. Each has a conservative default in place.

@@ -1,6 +1,6 @@
 # Object submission packager (`objpack`) — specification
 
-Status: **Complete — batches 0 to 4 delivered** — the ustar writer and the MD5 file, standalone and unwired. §9.1 and
+Status: **Complete — batches 0 to 5 delivered** — the ustar writer and the MD5 file, standalone and unwired. §9.1 and
 §9.3 are answered; seven Gate 0 questions remain open and block **batch 2**, not batch 1, which
 depends on none of them. The earlier claim that Gate 0 blocked batch 1 was wrong and is corrected
 here.
@@ -281,9 +281,14 @@ and so on, as every example in §3.1.1 and §3.2 shows. The pre-flight compares 
 the object file's own extension, case-insensitively, and no media-type table is needed. The value is
 copied verbatim into both the metadata CSV and the audit JSON.
 
-**9.4 Compression.** Confirm `none`. The script produces an uncompressed `.tar` and that is what has
-been delivered; §3.5's "Do only use" list reads as permission, not obligation, and a `.tar.gz` named
-`.tar` would be a naming violation.
+**9.4 Compression. — ANSWERED 2026-09-18: follow the specification, allow it.** gzip is implemented
+and delivers `<base>.tar.gz`; the `.md5` holds the hash of that file. bzip2 and xz are permitted by
+the specification but exist nowhere in the Java 8 platform, so they are refused with that reason
+rather thanhalf-supported. The naming reading — that "Do not" forbids compressing package *contents*
+while "Do only use" permits compressing the *archive*, whose extension must then say so — is the
+one decision the specification does not make for us; it is recorded in `SubmissionName.archive`,
+in the guide and in the panel. **Still unconfirmed by the archive team: that they accept
+`.tar.gz`.**
 
 **9.5 Does `objpack` own the whole package? — ANSWERED 2026-09-18: yes.** It produces
 metadata + audit + control + tar + md5 from the *source* metadata CSV. The upstream executor's CSV
@@ -377,3 +382,20 @@ claims checked against the field initialisers; the XML example's parameters all 
 9.6 the approved delimiter list, 9.7 the business-date window, 9.9 the missing-object policy — each
 with a conservative default and each named in the guide at the point an operator meets it. None
 blocks use.
+
+---
+
+## 14. Batch 5 as built
+
+Compression, answering Gate 0 9.4. gzip delivers `<base>.tar.gz`, the `.md5` holds the hash of the
+delivered file, and the compressor wraps the tar stream so no uncompressed intermediate is written.
+The package is read back through the decompressor, so verification covers the file that will be
+sent. bzip2 and xz are refused with the platform reason: only gzip is in Java 8, and the others
+would need commons-compress from the Nexus.
+
+113 assertions, 26 mutations all caught. The md5 check turned out to be a real gap — `PackSuite`
+had only verified the `.md5` file against what the step reported, which is self-consistent whatever
+was hashed.
+
+Four Gate 0 questions remain: 9.2, 9.6, 9.7, 9.9. And one new thing to confirm with the archive
+team: **that `.tar.gz` is accepted at all.**

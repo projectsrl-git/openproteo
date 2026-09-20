@@ -113,13 +113,7 @@ public final class ObjectPack {
     }
 
     public void run() throws IOException {
-        if (!"none".equalsIgnoreCase(trim(compression))) {
-            // Gate 0 9.4 is open. The specification names .tar files but lists gzip/bzip2/xz under
-            // "Do only use", and a compressed archive named .tar would be a naming violation.
-            throw new ObjPackException("compression '" + compression
-                    + "' is not implemented: the specification requires a .tar name and only "
-                    + "uncompressed archives have been delivered (Gate 0 9.4)");
-        }
+        String comp = normaliseCompression(compression);
         SubmissionName name = new SubmissionName(tfId, transmissionDate, sequenceNr, versionNr);
         submissionBaseName = name.base();
 
@@ -558,7 +552,8 @@ public final class ObjectPack {
         File meta    = new File(outputDir, name.metadataCsv());
         File audit   = new File(outputDir, name.auditJson());
         File control = new File(outputDir, name.control());
-        tarFile      = new File(outputDir, name.tar());
+        String comp  = normaliseCompression(compression);
+        tarFile      = new File(outputDir, name.archive(comp));
         md5File      = new File(outputDir, name.md5());
 
         writeMetadata(meta, pairs);
@@ -583,8 +578,11 @@ public final class ObjectPack {
         }
 
         // Members in the order the specification lists them: audit, metadata, objects, control.
-        UstarWriter w = new UstarWriter(new java.io.BufferedOutputStream(
-                new FileOutputStream(tarFile), 1 << 16));
+        OutputStream raw = new java.io.BufferedOutputStream(new FileOutputStream(tarFile), 1 << 16);
+        // The compressor wraps the tar stream, so the archive is compressed as it is produced and
+        // no intermediate uncompressed copy is ever written.
+        UstarWriter w = new UstarWriter("gzip".equals(comp)
+                ? new java.util.zip.GZIPOutputStream(raw, 1 << 16) : raw);
         boolean done = false;
         try {
             w.addFile(name.auditJson(), audit);
@@ -602,7 +600,7 @@ public final class ObjectPack {
         }
         tarBytes = tarFile.length();
 
-        verifyArchive(name, pairs, audit, meta);
+        verifyArchive(name, pairs, audit, meta, comp);
 
         md5 = Md5.writeSidecar(tarFile, md5File);
     }
@@ -612,9 +610,22 @@ public final class ObjectPack {
      * was meant to be in it is in it, at the size it has on disk. This is the check that separates
      * "the archive was written" from "the archive contains what we meant".
      */
-    private void verifyArchive(SubmissionName name, List<Pair> pairs, File audit, File meta)
-            throws IOException {
-        Map<String, Long> actual = UstarReader.sizes(tarFile);
+    private void verifyArchive(SubmissionName name, List<Pair> pairs, File audit, File meta,
+                               String comp) throws IOException {
+        Map<String, Long> actual;
+        if ("gzip".equals(comp)) {
+            // Read back through the decompressor, so what is checked is the file that will be
+            // delivered and not an uncompressed intermediate that never existed.
+            java.io.InputStream in = new java.util.zip.GZIPInputStream(
+                    new java.io.BufferedInputStream(new java.io.FileInputStream(tarFile), 1 << 16), 1 << 16);
+            try {
+                actual = UstarReader.sizes(in);
+            } finally {
+                in.close();
+            }
+        } else {
+            actual = UstarReader.sizes(tarFile);
+        }
         Map<String, Long> want = new LinkedHashMap<String, Long>();
         want.put(name.auditJson(), Long.valueOf(audit.length()));
         want.put(name.metadataCsv(), Long.valueOf(meta.length()));
@@ -764,6 +775,29 @@ public final class ObjectPack {
         } finally {
             in.close();
         }
+    }
+
+    /**
+     * §3.5 permits gzip, bzip2 and xz for the archive. Only gzip is reachable from the Java 8
+     * platform: {@code java.util.zip.GZIPOutputStream} is in the JDK, while bzip2 and xz are not
+     * anywhere in it. Implementing those two would mean adding commons-compress (and, for xz, the
+     * tukaani library), which cannot be confirmed against the internal Nexus from where this is
+     * built — so they are refused with the reason rather than half-supported.
+     */
+    private static String normaliseCompression(String v) {
+        String c = v == null ? "none" : v.trim().toLowerCase(Locale.ROOT);
+        if (c.isEmpty() || "none".equals(c)) {
+            return "none";
+        }
+        if ("gzip".equals(c) || "gz".equals(c)) {
+            return "gzip";
+        }
+        if ("bzip2".equals(c) || "bz2".equals(c) || "xz".equals(c)) {
+            throw new ObjPackException("compression '" + v + "' is permitted by the specification but "
+                    + "is not available on Java 8: only gzip is in the platform. bzip2 and xz would "
+                    + "need commons-compress on the internal Nexus. Use gzip or none.");
+        }
+        throw new ObjPackException("compression must be none, gzip, bzip2 or xz; got '" + v + "'");
     }
 
     private static String trim(String s) {

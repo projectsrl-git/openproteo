@@ -1027,6 +1027,8 @@ tf0002448.20260918.S001.V001.tar       the package
 tf0002448.20260918.S001.V001.md5       beside the tar, NOT inside it
 ```
 
+With gzip the archive is `…S001.V001.tar.gz` and the `.md5` holds the hash of that; see Compression below.
+
 The `.md5` sitting outside the archive is the detail worth reading twice: it is the checksum **of** the tar, so it cannot be a member of it. Its content is the bare 32-character lowercase hash and nothing else — no file name, no `*` marker. That is deliberately **not** `md5sum` output format.
 
 ### The name, and why the date is not filled in for you
@@ -1107,7 +1109,7 @@ Required: `tfId`, `transmissionDate`, `targetDestination`, `metadataCsv`, `objec
 - `metadataCsv`, `inDelimiter`, `inCharset` — the source CSV. An empty delimiter samples the header for `;`, `,`, tab or `|`.
 - `objectsDir`, `objectSource`, `recurse`, `orderBy`, `include`, `exclude`, `onMissingObject`.
 - `map.objectId`, `map.recordBusinessDate`, `map.recordBusinessDate.format`, `map.mimeType`, `map.originalObjectName`, `map.objectPath`, `map.nameLabel` — the last places free text between the base name and the OID, e.g. `….monthly_report.OID2.pdf`.
-- `outputDir` (default `${stepDir}`), `outDelimiter` (default `;`), `emitObjects`.
+- `outputDir` (default `${stepDir}`), `outDelimiter` (default `;`), `emitObjects`, `compression` (`none` or `gzip`).
 - `dataschema`, `maxObjectMb` (2048), `maxSubmissionMb` (20480), `maxObjects` (100000), `failOnOversize` (on), `failOnStaleBusinessDate` (off), `businessDateMonths` (10).
 
 Outputs: `${submissionBaseName}`, `${objectCount}`, `${metadataRows}`, `${skippedRows}`, `${tarFile}`, `${md5File}`, `${tarBytes}`, `${md5}`.
@@ -1116,9 +1118,20 @@ Outputs: `${submissionBaseName}`, `${objectCount}`, `${metadataRows}`, `${skippe
 
 **A business date older than the retention window** and **a missing object** are both questions still open with the archive team, so both take the cautious reading for now. A stale date warns and packages; tick *Fail on a business date older than the retention window* to make it fail. A missing object fails, as the script did; set *skip the row and count it* to drop it instead, and read `${skippedRows}`.
 
-### What it does not do yet
+### Compression, and the file name it changes
 
-**Compression is not implemented.** `compression` accepts only `none` and refuses anything else rather than producing a gzip'd archive named `.tar`, which would be a naming violation. The specification is ambiguous here and the question is open with the archive team; nothing has ever been delivered compressed.
+The archive can be gzipped: set **Compression** to `gzip` and the package is delivered as `<base>.tar.gz` instead of `<base>.tar`.
+
+The name is the part to read carefully. The specification requires every file of a submission to share one base name and its examples all end `.tar`, yet it also permits gzip, bzip2 and xz for the archive — and a gzipped archive is `.tar.gz`. Those cannot both hold literally. The reading taken here is that the "Do not" box forbids compressing the **contents** of the package, members ending `.zip` or `.7z`, while "Do only use" permits compressing the whole archive with one of the three named algorithms, in which case the extension has to say so. Naming a gzipped file `.tar` would misdeclare its type to the receiver, which is worse than extending the name.
+
+Two consequences follow, and the first has bitten people before:
+
+- **An `ftpsend` mask of `*.tar` stops matching.** Change it to `*.tar.gz`, and remember that a mask matching nothing fails the step — which here is the good outcome, because it stops rather than delivering half a package. The designer says so in the panel the moment you pick gzip.
+- **The `.md5` keeps its name and holds the hash of the compressed file**, because the checksum is of whatever is delivered. Nothing uncompressed is ever written: the compressor wraps the archive as it is produced, and the package is read back **through the decompressor** afterwards, so what gets verified is the file that will actually be sent.
+
+**bzip2 and xz are refused**, with the reason rather than in silence. Both are permitted by the specification; neither exists anywhere in the Java 8 platform, which has only gzip. Supporting them would mean adding commons-compress, and for xz the tukaani library, as new dependencies. Ask if a feed needs them.
+
+### What it does not do yet
 
 The **non-TAR delivery path** — the one used over AzCopy and Axway, with the same four files and no tar — is not built. It has different size limits and does not need a target destination, and nobody has asked for it.
 

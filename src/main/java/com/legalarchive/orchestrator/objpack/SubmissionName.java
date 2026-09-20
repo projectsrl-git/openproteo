@@ -42,6 +42,35 @@ public final class SubmissionName {
     public String metadataCsv(){ return base + ".metadata.csv"; }
     public String control()    { return base + ".control"; }
     public String tar()        { return base + ".tar"; }
+
+    /**
+     * The name of the delivered archive for a given compression.
+     *
+     * <p>§2 requires every file of a submission to share the base name and its examples all end in
+     * {@code .tar}; §3.5 permits gzip, bzip2 and xz for the archive. Those cannot both hold
+     * literally, because a gzipped archive is {@code .tar.gz}. The reading taken here is that
+     * §3.5's "Do not" box forbids compressing the <b>contents</b> of the package — members ending
+     * {@code .zip} or {@code .7z} — while "Do only use" permits compressing the whole archive with
+     * one of the three named algorithms, in which case the extension has to say so. Naming a
+     * gzipped file {@code .tar} would misdeclare its type to the receiver, which is worse than
+     * extending the name. Recorded as Gate 0 question 9.4.
+     */
+    public String archive(String compression) {
+        String c = compression == null ? "none" : compression.trim().toLowerCase(Locale.ROOT);
+        if (c.isEmpty() || "none".equals(c)) {
+            return base + ".tar";
+        }
+        if ("gzip".equals(c) || "gz".equals(c)) {
+            return base + ".tar.gz";
+        }
+        if ("bzip2".equals(c) || "bz2".equals(c)) {
+            return base + ".tar.bz2";
+        }
+        if ("xz".equals(c)) {
+            return base + ".tar.xz";
+        }
+        throw new ObjPackException("compression must be none, gzip, bzip2 or xz; got '" + compression + "'");
+    }
     public String md5()        { return base + ".md5"; }
 
     /**

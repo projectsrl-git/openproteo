@@ -56,6 +56,84 @@ public final class UstarReader {
         return out;
     }
 
+    /**
+     * Reads the members of an archive arriving as a stream, so a compressed package can be verified
+     * as it will actually be delivered rather than before it was compressed. Sequential: the payload
+     * is skipped, never buffered, so the cost does not grow with the size of the objects.
+     */
+    public static List<Member> members(java.io.InputStream in) throws IOException {
+        List<Member> out = new ArrayList<Member>();
+        byte[] h = new byte[512];
+        long off = 0;
+        while (true) {
+            if (!readFully(in, h)) {
+                break;                       // a truncated trailer is the end of a well-formed archive
+            }
+            if (isZero(h)) {
+                break;
+            }
+            verifyChecksum(h, off);
+            String name = cstr(h, 0, 100);
+            if (name.isEmpty()) {
+                throw new IOException("tar header at offset " + off + " has an empty member name");
+            }
+            long size = octal(h, 124, 12, off);
+            out.add(new Member(name, size, off + 512));
+            long padded = ((size + 511) / 512) * 512;
+            skipFully(in, padded);
+            off += 512 + padded;
+        }
+        return out;
+    }
+
+    /** Member names in archive order, reading from a stream. */
+    public static List<String> names(java.io.InputStream in) throws IOException {
+        List<String> out = new ArrayList<String>();
+        for (Member m : members(in)) {
+            out.add(m.name);
+        }
+        return out;
+    }
+
+    /** Member name to declared size, reading from a stream. */
+    public static Map<String, Long> sizes(java.io.InputStream in) throws IOException {
+        Map<String, Long> out = new LinkedHashMap<String, Long>();
+        for (Member m : members(in)) {
+            out.put(m.name, Long.valueOf(m.size));
+        }
+        return out;
+    }
+
+    private static boolean readFully(java.io.InputStream in, byte[] b) throws IOException {
+        int off = 0;
+        while (off < b.length) {
+            int n = in.read(b, off, b.length - off);
+            if (n < 0) {
+                return false;
+            }
+            off += n;
+        }
+        return true;
+    }
+
+    /** InputStream.skip may do less than asked, which silently desynchronises the header walk. */
+    private static void skipFully(java.io.InputStream in, long n) throws IOException {
+        long left = n;
+        byte[] sink = new byte[8192];
+        while (left > 0) {
+            long got = in.skip(left);
+            if (got > 0) {
+                left -= got;
+                continue;
+            }
+            int r = in.read(sink, 0, (int) Math.min(left, sink.length));
+            if (r < 0) {
+                throw new IOException("the archive ends inside a member: " + left + " bytes missing");
+            }
+            left -= r;
+        }
+    }
+
     public static List<Member> members(File tar) throws IOException {
         List<Member> out = new ArrayList<Member>();
         RandomAccessFile r = new RandomAccessFile(tar, "r");
