@@ -1790,7 +1790,7 @@
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Objects directory *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'objectsDir')) + '" placeholder="${landingOut}/objects" title="The landing zone. Objects are streamed from here into the tar and are never copied." oninput="setNodeParam(' + i + ',\'objectsDir\',this.value)"></div>' +
                         '<div class="field"><label>Find each object by</label><select onchange="setNodeParam(' + i + ',\'objectSource\',this.value); renderNodes()">' +
-                        '<option value=""' + (opSrc === '' ? ' selected' : '') + '>auto (path when mapped, else order)</option>' +
+                        '<option value=""' + (opSrc === '' ? ' selected' : '') + '>auto (path when mapped, else original file name)</option>' +
                         '<option value="path"' + (opSrc === 'path' ? ' selected' : '') + '>path from a CSV column</option>' +
                         '<option value="name"' + (opSrc === 'name' ? ' selected' : '') + '>original file name</option>' +
                         '<option value="order"' + (opSrc === 'order' ? ' selected' : '') + '>row order</option></select></div>' +
@@ -1802,7 +1802,7 @@
                             '<div class="field"><label>Order by</label><select onchange="setNodeParam(' + i + ',\'orderBy\',this.value)">' +
                             '<option value="name"' + (nodeParam(n, 'orderBy') !== 'path' ? ' selected' : '') + '>file name</option>' +
                             '<option value="path"' + (nodeParam(n, 'orderBy') === 'path' ? ' selected' : '') + '>full path</option></select></div>' +
-                            '<div class="field wide"><label class="dim small">Row order pairs the i-th CSV row with the i-th file. It is the most fragile of the three: a file added to the directory shifts every pairing after it.</label></div></div>';
+                            '<div class="field wide"><label class="dim small" style="color:#b9770e">Row order pairs the i-th CSV row with the i-th file, and is right only if the listing comes out in the CSV\'s order. Use it only when the names in the CSV have nothing to do with the names on disk. The step refuses it when it can prove the two disagree.</label></div></div>';
                     }
                     h += '<div class="form-row">' +
                         '<div class="field"><label>Include (comma)</label><input value="' + attresc(nodeParam(n, 'include')) + '" placeholder="*" oninput="setNodeParam(' + i + ',\'include\',this.value)"></div>' +

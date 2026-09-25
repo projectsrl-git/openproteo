@@ -1045,11 +1045,13 @@ The consequence is worth stating plainly: a feed that packaged 9 objects yesterd
 
 ### Pairing each CSV row with its object
 
-One row describes exactly one object, and the counts must match. Three ways to find it, set by **Find each object by**:
+One row describes exactly one object, and the counts must match. Three ways to find it, set by **Find each object by**. Left alone it matches on the original file name, or on the path column when one is mapped — never on position:
 
 - **path from a CSV column** — a column holds the object's location relative to the objects directory, subfolders included. This is the reliable one: the CSV says where each file is. The path is resolved **inside** the objects directory and an absolute path, or one climbing out with `..`, is refused rather than clamped. Both slash styles are accepted.
 - **original file name** — the object is looked up by the `original_object_name` value. With **Recurse subfolders** on, the whole tree is searched; if two subfolders hold the same file name, the step **fails naming both paths**. Picking one would archive a plausible wrong document under a right-looking name, which is the exact failure this package format exists to prevent.
-- **row order** — the i-th row takes the i-th file. Kept for parity with the script, and the most fragile of the three: one file added to the directory shifts every pairing after it. Not the default.
+- **row order** — the i-th row takes the i-th file. **Never the default, and to be avoided unless nothing else can work.** It is right only when the directory listing happens to come out in the CSV's order, and when it does not it pairs every row with somebody else's document. It exists for the case where the CSV names have nothing to do with the names on disk, typically because the objects were renamed on their way into the landing zone.
+
+  The step now refuses positional pairing when it can prove it is misaligned: if the file handed to one row is the file another row declares as its own, the names do describe the files on disk and the order simply does not match, so the run stops. It cannot prove anything when the CSV names and the disk names have no overlap, which is exactly the case order mode is for.
 
 **Recurse subfolders is off by default.** Turning it on for an existing step widens what the step sees.
 

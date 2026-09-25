@@ -141,7 +141,7 @@ Three shapes, chosen by `objectSource`:
 
 | `objectSource` | Where the object is | Recursion |
 |---|---|---|
-| `path` (default when `objectPath` is mapped) | `objectsDir` + the value of the `objectPath` column, which may contain sub-directories | irrelevant — the path is exact |
+| `path` (default when `map.objectPath` is mapped) | `objectsDir` + the value of the `objectPath` column, which may contain sub-directories | irrelevant — the path is exact |
 | `name` | the object is looked up by the `originalObjectName` value | `recurse=yes` searches the whole tree |
 | `order` | i-th CSV row ↔ i-th file in the listing | `recurse=yes` includes sub-directories in the listing |
 
@@ -217,7 +217,7 @@ and the writer must refuse rather than truncate.
 | `inDelimiter` | auto | as `csvsql` autodetects |
 | `outDelimiter` | `;` | must come from the Accepted Delimiters List (§9.6) |
 | `objectsDir` | — | root of the objects |
-| `objectSource` | `path` if mapped, else `order` | §3.3 |
+| `objectSource` | `path` if `map.objectPath` is set, else `name` | §3.3 — never `order` by default |
 | `recurse` | `no` | §3.3 |
 | `orderBy` | `name` | only for `objectSource=order` |
 | `include` / `exclude` | `*` / the five output patterns | as the script's `$Include`/`$Exclude` |
@@ -403,3 +403,32 @@ before this one did. A feed that does not set the parameter is unchanged by this
 
 Four Gate 0 questions remain: 9.2, 9.6, 9.7, 9.9. And one new thing to confirm with the archive
 team: **that `.tar.gz` is accepted at all.**
+
+---
+
+## 15. The pairing defect, 2026-09-25
+
+A feed failed on a mime-type mismatch that looked incoherent. It was not: `objectSource` had not
+been set, and **the code defaulted to `order`** while §3.3 of this document said in one place that
+order "is **not** the default here" and in the parameter table that it was. The two statements
+disagreed and the implementation followed the worse one. The table is corrected.
+
+Measured on the real shape: seven objects whose CSV order was not the directory's sort order gave
+**seven wrong pairings out of seven**. The mime/extension check caught it only because the
+extensions were mixed. Had every object been a PDF, the submission would have been built,
+delivered and accepted, with each document under its neighbour's metadata. That is the failure this
+executor exists to prevent.
+
+Two changes:
+
+* **The default is now `name`.** `original_object_name` is mandatory and non-nullable by §3.2, so
+  matching by name is always available; positional pairing is never what an unconfigured step does.
+* **`order` now detects its own misalignment.** Once every row is read, if the file handed to one
+  row is the file another row *declares as its own*, then the CSV names do describe the files on
+  disk and the order they arrived in is not the listing's order — so the step refuses. The test is
+  against the names the CSV **declares**, not the names on disk: when the two sets do not overlap,
+  which is the case positional pairing exists for, there is nothing to compare and nothing is
+  refused.
+
+The first attempt at that check compared against disk names and broke the legitimate renamed-objects
+case. The suite caught it.

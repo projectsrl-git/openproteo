@@ -3254,3 +3254,28 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   contains no uppercase `Y` and no `M`, so the `${...}` check could not be seen to matter; replaced
   with `${MY_DATE_MASK}`.
 * Notes in `.claude/2026-09-25-objpack-date-format-trap.md`.
+
+## objpack — the pairing default, and the near miss it caused
+* A feed failed on a mime mismatch that looked incoherent. `objectSource` was unset and the code
+  fell through to **positional pairing**. Measured on the real shape — seven objects whose CSV order
+  is not the directory's sort order — **seven wrong pairings out of seven**.
+* **The mime/extension check caught it by luck.** The extensions were mixed. Had all seven been
+  PDFs, every pairing would still have been wrong, nothing would have complained, and the submission
+  would have been built, checksummed, delivered and accepted with each document under a neighbour's
+  metadata. Nothing downstream would ever have revealed it.
+* **The defect was in the spec too**: `.claude/OBJECT_PACKAGE_EXECUTOR.md` said in §3.3 that order
+  "is not the default here" and in its parameter table that it was. The implementation followed the
+  worse of the two. When a spec disagrees with itself, the code picks one and nobody notices which.
+* Fixed: **the default is `name`** (`original_object_name` is mandatory and non-nullable by §3.2, so
+  it is always available), and **`order` now detects its own misalignment** — after all rows are
+  read, if the file handed to one row is the file another row DECLARES as its own, the names do
+  describe the disk and the order does not match, so the step refuses naming both rows.
+* **The check is against DECLARED names, not disk names.** When the two sets do not overlap — objects
+  renamed into the landing zone, the case positional pairing exists for — nothing is comparable and
+  nothing is refused. **My first attempt compared against the disk listing and broke exactly that
+  case; the suite caught it before delivery.**
+* 128 assertions, 36 mutations all caught. Two suite runs failed first, both my own work (the broken
+  fix, and a fixture that accidentally contained the correct file so the hint path was unreachable).
+  One mutation survived because it was badly written — it replaced only a ternary's opening line,
+  leaving the words the test looks for intact.
+* Notes in `.claude/2026-09-25-objpack-pairing-default.md`.

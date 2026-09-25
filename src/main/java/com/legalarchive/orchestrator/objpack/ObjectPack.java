@@ -95,6 +95,9 @@ public final class ObjectPack {
     public String md5;
     public final List<String> warnings = new ArrayList<String>();
 
+    /** Set while reading: whether the rows were paired positionally. */
+    private boolean pairedByOrder;
+
     private static final String[] FALLBACK = {
             "object_id", "record_business_date", "mime_type", "original_object_name"
     };
@@ -134,6 +137,9 @@ public final class ObjectPack {
         }
 
         List<Pair> pairs = readAndPair();
+        if (pairedByOrder) {
+            checkOrderAlignment(pairs);
+        }
         objectCount = pairs.size();
         assignObjectIds(pairs);
 
@@ -165,7 +171,12 @@ public final class ObjectPack {
 
             String mode = trim(objectSource);
             if (mode == null || mode.isEmpty()) {
-                mode = cPath != null ? "path" : "order";
+                // Never 'order' by default. Positional pairing is right only when the listing
+                // happens to be in the CSV's order, and when it is not it pairs every row with
+                // somebody else's document without anything noticing. original_object_name is a
+                // mandatory, non-nullable column (spec 3.2), so matching by name is always
+                // available and is what an unconfigured step should do.
+                mode = cPath != null ? "path" : "name";
             }
             mode = mode.toLowerCase(Locale.ROOT);
             if (!"path".equals(mode) && !"name".equals(mode) && !"order".equals(mode)) {
@@ -177,6 +188,7 @@ public final class ObjectPack {
             }
 
             List<File> listing = "order".equals(mode) ? listObjects() : null;
+            pairedByOrder = listing != null;
             Map<String, List<File>> byName = "name".equals(mode) ? indexByName() : null;
 
             int headerSize = r.headerSize();
@@ -271,6 +283,50 @@ public final class ObjectPack {
                     + (f == null ? "null" : f.getAbsolutePath()));
         }
         return f;
+    }
+
+    /**
+     * Positional pairing cannot tell "aligned" from "shifted" by looking at one row.
+     *
+     * <p>It can once every row is known. If the file handed to one row is the file another row
+     * <b>declares as its own</b>, then the names in the CSV do describe the files on disk and the
+     * order they arrived in is simply not the order the listing produced — so the pairing is
+     * demonstrably wrong, and not only for that row.
+     *
+     * <p>The test is deliberately against the names the CSV declares, not against the names on
+     * disk. When the two sets do not overlap at all — objects renamed during staging, which is the
+     * case positional pairing exists for — there is nothing to compare and nothing is refused.
+     *
+     * <p>This is the check that was missing when a feed packaged seven objects each under its
+     * neighbour's metadata. Only the mime-type check noticed, and only because the extensions
+     * happened to differ; had they all been PDFs the submission would have been built, delivered
+     * and accepted, wrong.
+     */
+    private void checkOrderAlignment(List<Pair> pairs) {
+        Map<String, Long> declared = new HashMap<String, Long>();
+        for (Pair p : pairs) {
+            if (p.originalName != null && !p.originalName.isEmpty()) {
+                declared.put(p.originalName.toLowerCase(Locale.ROOT), Long.valueOf(p.lineNo));
+            }
+        }
+        for (Pair p : pairs) {
+            if (p.originalName == null || p.originalName.isEmpty()) {
+                continue;
+            }
+            String got = p.object.getName().toLowerCase(Locale.ROOT);
+            if (got.equals(p.originalName.toLowerCase(Locale.ROOT))) {
+                continue;
+            }
+            Long owner = declared.get(got);
+            if (owner != null) {
+                throw new ObjPackException("line " + p.lineNo + ": objectSource=order gave this row '"
+                        + p.object.getName() + "', but line " + owner + " declares that file as its own"
+                        + " and this row names '" + p.originalName + "'. The CSV order and the"
+                        + " directory listing do not agree, so positional pairing would archive these"
+                        + " objects under each other's metadata. Use objectSource=name, or"
+                        + " map.objectPath if the CSV carries a path.");
+            }
+        }
     }
 
     private File missing(String why) {
@@ -535,9 +591,15 @@ public final class ObjectPack {
             String ext = SubmissionName.extensionOf(p.object.getName());
             String declared = p.mimeType.startsWith(".") ? p.mimeType : "." + p.mimeType;
             if (!ext.equalsIgnoreCase(declared)) {
+                String why = (p.originalName != null && !p.originalName.isEmpty()
+                        && !p.originalName.equalsIgnoreCase(p.object.getName()))
+                        ? " This row names '" + p.originalName + "' but was paired with '"
+                          + p.object.getName() + "', so the pairing is what to look at first:"
+                          + " check objectSource."
+                        : "";
                 throw new ObjPackException("line " + p.lineNo + ": mime_type '" + p.mimeType
                         + "' does not match the object's extension '" + (ext.isEmpty() ? "(none)" : ext)
-                        + "' for " + p.object.getName() + " (spec 4, submission names)");
+                        + "' for " + p.object.getName() + " (spec 4, submission names)." + why);
             }
             long len = p.object.length();
             total += len;
