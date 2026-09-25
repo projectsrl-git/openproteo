@@ -3285,3 +3285,22 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   One mutation survived because it was badly written — it replaced only a ternary's opening line,
   leaving the words the test looks for intact.
 * Notes in `.claude/2026-09-25-objpack-pairing-default.md`.
+
+## objpack — every successful run was reported as failed
+* The step built the package, verified it, wrote the checksum, and the run history showed **FAILED,
+  exit code -1**, with no message. The package on disk was correct.
+* `StepExecutor.Result.exitCode` starts at **-1**. Every internal executor must set `0` on its
+  success path — some literally, some via a ternary like `res.exitCode = failed > 0 ? 1 : 0`.
+  `runObjPack` set `2` on each refusal path and **never set anything where the work succeeded**, so
+  the initial -1 survived. It went unnoticed because until today the step had never completed: every
+  earlier run stopped at a real refusal, which does set a code.
+* **The batch-2 spec claimed the assembly layer "has no logic worth testing of its own". That is
+  now falsified.** Reporting the outcome IS logic, it is the one piece of state that layer owns, and
+  it was wrong. `PackSuite` exercises `ObjectPack.run()` directly and never touches
+  `InternalSteps.runObjPack`, which cannot run here without the Spring tree.
+* **New lint over `InternalSteps`**: for each `run*` method, can any `exitCode` assignment be zero —
+  a literal or a ternary with a zero branch — or does it delegate to another `run*`? The first
+  version matched the literal string only and flagged seven methods; **six were false alarms**
+  (`runDiffText`, `runDiffTextSet`, `runElarCheck`, `runEncodingBatch` use ternaries; `runDiff`
+  delegates). Only `runObjPack` could never report success. Clean across all 28 after the fix.
+* Notes in `.claude/2026-09-25-objpack-exit-code.md`.

@@ -1,19 +1,47 @@
-bulk: post JSON, not form data, past Tomcat's 2 MB param cap
+objpack: report success, instead of failing every run that worked
 
-/bulk failed with a bare "Bad Request": Spring reported the required
-parameter 'csv' as missing. The page posted form-urlencoded, and Tomcat
-parses form parameters only up to maxPostSize (2 MB); past it every
-parameter is dropped without an error. Inline dataschema/displayschema
-JSON inflates about 1.75x under URL encoding, so roughly 1.2 MB of feeds
-CSV was enough.
+The step built the package, verified it and wrote the checksum, and the
+run history showed FAILED with exit code -1 and no message. The package on
+disk was correct.
 
-ApiController gains bulkCreateJson on the same path, consumes JSON, with
-the same defaults as the form endpoint, delegating to bulkCreate. The page
-sends JSON and shows HTTP <status> on a non-JSON error. The form endpoint
-is unchanged for existing callers. Output of the generator is unchanged.
+THE DEFECT. StepExecutor.Result.exitCode is initialised to -1, and every
+internal executor is expected to set it to 0 on its success path - some
+literally, some through a ternary such as res.exitCode = failed > 0 ? 1 :
+0. runObjPack set 2 on each of its refusal paths and never set anything on
+the path where the work succeeded, so the initial -1 survived and the
+engine reported a failure.
 
-Verified: node --check on bulk.html inline JS, no literal \n/\r, no [[ or
-[(, Java brace balance, imports present, inflation ratio measured.
-Not verified: Maven build, standalone compile (no JDK in the sandbox),
-end-to-end reproduction against Tomcat.
-Details: .claude/2026-09-25-bulk-create-json-body.md
+It went unnoticed because until today the step had never completed. Every
+earlier run stopped at a real refusal, which does set an exit code, so the
+first genuinely successful packaging is also the first run able to expose
+it.
+
+WHY THE TESTS DID NOT CATCH IT. PackSuite exercises ObjectPack.run()
+directly. InternalSteps.runObjPack - the assembly layer - is never executed
+by it and cannot be, because it needs the Spring dependency tree that is
+not available where this is built. The batch-2 specification says of that
+layer that it "only reads parameters and reports the outcome, which is why
+it has no logic worth testing of its own". THAT CLAIM IS FALSIFIED.
+Reporting the outcome is logic, it is the one piece of state the layer
+owns, and it was wrong.
+
+THE CHECK THAT WOULD HAVE CAUGHT IT, AND NOW EXISTS. A static lint over
+InternalSteps: for each run* method, does any assignment to exitCode have a
+value that can be zero - a literal, or a ternary with a zero branch - or
+does the method delegate to another run*? Anything else can never report
+success.
+
+The first version of that lint matched the literal string "res.exitCode =
+0" and flagged seven methods. SIX WERE FALSE ALARMS: runDiffText,
+runDiffTextSet, runElarCheck and runEncodingBatch set it through ternaries,
+and runDiff delegates to its sub-modes. Only runObjPack could never report
+success. After the fix the lint reports none, across all 28 run methods.
+
+VERIFIED: the lint before and after; brace balance on the edited file.
+ObjectPack itself is untouched, so the 128 assertions and 36 mutations
+stand from the previous batch and were not re-run for a one-statement
+change in a different file.
+
+NOT VERIFIED: mvn clean package. The fix has not been run against the real
+feed - the confirmation to look for is the same package the step already
+produced correctly, this time with the step shown as successful.

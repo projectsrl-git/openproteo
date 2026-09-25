@@ -258,6 +258,10 @@ public class InternalSteps {
         res.outVars.put("md5File", o.md5File.getAbsolutePath());
         res.outVars.put("tarBytes", String.valueOf(o.tarBytes));
         res.outVars.put("md5", o.md5);
+        // StepExecutor.Result.exitCode starts at -1, so a method that only sets it on its failure
+        // paths reports every SUCCESSFUL run as a failure. That is what happened here: the package
+        // was built, verified and checksummed, and the step still showed FAILED with exit code -1.
+        res.exitCode = 0;
     }
 
     /** A step parameter with variables resolved, or null when it is absent or blank. */
