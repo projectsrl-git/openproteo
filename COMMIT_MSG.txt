@@ -1,51 +1,58 @@
-objpack: withdraw the claim that the spec contradicts itself on the name
+objpack: catch the date-format trap before it reaches the data
 
-A correction, not a feature. No behaviour changes and no test changes.
+A feed failed with "line 2: record_business_date '20201009' does not parse
+with format 'YYYYMMDD'". The value is a perfectly good date. The format
+string was the problem, and the message pointed at the wrong one of the
+two.
 
-WHAT WAS WRONG. Batch 5 recorded, in six places, that the specification
-contradicted itself about the name of a compressed archive and that the
-code therefore had to choose one. That was overstated. Section 3.5 names
-the resulting files itself - "resulting in a .tar.gz file", and .tar.bz2
-and .tar.xz for the other two - and section 2's pattern ends in .*, a
-wildcard, so those names satisfy the naming convention without strain. The
-.tar examples elsewhere are the uncompressed case, not a rule against the
-rest. There was no conflict to resolve, only one I had read into it.
+WHAT IS ACTUALLY GOING ON. In java.time, Y is the WEEK-BASED YEAR and D is
+the DAY OF THE YEAR; the ordinary year is y and the day of the month is d.
+So YYYYMMDD - the way nearly everyone writes a date mask, and how ISO and
+several databases spell it - is not a typo that gets rejected. It is a
+VALID pattern meaning week-based-year, month, day-of-year, which no data
+will ever satisfy. Measured, not reasoned about:
 
-Corrected in SubmissionName.archive's javadoc, USAGE.md, CLAUDE.md, the
-executor spec, the batch-5 note and item 4 of the transcription's
-contradiction list. Item 4 now says what is genuinely unstated - whether
-compression is expected or merely tolerated - instead of claiming a
-contradiction that is not there.
+  YYYYMMDD   20201009  -> parse fails at index 0
+  YYYYMMdd   20201009  -> WeekBasedYear=2020, MonthOfYear=10, DayOfMonth=9
+                          cannot make a date
+  yyyyMMdd   20201009  -> 2020-10-09
+  yyyyDDD    2020283   -> 2020-10-09    <- a LEGITIMATE use of D
 
-WHY THE ARCHIVE IS STILL NOT JUST NAMED .tar. Raised as a way to satisfy
-both readings, and rejected on measured evidence rather than taste. A gzip
-stream renamed .tar: GNU tar -tf and -xf unpack it, python tarfile in its
-default mode unpacks it, python in forced-uncompressed mode fails with
-"truncated header", and a parser reading ustar headers directly finds no
-magic at offset 257 at all - the category that includes commons-compress,
-strict system tars and UstarReader here. Which one Transarch uses is
-undocumented.
+That last line is why the pattern is NOT silently corrected. D genuinely
+means day-of-year and someone may genuinely want it; rewriting a user's
+format string is how a plausible-looking wrong date reaches a legal
+archive.
 
-The failure modes are asymmetric, and that is the deciding argument. A
-wrong extension is rejected at the naming validation: early, loud, with the
-source data still in place. A compressed file wearing a .tar name passes
-both the size check and the checksum check and breaks later, at extraction,
-possibly after the source has been decommissioned. In a legal archive the
-second is the one you cannot afford.
+WHAT CHANGED. validateDateFormat runs before a single row is read, so the
+step fails at configuration rather than at line 2 of a million, and fails
+once rather than per row. It names the offending letter - "'Y' is the
+week-based year, write 'y'" - gives the pattern to use for a date like
+20201009, with dashes if the input had them, and points out that an
+already-yyyyMMdd column needs no format at all. D is reported only when M
+is present too, so yyyyDDD keeps working. A round-trip net catches the
+general case: a reference date is rendered with the pattern and parsed
+back, so a pattern that cannot survive its own output is refused whatever
+letters it uses - this is what catches qqqq, a VALID pattern (quarter of
+the year) that renders "4th quarter". The per-row message no longer blames
+the data alone: it names the configured format, and when the value is
+already eight digits it says the format can simply be dropped. The
+designer shows the same warning as the field is typed, so the run never
+starts.
 
-THE DEFAULT, NOW STATED RATHER THAN INFERRED. compression defaults to none
-and delivers an uncompressed <base>.tar, byte for byte what the PowerShell
-script produced. A feed that never sets the parameter is unaffected by
-anything in the compression work. USAGE.md now opens that section by
-saying so, instead of leaving it to be worked out from a parameter table.
+VERIFIED: 120 suite assertions and 31 mutations, all caught, including five
+new ones - the validator not being called, the uppercase check removed, D
+accepted next to M, the round trip removed, and the over-strict variant
+that would break yyyyDDD. 12 assertions on the designer helper under node,
+with four mutations of it. node --check on the designer JS. Panel and
+executor parameter names still agree: 33 written, 33 read.
 
-VERIFIED: javac --release 8 on the package after the javadoc edit; 103
-suite assertions and 26 mutations re-run, all green; a default run still
-produces a file that `file` reports as "POSIX tar archive"; 33 of 33
-parameters still documented; code fences balanced; no stale claim of a
-contradiction left anywhere except the transcription's own preamble, which
-is about the four contradictions that are real.
+Two suite assertions failed on the first run and both were mine: qqqq is a
+valid pattern, so it is caught by the round trip rather than as bad syntax,
+and one test still quoted the old wording of the per-row message. One panel
+mutation also survived first because THE TEST INPUT WAS TOO WEAK TO
+EXERCISE THE GUARD - ${recordBusinessDateFormat} contains neither an
+uppercase Y nor an M, so the ${...} check could not be seen to matter.
+Replaced with ${MY_DATE_MASK}, which does.
 
-NOT VERIFIED: still nobody has confirmed the archive accepts .tar.gz. That
-is the one answer that would settle this, and until it arrives the default
-is the conservative one.
+NOT VERIFIED: the fix has not been run against the real feed. mvn clean
+package not run; the panel not opened in a browser.

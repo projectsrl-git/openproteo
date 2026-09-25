@@ -3231,3 +3231,26 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * NOT verified: `mvn clean package`, Windows, any ingestion — and nobody has confirmed the archive
   accepts `.tar.gz`, which is the one thing that would settle the naming reading.
 * Notes in `.claude/2026-09-18-objpack-batch5-compression.md`.
+
+## objpack — the date-format trap, found in production
+* A feed failed with `record_business_date '20201009' does not parse with format 'YYYYMMDD'`. The
+  value is a perfectly good date: **the format string was wrong and the message blamed the data.**
+* **In `java.time`, `Y` is the WEEK-BASED year and `D` is the DAY OF THE YEAR.** So `YYYYMMDD` —
+  how nearly everyone writes a date mask, and how ISO and several databases spell it — is not a
+  typo that gets rejected; it is a **valid pattern meaning something nobody intends**, accepted at
+  configuration and failing on every row. Measured: `YYYYMMdd` on `20201009` fails with
+  "WeekBasedYear=2020, MonthOfYear=10, DayOfMonth=9 cannot make a date".
+* **It is reported, never silently corrected**, because `yyyyDDD` against `2020283` is a legitimate
+  day-of-year format meaning 9 October 2020. Rewriting a user's pattern is how a plausible wrong
+  date reaches a legal archive. `D` is therefore only flagged when `M` is present too.
+* `validateDateFormat` now runs **before a single row is read** — failing at configuration beats
+  failing at line 2 of a million — names the offending letter, gives the pattern to write, and
+  reminds that an already-`yyyyMMdd` column needs no format at all. A **round-trip net** (render a
+  reference date, parse it back) catches the general case, including `qqqq`, which is a *valid*
+  pattern rendering "4th quarter". The designer shows the same warning as the field is typed.
+* 120 assertions, **31 mutations all caught**. Two suite assertions failed first and both were mine
+  (`qqqq` is valid syntax, and one test quoted the old message wording). One panel mutation survived
+  first because the **test input was too weak to exercise the guard** — `${recordBusinessDateFormat}`
+  contains no uppercase `Y` and no `M`, so the `${...}` check could not be seen to matter; replaced
+  with `${MY_DATE_MASK}`.
+* Notes in `.claude/2026-09-25-objpack-date-format-trap.md`.

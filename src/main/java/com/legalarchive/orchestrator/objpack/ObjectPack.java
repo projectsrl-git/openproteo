@@ -114,6 +114,7 @@ public final class ObjectPack {
 
     public void run() throws IOException {
         String comp = normaliseCompression(compression);
+        validateDateFormat(businessDateFormat, "map.recordBusinessDate.format");
         SubmissionName name = new SubmissionName(tfId, transmissionDate, sequenceNr, versionNr);
         submissionBaseName = name.base();
 
@@ -429,8 +430,81 @@ public final class ObjectPack {
             LocalDate d = LocalDate.parse(raw, DateTimeFormatter.ofPattern(fmt));
             return d.format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         } catch (RuntimeException e) {
+            // The pattern was validated before any row was read, so reaching here means the
+            // pattern is sound and this particular value does not fit it.
+            String hint = raw.matches("^[0-9]{8}$")
+                    ? " The value already looks like yyyyMMdd: if the column is in that form, leave"
+                      + " map.recordBusinessDate.format empty and it is taken as it is."
+                    : "";
             throw new ObjPackException("line " + lineNo + ": record_business_date '" + raw
-                    + "' does not parse with format '" + fmt + "'");
+                    + "' does not fit the configured format '" + fmt + "'." + hint);
+        }
+    }
+
+    /**
+     * Checks the configured date format before a single row is read.
+     *
+     * <p>This exists because of a trap in {@code java.time} that costs an afternoon: {@code Y} is
+     * the <b>week-based year</b> and {@code D} is the <b>day of the year</b>, while the day of the
+     * month is {@code d} and the ordinary year is {@code y}. So {@code YYYYMMDD} — which is how
+     * almost everyone writes a date mask, and how ISO and several databases spell it — is a
+     * perfectly <i>valid</i> pattern that means something nobody intended. It is not rejected as
+     * bad syntax; it is accepted and then fails on the data, and the failure names the value rather
+     * than the pattern, which sends the reader looking at the wrong thing entirely.
+     *
+     * <p>Rewriting the pattern silently is not an option: {@code yyyyDDD} against {@code 2020283}
+     * is a legitimate day-of-year format that yields 9 October 2020. So the uppercase letters are
+     * reported, with the correction spelled out, rather than guessed at.
+     *
+     * <p>The general net is a round trip: a reference date is formatted with the pattern and parsed
+     * back. A pattern that cannot survive its own output cannot work for any row, and saying so at
+     * configuration time beats saying it at line 2 of a million.
+     */
+    public static void validateDateFormat(String fmt, String paramName) {
+        String f = fmt == null ? "" : fmt.trim();
+        if (f.isEmpty()) {
+            return;
+        }
+        DateTimeFormatter formatter;
+        try {
+            formatter = DateTimeFormatter.ofPattern(f);
+        } catch (IllegalArgumentException e) {
+            throw new ObjPackException(paramName + " '" + f + "' is not a valid date pattern: "
+                    + e.getMessage());
+        }
+        boolean hasY = f.indexOf('Y') >= 0;
+        boolean hasD = f.indexOf('D') >= 0;
+        boolean hasMonth = f.indexOf('M') >= 0;
+        if (hasY || (hasD && hasMonth)) {
+            StringBuilder sb = new StringBuilder(paramName + " '" + f + "' uses Java's uppercase "
+                    + "pattern letters, which do not mean what they look like.");
+            if (hasY) {
+                sb.append(" 'Y' is the week-based year, not the year: write 'y'.");
+            }
+            if (hasD && hasMonth) {
+                sb.append(" 'D' is the day of the year, not the day of the month: write 'd'.");
+            }
+            sb.append(" For a date such as 20201009 the pattern is 'yyyyMMdd'");
+            sb.append(f.indexOf('-') >= 0 ? ", or 'yyyy-MM-dd' with the dashes." : ".");
+            sb.append(" If the column is already yyyyMMdd, leave ").append(paramName)
+              .append(" empty and it is used as it is.");
+            throw new ObjPackException(sb.toString());
+        }
+        // A pattern that cannot read back what it just wrote cannot read any row either.
+        LocalDate ref = LocalDate.of(2020, 10, 9);
+        String rendered;
+        try {
+            rendered = ref.format(formatter);
+        } catch (RuntimeException e) {
+            throw new ObjPackException(paramName + " '" + f + "' cannot render a date: "
+                    + e.getMessage() + ". For a date such as 20201009 the pattern is 'yyyyMMdd'.");
+        }
+        try {
+            LocalDate.parse(rendered, formatter);
+        } catch (RuntimeException e) {
+            throw new ObjPackException(paramName + " '" + f + "' cannot read back its own output '"
+                    + rendered + "', so it cannot read any row. For a date such as 20201009 the "
+                    + "pattern is 'yyyyMMdd'.");
         }
     }
 

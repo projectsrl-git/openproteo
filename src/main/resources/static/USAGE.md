@@ -1076,6 +1076,21 @@ The four mandatory columns are written first and in that order, as the archive r
 
 `object_id` is the exception. Left unmapped, the step numbers the objects 1..N — normally what you want, since the id belongs to the submission rather than to the data. Map it and the values must already ascend from 1 with no gaps: anything else is **refused, not renumbered**, because silently replacing an id the feed chose would break every reference to it elsewhere.
 
+#### The date format, and the one mask that looks right and is not
+
+`map.recordBusinessDate.format` describes the **source** column; the packaged CSV always carries `yyyyMMdd`. Leave it empty when the column is already in that form and the value is taken as it is.
+
+If you do set it, the pattern is Java's, and two of its letters do not mean what they look like:
+
+| you probably mean | write | **not** | because uppercase means |
+|---|---|---|---|
+| year | `yyyy` | `YYYY` | the *week-based* year |
+| day of the month | `dd` | `DD` | the day of the *year* |
+
+So `YYYYMMDD` — the way nearly everyone writes a date mask, and how ISO and several databases spell it — is a **valid pattern that means something nobody intends**. It is not rejected as bad syntax: it is accepted, and then every row fails. Write `yyyyMMdd`, or `yyyy-MM-dd` when the column has dashes.
+
+The step now checks the pattern **before reading a single row** and says which letter is wrong, and the designer shows the same warning as you type it. The uppercase letters are reported rather than quietly corrected, because `yyyyDDD` against `2020283` is a legitimate day-of-year format that means 9 October 2020, and silently rewriting someone's pattern is how a wrong date reaches a legal archive.
+
 `mime_type` carries the **dotted extension** — `.pdf`, `.jpeg` — and is checked against each object's own extension. A row claiming `.jpeg` for a file named `.pdf` fails the step, which is one of the things the archive validates on arrival.
 
 ### The dataschema, if you have one

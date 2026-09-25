@@ -261,6 +261,22 @@
                  problems: bad };
     }
 
+    // Java's pattern letters are a trap: Y is the WEEK-BASED year and D is the DAY OF THE YEAR,
+    // so YYYYMMDD - the way nearly everyone writes a date mask - is a valid pattern meaning
+    // something nobody intends. It is not rejected as bad syntax; it fails later on the data, and
+    // the failure names the value rather than the pattern. Caught here before the run.
+    function objpackDateFmtProblem(fmt) {
+        var f = String(fmt || '').trim();
+        if (!f || f.indexOf('${') >= 0) { return ''; }
+        var bad = [];
+        if (f.indexOf('Y') >= 0) { bad.push("'Y' is the week-based year — write 'y'"); }
+        if (f.indexOf('D') >= 0 && f.indexOf('M') >= 0) { bad.push("'D' is the day of the year — write 'd'"); }
+        if (!bad.length) { return ''; }
+        return bad.join('; ') + '. For 20201009 the pattern is ' +
+            (f.indexOf('-') >= 0 ? "'yyyy-MM-dd'" : "'yyyyMMdd'") +
+            '. If the column is already yyyyMMdd, leave this empty.';
+    }
+
     // collapsible subsection header (content after it is hidden when collapsed)
     function subHead(label) {
         return '<div class="subsection sub-collapsible"><div class="sub-label sub-toggle" onclick="toggleSub(this)"><span class="sub-caret">\u2212</span> ' + label + '</div>';
@@ -1801,7 +1817,11 @@
                     h += '<div class="form-row">' +
                         '<div class="field"><label>object_id</label><input value="' + attresc(nodeParam(n, 'map.objectId')) + '" placeholder="(assign 1..N)" title="Leave empty and the packager numbers the objects 1..N. Map it and the values must already ascend from 1 with no gaps: they are refused, never renumbered." oninput="setNodeParam(' + i + ',\'map.objectId\',this.value)"></div>' +
                         '<div class="field"><label>record_business_date *</label><input value="' + attresc(nodeParam(n, 'map.recordBusinessDate')) + '" placeholder="record_business_date" title="Drives the retention assigned to the record." oninput="setNodeParam(' + i + ',\'map.recordBusinessDate\',this.value)"></div>' +
-                        '<div class="field"><label>its source format</label><input value="' + attresc(nodeParam(n, 'map.recordBusinessDate.format')) + '" placeholder="(already yyyyMMdd)" title="e.g. yyyy-MM-dd. Empty means the column is already yyyyMMdd." oninput="setNodeParam(' + i + ',\'map.recordBusinessDate.format\',this.value)"></div></div>';
+                        '<div class="field"><label>its source format</label><input value="' + attresc(nodeParam(n, 'map.recordBusinessDate.format')) + '" placeholder="(already yyyyMMdd)" title="e.g. yyyy-MM-dd. Empty means the column is already yyyyMMdd." oninput="setNodeParam(' + i + ',\'map.recordBusinessDate.format\',this.value); renderNodes()"></div></div>';
+                    var opFmtBad = objpackDateFmtProblem(nodeParam(n, 'map.recordBusinessDate.format'));
+                    if (opFmtBad) {
+                        h += '<div class="dim small" style="color:#c0392b">' + esc(opFmtBad) + '</div>';
+                    }
                     h += '<div class="form-row">' +
                         '<div class="field"><label>mime_type *</label><input value="' + attresc(nodeParam(n, 'map.mimeType')) + '" placeholder="mime_type" title="The dotted extension, e.g. .pdf — it is checked against each object own extension." oninput="setNodeParam(' + i + ',\'map.mimeType\',this.value)"></div>' +
                         '<div class="field"><label>original_object_name *</label><input value="' + attresc(nodeParam(n, 'map.originalObjectName')) + '" placeholder="original_object_name" oninput="setNodeParam(' + i + ',\'map.originalObjectName\',this.value)"></div>' +
