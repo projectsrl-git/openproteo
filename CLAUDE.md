@@ -169,6 +169,12 @@ orchestrator.mask-pools-dir=       # opzionale: override dei pool senza rebuild
   Colonne non mappate ignorate. Scrive nella workflows-dir + reload; schema JSON validati
   con Jackson e scritti nel feedDir dopo il reload. Generatore in
   parser/BulkWorkflowGenerator (DOM+CSV, no Jackson, unit-testabile).
+  **La pagina /bulk invia JSON** (`bulkCreateJson`, stesso path con
+  `consumes=application/json`), non form-urlencoded: Tomcat applica `maxPostSize`
+  (2 MB) ai parametri di form e, oltre il limite, li scarta TUTTI senza errore
+  (-> "Required request parameter 'csv' is not present", 400 "Bad Request" in UI).
+  Il body JSON e' letto come stream e non ha quel limite. L'endpoint form resta per
+  compatibilita'. Stessa regola per ogni nuovo POST che porti CSV/JSON grandi.
 
 ## Convenzioni di commit / changelog
 

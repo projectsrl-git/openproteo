@@ -762,6 +762,49 @@ public class ApiController {
         return ResponseEntity.ok(out);
     }
 
+    /** JSON twin of {@link #bulkCreate}: same fields, same defaults, same response.
+        The /bulk page posts here. A form-urlencoded body goes through Tomcat's parameter
+        parser, which is capped by maxPostSize (2 MB by default) and, when the cap is hit,
+        drops EVERY parameter without an error: Spring then reports "Required request
+        parameter 'csv' is not present". A feeds CSV carrying dataschema/displayschema
+        inline reaches it at about 1.2 MB of raw text, because URL encoding inflates the
+        quotes, braces, colons and spaces of that JSON by about 1.75x. A JSON body is read as a stream and is not subject to that cap. The
+        form-urlencoded endpoint stays for existing callers. */
+    @PostMapping(value = "/api/workflows/bulk", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Map<String, Object>> bulkCreateJson(@RequestBody Map<String, Object> b) {
+        if (b == null) b = new LinkedHashMap<String, Object>();
+        return bulkCreate(
+                bulkArg(b, "template", ""),
+                bulkArg(b, "csv", ""),
+                bulkArg(b, "schemaOnly", "false"),
+                bulkArg(b, "overwrite", "false"),
+                bulkArg(b, "delimiter", ","),
+                bulkArg(b, "mapFeedId", "feedId"),
+                bulkArg(b, "mapName", "name"),
+                bulkArg(b, "mapSourceId", "sourceId"),
+                bulkArg(b, "mapTargetId", "targetId"),
+                bulkArg(b, "mapDescription", "description"),
+                bulkArg(b, "mapRecordBusinessDate", "recordBusinessDate"),
+                bulkArg(b, "mapRecordBusinessDateFormat", "recordBusinessDateFormat"),
+                bulkArg(b, "mapSourceDescription", "sourceDescription"),
+                bulkArg(b, "mapTargetDescription", "targetDescription"),
+                bulkArg(b, "mapDataschema", "dataschema"),
+                bulkArg(b, "mapDisplayschema", "displayschema"),
+                bulkArg(b, "csv2", ""),
+                bulkArg(b, "delimiter2", ","),
+                bulkArg(b, "mapFeedId2", "feedId"),
+                bulkArg(b, "mapTableName", "tableName"),
+                bulkArg(b, "tableVar", "originTableName"));
+    }
+
+    /** A JSON field as the form endpoint would see it: absent or null takes the
+        @RequestParam default; any other value is its string form. An empty string is
+        kept as-is, exactly like an empty form parameter. */
+    private static String bulkArg(Map<String, Object> b, String key, String dflt) {
+        Object v = b.get(key);
+        return v == null ? dflt : String.valueOf(v);
+    }
+
     /** Bulk-create workflows from a template feed + CSV. Reserved CSV cols (feedId/name/sourceId/
         description) set workflow attributes; every other column becomes a workflow variable. */
     @PostMapping("/api/workflows/bulk")

@@ -1,67 +1,19 @@
-objpack: never pair by position by default, and let order mode notice
+bulk: post JSON, not form data, past Tomcat's 2 MB param cap
 
-A feed failed on a mime-type mismatch that looked incoherent: row 1
-declared .pdf and was handed a .msg. The pairing was the problem, and
-behind it a defect of mine.
+/bulk failed with a bare "Bad Request": Spring reported the required
+parameter 'csv' as missing. The page posted form-urlencoded, and Tomcat
+parses form parameters only up to maxPostSize (2 MB); past it every
+parameter is dropped without an error. Inline dataschema/displayschema
+JSON inflates about 1.75x under URL encoding, so roughly 1.2 MB of feeds
+CSV was enough.
 
-WHAT HAPPENED. objectSource was not set, and the code read
-  mode = cPath != null ? "path" : "order"
-so with no path column mapped it fell through to POSITIONAL pairing, the
-most fragile of the three modes. Measured on the feed's real shape - seven
-objects whose CSV order is not the directory's sort order - that gave SEVEN
-WRONG PAIRINGS OUT OF SEVEN.
+ApiController gains bulkCreateJson on the same path, consumes JSON, with
+the same defaults as the form endpoint, delegating to bulkCreate. The page
+sends JSON and shows HTTP <status> on a non-JSON error. The form endpoint
+is unchanged for existing callers. Output of the generator is unchanged.
 
-The mime/extension check caught it BY LUCK. The extensions were mixed, so
-the first row's .pdf met a .msg and the step stopped. Had all seven objects
-been PDFs, every pairing would still have been wrong, nothing would have
-complained, and the submission would have been built, checksummed,
-delivered and accepted - seven documents each filed under a neighbour's
-metadata. In a legal archive that is the failure that matters, because
-nothing downstream would ever reveal it.
-
-THE DEFECT WAS IN THE SPECIFICATION TOO.
-.claude/OBJECT_PACKAGE_EXECUTOR.md said in section 3.3 that order mode "is
-not the default here", and in its parameter table that the default was
-"path if mapped, else order". The two contradicted each other and the
-implementation followed the worse one. When a spec disagrees with itself,
-the code picks one and nobody notices which. The table is corrected.
-
-WHAT CHANGED.
-- The default is now name. original_object_name is mandatory and not
-  nullable under spec 3.2, so matching by name is always available;
-  positional pairing is never what an unconfigured step does.
-- order now detects its own misalignment. After every row is read, if the
-  file handed to one row is the file another row DECLARES as its own, then
-  the CSV names do describe the files on disk and the order they arrived in
-  is not the listing's order - so the step refuses, naming both rows and
-  the way out.
-- The test is against DECLARED names, not disk names. When the two sets do
-  not overlap - objects renamed on their way into the landing zone, which
-  is the case positional pairing exists for - there is nothing to compare
-  and nothing is refused. My first attempt compared against the disk
-  listing instead and broke exactly that case; the suite caught it on the
-  first run, before delivery.
-- The mime message now points at the pairing when the row's declared name
-  is not the file it was given, instead of only reporting the extension
-  clash.
-
-VERIFIED: 128 assertions, 36 mutations ALL CAUGHT. The new tests reproduce
-the production shape and assert that an unconfigured step packages all
-seven objects with each row keeping its own document; that asking for order
-explicitly on that data is refused; that order still works when the listing
-does agree with the CSV; and that it still works when the CSV names are not
-the disk names at all. node --check on the designer JS.
-
-Two suite runs failed first, both on my own work: the rewritten check broke
-the renamed-objects case, and one fixture accidentally contained the
-correct file so the mime-hint path was never reached. One mutation also
-survived because it was BADLY WRITTEN - it replaced only the opening line
-of a ternary, leaving the words the test looks for intact, so it changed
-nothing.
-
-NOT VERIFIED: the fix has not been run against the real feed. mvn clean
-package not run; the panel not opened in a browser.
-
-Note for the feed that failed: it can run today by adding
-<param name="objectSource" value="name"/> - the CSV column is already
-called original_object_name, so no mapping is needed.
+Verified: node --check on bulk.html inline JS, no literal \n/\r, no [[ or
+[(, Java brace balance, imports present, inflation ratio measured.
+Not verified: Maven build, standalone compile (no JDK in the sandbox),
+end-to-end reproduction against Tomcat.
+Details: .claude/2026-09-25-bulk-create-json-body.md

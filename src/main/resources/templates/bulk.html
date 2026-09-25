@@ -192,14 +192,16 @@
             csv2: val('csv2'), delimiter2: delimOf('delimiter2'),
             mapFeedId2: val('mapFeedId2'), mapTableName: val('mapTableName'), tableVar: val('tableVar')
         };
-        var body = Object.keys(p).map(function (k) { return k + '=' + encodeURIComponent(p[k]); }).join('&');
-
+        // JSON, not form-urlencoded: Tomcat caps form parameters at maxPostSize (2 MB)
+        // and silently drops them all past it, which surfaced as a bare "Bad Request".
         fetch(CTX + 'api/workflows/bulk', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: body
-        }).then(function (r) { return r.json(); }).then(function (j) {
-            if (!j.ok) { banner(false, j.error || 'Generation failed.'); return; }
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(p)
+        }).then(function (r) {
+            return r.json().catch(function () { return { ok: false, error: 'HTTP ' + r.status }; });
+        }).then(function (j) {
+            if (!j.ok) { banner(false, j.error || j.message || 'Generation failed.'); return; }
             if (j.mode === 'schemaOnly') {
                 banner(true, 'Schema only — updated ' + j.updated + ', skipped ' + j.skipped + ', failed ' + j.failed +
                              '. Schema files written: ' + (j.schemasWritten || 0) + '.');
