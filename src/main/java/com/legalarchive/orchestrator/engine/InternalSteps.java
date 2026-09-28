@@ -533,7 +533,13 @@ public class InternalSteps {
                     if (control != null) control.statement = ps;
                     String sql = "CREATE TABLE " + table + " AS SELECT * FROM CSVREAD("
                             + sqlLit(csv) + ", NULL, " + sqlLit(csvOpts) + ")";
-                    int n = ps.executeUpdate(sql);
+                    ps.executeUpdate(sql);
+                    // executeUpdate on CREATE TABLE ... AS SELECT is a DDL update count and is 0 on
+                    // H2 whatever was loaded - measured on 2.1.214: 0 returned, 3 rows in the table.
+                    // So the rows are counted, or the log reports "0 rows" for every input ever staged.
+                    long n = 0;
+                    java.sql.ResultSet cr = ps.executeQuery("SELECT COUNT(*) FROM " + table);
+                    try { if (cr.next()) n = cr.getLong(1); } finally { cr.close(); }
                     line.accept("staged " + table + " <- " + csv + " (sep='" + sep + "', " + n + " rows)");
                 } finally {
                     if (control != null) control.statement = null;
@@ -574,6 +580,48 @@ public class InternalSteps {
                 an.execute("ANALYZE");
                 an.close();
             } catch (Exception ignored) {}
+
+            // 4d) {{columns}}: the dataschema's columns, in its order, under its exact names. Done
+            //     here, after staging, because the reference has to use the name H2 actually stored
+            //     for each column - see ColumnsExpansion for why that cannot be guessed.
+            if (query.contains("{{columns}}")) {
+                String columnsSchema = blankToNull(VarResolver.resolve(params.get("columnsSchema"), vars));
+                if (columnsSchema == null) {
+                    line.accept("csvsql: query uses {{columns}} but param 'columnsSchema' (path to dataschema JSON) is missing");
+                    res.exitCode = 2; return;
+                }
+                String colTable = blankToNull(VarResolver.resolve(params.get("columnsTable"), vars));
+                if (colTable == null) {
+                    if (ins.size() != 1) {
+                        line.accept("csvsql: query uses {{columns}} with " + ins.size() + " inputs; set param "
+                                + "'columnsTable' to say which staged table the dataschema describes");
+                        res.exitCode = 2; return;
+                    }
+                    colTable = ins.get(0)[0];
+                }
+                java.util.List<String> stored = new java.util.ArrayList<String>();
+                java.sql.Statement ms = conn.createStatement();
+                try {
+                    java.sql.ResultSet mr = ms.executeQuery("SELECT * FROM " + colTable + " WHERE 1=0");
+                    java.sql.ResultSetMetaData md = mr.getMetaData();
+                    for (int ci = 1; ci <= md.getColumnCount(); ci++) stored.add(md.getColumnName(ci));
+                    mr.close();
+                } catch (java.sql.SQLException e) {
+                    line.accept("csvsql: {{columns}} refers to table '" + colTable + "', which was not staged: " + e.getMessage());
+                    res.exitCode = 2; return;
+                } finally {
+                    try { ms.close(); } catch (Exception ignored) {}
+                }
+                java.util.List<String> names = readSchemaColumnNames(new java.io.File(columnsSchema));
+                try {
+                    query = query.replace("{{columns}}", ColumnsExpansion.build(names, stored, colTable));
+                } catch (IllegalArgumentException e) {
+                    line.accept("csvsql: {{columns}}: " + e.getMessage());
+                    res.exitCode = 2; return;
+                }
+                line.accept("csvsql: expanded {{columns}} -> " + names.size() + " columns from " + columnsSchema
+                        + " against " + colTable + ", keeping the dataschema's names in the output header");
+            }
 
             // 5) run the user query verbatim and stream through the shared exporter
             line.accept("query: " + query);

@@ -208,6 +208,35 @@ Staging copies each input into the temp DB (≈ input size), so make sure `${ste
 room and pre-filter upstream for very large joins. Per-input separators/charset, an in-memory mode
 for small inputs, opt-in join indexes and header-based column suggestions are planned follow-ups.
 
+**csvsql and the case of column names.** H2 does not keep a CSV header as written. A header that
+is a valid SQL identifier is stored **uppercased** — `trn_CSVAXRef` becomes `TRN_CSVAXREF`; one
+that is not, such as `Transaction Num` or `weird-name`, is kept **verbatim**; and headers that
+differ only in case are **renamed**, `dup` and `Dup` becoming `DUP` and `DUP1`. Three consequences:
+a bare `trn_CSVAXRef` in a query happens to work; a quoted `"trn_CSVAXRef"` does not; and **the
+output header of `SELECT *` comes out uppercased**. For most files that is cosmetic. For a
+Transarch metadata file it is a schema change, and the archive does not accept header changes
+without re-onboarding. The long-hand fix is an alias per column, `trn_CSVAXRef AS "trn_CSVAXRef"`.
+
+**`{{columns}}` in csvsql** does that for you. Set **Column list from dataschema** to the feed's
+`dataschema.json` and write `{{columns}}` in the query:
+
+```sql
+SELECT {{columns}} FROM SOURCE
+```
+
+It becomes the dataschema's columns, **in the dataschema's order**, each read from the column H2
+actually stored and written back under the dataschema's exact name. The names are read back from
+the staged table rather than guessed, because H2's rule has exceptions no hand-written expansion
+would anticipate. A dataschema column the table does not have fails the step and lists what the
+table does have; two dataschema names that would read the same column fail rather than duplicating
+one and losing the other. With more than one input, set **Table it describes**. Unlike `sql` there
+is no *Quote columns* choice: here the quoting is not a preference, and offering one would offer a
+way to break it.
+
+The step log's `staged SOURCE <- … (N rows)` now reports the rows actually loaded. It previously
+printed the DDL update count, which H2 returns as 0 for `CREATE TABLE … AS SELECT` whatever was
+staged — so every csvsql run ever logged `0 rows`, which was never a statement about the data.
+
 **sqlreport notes: collecting variables.** A query's **Collect** field lists result columns to publish as run variables, so a later step, a gate or OUTPUT DATA can use them. With **one row** the column becomes a scalar `${COL}`; with several rows it becomes a `;`-separated list, so `${COL[N]}` (1-based) picks a position. A single-column result with an empty Collect is published implicitly under its own column label. Add a **Key column** and every collected column additionally gets its companion `${COL.keys}` list, aligned position by position, which is exactly the pair `${COL@key}` resolves against: `${AMOUNT@CID12345}` returns the AMOUNT on the row whose CID is that key. An **absent key, or two lists of different lengths, resolve to the empty string** — never to a neighbouring row, which in a reconciliation would be far worse than nothing — and keys are compared trimmed and case-sensitively; duplicate keys make `${COL@key}` return the first match and are flagged in the report. Column names must be plain identifiers (letters, digits, underscore): give the column a SQL alias such as `AS N` otherwise, and note that a name colliding with a built-in run variable (`feedId`, `runId`, `stepDir`...) is refused rather than allowed to overwrite it. Because the lists are `;`-separated, a collected value containing a `;` or a line break has it replaced by a space and the report says how many values were touched — otherwise one value would shift every later position and misalign the keys. Collection is **not** limited by **Max rows**, which caps only the rendered table; it is limited by **Collect max rows** (default 5000, 0 = no cap), and a query exceeding it publishes **nothing at all** and fails the step, because a silently truncated list is a trap. Finally: collected values become run variables, which appear in OUTPUT DATA and are written to the audit trail — **collect counts, sums, statuses and keys, not personal data**.
 
 **xlsx2csv notes.** The biggest trap is **codes stored as numbers**: if an NDG/CF/IBAN was typed as

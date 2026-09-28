@@ -3304,3 +3304,26 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   (`runDiffText`, `runDiffTextSet`, `runElarCheck`, `runEncodingBatch` use ternaries; `runDiff`
   delegates). Only `runObjPack` could never report success. Clean across all 28 after the fix.
 * Notes in `.claude/2026-09-25-objpack-exit-code.md`.
+
+## csvsql — `{{columns}}`, H2's column-name casing, and a row count that was always 0
+* A csvsql step failed with `Syntax error … "SELECT\000a{{columns}[*]}\000aFROM SOURCE"` and logged
+  `0 rows` on a twelve-row file. Neither was the data.
+* **`{{columns}}` was a `sql`-only feature** (expanded in `runSql` from `columnsSchema`); `runCsvSql`
+  passed it to H2 verbatim. The designer advertised it only for `sql`, so nothing promised it.
+* **The `0 rows` log has been wrong since csvsql existed.** Staging logged `executeUpdate`'s return
+  on `CREATE TABLE … AS SELECT`, which is a DDL update count. **Measured on H2 2.1.214**: returned 0,
+  `COUNT(*)` returned 3. Now it counts.
+* **H2 renames CSV headers on staging**, measured: valid identifiers are **uppercased**
+  (`trn_CSVAXRef` → `TRN_CSVAXREF`), non-identifiers kept **verbatim** (`Transaction Num`), and
+  case-colliding headers **renamed** (`dup`,`Dup` → `DUP`,`DUP1`). So `SELECT *` writes an
+  **uppercased header** — for a Transarch metadata CSV, a schema change requiring re-onboarding. The
+  team was already aliasing by hand (`com_ID as "com_ID"`).
+* `{{columns}}` is now supported in csvsql via **`ColumnsExpansion`**, which **does not reimplement
+  H2's rule**: after staging it reads the table's real column names, matches each dataschema name
+  case-insensitively, and emits `"<stored>" AS "<dataschema name>"` — always resolvable, output in
+  the dataschema's order and exact casing. Safe to add: every csvsql query containing `{{columns}}`
+  failed before, so no working config changes. No *Quote columns* toggle, deliberately.
+* **Tested against the real H2 2.1.214**, downloaded for it: 23 assertions, 8 mutations all caught.
+  `InternalSteps` not compilable here — checked instead: signature, `ins` type, and that the newly
+  reassigned `query` is captured by no lambda.
+* Notes in `.claude/2026-09-28-csvsql-columns-and-row-count.md`.

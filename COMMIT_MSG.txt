@@ -1,47 +1,68 @@
-objpack: report success, instead of failing every run that worked
+csvsql: support {{columns}}, keep dataschema casing, log real row counts
 
-The step built the package, verified it and wrote the checksum, and the
-run history showed FAILED with exit code -1 and no message. The package on
-disk was correct.
+A csvsql step feeding the Transarch metadata CSV failed with
+  Syntax error in SQL statement "SELECT\000a{{columns}[*]}\000aFROM SOURCE"
+and the same log said the input had been staged with "0 rows" - on a file
+with twelve. Neither was the data.
 
-THE DEFECT. StepExecutor.Result.exitCode is initialised to -1, and every
-internal executor is expected to set it to 0 on its success path - some
-literally, some through a ternary such as res.exitCode = failed > 0 ? 1 :
-0. runObjPack set 2 on each of its refusal paths and never set anything on
-the path where the work succeeded, so the initial -1 survived and the
-engine reported a failure.
+{{columns}} WAS NEVER A CSVSQL FEATURE. It is expanded in runSql, from a
+dataschema passed in columnsSchema. runCsvSql did not touch it, so the
+placeholder reached H2 verbatim. The designer only advertises it in the sql
+branch, so nothing promised it.
 
-It went unnoticed because until today the step had never completed. Every
-earlier run stopped at a real refusal, which does set an exit code, so the
-first genuinely successful packaging is also the first run able to expose
-it.
+THE "0 rows" WAS A LOGGING DEFECT PRESENT SINCE CSVSQL EXISTED. Staging ran
+CREATE TABLE ... AS SELECT * FROM CSVREAD(...) through executeUpdate and
+logged the return value - a DDL update count, not a row count. Measured on
+H2 2.1.214, the version the error code identifies: executeUpdate returned
+0, SELECT COUNT(*) on the same table returned 3. Every csvsql run has
+logged 0 rows and it never meant anything. It now counts.
 
-WHY THE TESTS DID NOT CATCH IT. PackSuite exercises ObjectPack.run()
-directly. InternalSteps.runObjPack - the assembly layer - is never executed
-by it and cannot be, because it needs the Spring dependency tree that is
-not available where this is built. The batch-2 specification says of that
-layer that it "only reads parameters and reports the outcome, which is why
-it has no logic worth testing of its own". THAT CLAIM IS FALSIFIED.
-Reporting the outcome is logic, it is the one piece of state the layer
-owns, and it was wrong.
+WHY ADD {{columns}} RATHER THAN REFUSE IT. A plain SELECT * over a staged
+CSV writes the header UPPERCASED, because H2 renames CSV headers on the way
+in. For a Transarch metadata file that is a schema change the archive
+forbids without re-onboarding. The team was already working round it by
+hand, aliasing every column (com_ID as "com_ID"). And it is safe to add:
+every csvsql query containing {{columns}} fails today, so no working
+configuration can change behaviour.
 
-THE CHECK THAT WOULD HAVE CAUGHT IT, AND NOW EXISTS. A static lint over
-InternalSteps: for each run* method, does any assignment to exitCode have a
-value that can be zero - a literal, or a ternary with a zero branch - or
-does the method delegate to another run*? Anything else can never report
-success.
+H2'S NAMING RULE, MEASURED AND DELIBERATELY NOT REIMPLEMENTED. On 2.1.214
+CSVREAD stores valid identifiers uppercased (trn_CSVAXRef -> TRN_CSVAXREF),
+non-identifiers verbatim (Transaction Num, weird-name unchanged), and
+case-colliding headers renamed (dup, Dup -> DUP, DUP1). A bare trn_CSVAXRef
+resolves, a quoted "trn_CSVAXRef" does not, a bare Transaction Num is a
+syntax error. Reimplementing that would break on the first header nobody
+tested. So ColumnsExpansion does not guess: after staging, the executor
+reads the table's real column names from H2, matches each dataschema name
+case-insensitively, and emits "<stored>" AS "<dataschema name>". The
+reference always resolves; the output keeps the dataschema's exact casing
+and order.
 
-The first version of that lint matched the literal string "res.exitCode =
-0" and flagged seven methods. SIX WERE FALSE ALARMS: runDiffText,
-runDiffTextSet, runElarCheck and runEncodingBatch set it through ternaries,
-and runDiff delegates to its sub-modes. Only runObjPack could never report
-success. After the fix the lint reports none, across all 28 run methods.
+Refused rather than guessed: a dataschema column the table lacks (the
+message lists what it has); a name matching two stored columns that differ
+only in case; two dataschema names that would read the same column. No
+Quote columns toggle, unlike sql: the quoting is not a preference here.
 
-VERIFIED: the lint before and after; brace balance on the edited file.
-ObjectPack itself is untouched, so the 128 assertions and 36 mutations
-stand from the previous batch and were not re-run for a one-statement
-change in a different file.
+The csvsql panel gains Column list from dataschema and Table it describes
+(needed only with several inputs). USAGE.md documents H2's naming
+behaviour, the expansion, and the corrected row count.
 
-NOT VERIFIED: mvn clean package. The fix has not been run against the real
-feed - the confirmation to look for is the same package the step already
-produced correctly, this time with the step shown as successful.
+VERIFIED AGAINST THE REAL H2 2.1.214, downloaded for this rather than
+mocked: 23 assertions in a suite that stages CSVs exactly as runCsvSql does
+and reads stored names exactly as the new code does - the DDL count really
+is 0 and COUNT(*) is right; on the production shape {{columns}} yields the
+dataschema's casing while SELECT * yields H2's; output follows the
+dataschema's order and drops undeclared columns; space- and hyphen-named
+headers resolve. 8 mutations of ColumnsExpansion, all caught.
+
+InternalSteps cannot be compiled here. Instead: brace balance; the method
+signature (throws Exception, so readSchemaColumnNames is callable); the
+type of ins; and that query, now reassigned, is captured by no lambda in
+the method. Panel and executor parameter names agree (columnsSchema,
+columnsTable). node --check on the designer.
+
+NOT VERIFIED: mvn clean package; a run on the real feed; the cost of the
+extra COUNT(*) per input on a large file-engine input (H2's MVStore
+maintains table counts, so it should not scan).
+
+For the failing step, once this is applied: add columnsSchema =
+${feedDir}/dataschema.json and keep SELECT {{columns}} FROM SOURCE.

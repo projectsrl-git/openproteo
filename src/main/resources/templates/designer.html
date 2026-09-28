@@ -1094,6 +1094,15 @@
                         '<option value="space"' + (nodeParam(n,'newlinesInValues') === 'space' ? ' selected' : '') + '>replace with a space — one record per line</option>' +
                         '<option value="strip"' + (nodeParam(n,'newlinesInValues') === 'strip' ? ' selected' : '') + '>remove them — one record per line</option></select></div>' +
                         '<div class="field"><label></label><span class="dim small">off by default; applied while WRITING the result, so it clears a break that reached H2 inside a QUOTED input field. A record already split by a bare newline is not repaired here — fix it upstream with dequote. Leading/trailing breaks are already removed by the trim → ${newlinesSanitized}</span></div></div>';
+                    // {{columns}} in csvsql: unlike the sql executor there is no 'Quote columns' choice,
+                    // because the quoting is not a preference here - H2 stores CSV headers under names
+                    // it chooses (uppercased when they are valid identifiers, verbatim when not), so the
+                    // expansion reads the real names back from the staged table and aliases each one to
+                    // the dataschema's exact spelling. Offering a quote toggle would offer a way to break it.
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Column list from dataschema (for <code>{{columns}}</code>)</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n,'columnsSchema')) + '" placeholder="${feedDir}/dataschema.json" oninput="setNodeParam(' + i + ',\'columnsSchema\',this.value)"></div>' +
+                        '<div class="field"><label>Table it describes</label><input value="' + attresc(nodeParam(n,'columnsTable')) + '" placeholder="(the only input)" title="Needed only when the step has more than one input table." oninput="setNodeParam(' + i + ',\'columnsTable\',this.value)"></div></div>';
+                    h += '<div class="form-row"><div class="field wide"><span class="dim small">Write <code>{{columns}}</code> in the query and it becomes the dataschema\'s columns, in the dataschema\'s order, <b>written back under the dataschema\'s exact names</b>. That matters here: H2 uppercases CSV headers on the way in, so a plain <code>SELECT *</code> writes <code>TRN_CSVAXREF</code> where the file had <code>trn_CSVAXRef</code>.</span></div></div>';
                     h += '<div class="subsection"><div class="sub-label">SQL query over the table names (${vars} resolved at run time)</div>' +
                         '<textarea class="inline-input" style="width:100%;min-height:110px" placeholder="SELECT a.NDG, COUNT(*) AS N FROM anagrafica a JOIN conti c ON a.NDG = c.NDG GROUP BY a.NDG" oninput="updNode(' + i + ',\'query\',this.value)">' + esc(n.query) + '</textarea>' +
                         '<div style="margin-top:8px"><button class="ghost-btn" onclick="previewCsvSql(' + i + ')">▶ Preview</button> ' +
