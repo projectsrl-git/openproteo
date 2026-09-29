@@ -1077,7 +1077,7 @@ The consequence is worth stating plainly: a feed that packaged 9 objects yesterd
 One row describes exactly one object, and the counts must match. Three ways to find it, set by **Find each object by**. Left alone it matches on the original file name, or on the path column when one is mapped — never on position:
 
 - **path from a CSV column** — a column holds the object's location relative to the objects directory, subfolders included. This is the reliable one: the CSV says where each file is. The path is resolved **inside** the objects directory and an absolute path, or one climbing out with `..`, is refused rather than clamped. Both slash styles are accepted.
-- **original file name** — the object is looked up by the `original_object_name` value. With **Recurse subfolders** on, the whole tree is searched; if two subfolders hold the same file name, the step **fails naming both paths**. Picking one would archive a plausible wrong document under a right-looking name, which is the exact failure this package format exists to prevent.
+- **original file name** — the object is looked up by the `original_object_name` value. Without recursion each name is looked up **directly**, one file-system call per row, and the directory is not listed at all: on a network share, listing 19 933 files to find 100 took 101 seconds, and looking up the 100 takes a fraction of one. Only if an exact name does not resolve, on a case-sensitive file system, is the directory listed — once — to match it regardless of case, as it always was. With **Recurse subfolders** on, the whole tree is searched; if two subfolders hold the same file name, the step **fails naming both paths**. Picking one would archive a plausible wrong document under a right-looking name, which is the exact failure this package format exists to prevent.
 - **row order** — the i-th row takes the i-th file. **Never the default, and to be avoided unless nothing else can work.** It is right only when the directory listing happens to come out in the CSV's order, and when it does not it pairs every row with somebody else's document. It exists for the case where the CSV names have nothing to do with the names on disk, typically because the objects were renamed on their way into the landing zone.
 
   The step now refuses positional pairing when it can prove it is misaligned: if the file handed to one row is the file another row declares as its own, the names do describe the files on disk and the order simply does not match, so the run stops. It cannot prove anything when the CSV names and the disk names have no overlap, which is exactly the case order mode is for.
@@ -1164,13 +1164,19 @@ Required: `tfId`, `transmissionDate`, `targetDestination`, `metadataCsv`, `objec
 - `objectsDir`, `objectSource`, `recurse`, `orderBy`, `include`, `exclude`, `onMissingObject`.
 - `map.objectId`, `map.recordBusinessDate`, `map.recordBusinessDate.format`, `map.mimeType`, `map.originalObjectName`, `map.objectPath`, `map.nameLabel` — the last places free text between the base name and the OID, e.g. `….monthly_report.OID2.pdf`.
 - `outputDir` (default `${stepDir}`), `outDelimiter` (default `;`), `emitObjects`, `compression` (`none` or `gzip`).
-- `dataschema`, `maxObjectMb` (2048), `maxSubmissionMb` (20480), `maxObjects` (100000), `failOnOversize` (on), `failOnStaleBusinessDate` (off), `businessDateMonths` (10).
+- `dataschema`, `maxObjectMb` (2048), `maxSubmissionMb` (20480), `maxObjects` (100000), `failOnOversize` (on), `businessDateMonths` (10), `onStaleBusinessDate` (`warn`, `fail` or `skip`), `failOnStaleBusinessDate` (the older on/off form of the same choice, used only when `onStaleBusinessDate` is absent), `mimeCheck` (`off`, `warn` or `fail`).
 
-Outputs: `${submissionBaseName}`, `${objectCount}`, `${metadataRows}`, `${skippedRows}`, `${tarFile}`, `${md5File}`, `${tarBytes}`, `${md5}`.
+Outputs: `${submissionBaseName}`, `${objectCount}`, `${metadataRows}`, `${skippedRows}`, `${tarFile}`, `${md5File}`, `${tarBytes}`, `${md5}`, `${discardedFile}` (empty when nothing was discarded).
 
-### Two settings that warn rather than fail
+### Rows the submission leaves out
 
-**A business date older than the retention window** and **a missing object** are both questions still open with the archive team, so both take the cautious reading for now. A stale date warns and packages; tick *Fail on a business date older than the retention window* to make it fail. A missing object fails, as the script did; set *skip the row and count it* to drop it instead, and read `${skippedRows}`.
+**A business date older than the retention window** has three settings: *package it and warn once* (the default), *fail the step*, or **discard the row, list it in a file**. **A missing object** fails by default, as the script did, or can be skipped.
+
+A discarded row is never silent. In a legal archive a discarded row is a document that does not arrive, so every one — stale or missing — is written to `discarded_rows.<base name>.csv` in the output directory, with its source line number, the reason and all its original values, and the step's warnings say how many and where. The file deliberately does **not** start with the submission base name, so a delivery mask such as `<base>.*` can never pick it up and send it to the archive. Its path is `${discardedFile}`; `${skippedRows}` counts the rows.
+
+The window is applied **before** object ids are assigned, so the kept rows are numbered 1..N with no gap and the OID width follows the kept count. That is also why discarding is refused when `map.objectId` is set: an id the feed chose cannot be renumbered, and with rows gone it can no longer ascend from 1. Leave it unset and the kept rows are numbered for you. Discarding every row is refused rather than producing an empty package.
+
+An older workflow that ticked *fail on a business date older than the retention window* keeps failing exactly as before until the new setting is changed; the designer shows it as *fail the step*.
 
 ### Compression, and the file name it changes
 

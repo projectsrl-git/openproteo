@@ -81,6 +81,12 @@ public final class ObjectPack {
     public int maxObjects = 100000;
     public boolean failOnOversize = true;
     public boolean failOnStaleBusinessDate = false;   // Gate 0 9.7 open: warn by default
+    /**
+     * What to do with a row whose record_business_date is older than the window: warn | fail | skip.
+     * Unset means the older boolean decides - fail when failOnStaleBusinessDate, else warn - so an
+     * existing workflow behaves exactly as before.
+     */
+    public String onStaleBusinessDate;
     public int businessDateMonths = 10;
     public String onMissingObject = "fail";           // Gate 0 9.9 open: the script's behaviour
 
@@ -110,6 +116,14 @@ public final class ObjectPack {
     public long tarBytes;
     public String md5;
     public final List<String> warnings = new ArrayList<String>();
+    /** Where discarded rows were recorded, when any were; null otherwise. */
+    public File discardedFile;
+    /** Rows left out of the submission, with the reason, in the order they were met. */
+    private final List<Object[]> discarded = new ArrayList<Object[]>();   // {Pair, reason}
+    private List<String> sourceHeader;
+    private boolean directByName;
+    private Map<String, List<File>> nameIndex;
+    private Boolean caseInsensitiveFs;
     /** Sum of the objects' sizes, measured once during pre-flight. */
     public long totalObjectBytes;
     private long lastBeat;
@@ -160,6 +174,7 @@ public final class ObjectPack {
         if (!"off".equals(mc) && !"warn".equals(mc) && !"fail".equals(mc)) {
             throw new ObjPackException("mimeCheck must be off, warn or fail; got '" + mimeCheck + "'");
         }
+        String staleMode = staleMode();
 
         say("reading " + metadataCsv.getName() + " (" + mb(metadataCsv.length()) + ") and locating objects under "
                 + objectsDir.getPath());
@@ -168,6 +183,20 @@ public final class ObjectPack {
         say("read " + metadataRows + " rows, paired " + pairs.size() + " objects in " + secs(t0));
         if (pairedByOrder) {
             checkOrderAlignment(pairs);
+        }
+        // The retention window is applied HERE, before any object_id or file name exists, so that
+        // a discarded row leaves no gap: the kept rows are numbered 1..N and the OID width follows N.
+        pairs = applyBusinessDateWindow(pairs, staleMode);
+        if (pairs.isEmpty()) {
+            throw new ObjPackException("every row was discarded (" + discarded.size()
+                    + "), so there is nothing to package");
+        }
+        if (!discarded.isEmpty() && trim(mapObjectId) != null && !trim(mapObjectId).isEmpty()) {
+            // A mapped object_id is the feed's own and is refused rather than renumbered; with rows
+            // gone it cannot ascend from 1 without gaps, so say so plainly instead of letting the
+            // gap check report a confusing sequence error.
+            throw new ObjPackException(discarded.size() + " row(s) were discarded, which leaves gaps in the"
+                    + " mapped object_id. Leave map.objectId unset so the kept rows are numbered 1..N.");
         }
         objectCount = pairs.size();
         assignObjectIds(pairs);
@@ -183,6 +212,12 @@ public final class ObjectPack {
         preflight(pairs, mc);
 
         writeAll(name, pairs);
+        if (!discarded.isEmpty()) {
+            writeDiscarded(name);
+            warnings.add(discarded.size() + " row(s) were discarded and are NOT in the submission; they are"
+                    + " listed with the reason in " + discardedFile.getName());
+            say(discarded.size() + " row(s) discarded, listed in " + discardedFile.getName());
+        }
         say("done: " + submissionBaseName + ", " + objectCount + " objects");
     }
 
@@ -195,6 +230,7 @@ public final class ObjectPack {
         List<String> headers;
         try {
             headers = Arrays.asList(r.header());
+            sourceHeader = headers;
             String cId    = resolve(mapObjectId, FALLBACK[0], headers, false);
             String cDate  = resolve(mapRecordBusinessDate, FALLBACK[1], headers, true);
             String cMime  = resolve(mapMimeType, FALLBACK[2], headers, true);
@@ -221,13 +257,21 @@ public final class ObjectPack {
             }
 
             long ti = System.nanoTime();
-            if ("order".equals(mode) || "name".equals(mode)) {
+            // By name without recursion, each object is looked up directly: one file-system call per
+            // ROW instead of two per file in the directory. Measured on a network share: listing
+            // 19933 files to find 100 took 101 s. Recursion still needs the listing, since the name
+            // may be in any subfolder.
+            directByName = "name".equals(mode) && !recurse;
+            if (directByName) {
+                say("looking up each object by name directly in " + objectsDir.getPath() + " (no listing)");
+            } else if ("order".equals(mode) || "name".equals(mode)) {
                 say("listing " + objectsDir.getPath() + (recurse ? " and its subfolders" : "")
                         + " to find objects by " + mode);
             }
             List<File> listing = "order".equals(mode) ? listObjects() : null;
             pairedByOrder = listing != null;
-            Map<String, List<File>> byName = "name".equals(mode) ? indexByName() : null;
+            Map<String, List<File>> byName = ("name".equals(mode) && !directByName) ? indexByName() : null;
+            nameIndex = byName;
             if (listing != null) {
                 say("listed " + listing.size() + " files in " + secs(ti));
             } else if (byName != null) {
@@ -278,7 +322,6 @@ public final class ObjectPack {
                 }
                 p.object = locate(mode, m, cPath, p, listing, pairs.size(), byName);
                 if (p.object == null) {
-                    skippedRows++;
                     continue;                        // only reachable with onMissingObject=skip
                 }
                 pairs.add(p);
@@ -299,17 +342,43 @@ public final class ObjectPack {
         if ("path".equals(mode)) {
             String rel = trim(m.get(cPath));
             if (rel == null || rel.isEmpty()) {
-                return missing("line " + p.lineNo + ": the object path column is empty");
+                return missing(p, "line " + p.lineNo + ": the object path column is empty");
             }
             f = resolveInside(rel, p.lineNo);
         } else if ("name".equals(mode)) {
             if (p.originalName == null || p.originalName.isEmpty()) {
-                return missing("line " + p.lineNo + ": original object name is empty, so the object "
+                return missing(p, "line " + p.lineNo + ": original object name is empty, so the object "
                         + "cannot be found by name");
+            }
+            if (directByName) {
+                File direct = lookupDirect(p.originalName);
+                if (direct != null) {
+                    return direct;
+                }
+                if (!isPlainLeaf(p.originalName) || !matches(p.originalName) || isCaseInsensitiveFs()) {
+                    // Nothing a listing could add: the name is not a plain file name, is filtered out,
+                    // or the file system already matched it case-insensitively and found nothing.
+                    return missing(p, "line " + p.lineNo + ": no object named '" + p.originalName + "' under "
+                            + objectsDir.getAbsolutePath());
+                }
+                if (nameIndex == null) {
+                    // A case-sensitive file system, and an exact lookup that missed: list once and
+                    // match case-insensitively, as a listing always did.
+                    say("'" + p.originalName + "' did not resolve exactly; listing " + objectsDir.getPath()
+                            + " once to match names case-insensitively");
+                    long tl = System.nanoTime();
+                    nameIndex = indexByName();
+                    int n = 0;
+                    for (List<File> l : nameIndex.values()) {
+                        n += l.size();
+                    }
+                    say("listed " + n + " files in " + secs(tl));
+                }
+                byName = nameIndex;
             }
             List<File> hits = byName.get(p.originalName.toLowerCase(Locale.ROOT));
             if (hits == null || hits.isEmpty()) {
-                return missing("line " + p.lineNo + ": no object named '" + p.originalName + "' under "
+                return missing(p, "line " + p.lineNo + ": no object named '" + p.originalName + "' under "
                         + objectsDir.getAbsolutePath());
             }
             if (hits.size() > 1) {
@@ -324,13 +393,13 @@ public final class ObjectPack {
             f = hits.get(0);
         } else {
             if (index >= listing.size()) {
-                return missing("row " + (index + 1) + " has no object: the listing holds "
+                return missing(p, "row " + (index + 1) + " has no object: the listing holds "
                         + listing.size() + " files");
             }
             f = listing.get(index);
         }
         if (f == null || !f.isFile()) {
-            return missing("line " + p.lineNo + ": object not found: "
+            return missing(p, "line " + p.lineNo + ": object not found: "
                     + (f == null ? "null" : f.getAbsolutePath()));
         }
         return f;
@@ -380,12 +449,74 @@ public final class ObjectPack {
         }
     }
 
-    private File missing(String why) {
+    private File missing(Pair p, String why) {
         if ("skip".equalsIgnoreCase(trim(onMissingObject))) {
-            warnings.add("skipped: " + why);
+            discard(p, why);
             return null;
         }
         throw new ObjPackException(why);
+    }
+
+    /**
+     * Leaves a row out of the submission and records it. Never silent: in a legal archive a
+     * discarded row is a document that does not arrive, so each one is written to the discards file
+     * with its reason and its original values.
+     */
+    private void discard(Pair p, String why) {
+        discarded.add(new Object[] { p, why });
+        skippedRows++;
+    }
+
+    /** One lookup for one row: exactly the named file, or null. */
+    private File lookupDirect(String name) {
+        if (!isPlainLeaf(name) || !matches(name)) {
+            return null;
+        }
+        File f = new File(objectsDir, name);
+        return f.isFile() ? f : null;
+    }
+
+    /** A bare file name: no path separator, not '.' or '..'. Anything else never matched a listing. */
+    private static boolean isPlainLeaf(String name) {
+        return name != null && !name.isEmpty() && name.indexOf('/') < 0 && name.indexOf('\\') < 0
+                && !".".equals(name) && !"..".equals(name);
+    }
+
+    /**
+     * Whether the objects directory lives on a case-insensitive file system, asked of the file
+     * system rather than assumed from the platform: the directory's own name is looked up with its
+     * case flipped, and counts only if it resolves to the very same directory. Sibling folders that
+     * differ only in case, on a case-sensitive system, resolve to different canonical paths and do
+     * not fool it. If the probe cannot tell, it answers false, and the fallback is a listing - the
+     * old behaviour, slower but never wrong.
+     */
+    private boolean isCaseInsensitiveFs() {
+        if (caseInsensitiveFs == null) {
+            boolean result = false;
+            try {
+                String n = objectsDir.getName();
+                String flipped = flipCase(n);
+                File parent = objectsDir.getAbsoluteFile().getParentFile();
+                if (!flipped.equals(n) && parent != null) {
+                    File other = new File(parent, flipped);
+                    result = other.isDirectory()
+                            && other.getCanonicalPath().equals(objectsDir.getCanonicalPath());
+                }
+            } catch (IOException e) {
+                result = false;
+            }
+            caseInsensitiveFs = Boolean.valueOf(result);
+        }
+        return caseInsensitiveFs.booleanValue();
+    }
+
+    private static String flipCase(String s) {
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            sb.append(Character.isUpperCase(c) ? Character.toLowerCase(c) : Character.toUpperCase(c));
+        }
+        return sb.toString();
     }
 
     /** Resolves a CSV-supplied path against objectsDir and refuses anything that escapes it. */
@@ -633,7 +764,6 @@ public final class ObjectPack {
         }
 
         long total = 0;
-        LocalDate today = LocalDate.now();
         for (Pair p : pairs) {
             if (p.mimeType == null || p.mimeType.isEmpty()) {
                 throw new ObjPackException("line " + p.lineNo + ": mime_type is mandatory and not nullable "
@@ -683,7 +813,6 @@ public final class ObjectPack {
                 }
                 warnings.add(msg);
             }
-            checkBusinessDate(p, today);
         }
         totalObjectBytes = total;
         if (mimeMismatches > 0) {
@@ -713,23 +842,93 @@ public final class ObjectPack {
         }
     }
 
-    private void checkBusinessDate(Pair p, LocalDate today) {
-        LocalDate d;
+    private String staleMode() {
+        String m = trim(onStaleBusinessDate);
+        if (m == null || m.isEmpty()) {
+            return failOnStaleBusinessDate ? "fail" : "warn";
+        }
+        m = m.toLowerCase(Locale.ROOT);
+        if (!"warn".equals(m) && !"fail".equals(m) && !"skip".equals(m)) {
+            throw new ObjPackException("onStaleBusinessDate must be warn, fail or skip; got '"
+                    + onStaleBusinessDate + "'");
+        }
+        return m;
+    }
+
+    /**
+     * Applies the record_business_date window: warn (one summary line), fail (on the first), or
+     * skip (the row leaves the submission and is recorded in the discards file).
+     */
+    private List<Pair> applyBusinessDateWindow(List<Pair> pairs, String mode) {
+        LocalDate limit = LocalDate.now().minusMonths(businessDateMonths);
+        List<Pair> kept = new ArrayList<Pair>(pairs.size());
+        int stale = 0;
+        List<String> examples = new ArrayList<String>();
+        for (Pair p : pairs) {
+            LocalDate d = parseBusinessDate(p);
+            if (d.isBefore(limit)) {
+                String why = "record_business_date " + p.businessDate + " is older than "
+                        + businessDateMonths + " months (spec 4)";
+                if ("fail".equals(mode)) {
+                    throw new ObjPackException("line " + p.lineNo + ": " + why);
+                }
+                if ("skip".equals(mode)) {
+                    discard(p, why);
+                    continue;
+                }
+                stale++;
+                if (examples.size() < 3) {
+                    examples.add("line " + p.lineNo + ": " + p.businessDate);
+                }
+            }
+            kept.add(p);
+        }
+        if (stale > 0) {
+            warnings.add(stale + " row(s) have a record_business_date older than " + businessDateMonths
+                    + " months (spec 4) and were packaged anyway; first " + examples);
+        }
+        return kept;
+    }
+
+    private static LocalDate parseBusinessDate(Pair p) {
         try {
-            d = LocalDate.of(Integer.parseInt(p.businessDate.substring(0, 4)),
+            return LocalDate.of(Integer.parseInt(p.businessDate.substring(0, 4)),
                     Integer.parseInt(p.businessDate.substring(4, 6)),
                     Integer.parseInt(p.businessDate.substring(6, 8)));
         } catch (RuntimeException e) {
             throw new ObjPackException("line " + p.lineNo + ": record_business_date '" + p.businessDate
                     + "' is not a real date");
         }
-        if (d.isBefore(today.minusMonths(businessDateMonths))) {
-            String msg = "line " + p.lineNo + ": record_business_date " + p.businessDate
-                    + " is older than " + businessDateMonths + " months (spec 4)";
-            if (failOnStaleBusinessDate) {
-                throw new ObjPackException(msg);
+    }
+
+    private void writeDiscarded(SubmissionName name) throws IOException {
+        // Deliberately NOT prefixed with the submission base name: a delivery mask such as
+        // "<base>.*" must never pick this file up and send it to the archive.
+        discardedFile = new File(outputDir, "discarded_rows." + name.base() + ".csv");
+        List<String> header = new ArrayList<String>();
+        header.add("line");
+        header.add("reason");
+        header.addAll(sourceHeader);
+        CsvWriter w = new CsvWriter(discardedFile, outDelimiter, false, 0, 0);
+        try {
+            w.header(header.toArray(new String[header.size()]));
+            for (Object[] d : discarded) {
+                Pair p = (Pair) d[0];
+                String[] cells = new String[header.size()];
+                cells[0] = Long.toString(p.lineNo);
+                // The line is already the first column; drop the "line N: " the message carries
+                // for the log, so the reason column reads as a reason.
+                String reason = (String) d[1];
+                String prefix = "line " + p.lineNo + ": ";
+                cells[1] = reason.startsWith(prefix) ? reason.substring(prefix.length()) : reason;
+                for (int i = 0; i < sourceHeader.size(); i++) {
+                    String v = p.row.get(sourceHeader.get(i));
+                    cells[2 + i] = v == null ? "" : v;
+                }
+                w.row(cells);
             }
-            warnings.add(msg);
+        } finally {
+            w.close();
         }
     }
 

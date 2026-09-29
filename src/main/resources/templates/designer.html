@@ -1778,6 +1778,8 @@
                     var opb = objpackBase(n);
                     var opSrc = nodeParam(n, 'objectSource') || '';
                     var opMiss = nodeParam(n, 'onMissingObject') || 'fail';
+                    // An existing step may still carry the old boolean; show what it actually does.
+                    var opStale = nodeParam(n, 'onStaleBusinessDate') || (nodeParam(n, 'failOnStaleBusinessDate') === 'true' ? 'fail' : 'warn');
                     var opComp = nodeParam(n, 'compression') || '';
 
                     h += '<div class="sub"><div class="sub-h">Submission</div>';
@@ -1858,7 +1860,10 @@
                         '<div class="field"><label>Max objects</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxObjects') || '100000') + '" oninput="setNodeParam(' + i + ',\'maxObjects\',this.value)"></div></div>';
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label><input type="checkbox"' + (nodeParam(n, 'failOnOversize') === 'false' ? '' : ' checked') + ' onchange="setNodeParam(' + i + ',\'failOnOversize\',this.checked?\'\':\'false\')"> Fail when a size limit is exceeded (untick to only warn)</label></div>' +
-                        '<div class="field wide"><label><input type="checkbox"' + (nodeParam(n, 'failOnStaleBusinessDate') === 'true' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'failOnStaleBusinessDate\',this.checked?\'true\':\'\')"> Fail on a business date older than the retention window (warns by default)</label></div>' +
+                        '<div class="field wide"><label>A business date older than the window</label><select onchange="setNodeParam(' + i + ',\'onStaleBusinessDate\',this.value); setNodeParam(' + i + ',\'failOnStaleBusinessDate\',\'\')" title="Checked against record_business_date after the rows are read and BEFORE object ids are assigned, so a discarded row leaves no gap in the numbering.">' +
+                        '<option value="warn"' + (opStale === 'warn' ? ' selected' : '') + '>package it and warn once</option>' +
+                        '<option value="fail"' + (opStale === 'fail' ? ' selected' : '') + '>fail the step</option>' +
+                        '<option value="skip"' + (opStale === 'skip' ? ' selected' : '') + '>discard the row, list it in a file</option></select></div>' +
                         '<div class="field"><label>Window (months)</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'businessDateMonths') || '10') + '" title="10 months, or 13 for a yearly feed." oninput="setNodeParam(' + i + ',\'businessDateMonths\',this.value)"></div></div>';
                     var opMc = nodeParam(n, 'mimeCheck') || 'warn';
                     h += '<div class="form-row">' +

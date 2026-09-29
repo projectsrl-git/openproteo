@@ -1,74 +1,90 @@
-objpack: name the packaged object from mime_type; report progress
+objpack: discard stale rows on request; look objects up instead of listing
 
-Two things from a run on feed tf0005756.
+A run on tf0005766 stopped with "line 7: record_business_date 20160921 is
+older than 120 months (spec 4)". The feed needs an option to leave such a
+row out rather than fail. The same run's console also answered the
+question the progress work was built for.
 
-1. THE ORIGINAL FILE NEED NOT CARRY ITS TYPE'S EXTENSION. The step failed
-with "mime_type '.json' does not match the object's extension '.2' for
-TF0005756_ACCOUNT.DEBIT.INT.GG_GB0010007_1.2". The file held JSON; its name
-ends in a version suffix. Nothing wrong with it.
+DISCARDING. onStaleBusinessDate = warn | fail | skip replaces the
+failOnStaleBusinessDate checkbox. The boolean is still read, and still
+means fail, whenever the new setting is absent - so a workflow that ticked
+it, as this feed did, fails exactly as before until the choice is changed.
+The designer shows such a step as "fail the step".
 
-The failure was hiding a worse defect. The object's extension INSIDE THE
-PACKAGE was taken from the ORIGINAL name - extensionOf(...GB0010007_1.2) is
-".2" - so without the check the file would have entered the tar as
-"...OID1.2" with ".json" declared in the metadata CSV and the audit JSON.
-That is exactly the disagreement Transarch's spec-4 validation rejects,
-because the archive checks the name in the package, not the original. The
-check stopped a bad package, for the wrong reason, with a message that
-accused a legitimate file.
+The window now runs BEFORE object ids are assigned. It used to run in
+pre-flight, after ids and file names existed; skipping there would have
+left a gap in the OID sequence and a width computed from the pre-discard
+count. Kept rows are now numbered 1..N and the OID width follows N.
 
-The design error was in the Gate 0 9.3 answer as written into the spec
-("the pre-flight compares the column against the object file's own
-extension"). Corrected there, struck through rather than deleted. USAGE.md
-also claimed that comparison was "one of the things the archive validates
-on arrival"; that was wrong and is withdrawn.
+A discarded row is never silent. In a legal archive it is a document that
+does not arrive, so every one - stale under skip, or missing under
+onMissingObject=skip - goes to discarded_rows.<base>.csv in the output
+directory, with its source line, the reason and every original column. The
+name deliberately does NOT start with the submission base name, so a
+delivery mask like "<base>.*" can never send it to the archive. Exposed as
+${discardedFile}. The missing-object skip used to write one warning per
+row; it now shares the file and a single summary line, and warn mode for
+stale dates likewise reports one line with a count.
 
-Fix: the packaged extension now comes FROM mime_type, so the name the
-archive checks and the type it checks against agree by construction; the
-original may be called anything and is kept in original_object_name. A
-mime_type that cannot be a single suffix token (application/json) is
-refused, since it would put a path separator inside a tar member name.
+Refused rather than guessed: discarding under a mapped object_id (an id the
+feed chose cannot be renumbered, and with rows gone it cannot ascend from
+1 - the message says so instead of the sequence error that would otherwise
+appear), and discarding every row.
 
-The original-name comparison survives as mimeCheck = off | warn | fail,
-default warn, because it still has one use - an early hint that rows and
-files were paired wrongly, which is what caught the positional-pairing near
-miss on tf0003709. In warn mode it produces ONE summary line with a count
-and three examples, never a line per object.
+THE MEASUREMENT. The console showed
+  listed 19933 files in 101.4s
+  read 100 rows, paired 100 objects in 101.4s
+All 101 seconds went into listing the objects directory on P: - about 5 ms
+per file, two round trips each (isDirectory, then isFile) - to find 100
+files. The second line is cumulative; reading and pairing cost nothing.
 
-2. PROGRESS IN THE LIVE CONSOLE. That run took 82 s and failed on the
-FIRST row, yet the mime check runs only after every row is read and paired.
-So the time went before any check, most plausibly in file-system round
-trips on P:. That is an inference, not a measurement, and it is
-deliberately NOT acted on. What is added is the means to measure: every
-phase announces itself and reports its duration - listing the objects
-directory, reading and pairing, pre-flight, writing the tar, read-back
-verification, md5 - and each long loop emits a heartbeat at most every 5 s.
-A fast run prints phases only. ObjectPack takes a Consumer<String>;
-InternalSteps passes the step's own line, so it streams to the live
-console. Object sizes measured in pre-flight are cached, so the tar
-heartbeat costs no extra stat on a network share. If the next run puts the
-minutes in "listed ... files" or "pre-flight done", the candidate fix is
-Files.walkFileTree, which on Windows takes attributes from the directory
-enumeration - not done until the numbers say so.
+So in name mode without recursion the directory is no longer listed: each
+row's file is looked up directly, one call per row. Only when an exact name
+fails to resolve on a CASE-SENSITIVE file system is the directory listed,
+once, to match regardless of case as a listing always did. With recursion
+the listing stays. Case sensitivity is ASKED OF THE FILE SYSTEM, not assumed
+from the platform: the objects directory's own name with its case flipped
+must resolve to the same canonical path, so sibling folders that differ
+only in case do not fool it; if the probe cannot tell it answers
+"sensitive", and being wrong costs a listing - the old behaviour, slow but
+never incorrect. Names that are not plain file names (sub/x.json, ../m.csv)
+are never resolved as paths in name mode; a listing never matched them.
 
-VERIFIED: 155 assertions, 45 mutations ALL CAUGHT. New tests reproduce the
-production name and assert the object is packaged as ...OID1.json and NOT
-...OID1.2, that the audit's file_name and mime_type agree, that the
-original survives in the metadata, and that GNU tar extracts it at its
-original size; mimeCheck=off is silent; forty differing names give ONE
-warning line; a dotless "json" yields ".json"; application/json is refused;
-every phase line appears with its duration.
+VERIFIED: 190 assertions, 60 mutations ALL CAUGHT. Two stale rows among
+twelve discarded, the ten kept numbered OID01..OID10, nothing stale or
+discarded in the package, the audit counting ten, the discards file's exact
+header and one line per discard with its source line, its name not
+starting with the base name; fail with the old message; the old boolean
+still failing and the new setting overriding it; warn giving one line;
+unknown values, all-discarded and mapped-id-with-discards refused. Two
+files found among 1502 with no listing; a case mismatch found through
+exactly one listing; a sibling OBJECTS folder not fooling the probe;
+sub/x.json and ../m.csv not resolved as paths.
 
-Three things did not pass first time. Two tests asserted the OLD default,
-refusal - moved to mimeCheck=fail rather than deleted, so the fail path
-stays covered. The "small run does not flood" test used ONE object, so a
-heartbeat firing on every item would have added three lines and stayed
-under the bound: it could not detect what it was named for. A forty-object
-run at the default interval now asserts ZERO heartbeat lines, and the
-always-firing mutation is caught. And one mutation was unusable because MY
-OWN REWRITE of the tar loop broke its anchor - realigned, not discarded.
+Things that did not pass first time, none in the code. Two tests encoded
+the old behaviour (per-row skip warnings, a "listed" line in name mode) and
+now assert the new one. A fixture had an object_id column with empty
+values, which by the documented fallback counts as mapped - the step
+rightly refused it. MY OWN FIXTURE EDITS MISSED THEIR ANCHORS TWICE, once
+through a Python escape and once because an earlier attempt had already
+applied one; the script now asserts each anchor matches exactly once, and
+that assertion caught the second. TWO MUTATIONS SURVIVED AND BOTH EXPOSED
+WEAK TESTS: the "one warning line" test counted lines by their wording, so
+a differently worded flood slipped past - the mutation now reproduces the
+regression that actually existed; and the mapped-id test looked for "Leave
+map.objectId unset", which the OLD confusing message also contains - it now
+looks for "were discarded". A third mutation removed the only call that
+could throw IOException, leaving an unreachable catch that javac rejects;
+rewritten to compile. The output-documentation check missed md5 and
+md5File because its regex rejected digits; the guide was complete.
 
-Panel and executor: 34 parameters written, 34 read. node --check on the
-designer. Brace balance on both Java files.
+The designer's stale-mode line was executed under node, extracted verbatim:
+an existing step with the boolean set shows "fail", the new setting wins,
+and clearing the boolean on change does not bring "fail" back. Panel and
+executor: 35 parameters each way. Guide: 35/35 parameters, 9/9 outputs.
 
-NOT VERIFIED: mvn clean package; a run on the real feed, which is where the
-progress durations will first say something useful.
+NOT VERIFIED: mvn clean package. The probe's answer on the Windows share -
+getCanonicalPath returning the on-disk case is expected of JDK 8 on
+Windows but was not observed here; if it does not, a miss costs a listing
+and nothing else. A run on the real feed, which should now show a lookup
+line instead of a 101-second listing.

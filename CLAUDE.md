@@ -3395,3 +3395,27 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   for; a 40-object zero-heartbeat test replaces it. One mutation anchor was broken by my own rewrite
   of the tar loop; realigned, not discarded.
 * Notes in `.claude/2026-09-29-objpack-mime-extension-and-progress.md`.
+
+## objpack — discard a row instead of failing, and stop listing the directory
+* Requested after `line 7: record_business_date 20160921 is older than 120 months`: an option to
+  leave such rows out. **`onStaleBusinessDate` = warn | fail | skip** replaces the checkbox; the old
+  `failOnStaleBusinessDate` still means fail when the new setting is absent, so existing workflows
+  are unchanged until edited.
+* **The window now runs BEFORE id assignment** (it ran in pre-flight, after ids and names existed),
+  so kept rows are numbered 1..N, no gap, OID width from the kept count. Discarding under a mapped
+  `object_id` is refused with a message that says so; discarding every row is refused.
+* **A discarded row is never silent**: stale-skips and missing-object skips go to
+  `discarded_rows.<base>.csv` (line, reason, all original columns), named so it does **not** start with
+  the base name — a `<base>.*` delivery mask can never send it. `${discardedFile}`. One summary warning.
+* **The progress work paid off at once**: `listed 19933 files in 101.4s` to find 100 — all the time,
+  ~5 ms/file, two round trips each on `P:`. Name mode without recursion now **looks each row up
+  directly** and never lists; only an exact miss on a case-SENSITIVE file system lists once. Case
+  sensitivity is **probed, not assumed**: the objects dir's own name with case flipped must resolve
+  to the same canonical path, so case-differing siblings do not fool it; a wrong probe costs a
+  listing, never a wrong result.
+* 190 assertions, 60 mutations all caught. **Two survivors exposed weak tests**: a count-by-wording
+  that a differently worded flood slipped past, and a needle ("Leave map.objectId unset") that the
+  OLD confusing message also contained. **My fixture edits missed their anchors twice** (a Python
+  escape; an already-applied edit) — the script now asserts each anchor matches once, which caught
+  the second. The output-doc check's regex rejected digits and missed `md5`; the guide was fine.
+* Notes in `.claude/2026-09-29-objpack-discard-and-direct-lookup.md`.

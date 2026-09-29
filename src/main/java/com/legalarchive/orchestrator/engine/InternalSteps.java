@@ -221,6 +221,8 @@ public class InternalSteps {
         o.businessDateMonths = intParam(pv(params, vars, "businessDateMonths"), 10);
         String miss = pv(params, vars, "onMissingObject");
         if (miss != null && !miss.trim().isEmpty()) o.onMissingObject = miss.trim();
+        String stale = pv(params, vars, "onStaleBusinessDate");
+        if (stale != null) o.onStaleBusinessDate = stale;
         String mimeCheck = pv(params, vars, "mimeCheck");
         if (mimeCheck != null) o.mimeCheck = mimeCheck;
         // Phase lines and a heartbeat every few seconds go straight to the live console, so a
@@ -263,6 +265,7 @@ public class InternalSteps {
         res.outVars.put("md5File", o.md5File.getAbsolutePath());
         res.outVars.put("tarBytes", String.valueOf(o.tarBytes));
         res.outVars.put("md5", o.md5);
+        res.outVars.put("discardedFile", o.discardedFile == null ? "" : o.discardedFile.getAbsolutePath());
         // StepExecutor.Result.exitCode starts at -1, so a method that only sets it on its failure
         // paths reports every SUCCESSFUL run as a failure. That is what happened here: the package
         // was built, verified and checksummed, and the step still showed FAILED with exit code -1.
