@@ -1,68 +1,40 @@
-csvsql: support {{columns}}, keep dataschema casing, log real row counts
+unarchive: batch 0, the spec and Gate 0, no code
 
-A csvsql step feeding the Transarch metadata CSV failed with
-  Syntax error in SQL statement "SELECT\000a{{columns}[*]}\000aFROM SOURCE"
-and the same log said the input had been staged with "0 rows" - on a file
-with twelve. Neither was the data.
+Specification for a new internal executor that extracts the archives in
+a directory (zip, tar, tar.gz/tgz, gz), format chosen or detected from
+the magic bytes with the extension only compared. bzip2, xz, 7z, rar and
+zstd are recognised and refused naming the format. No code: nothing in
+the WAR changes.
 
-{{columns}} WAS NEVER A CSVSQL FEATURE. It is expanded in runSql, from a
-dataschema passed in columnsSchema. runCsvSql did not touch it, so the
-placeholder reached H2 verbatim. The designer only advertises it in the sql
-branch, so nothing promised it.
+Spec:  .claude/UNARCHIVE_EXECUTOR.md
+Note:  .claude/2026-09-29-unarchive-batch0-spec.md
+CLAUDE.md: new section, and the "4 location" rule corrected with a
+strikethrough - the code registers an internal executor in 8 places.
 
-THE "0 rows" WAS A LOGGING DEFECT PRESENT SINCE CSVSQL EXISTED. Staging ran
-CREATE TABLE ... AS SELECT * FROM CSVREAD(...) through executeUpdate and
-logged the return value - a DDL update count, not a row count. Measured on
-H2 2.1.214, the version the error code identifies: executeUpdate returned
-0, SELECT COUNT(*) on the same table returned 3. Every csvsql run has
-logged 0 rows and it never meant anything. It now counts.
+Measured in the sandbox (GNU tar 1.35, Info-ZIP 3.0, Python 3.12,
+OpenJDK 21 with --release 8), each changing a decision:
+- objpack.UstarReader reports @LongLink, PaxHeaders and git's
+  pax_global_header as members, ignores the ustar prefix field (a nested
+  file comes back at the root, no error) and returns an empty list with
+  no error for a small gzip renamed .tar. Fine for objpack, disqualifying
+  for extraction; left untouched.
+- Info-ZIP writes UTF-8 names without flag bit 11 and without 0x7075; a
+  real CP437 name makes new ZipFile(f) refuse the archive and
+  ZipInputStream throw IllegalArgumentException.
+- ZipFile does not verify CRC-32; ZipInputStream does but refuses STORED
+  entries with a data descriptor. Java 8 ZipEntry exposes no external
+  attributes, so a zip -y symlink reads as a regular file.
+- GNU tar extracts a tar with no end-of-archive blocks with exit 0.
+- Legitimate CSV shapes compress <= 25.5:1; zeros 1028:1.
+- id="extract" is already used by three workflow steps in this repo.
 
-WHY ADD {{columns}} RATHER THAN REFUSE IT. A plain SELECT * over a staged
-CSV writes the header UPPERCASED, because H2 renames CSV headers on the way
-in. For a Transarch metadata file that is a schema change the archive
-forbids without re-onboarding. The team was already working round it by
-hand, aliasing every column (com_ID as "com_ID"). And it is safe to add:
-every csvsql query containing {{columns}} fails today, so no working
-configuration can change behaviour.
+Deliberately not in this batch: a USAGE.md section. It would document an
+executor the parser still refuses; it is batch 5, rendered through
+docs.html's render().
 
-H2'S NAMING RULE, MEASURED AND DELIBERATELY NOT REIMPLEMENTED. On 2.1.214
-CSVREAD stores valid identifiers uppercased (trn_CSVAXRef -> TRN_CSVAXREF),
-non-identifiers verbatim (Transaction Num, weird-name unchanged), and
-case-colliding headers renamed (dup, Dup -> DUP, DUP1). A bare trn_CSVAXRef
-resolves, a quoted "trn_CSVAXRef" does not, a bare Transaction Num is a
-syntax error. Reimplementing that would break on the first header nobody
-tested. So ColumnsExpansion does not guess: after staging, the executor
-reads the table's real column names from H2, matches each dataschema name
-case-insensitively, and emits "<stored>" AS "<dataschema name>". The
-reference always resolves; the output keeps the dataschema's exact casing
-and order.
+Gate 0: twelve questions; Q1 (name), Q2 (formats), Q3 (who produces the
+archives - real samples wanted) block batch 1.
 
-Refused rather than guessed: a dataschema column the table lacks (the
-message lists what it has); a name matching two stored columns that differ
-only in case; two dataschema names that would read the same column. No
-Quote columns toggle, unlike sql: the quoting is not a preference here.
-
-The csvsql panel gains Column list from dataschema and Table it describes
-(needed only with several inputs). USAGE.md documents H2's naming
-behaviour, the expansion, and the corrected row count.
-
-VERIFIED AGAINST THE REAL H2 2.1.214, downloaded for this rather than
-mocked: 23 assertions in a suite that stages CSVs exactly as runCsvSql does
-and reads stored names exactly as the new code does - the DDL count really
-is 0 and COUNT(*) is right; on the production shape {{columns}} yields the
-dataschema's casing while SELECT * yields H2's; output follows the
-dataschema's order and drops undeclared columns; space- and hyphen-named
-headers resolve. 8 mutations of ColumnsExpansion, all caught.
-
-InternalSteps cannot be compiled here. Instead: brace balance; the method
-signature (throws Exception, so readSchemaColumnNames is callable); the
-type of ins; and that query, now reassigned, is captured by no lambda in
-the method. Panel and executor parameter names agree (columnsSchema,
-columnsTable). node --check on the designer.
-
-NOT VERIFIED: mvn clean package; a run on the real feed; the cost of the
-extra COUNT(*) per input on a large file-engine input (H2's MVStore
-maintains table counts, so it should not scan).
-
-For the failing step, once this is applied: add columnsSchema =
-${feedDir}/dataschema.json and keep SELECT {{columns}} FROM SOURCE.
+Not verified: anything Windows-specific (reserved names, MAX_PATH, rename
+under a scanner) and Java 8 runtime behaviour - the probes ran on JDK 21.
+mvn clean package not run and not needed: no source file changes.

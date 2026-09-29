@@ -309,6 +309,13 @@ Ogni nuovo executor interno (es. `dequote`, `csvsql`, …) va registrato in
 Se l'executor ha campi obbligatori specifici (source, dest, ecc.), la
 validazione nel punto 4 deve verificarli e segnalare errore.
 
+**Corretto 2026-09-29, verificato sul codice di `objpack`:** ~~4 punti~~ — sono **8**:
+`WorkflowXmlParser` whitelist, messaggio d'errore e set `internal` (tre punti, righe 89/91/94 a
+`0997815`), `WorkflowEngine.internalKind()`, dispatch in `InternalSteps.run()`, e nel designer
+`<option>`, branch del pannello e `clientValidate`. Più `variables.html` `PARAM_OPTIONS` per gli
+enum e `buildXml` solo se l'executor introduce un elemento figlio nuovo. La tabella sopra resta
+com'era: la lista autorevole e' il codice dell'ultimo executor registrato, non questa tabella.
+
 ## Verifica build
 
 Prima di ogni commit, eseguire:
@@ -3327,3 +3334,39 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   `InternalSteps` not compilable here — checked instead: signature, `ins` type, and that the newly
   reassigned `query` is captured by no lambda.
 * Notes in `.claude/2026-09-28-csvsql-columns-and-row-count.md`.
+
+## unarchive — Batch 0 (spec only)
+* Spec at `.claude/UNARCHIVE_EXECUTOR.md`. **No code in this commit.** A new internal executor to
+  extract the archives in a directory — zip, tar, tar.gz/tgz, gz — format chosen or detected, with
+  the magic bytes deciding and the extension only compared. bzip2/xz/7z/rar/zstd are RECOGNISED and
+  refused naming the format, so the message is actionable instead of "unknown".
+* **`objpack.UstarReader` is disqualified as an extraction base, measured on real GNU tar output**:
+  `././@LongLink`, `./PaxHeaders/*` and git's `pax_global_header` reported as members, long names
+  truncated, **the ustar `prefix` ignored** (a nested file comes back at the root, no error), no
+  typeflags, and an EMPTY LIST WITHOUT ERROR for a small gzip renamed `.tar`. Fine for objpack, which
+  reads only its own writer's output; left untouched so its verification stays independent.
+* **Zip names have no single right charset.** Info-ZIP 3.0 writes UTF-8 bytes WITHOUT flag bit 11 and
+  without the 0x7075 extra, so APPNOTE's CP437 gives `perch├⌐.txt`; a real CP437 name makes
+  `new ZipFile(f)` refuse the whole archive and `ZipInputStream` throw an IllegalArgumentException.
+  Spec: flag -> UTF-8; 0x7075 -> it; strictly valid UTF-8 -> UTF-8; else `zipNameCharset` (IBM437).
+  Per-rule counts logged. `ZipFile(f, ISO_8859_1)` recovers raw bytes of unflagged names.
+* **`ZipFile` does not verify CRC-32** (flipped payload byte read silently); `ZipInputStream` does but
+  refuses STORED + data descriptor, which `ZipFile` reads. So: `ZipFile` + CRC computed while
+  streaming. Java 8's `ZipEntry` exposes no external attributes, so a `zip -y` symlink reads as a
+  regular file holding its target — Gate 0 Q5 (parse the central directory ourselves, cross-checked).
+* One name validator, refusal as the rule: `..` per segment (not substring — `WorkflowPorter`'s
+  `contains("..")` refuses `report..v2.pdf`, noted, not changed), absolute/drive/UNC/device paths,
+  `:` (NTFS alternate data streams), Windows-invalid chars, reserved device names with any extension,
+  trailing dot/space, empty segments, absolute path over 259, case-insensitive collisions and exact
+  duplicates — **enforced on every host**. Only three accepted transformations, each because real
+  tools produce it: leading `./` (GNU tar with `-C dir .`), `\` as a separator for validation,
+  trailing `/` on directories.
+* Never creates links or devices (`onUnsupportedEntry` fail|skip). Limits counted on bytes WRITTEN:
+  entries, per-entry, per-archive, ratio 200 after 10 MB (legit data measured <= 25.5:1, zeros
+  1028:1). Each archive staged in `.part` and committed by one rename; `flat` layout declared not
+  atomic. New param names `onExisting`/`afterExtract` because `overwriteExisting`/`renameProcessed`
+  belong to elarxml in `PARAM_OPTIONS` with other semantics.
+* **Deviation stated**: no `USAGE.md` section until the executor is reachable (batch 5). Gate 0 has
+  twelve questions; Q1 name (`unarchive` recommended — `id="extract"` is used by three workflow steps
+  here), Q2 formats, Q3 who produces the archives (real samples wanted) block batch 1.
+* Note in `.claude/2026-09-29-unarchive-batch0-spec.md`.
