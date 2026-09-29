@@ -221,6 +221,11 @@ public class InternalSteps {
         o.businessDateMonths = intParam(pv(params, vars, "businessDateMonths"), 10);
         String miss = pv(params, vars, "onMissingObject");
         if (miss != null && !miss.trim().isEmpty()) o.onMissingObject = miss.trim();
+        String mimeCheck = pv(params, vars, "mimeCheck");
+        if (mimeCheck != null) o.mimeCheck = mimeCheck;
+        // Phase lines and a heartbeat every few seconds go straight to the live console, so a
+        // large metadata CSV or a slow share no longer looks like a step that has hung.
+        o.progress = line;
 
         String inc = pv(params, vars, "include");
         if (inc != null && !inc.trim().isEmpty()) {

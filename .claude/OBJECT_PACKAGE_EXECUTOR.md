@@ -277,9 +277,14 @@ delivered packages so far were named `V001` and were accepted, that settles it �
 saying so explicitly, because §3.5 is the section that describes the tar.
 
 **9.3 Mime type. — ANSWERED 2026-09-18: dotted extension.** `mime_type` carries `.pdf`, `.jpeg`
-and so on, as every example in §3.1.1 and §3.2 shows. The pre-flight compares the column against
-the object file's own extension, case-insensitively, and no media-type table is needed. The value is
-copied verbatim into both the metadata CSV and the audit JSON.
+and so on, as every example in §3.1.1 and §3.2 shows. ~~The pre-flight compares the column against
+the object file's own extension, case-insensitively, and no media-type table is needed.~~
+**Corrected 2026-09-29:** that compared the declared type with the wrong file. Transarch validates
+mime_type against the object's name **inside the package**, so the packaged extension is now taken
+*from* mime_type and agrees by construction; the original file may be called anything. The
+original-name comparison survives only as the optional `mimeCheck` signal (off | warn | fail,
+default warn). No media-type table is needed. The value is copied verbatim into both the metadata
+CSV and the audit JSON.
 
 **9.4 Compression. — ANSWERED 2026-09-18: follow the specification, allow it.** gzip is implemented
 and delivers `<base>.tar.gz`; the `.md5` holds the hash of that file. bzip2 and xz are permitted by
@@ -432,3 +437,29 @@ Two changes:
 
 The first attempt at that check compared against disk names and broke the legitimate renamed-objects
 case. The suite caught it.
+
+---
+
+## 16. mime_type names the packaged object, 2026-09-29
+
+A feed failed with `mime_type '.json' does not match the object's extension '.2' for
+TF0005756_ACCOUNT.DEBIT.INT.GG_GB0010007_1.2`. The original held JSON; its name simply ended in a
+version suffix.
+
+The failure hid a worse defect. The packaged object's extension was taken from the **original
+file** (`SubmissionName.extensionOf(p.object.getName())`), so without the check that file would
+have entered the tar as `…OID1.2` with `.json` declared in the metadata and the audit — exactly the
+disagreement Transarch's §4 validation rejects. The check prevented a bad package, for the wrong
+reason and with a message that blamed a legitimate file.
+
+* The packaged extension now comes **from mime_type** (`packagedExtension`), so the name Transarch
+  checks and the type it checks it against agree by construction.
+* A mime_type that cannot be a single suffix token — `application/json` — is refused: it would put a
+  path separator inside a tar member name.
+* The original-name comparison is `mimeCheck` = off | **warn** | fail. In warn mode it produces **one**
+  summary line with a count and three examples, not one line per object.
+* Progress: every phase reports its start and duration, with a heartbeat at most every 5 s inside
+  the long loops. Wired to the live console through `InternalSteps`.
+
+The earlier claim in `USAGE.md`, that the original-name comparison was "one of the things the
+archive validates on arrival", was wrong and is withdrawn there.

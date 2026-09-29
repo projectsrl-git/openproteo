@@ -1860,6 +1860,13 @@
                         '<div class="field wide"><label><input type="checkbox"' + (nodeParam(n, 'failOnOversize') === 'false' ? '' : ' checked') + ' onchange="setNodeParam(' + i + ',\'failOnOversize\',this.checked?\'\':\'false\')"> Fail when a size limit is exceeded (untick to only warn)</label></div>' +
                         '<div class="field wide"><label><input type="checkbox"' + (nodeParam(n, 'failOnStaleBusinessDate') === 'true' ? ' checked' : '') + ' onchange="setNodeParam(' + i + ',\'failOnStaleBusinessDate\',this.checked?\'true\':\'\')"> Fail on a business date older than the retention window (warns by default)</label></div>' +
                         '<div class="field"><label>Window (months)</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'businessDateMonths') || '10') + '" title="10 months, or 13 for a yearly feed." oninput="setNodeParam(' + i + ',\'businessDateMonths\',this.value)"></div></div>';
+                    var opMc = nodeParam(n, 'mimeCheck') || 'warn';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Original name vs mime_type</label><select onchange="setNodeParam(' + i + ',\'mimeCheck\',this.value)" title="Only a sanity signal: inside the package every object takes its extension FROM mime_type, which is what Transarch validates. The original file may be called anything.">' +
+                        '<option value="off"' + (opMc === 'off' ? ' selected' : '') + '>ignore</option>' +
+                        '<option value="warn"' + (opMc === 'warn' ? ' selected' : '') + '>warn once, with a count</option>' +
+                        '<option value="fail"' + (opMc === 'fail' ? ' selected' : '') + '>fail the step</option></select></div>' +
+                        '<div class="field wide"><label class="dim small">Inside the package each object is named <code>…OIDn</code> + its <b>mime_type</b>, so <code>GB0010007_1.2</code> declared <code>.json</code> is packaged as <code>…OID1.json</code>. The original name is kept in <code>original_object_name</code>.</label></div></div>';
                     h += '</div>';
 
                     h += '<div class="dim small" style="margin-top:4px">Writes <code>.audit.json</code>, <code>.metadata.csv</code>, <code>.control</code>, <code>.tar</code> and <code>.md5</code>. The md5 sits <b>beside</b> the tar, not inside it. Objects are streamed from the objects directory straight into the archive, so no temporary copy is made. Counters: <b>${submissionBaseName}</b>, <b>${objectCount}</b>, <b>${metadataRows}</b>, <b>${skippedRows}</b>, <b>${tarFile}</b>, <b>${md5File}</b>, <b>${tarBytes}</b>, <b>${md5}</b>.</div>';

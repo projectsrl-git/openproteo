@@ -84,6 +84,22 @@ public final class ObjectPack {
     public int businessDateMonths = 10;
     public String onMissingObject = "fail";           // Gate 0 9.9 open: the script's behaviour
 
+    /**
+     * How the declared mime_type is compared with the ORIGINAL file's own suffix: off | warn | fail.
+     *
+     * <p>This is a sanity signal and nothing more. Transarch validates the mime type against the
+     * name of the object <b>inside the package</b>, and that name now takes its extension from
+     * mime_type itself, so it agrees by construction whatever the original was called. An original
+     * such as {@code GB0010007_1.2} carrying JSON is perfectly legitimate.
+     */
+    public String mimeCheck = "warn";
+
+    // ---- progress ----------------------------------------------------------
+    /** Receives progress lines while the step runs; null means silent. */
+    public java.util.function.Consumer<String> progress;
+    /** Minimum gap between heartbeat lines inside a long loop. Phase lines are always emitted. */
+    public long progressIntervalMillis = 5000;
+
     // ---- results -----------------------------------------------------------
     public String submissionBaseName;
     public int objectCount;
@@ -94,6 +110,9 @@ public final class ObjectPack {
     public long tarBytes;
     public String md5;
     public final List<String> warnings = new ArrayList<String>();
+    /** Sum of the objects' sizes, measured once during pre-flight. */
+    public long totalObjectBytes;
+    private long lastBeat;
 
     /** Set while reading: whether the rows were paired positionally. */
     private boolean pairedByOrder;
@@ -113,6 +132,7 @@ public final class ObjectPack {
         String originalName;
         String label;
         String memberName;
+        long size;
     }
 
     public void run() throws IOException {
@@ -136,7 +156,16 @@ public final class ObjectPack {
                     + (metadataCsv == null ? "null" : metadataCsv.getAbsolutePath()));
         }
 
+        String mc = mimeCheck == null ? "warn" : mimeCheck.trim().toLowerCase(Locale.ROOT);
+        if (!"off".equals(mc) && !"warn".equals(mc) && !"fail".equals(mc)) {
+            throw new ObjPackException("mimeCheck must be off, warn or fail; got '" + mimeCheck + "'");
+        }
+
+        say("reading " + metadataCsv.getName() + " (" + mb(metadataCsv.length()) + ") and locating objects under "
+                + objectsDir.getPath());
+        long t0 = System.nanoTime();
         List<Pair> pairs = readAndPair();
+        say("read " + metadataRows + " rows, paired " + pairs.size() + " objects in " + secs(t0));
         if (pairedByOrder) {
             checkOrderAlignment(pairs);
         }
@@ -145,12 +174,16 @@ public final class ObjectPack {
 
         int width = SubmissionName.oidWidth(objectCount);
         for (Pair p : pairs) {
-            p.memberName = name.objectFile(p.objectId, width, p.label,
-                    SubmissionName.extensionOf(p.object.getName()));
+            // The extension INSIDE the package comes from the declared mime_type, never from the
+            // original file: Transarch validates mime_type against the packaged name (spec 4),
+            // and an original such as GB0010007_1.2 would otherwise be packaged as '...OID1.2'
+            // and rejected on arrival.
+            p.memberName = name.objectFile(p.objectId, width, p.label, packagedExtension(p.mimeType, p.lineNo));
         }
-        preflight(pairs);
+        preflight(pairs, mc);
 
         writeAll(name, pairs);
+        say("done: " + submissionBaseName + ", " + objectCount + " objects");
     }
 
     // ------------------------------------------------------------------ reading and pairing
@@ -187,14 +220,32 @@ public final class ObjectPack {
                         + metadataCsv.getName());
             }
 
+            long ti = System.nanoTime();
+            if ("order".equals(mode) || "name".equals(mode)) {
+                say("listing " + objectsDir.getPath() + (recurse ? " and its subfolders" : "")
+                        + " to find objects by " + mode);
+            }
             List<File> listing = "order".equals(mode) ? listObjects() : null;
             pairedByOrder = listing != null;
             Map<String, List<File>> byName = "name".equals(mode) ? indexByName() : null;
+            if (listing != null) {
+                say("listed " + listing.size() + " files in " + secs(ti));
+            } else if (byName != null) {
+                int n = 0;
+                for (List<File> l : byName.values()) {
+                    n += l.size();
+                }
+                say("listed " + n + " files in " + secs(ti));
+            }
+            startBeat();
 
             int headerSize = r.headerSize();
             FlatCsvReader.Row row;
             while ((row = r.next()) != null) {
                 metadataRows++;
+                if (beatDue()) {
+                    say("read " + metadataRows + " rows, paired " + pairs.size() + " objects so far");
+                }
                 if (row.fields.length != headerSize) {
                     // Almost always a record split by a bare newline. FlatCsvReader is line-based,
                     // so it cannot rejoin one; dequote or csvsql exist upstream for exactly that.
@@ -564,7 +615,13 @@ public final class ObjectPack {
         }
     }
 
-    private void preflight(List<Pair> pairs) throws IOException {
+    private void preflight(List<Pair> pairs, String mimeMode) throws IOException {
+        say("pre-flight checks on " + pairs.size() + " objects");
+        long tp = System.nanoTime();
+        startBeat();
+        int checked = 0;
+        int mimeMismatches = 0;
+        List<String> mimeExamples = new ArrayList<String>();
         if (pairs.size() > maxObjects) {
             throw new ObjPackException("the submission has " + pairs.size()
                     + " objects, above the limit of " + maxObjects + " (spec 1)");
@@ -586,23 +643,38 @@ public final class ObjectPack {
                 throw new ObjPackException("line " + p.lineNo + ": original_object_name is mandatory and "
                         + "not nullable (spec 3.2)");
             }
-            // Gate 0 9.3: mime_type carries the dotted extension, and §4 validates it against the
-            // file name, so the check is a comparison and not a media-type lookup.
-            String ext = SubmissionName.extensionOf(p.object.getName());
-            String declared = p.mimeType.startsWith(".") ? p.mimeType : "." + p.mimeType;
-            if (!ext.equalsIgnoreCase(declared)) {
-                String why = (p.originalName != null && !p.originalName.isEmpty()
-                        && !p.originalName.equalsIgnoreCase(p.object.getName()))
-                        ? " This row names '" + p.originalName + "' but was paired with '"
-                          + p.object.getName() + "', so the pairing is what to look at first:"
-                          + " check objectSource."
-                        : "";
-                throw new ObjPackException("line " + p.lineNo + ": mime_type '" + p.mimeType
-                        + "' does not match the object's extension '" + (ext.isEmpty() ? "(none)" : ext)
-                        + "' for " + p.object.getName() + " (spec 4, submission names)." + why);
+            // The original file's own suffix against the declared mime_type: a sanity signal only,
+            // since the packaged name takes its extension from mime_type and so agrees by
+            // construction. Off, a one-line summary, or a hard stop - never Transarch's check.
+            if (!"off".equals(mimeMode)) {
+                String ext = SubmissionName.extensionOf(p.object.getName());
+                String declared = p.mimeType.startsWith(".") ? p.mimeType : "." + p.mimeType;
+                if (!ext.equalsIgnoreCase(declared)) {
+                    String why = (p.originalName != null && !p.originalName.isEmpty()
+                            && !p.originalName.equalsIgnoreCase(p.object.getName()))
+                            ? " This row names '" + p.originalName + "' but was paired with '"
+                              + p.object.getName() + "', so the pairing is what to look at first:"
+                              + " check objectSource."
+                            : "";
+                    String msg = "line " + p.lineNo + ": mime_type '" + p.mimeType
+                            + "' differs from the original file's own suffix '" + (ext.isEmpty() ? "(none)" : ext)
+                            + "' for " + p.object.getName() + "." + why;
+                    if ("fail".equals(mimeMode)) {
+                        throw new ObjPackException(msg + " (mimeCheck=fail)");
+                    }
+                    mimeMismatches++;
+                    if (mimeExamples.size() < 3) {
+                        mimeExamples.add(msg);
+                    }
+                }
             }
             long len = p.object.length();
+            p.size = len;
             total += len;
+            checked++;
+            if (beatDue()) {
+                say("pre-flight: " + checked + "/" + pairs.size() + " objects checked");
+            }
             if (len > maxObjectBytes) {
                 String msg = "line " + p.lineNo + ": " + p.object.getName() + " is " + len
                         + " bytes, above the per-object limit of " + maxObjectBytes + " (spec 1)";
@@ -613,6 +685,15 @@ public final class ObjectPack {
             }
             checkBusinessDate(p, today);
         }
+        totalObjectBytes = total;
+        if (mimeMismatches > 0) {
+            // One summary line, not one per object: on a feed where no original name carries its
+            // type, a line per object would bury everything else in the log.
+            warnings.add(mimeMismatches + " of " + pairs.size() + " objects have an original name whose"
+                    + " suffix differs from their mime_type. They are packaged with the mime_type as their"
+                    + " extension, which is what Transarch validates. First: " + mimeExamples);
+        }
+        say("pre-flight done in " + secs(tp) + ", " + mb(total) + " of objects");
         if (total > maxSubmissionBytes) {
             String msg = "the submission totals " + total + " bytes, above the limit of "
                     + maxSubmissionBytes + " (spec 1)";
@@ -692,6 +773,7 @@ public final class ObjectPack {
         tarFile      = new File(outputDir, name.archive(comp));
         md5File      = new File(outputDir, name.md5());
 
+        say("writing " + name.metadataCsv() + ", " + name.auditJson() + " and " + name.control());
         writeMetadata(meta, pairs);
 
         List<AuditJson.Entry> entries = new ArrayList<AuditJson.Entry>(pairs.size());
@@ -721,10 +803,20 @@ public final class ObjectPack {
                 ? new java.util.zip.GZIPOutputStream(raw, 1 << 16) : raw);
         boolean done = false;
         try {
+            say("writing " + tarFile.getName() + ": " + pairs.size() + " objects, " + mb(totalObjectBytes));
+            long tt = System.nanoTime();
+            startBeat();
             w.addFile(name.auditJson(), audit);
             w.addFile(name.metadataCsv(), meta);
+            int packed = 0;
+            long bytes = 0;
             for (Pair p : pairs) {
                 w.addFile(p.memberName, p.object);
+                packed++;
+                bytes += p.size;
+                if (beatDue()) {
+                    say("tar: " + packed + "/" + pairs.size() + " objects, " + mb(bytes) + " of " + mb(totalObjectBytes));
+                }
             }
             w.addBytes(name.control(), new byte[0], System.currentTimeMillis() / 1000L);
             done = true;
@@ -735,10 +827,17 @@ public final class ObjectPack {
             }
         }
         tarBytes = tarFile.length();
+        say("tar written: " + mb(tarBytes));
 
+        say("verifying the archive by reading it back");
+        long tv = System.nanoTime();
         verifyArchive(name, pairs, audit, meta, comp);
+        say("archive verified in " + secs(tv));
 
+        say("computing md5 of " + mb(tarBytes));
+        long tm = System.nanoTime();
         md5 = Md5.writeSidecar(tarFile, md5File);
+        say("md5 " + md5 + " in " + secs(tm));
     }
 
     /**
@@ -934,6 +1033,56 @@ public final class ObjectPack {
                     + "need commons-compress on the internal Nexus. Use gzip or none.");
         }
         throw new ObjPackException("compression must be none, gzip, bzip2 or xz; got '" + v + "'");
+    }
+
+    /**
+     * The extension an object carries inside the package: the declared mime_type as one dotted
+     * token. Refused when mime_type could not be a file suffix, because it becomes part of a tar
+     * member name - 'application/pdf' would put a path separator in it.
+     */
+    static String packagedExtension(String mimeType, long lineNo) {
+        String m = mimeType == null ? "" : mimeType.trim();
+        if (m.isEmpty()) {
+            throw new ObjPackException("line " + lineNo + ": mime_type is mandatory and not nullable (spec 3.2)");
+        }
+        String bare = m.startsWith(".") ? m.substring(1) : m;
+        if (!bare.matches("[A-Za-z0-9_-]+")) {
+            throw new ObjPackException("line " + lineNo + ": mime_type '" + m + "' cannot be a file extension."
+                    + " Transarch expects the dotted extension, e.g. '.pdf' rather than 'application/pdf'"
+                    + " (Gate 0 9.3), and it becomes the suffix of the object inside the package.");
+        }
+        return "." + bare;
+    }
+
+    private void say(String msg) {
+        if (progress != null) {
+            progress.accept("objpack: " + msg);
+        }
+    }
+
+    private void startBeat() {
+        lastBeat = System.nanoTime();
+    }
+
+    /** True at most once per progressIntervalMillis, so a long loop reports without flooding. */
+    private boolean beatDue() {
+        if (progress == null) {
+            return false;
+        }
+        long now = System.nanoTime();
+        if (now - lastBeat >= progressIntervalMillis * 1000000L) {
+            lastBeat = now;
+            return true;
+        }
+        return false;
+    }
+
+    private static String secs(long t0) {
+        return String.format(Locale.ROOT, "%.1fs", (System.nanoTime() - t0) / 1e9);
+    }
+
+    private static String mb(long bytes) {
+        return String.format(Locale.ROOT, "%.1f MB", bytes / 1048576.0);
     }
 
     private static String trim(String s) {

@@ -1122,7 +1122,15 @@ So `YYYYMMDD` — the way nearly everyone writes a date mask, and how ISO and se
 
 The step now checks the pattern **before reading a single row** and says which letter is wrong, and the designer shows the same warning as you type it. The uppercase letters are reported rather than quietly corrected, because `yyyyDDD` against `2020283` is a legitimate day-of-year format that means 9 October 2020, and silently rewriting someone's pattern is how a wrong date reaches a legal archive.
 
-`mime_type` carries the **dotted extension** — `.pdf`, `.jpeg` — and is checked against each object's own extension. A row claiming `.jpeg` for a file named `.pdf` fails the step, which is one of the things the archive validates on arrival.
+`mime_type` carries the **dotted extension** — `.pdf`, `.json` — and it is what the object is named with **inside the package**: `…OID1.json`. That is the name Transarch checks the mime type against, so the two agree by construction. The original file may be called anything at all — `GB0010007_1.2` holding JSON is fine — and its name is kept verbatim in `original_object_name`. A `mime_type` that cannot be a file suffix, such as `application/json`, is refused, because it would put a path separator inside a tar member name.
+
+**Original name vs mime_type** compares the original file's own suffix with the declared type, as a sanity signal only: *warn once, with a count* (the default) reports how many objects differ in a single line, *ignore* says nothing, *fail the step* stops on the first. It is not what the archive validates. Its use is as an early hint that rows and files may have been paired wrongly, which is why the fail message points at *Find each object by* when the row's declared name is not the file it was given.
+
+### Progress in the live console
+
+A large metadata CSV, or objects on a slow network share, can keep the step busy for minutes. The step now reports each phase as it starts and how long it took — listing the objects directory, reading and pairing the rows, pre-flight, writing the tar, reading it back, the md5 — and, inside the long loops, a heartbeat at most every five seconds with the count so far. A fast run prints the phases and nothing else.
+
+The durations are also the way to find where time actually goes. On a network drive, listing a directory and looking up each file are separate round trips; if *listed … files* or *pre-flight done* is where the minutes go, that is the share, not the CSV.
 
 ### The dataschema, if you have one
 

@@ -3370,3 +3370,28 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   twelve questions; Q1 name (`unarchive` recommended — `id="extract"` is used by three workflow steps
   here), Q2 formats, Q3 who produces the archives (real samples wanted) block batch 1.
 * Note in `.claude/2026-09-29-unarchive-batch0-spec.md`.
+
+## objpack — mime_type names the packaged object, and the step reports progress
+* Feed tf0005756 failed: `mime_type '.json' does not match the object's extension '.2' for
+  …GB0010007_1.2`. The file held JSON; its name ends in a version suffix. Legitimate.
+* **It hid a worse defect.** The packaged extension came from the ORIGINAL name (`extensionOf` → `.2`),
+  so without the check the object would have been tarred as `…OID1.2` with `.json` declared — the
+  exact disagreement Transarch §4 rejects, because the archive checks the name IN THE PACKAGE. The
+  check prevented a bad package for the wrong reason. **The error was in my Gate 0 9.3 answer in the
+  spec** ("compare the column against the object file's own extension"); corrected there, struck
+  through. USAGE.md's claim that this was "one of the things the archive validates" was also wrong.
+* Fix: packaged extension = **mime_type** (`packagedExtension`), agreeing by construction; a
+  mime_type that is not one suffix token (`application/json`) is refused — it would put `/` in a tar
+  member name. The original-name comparison becomes **`mimeCheck` off | warn | fail, default warn**,
+  emitting ONE summary line with a count, never a line per object.
+* **Progress**: every phase reports start and duration, with a heartbeat ≤ every 5 s in long loops,
+  streamed via `ObjectPack.progress` ← the step's `line`. The run took 82 s and failed on row 1, but
+  the mime check runs only after all rows are paired — so the time went before any check, probably
+  round trips on `P:`. **Not optimised on inference**: the durations will say which phase; the
+  candidate fix (`Files.walkFileTree`, attributes from the Windows directory enumeration) waits for
+  them.
+* 155 assertions, 45 mutations all caught. The "does not flood" test used ONE object, so an
+  always-firing heartbeat stayed under its bound — a test that could not detect what it was named
+  for; a 40-object zero-heartbeat test replaces it. One mutation anchor was broken by my own rewrite
+  of the tar loop; realigned, not discarded.
+* Notes in `.claude/2026-09-29-objpack-mime-extension-and-progress.md`.

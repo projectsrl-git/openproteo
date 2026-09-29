@@ -1,40 +1,74 @@
-unarchive: batch 0, the spec and Gate 0, no code
+objpack: name the packaged object from mime_type; report progress
 
-Specification for a new internal executor that extracts the archives in
-a directory (zip, tar, tar.gz/tgz, gz), format chosen or detected from
-the magic bytes with the extension only compared. bzip2, xz, 7z, rar and
-zstd are recognised and refused naming the format. No code: nothing in
-the WAR changes.
+Two things from a run on feed tf0005756.
 
-Spec:  .claude/UNARCHIVE_EXECUTOR.md
-Note:  .claude/2026-09-29-unarchive-batch0-spec.md
-CLAUDE.md: new section, and the "4 location" rule corrected with a
-strikethrough - the code registers an internal executor in 8 places.
+1. THE ORIGINAL FILE NEED NOT CARRY ITS TYPE'S EXTENSION. The step failed
+with "mime_type '.json' does not match the object's extension '.2' for
+TF0005756_ACCOUNT.DEBIT.INT.GG_GB0010007_1.2". The file held JSON; its name
+ends in a version suffix. Nothing wrong with it.
 
-Measured in the sandbox (GNU tar 1.35, Info-ZIP 3.0, Python 3.12,
-OpenJDK 21 with --release 8), each changing a decision:
-- objpack.UstarReader reports @LongLink, PaxHeaders and git's
-  pax_global_header as members, ignores the ustar prefix field (a nested
-  file comes back at the root, no error) and returns an empty list with
-  no error for a small gzip renamed .tar. Fine for objpack, disqualifying
-  for extraction; left untouched.
-- Info-ZIP writes UTF-8 names without flag bit 11 and without 0x7075; a
-  real CP437 name makes new ZipFile(f) refuse the archive and
-  ZipInputStream throw IllegalArgumentException.
-- ZipFile does not verify CRC-32; ZipInputStream does but refuses STORED
-  entries with a data descriptor. Java 8 ZipEntry exposes no external
-  attributes, so a zip -y symlink reads as a regular file.
-- GNU tar extracts a tar with no end-of-archive blocks with exit 0.
-- Legitimate CSV shapes compress <= 25.5:1; zeros 1028:1.
-- id="extract" is already used by three workflow steps in this repo.
+The failure was hiding a worse defect. The object's extension INSIDE THE
+PACKAGE was taken from the ORIGINAL name - extensionOf(...GB0010007_1.2) is
+".2" - so without the check the file would have entered the tar as
+"...OID1.2" with ".json" declared in the metadata CSV and the audit JSON.
+That is exactly the disagreement Transarch's spec-4 validation rejects,
+because the archive checks the name in the package, not the original. The
+check stopped a bad package, for the wrong reason, with a message that
+accused a legitimate file.
 
-Deliberately not in this batch: a USAGE.md section. It would document an
-executor the parser still refuses; it is batch 5, rendered through
-docs.html's render().
+The design error was in the Gate 0 9.3 answer as written into the spec
+("the pre-flight compares the column against the object file's own
+extension"). Corrected there, struck through rather than deleted. USAGE.md
+also claimed that comparison was "one of the things the archive validates
+on arrival"; that was wrong and is withdrawn.
 
-Gate 0: twelve questions; Q1 (name), Q2 (formats), Q3 (who produces the
-archives - real samples wanted) block batch 1.
+Fix: the packaged extension now comes FROM mime_type, so the name the
+archive checks and the type it checks against agree by construction; the
+original may be called anything and is kept in original_object_name. A
+mime_type that cannot be a single suffix token (application/json) is
+refused, since it would put a path separator inside a tar member name.
 
-Not verified: anything Windows-specific (reserved names, MAX_PATH, rename
-under a scanner) and Java 8 runtime behaviour - the probes ran on JDK 21.
-mvn clean package not run and not needed: no source file changes.
+The original-name comparison survives as mimeCheck = off | warn | fail,
+default warn, because it still has one use - an early hint that rows and
+files were paired wrongly, which is what caught the positional-pairing near
+miss on tf0003709. In warn mode it produces ONE summary line with a count
+and three examples, never a line per object.
+
+2. PROGRESS IN THE LIVE CONSOLE. That run took 82 s and failed on the
+FIRST row, yet the mime check runs only after every row is read and paired.
+So the time went before any check, most plausibly in file-system round
+trips on P:. That is an inference, not a measurement, and it is
+deliberately NOT acted on. What is added is the means to measure: every
+phase announces itself and reports its duration - listing the objects
+directory, reading and pairing, pre-flight, writing the tar, read-back
+verification, md5 - and each long loop emits a heartbeat at most every 5 s.
+A fast run prints phases only. ObjectPack takes a Consumer<String>;
+InternalSteps passes the step's own line, so it streams to the live
+console. Object sizes measured in pre-flight are cached, so the tar
+heartbeat costs no extra stat on a network share. If the next run puts the
+minutes in "listed ... files" or "pre-flight done", the candidate fix is
+Files.walkFileTree, which on Windows takes attributes from the directory
+enumeration - not done until the numbers say so.
+
+VERIFIED: 155 assertions, 45 mutations ALL CAUGHT. New tests reproduce the
+production name and assert the object is packaged as ...OID1.json and NOT
+...OID1.2, that the audit's file_name and mime_type agree, that the
+original survives in the metadata, and that GNU tar extracts it at its
+original size; mimeCheck=off is silent; forty differing names give ONE
+warning line; a dotless "json" yields ".json"; application/json is refused;
+every phase line appears with its duration.
+
+Three things did not pass first time. Two tests asserted the OLD default,
+refusal - moved to mimeCheck=fail rather than deleted, so the fail path
+stays covered. The "small run does not flood" test used ONE object, so a
+heartbeat firing on every item would have added three lines and stayed
+under the bound: it could not detect what it was named for. A forty-object
+run at the default interval now asserts ZERO heartbeat lines, and the
+always-firing mutation is caught. And one mutation was unusable because MY
+OWN REWRITE of the tar loop broke its anchor - realigned, not discarded.
+
+Panel and executor: 34 parameters written, 34 read. node --check on the
+designer. Brace balance on both Java files.
+
+NOT VERIFIED: mvn clean package; a run on the real feed, which is where the
+progress durations will first say something useful.
