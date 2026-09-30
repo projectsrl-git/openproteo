@@ -116,6 +116,8 @@ public class InternalSteps {
                 runSqlReport(step, resolvedParams, vars, res, line, control);
             } else if ("objpack".equals(kind)) {
                 runObjPack(step, resolvedParams, vars, res, line);
+            } else if ("filerename".equals(kind)) {
+                runFileRename(resolvedParams, vars, res, line, control);
             } else {
                 line.accept("unknown internal step kind: " + kind);
                 res.exitCode = -996;
@@ -270,6 +272,102 @@ public class InternalSteps {
         // paths reports every SUCCESSFUL run as a failure. That is what happened here: the package
         // was built, verified and checksummed, and the step still showed FAILED with exit code -1.
         res.exitCode = 0;
+    }
+
+    // -------------------------------------------------------------- filerename
+    /**
+     * Renames the files of a directory according to a mapping held in a CSV - the executor form of
+     * {@code Rename-FilesFromCsvMap.ps1}, with the same parameters, defaults, checks, log lines and
+     * exit codes. The work is in {@code rename.CsvRenameMap}, Spring-free, verified against the real
+     * script on pwsh; this method only reads parameters and publishes the outcome.
+     *
+     * <p>Exit codes are the script's: 0 completed, 2 completed with rows not applied (source not
+     * found, target taken, unusable or duplicate rows), 1 error, aborted on collisions, or stopped.
+     * Every path sets it, success included - {@code Result.exitCode} starts at -1.
+     *
+     * <p>A blank parameter means the script's default, except {@code prefix}, whose default is empty.
+     * Relative paths are rebased on {@code ${feedDir}} like every other executor.
+     */
+    private void runFileRename(Map<String, String> params, Map<String, String> vars, StepExecutor.Result res,
+                               java.util.function.Consumer<String> line, final RunControl control) {
+        com.legalarchive.orchestrator.rename.CsvRenameMap m = new com.legalarchive.orchestrator.rename.CsvRenameMap();
+        String csv = pv(params, vars, "csvPath");
+        String dir = pv(params, vars, "directory");
+        if (csv == null) { line.accept("filerename: csvPath (the mapping CSV) is required"); res.exitCode = 1; res.lastLines = "csvPath is required"; return; }
+        if (dir == null) { line.accept("filerename: directory (whose files are renamed) is required"); res.exitCode = 1; res.lastLines = "directory is required"; return; }
+        m.csvPath = new java.io.File(rebaseRel(csv, vars));
+        m.directory = new java.io.File(rebaseRel(dir, vars));
+
+        String v;
+        if ((v = pv(params, vars, "nameColumn")) != null) m.nameColumn = v;
+        if ((v = pv(params, vars, "idColumn")) != null) m.idColumn = v;
+        if ((v = pv(params, vars, "extColumn")) != null) m.extColumn = v;
+        if ((v = pv(params, vars, "prefix")) != null) m.prefix = v;
+        if ((v = pv(params, vars, "sourceTemplate")) != null) m.sourceTemplate = v;
+        if ((v = pv(params, vars, "paddingBasis")) != null) m.paddingBasis = v;
+        if ((v = pv(params, vars, "csvCharset")) != null) m.charset = v;
+        if ((v = pv(params, vars, "logFile")) != null) m.logFile = rebaseRel(v, vars);
+        m.reverse = yes(pv(params, vars, "reverse"), false);
+        m.force = yes(pv(params, vars, "force"), false);
+        m.whatIf = yes(pv(params, vars, "whatIf"), false);
+        m.summaryOnly = yes(pv(params, vars, "summaryOnly"), false);
+
+        // Numbers are refused when malformed rather than defaulted: a typo in idPadding that
+        // silently became 5 would look for names that do not exist and report them all missing.
+        String[] ints = { "idPadding", "maxReport" };
+        for (String k : ints) {
+            String raw = pv(params, vars, k);
+            if (raw == null) continue;
+            int n;
+            try { n = Integer.parseInt(raw); }
+            catch (NumberFormatException e) {
+                line.accept("filerename: " + k + " must be an integer, not '" + raw + "'");
+                res.exitCode = 1; res.lastLines = k + " must be an integer"; return;
+            }
+            if ("idPadding".equals(k)) m.idPadding = n; else m.maxReport = n;
+        }
+
+        // The delimiter is read WITHOUT trimming, or a tab would vanish; the word "tab" names it too,
+        // since a tab cannot be typed into a designer field.
+        String d = params.get("csvDelimiter");
+        if (d != null) d = VarResolver.resolve(d, vars);
+        if (d != null && !d.isEmpty()) {
+            if ("tab".equalsIgnoreCase(d.trim())) d = String.valueOf((char) 9);
+            if (d.length() != 1) {
+                line.accept("filerename: csvDelimiter must be one character (or the word tab), not '" + d + "'");
+                res.exitCode = 1; res.lastLines = "csvDelimiter must be one character"; return;
+            }
+            m.delimiter = d.charAt(0);
+        }
+
+        m.out = line;
+        m.stopRequested = new java.util.function.BooleanSupplier() {
+            public boolean getAsBoolean() { return control != null && control.aborted; }
+        };
+        int code = m.run();
+
+        res.outVars.put("renamed", String.valueOf(m.renamed));
+        res.outVars.put("wouldRename", String.valueOf(m.wouldRename));
+        res.outVars.put("sourceNotFound", String.valueOf(m.sourceNotFound));
+        res.outVars.put("skippedTargetExists", String.valueOf(m.skippedTargetExists));
+        res.outVars.put("unusableRows", String.valueOf(m.unusableRows));
+        res.outVars.put("duplicateTargets", String.valueOf(m.duplicateTargets));
+        res.outVars.put("targetsOnDisk", String.valueOf(m.targetsOnDisk));
+        res.outVars.put("renameFailed", String.valueOf(m.failed));
+        res.outVars.put("mappingRows", String.valueOf(m.mappingRows));
+        res.outVars.put("idPaddingUsed", String.valueOf(m.effectivePadding));
+        res.outVars.put("firstLookedFor", m.firstLookedFor);
+
+        if (code != 0) {
+            res.lastLines = m.error != null ? m.error
+                    : m.aborted ? "aborted before any rename: " + m.duplicateTargets + " duplicate targets, "
+                                  + m.targetsOnDisk + " targets already on disk (force=yes to proceed)"
+                    : m.stopped ? "stopped by user after " + m.renamed + " renames"
+                    : "renamed " + m.renamed + ", source not found " + m.sourceNotFound + ", target exists "
+                      + m.skippedTargetExists + ", unusable " + m.unusableRows + ", duplicate " + m.duplicateTargets
+                      + ", failed " + m.failed;
+        }
+        res.exitCode = code;
     }
 
     /** A step parameter with variables resolved, or null when it is absent or blank. */

@@ -453,7 +453,42 @@
         if (f === 'exec' && v === 'validate' && (!wf.nodes[i].validateChecks || !wf.nodes[i].validateChecks.length)) {
             wf.nodes[i].validateChecks = ['rowCount','colCount','jsonSchema','noQuotes','colNames','notNull','businessDate','displayDates'];
         }
+        if (f === 'exec' && v === 'filerename') frSeed(wf.nodes[i]);
         updNode(i, f, v); renderNodes();
+    }
+    // filerename: the executor form of Rename-FilesFromCsvMap.ps1. Every parameter the script has is a
+    // visible field, and choosing the executor WRITES the script's defaults into the step, so the
+    // saved XML states every value the run will use rather than leaving some to the executor.
+    var FR_DEFAULTS = [ ['nameColumn', 'original_object_name'], ['idColumn', 'object_id'], ['extColumn', 'mime_type'],
+        ['sourceTemplate', '{PREFIX}.OID{ID}{EXT}'], ['idPadding', '5'], ['paddingBasis', 'MaxId'], ['reverse', 'false'],
+        ['force', 'false'], ['whatIf', 'false'], ['summaryOnly', 'false'], ['csvDelimiter', ';'], ['csvCharset', 'windows-1252'],
+        ['maxReport', '30'] ];
+    function frDefault(name) { for (var k = 0; k < FR_DEFAULTS.length; k++) if (FR_DEFAULTS[k][0] === name) return FR_DEFAULTS[k][1]; return ''; }
+    function frSeed(n) {
+        n.params = n.params || [];
+        FR_DEFAULTS.forEach(function (d) { if (nodeParam(n, d[0]) === '') n.params.push({ name: d[0], value: d[1] }); });
+    }
+    /** The executor's yes(): yes/true/1/on, case-insensitive. */
+    function frYes(v) { var s = String(v || '').trim().toLowerCase(); return s === 'yes' || s === 'true' || s === '1' || s === 'on'; }
+    /** What the step will look for and rename to, for id 1: what the executor builds, as far as the panel can know it. */
+    function frPreview(n) {
+        var tmpl = String(nodeParam(n, 'sourceTemplate') || '').trim() || frDefault('sourceTemplate');
+        var prefix = String(nodeParam(n, 'prefix') || '').trim();
+        var padRaw = String(nodeParam(n, 'idPadding') || '').trim() || frDefault('idPadding');
+        var nameCol = String(nodeParam(n, 'nameColumn') || '').trim() || frDefault('nameColumn');
+        var extCol = String(nodeParam(n, 'extColumn') || '').trim() || frDefault('extColumn');
+        var problems = [];
+        var id = '1';
+        if (!/^[0-9]+$/.test(padRaw)) problems.push('idPadding must be a whole number, 0 for automatic');
+        else if (parseInt(padRaw, 10) === 0) id = '1 (padded from the data)';
+        else { while (id.length < parseInt(padRaw, 10)) id = '0' + id; }
+        var built = tmpl.split('{PREFIX}').join(prefix).split('{ID}').join(id).split('{EXT}').join('<' + extCol + '>');
+        built = built.replace(/\{([^{}]+)\}/g, function (m, c) { return '<' + c + '>'; });
+        if (tmpl.indexOf('{ID}') < 0 && !/\{(?!PREFIX\}|EXT\})[^{}]+\}/.test(tmpl)) problems.push('the template has neither {ID} nor a {column}: every row would build the same name');
+        if (/[\\/:]/.test(prefix + tmpl.split('{').join('').split('}').join(''))) problems.push('a name, not a path: \\ / and : make every row unusable');
+        var target = '<' + nameCol + '>';
+        var rev = frYes(nodeParam(n, 'reverse'));
+        return { from: rev ? target : built, to: rev ? built : target, problems: problems };
     }
     function nodeParam(n, name) { if (!n.params) return ''; for (var k = 0; k < n.params.length; k++) if (n.params[k].name === name) return n.params[k].value; return ''; }
     function delDirOptions(i) { var o = ''; for (var k = 0; k < i; k++) { var nd = wf.nodes[k]; if (nd && nd.kind === 'STEP' && nd.id) { o += '<option value="' + attresc('${dir.' + nd.id + '}') + '">'; } } return o; }
@@ -1017,6 +1052,7 @@
                     '<option value="json2csv"' + (ex === 'json2csv' ? ' selected' : '') + '>json2csv (JSON files \u2192 one flat CSV, one file per row)</option>' +
                     '<option value="ftpsend"' + (ex === 'ftpsend' ? ' selected' : '') + '>ftpsend (deliver files to an FTPS server)</option>' +
                     '<option value="objpack"' + (ex === 'objpack' ? ' selected' : '') + '>objpack (build a Transarch object submission: tar + md5)</option>' +
+                    '<option value="filerename"' + (ex === 'filerename' ? ' selected' : '') + '>filerename (rename the files of a directory from a CSV mapping)</option>' +
                     '</select></div>';
                 h += '<div class="field wide"><label>Script / executable (relative to scripts dir or absolute)' + (isExternal(ex) ? ' *' : '') + '</label>' +
                     '<input value="' + attresc(n.script) + '" placeholder="' + (isExternal(ex) ? 'Prepare-Feed.ps1 | tool.bat | app.jar' : '(not used for this executor)') + '" oninput="updNode(' + i + ',\'script\',this.value)"' + (isExternal(ex) ? '' : ' disabled') + '></div>' +
@@ -1875,6 +1911,69 @@
                     h += '</div>';
 
                     h += '<div class="dim small" style="margin-top:4px">Writes <code>.audit.json</code>, <code>.metadata.csv</code>, <code>.control</code>, <code>.tar</code> and <code>.md5</code>. The md5 sits <b>beside</b> the tar, not inside it. Objects are streamed from the objects directory straight into the archive, so no temporary copy is made. Counters: <b>${submissionBaseName}</b>, <b>${objectCount}</b>, <b>${metadataRows}</b>, <b>${skippedRows}</b>, <b>${tarFile}</b>, <b>${md5File}</b>, <b>${tarBytes}</b>, <b>${md5}</b>.</div>';
+                } else if (ex === 'filerename') {
+                    var frp = frPreview(n);
+                    var frRev = frYes(nodeParam(n, 'reverse'));
+                    var frPad = String(nodeParam(n, 'idPadding') || '').trim();
+                    var frAuto = frPad === '0';
+                    var frBasis = nodeParam(n, 'paddingBasis') || 'MaxId';
+                    var frCs = nodeParam(n, 'csvCharset');
+                    var frCharsets = ['windows-1252', 'UTF-8', 'ISO-8859-1', 'ISO-8859-15', 'UTF-16LE', 'UTF-16BE'];
+                    if (frCs && frCharsets.indexOf(frCs) < 0) frCharsets.push(frCs);
+
+                    h += '<div class="sub"><div class="sub-h">Mapping CSV</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>CSV path *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'csvPath')) + '" placeholder="${dir.EXTRACT}/map.csv" title="One row per file. Read the way the script read it with Import-Csv: quoted values may hold the delimiter or a line break, blank lines are skipped." oninput="setNodeParam(' + i + ',\'csvPath\',this.value)"></div>' +
+                        '<div class="field"><label>Delimiter</label><input value="' + attresc(nodeParam(n, 'csvDelimiter')) + '" placeholder=";" maxlength="3" title="One character, or the word tab." oninput="setNodeParam(' + i + ',\'csvDelimiter\',this.value)"></div>' +
+                        '<div class="field"><label>Charset</label><select onchange="setNodeParam(' + i + ',\'csvCharset\',this.value)" title="A byte-order mark in the file wins over this, as it did in the script.">';
+                    frCharsets.forEach(function (cs) { h += '<option value="' + attresc(cs) + '"' + ((frCs || 'windows-1252') === cs ? ' selected' : '') + '>' + esc(cs) + '</option>'; });
+                    h += '</select></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>New-name column</label><input value="' + attresc(nodeParam(n, 'nameColumn')) + '" placeholder="original_object_name" title="The name each file must take (or, reversed, the name it has now). Column names match regardless of case." oninput="setNodeParam(' + i + ',\'nameColumn\',this.value)" onchange="renderNodes()"></div>' +
+                        '<div class="field"><label>Id column {ID}</label><input value="' + attresc(nodeParam(n, 'idColumn')) + '" placeholder="object_id" title="A number is zero-padded to the padding width; anything else is used as written." oninput="setNodeParam(' + i + ',\'idColumn\',this.value)"></div>' +
+                        '<div class="field"><label>Extension column {EXT}</label><input value="' + attresc(nodeParam(n, 'extColumn')) + '" placeholder="mime_type" title="Dot included, e.g. .pdf. Required only when the template contains {EXT}." oninput="setNodeParam(' + i + ',\'extColumn\',this.value)" onchange="renderNodes()"></div></div>';
+                    h += '</div>';
+
+                    h += '<div class="sub"><div class="sub-h">Names on disk</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Directory *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'directory')) + '" placeholder="${landingIn}" title="Only the files directly in it; subdirectories are neither searched nor renamed." oninput="setNodeParam(' + i + ',\'directory\',this.value)"></div>' +
+                        '<div class="field"><label>Direction</label><select onchange="setNodeParam(' + i + ',\'reverse\',this.value); renderNodes()">' +
+                        '<option value="false"' + (!frRev ? ' selected' : '') + '>template \u2192 column (rename)</option>' +
+                        '<option value="true"' + (frRev ? ' selected' : '') + '>column \u2192 template (rollback)</option></select></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Template of the name on disk</label><input value="' + attresc(nodeParam(n, 'sourceTemplate')) + '" placeholder="{PREFIX}.OID{ID}{EXT}" title="{PREFIX} the prefix, {ID} the padded id, {EXT} the extension column, any other {Name} the value of that column (case-sensitive here)." oninput="setNodeParam(' + i + ',\'sourceTemplate\',this.value)" onchange="renderNodes()"></div>' +
+                        '<div class="field wide"><label>Prefix {PREFIX}</label><input value="' + attresc(nodeParam(n, 'prefix')) + '" placeholder="tf0005756.20260923.S001.V001" title="Typically the feed stem. Empty removes {PREFIX}." oninput="setNodeParam(' + i + ',\'prefix\',this.value)" onchange="renderNodes()"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Id padding</label><input type="number" min="0" value="' + attresc(nodeParam(n, 'idPadding')) + '" placeholder="5" title="Width {ID} is zero-padded to. 0 = automatic, from the basis on the right." oninput="setNodeParam(' + i + ',\'idPadding\',this.value)" onchange="renderNodes()"></div>' +
+                        '<div class="field wide"><label>Automatic padding from' + (frAuto ? '' : ' <span class="dim">(not in effect: padding is ' + esc(frPad || '5') + ')</span>') + '</label><select onchange="setNodeParam(' + i + ',\'paddingBasis\',this.value)">' +
+                        '<option value="MaxId"' + (frBasis.toLowerCase() === 'maxid' ? ' selected' : '') + '>MaxId \u2014 digits of the largest id in the CSV</option>' +
+                        '<option value="RowCount"' + (frBasis.toLowerCase() === 'rowcount' ? ' selected' : '') + '>RowCount \u2014 digits of the CSV row count</option>' +
+                        '<option value="DirectoryCount"' + (frBasis.toLowerCase() === 'directorycount' ? ' selected' : '') + '>DirectoryCount \u2014 digits of the file count in the directory</option></select></div></div>';
+                    h += '<div class="dim small">Looks for <code>' + esc(frp.from) + '</code> and renames it to <code>' + esc(frp.to) + '</code>' +
+                        (frp.problems.length ? ' <span style="color:#c0392b">' + esc(frp.problems.join('; ')) + '</span>' : '') + '</div>';
+                    h += '</div>';
+
+                    h += '<div class="sub"><div class="sub-h">Safety and report</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Dry run (WhatIf)</label><select onchange="setNodeParam(' + i + ',\'whatIf\',this.value); renderNodes()">' +
+                        '<option value="false"' + (!frYes(nodeParam(n, 'whatIf')) ? ' selected' : '') + '>no \u2014 rename</option>' +
+                        '<option value="true"' + (frYes(nodeParam(n, 'whatIf')) ? ' selected' : '') + '>yes \u2014 check and report only</option></select></div>' +
+                        '<div class="field"><label>On collisions</label><select onchange="setNodeParam(' + i + ',\'force\',this.value); renderNodes()">' +
+                        '<option value="false"' + (!frYes(nodeParam(n, 'force')) ? ' selected' : '') + '>abort, nothing renamed</option>' +
+                        '<option value="true"' + (frYes(nodeParam(n, 'force')) ? ' selected' : '') + '>force: skip colliding rows, rename the rest</option></select></div>' +
+                        '<div class="field"><label>Per-file lines</label><select onchange="setNodeParam(' + i + ',\'summaryOnly\',this.value)">' +
+                        '<option value="false"' + (!frYes(nodeParam(n, 'summaryOnly')) ? ' selected' : '') + '>one line per file</option>' +
+                        '<option value="true"' + (frYes(nodeParam(n, 'summaryOnly')) ? ' selected' : '') + '>summary only</option></select></div>' +
+                        '<div class="field"><label>Max names listed</label><input type="number" value="' + attresc(nodeParam(n, 'maxReport')) + '" placeholder="30" title="Per category. Counts are always complete; only the lists stop here." oninput="setNodeParam(' + i + ',\'maxReport\',this.value)"></div></div>';
+                    h += '<div class="form-row"><div class="field wide"><label>Extra log file (optional)</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'logFile')) + '" placeholder="(step log only)" title="Every line also written here. An existing directory gets rename-map-yyyyMMdd-HHmmss.log inside it." oninput="setNodeParam(' + i + ',\'logFile\',this.value)"></div></div>';
+                    if (frYes(nodeParam(n, 'force'))) {
+                        h += '<div class="dim small" style="color:#b9770e">With force, rows whose target already exists or repeats an earlier row are skipped and counted, and the step still ends with exit 2.</div>';
+                    }
+                    if (frYes(nodeParam(n, 'whatIf'))) {
+                        h += '<div class="dim small" style="color:#b9770e">Dry run: every check runs and each rename is printed as <code>What if:</code>, but no file is touched. <b>${wouldRename}</b> counts them.</div>';
+                    }
+                    h += '</div>';
+                    h += '<div class="dim small" style="margin-top:4px">The whole mapping is checked before the first rename: two rows producing the same name, or a name already taken on disk, stop the step with nothing renamed. Exit 0 all done, 2 some rows not applied, 1 error or aborted. Counters: <b>${renamed}</b>, <b>${wouldRename}</b>, <b>${sourceNotFound}</b>, <b>${skippedTargetExists}</b>, <b>${unusableRows}</b>, <b>${duplicateTargets}</b>, <b>${targetsOnDisk}</b>, <b>${renameFailed}</b>, <b>${mappingRows}</b>, <b>${idPaddingUsed}</b>, <b>${firstLookedFor}</b>.</div>';
                 } else if (ex === 'encoding') {
                     var encFrom = nodeParam(n, 'from');
                     var charsets = ['', 'windows-1252', 'ISO-8859-1', 'ISO-8859-15', 'UTF-8', 'UTF-16', 'UTF-16LE', 'UTF-16BE', 'IBM500', 'Cp1140'];
@@ -2199,6 +2298,16 @@
                     if (!String(nodeParam(n, 'targetDestination') || '').trim()) errs.push(label + ' (' + n.id + '): objpack needs targetDestination for a TAR-packaged submission');
                     if (!String(nodeParam(n, 'metadataCsv') || '').trim()) errs.push(label + ' (' + n.id + '): objpack needs metadataCsv');
                     if (!String(nodeParam(n, 'objectsDir') || '').trim()) errs.push(label + ' (' + n.id + '): objpack needs objectsDir');
+                }
+                if (ex === 'filerename') {
+                    if (!String(nodeParam(n, 'csvPath') || '').trim()) errs.push(label + ' (' + n.id + '): filerename needs the mapping CSV (csvPath)');
+                    if (!String(nodeParam(n, 'directory') || '').trim()) errs.push(label + ' (' + n.id + '): filerename needs the directory whose files are renamed');
+                    var frD = String(nodeParam(n, 'csvDelimiter') || '');
+                    if (frD && frD.length !== 1 && frD.trim().toLowerCase() !== 'tab') errs.push(label + ' (' + n.id + '): the CSV delimiter must be one character or the word tab');
+                    var frPd = String(nodeParam(n, 'idPadding') || '').trim();
+                    if (frPd && frPd.indexOf('${') < 0 && !/^[0-9]+$/.test(frPd)) errs.push(label + ' (' + n.id + '): idPadding must be a whole number, 0 for automatic');
+                    var frMr = String(nodeParam(n, 'maxReport') || '').trim();
+                    if (frMr && frMr.indexOf('${') < 0 && !/^-?[0-9]+$/.test(frMr)) errs.push(label + ' (' + n.id + '): maxReport must be a whole number');
                 }
                 if (ex === 'ftpsend') {
                     if (!String(nodeParam(n, 'target') || '').trim()) errs.push(label + ' (' + n.id + '): ftpsend needs an FTPS target');

@@ -134,6 +134,7 @@ OpenProteo deliberately **ships no database driver**. Bundling one per vendor wo
 - **json2csv** — read the JSON files matching a wildcard mask in a directory and write one flat CSV whose shape is the feed's dataschema, one row per file. A mapper pairs each dataschema column with a JSON attribute path, with per-column types (String, Number, Date, MIMEType, Serial, ObjectName). Splits by rows and/or MB like the SQL export. See The json2csv step below.
 - **ftpsend** — deliver the files of a packaging directory to an FTPS server over explicit TLS, authenticating with a client certificate held in a PKCS#12 file. An ordered list of file masks decides what is sent and in what order; every upload is verified with `SIZE` against the local byte count and the first failure ends the step. See The ftpsend step below.
 - **objpack** — build a Transarch **object submission**: renamed objects, metadata CSV, audit JSON, control file, `.tar` and `.md5`, from a source metadata CSV and a directory of objects. One CSV row per object. Objects are streamed into the archive from where they already are, so no temporary copy is made. See The objpack step below.
+- **filerename** — rename the files of a directory according to a CSV mapping: the name on disk is built from a template and an id, the new name is a column. The whole mapping is checked before the first rename, and a collision stops the step with nothing renamed. The executor form of `Rename-FilesFromCsvMap.ps1`. See The filerename step below.
 - **split** — split an **existing file** into parts by rows and/or MB, using the same logic
   as the SQL export. Use it to run a LOOP only over the final steps, after validation and
   anonymization (see Splitting and Loops).
@@ -1200,3 +1201,105 @@ Two consequences follow, and the first has bitten people before:
 The **non-TAR delivery path** — the one used over AzCopy and Axway, with the same four files and no tar — is not built. It has different size limits and does not need a target destination, and nobody has asked for it.
 
 The **approved delimiter list** was never obtained, so `outDelimiter` is accepted as typed and not validated against it. Choose one the archive has agreed with your feed.
+
+## The filerename step
+
+`filerename` renames the files of one directory according to a mapping held in a CSV: the name each file has on disk is **built** from a template and an id, and the name it must take is **read** from a column. It replaces the PowerShell script `Rename-FilesFromCsvMap.ps1` and does the same thing, with the same parameters, the same defaults, the same checks in the same order, the same log lines and the same exit codes. The few places where it deliberately differs are listed at the end of this section.
+
+The typical use is giving objects their original names back: `tf0005756.20260923.S001.V001.OID00001.json` becomes `TF0005756_ACCOUNT.DEBIT.INT.GG_GB0010007_1.2`, the value of `original_object_name` on that row. Set **Direction** to **column → template** and the same CSV renames them back, which is what a rollback needs.
+
+### How the name on disk is built
+
+The template, `{PREFIX}.OID{ID}{EXT}` by default, is filled in four steps, in this order: `{PREFIX}` becomes the prefix, `{ID}` the padded id, `{EXT}` the value of the extension column, and then **any other** `{Name}` becomes the value of the column with that name. So `{PREFIX}.{docid}{EXT}` names each file after its `docid` column. The replacements are applied one after the other, exactly as the script applied them, so a prefix that itself contains `{ID}` has it replaced too.
+
+Column parameters (new-name, id and extension column) match the CSV header **regardless of case**, as PowerShell property names do. A `{Name}` token inside the template does **not**: it must be written with the header's exact case.
+
+The designer shows, under the fields, the name the step will look for on the first row and what it will rename it to, and says so when the template has neither `{ID}` nor a column token (every row would build the same name) or contains a path separator.
+
+### The id, and its padding
+
+An id that is a whole number is zero-padded to **Id padding** digits, 5 by default, giving `OID00001`. Anything else is used exactly as written, so `A12` stays `A12`. A number means an optional sign and plain digits within the 32-bit range, which is what the script's `int.TryParse` accepted; `2147483648` is not a number here and is used as written.
+
+A negative id is padded the way the script padded it, with the zeros **before** the sign: `-3` at width 5 is `000-3`. It is reproduced rather than corrected because it is the name the script would have looked for.
+
+Padding `0` means **automatic**: the width is derived from the data instead of being stated, which removes the most common cause of a run that finds nothing, a padding that does not match what the producing system used. **Automatic padding from** says what it is derived from.
+
+- MaxId (default) — the number of digits of the largest id in the CSV: ids up to 46 give width 2, up to 1200 give width 4. If no id is a number at all, the width is the length of the longest id as written.
+- RowCount — the number of digits of the row count. It differs from MaxId whenever the ids are not a dense sequence starting at 1.
+- DirectoryCount — the number of digits of the number of files in the directory. Use it when the directory holds exactly the files being renamed and the CSV is a subset.
+
+A value longer than the width is never truncated: padding only adds zeros. The width actually used is in the log and in `${idPaddingUsed}`.
+
+### Nothing is renamed until the whole mapping is checked
+
+Every row is turned into a planned rename first, and three kinds of problem are found before the first file is touched rather than halfway through:
+
+- an **unusable row** — its id or its new name is empty, or one of the two names is not a bare file name: it contains `\` or `/`, the sequence `..` anywhere, a `:`, or a character Windows does not allow in a file name. The row is skipped and counted.
+- a **duplicate target** — the row would produce a name an earlier row already produces. The later row is left out.
+- a **target already on disk** — the new name is already taken by a file that is not itself being renamed away.
+
+A duplicate target or a target already on disk **stops the step with nothing renamed**, because a rename that collides either fails or overwrites, and discovering that at row 4000 of 5000 leaves the directory in a state nobody can describe. Set **On collisions** to **force** to proceed anyway: the colliding rows are then skipped and counted, and the rest is renamed. Names are compared regardless of case throughout, as Windows compares them.
+
+### What the check does not see: chains and swaps
+
+The check looks at the directory as it was before the run, and a target that another row is going to rename away counts as free. That is right for most mappings and wrong for one shape: **a chain in the wrong order**. With A → B on one row and B → C on a later row, the first rename finds B still there and fails, the second then succeeds, and the directory is left half renamed. A swap, A → B and B → A, fails the same way. The script behaves exactly like this, and so does the step, which reports each failed rename as a `FAIL` line and ends with exit 1. If a mapping can contain chains, order the rows so each target is already free when it is reached, or rename in two passes through a temporary name.
+
+### Dry run
+
+**Dry run** does everything except rename: the CSV is read, the mapping is built and checked, collisions still stop the step, and each rename that would happen is printed as a `What if:` line, word for word what the script's `-WhatIf` printed. `${renamed}` stays 0 and `${wouldRename}` counts them. It is the first thing to run against a new mapping.
+
+### Reading the CSV
+
+The CSV is read the way PowerShell's `Import-Csv` reads it, because the step has to see the same rows the script saw. The reader is a port of PowerShell's own and was compared with it on several hundred files. What that means in practice:
+
+- a quoted value may contain the delimiter and real line breaks, and `""` inside quotes is one quote;
+- blanks at the start of a value are dropped; at the end of an unquoted value they are kept; the id, the new name and the extension are trimmed anyway;
+- blank lines, and lines holding only blanks, are skipped;
+- a row with fewer values than the header leaves the missing ones empty, and extra values are ignored;
+- an empty header name becomes `H1`, `H2` and so on, and two header names differing only in case stop the step;
+- a first line starting with `#` is skipped, as the `#TYPE` line is.
+
+**Charset** is `windows-1252` by default, but a byte-order mark at the start of the file wins over it, as it did in the script. **Delimiter** is one character, `;` by default, or the word `tab`, since a tab cannot be typed into the field and a literal tab in an XML attribute is turned into a space by the XML parser unless written `&#9;`.
+
+### The directory is listed once
+
+The directory is listed once at the start, files only, and every question of the form "does this name exist" is answered from that list, so the time does not grow with a round trip per row on a network share. Subdirectories are neither searched nor renamed, even when one has the name a row is looking for. A file that appears in the directory while the step runs is not seen.
+
+### Exit codes and outputs
+
+The exit codes are the script's: **0** every row was applied, **2** the step completed but some rows were not applied (source not found, target already there, unusable or duplicate rows), **1** an error, a run stopped because of collisions, a failed rename, or a Stop. OpenProteo treats any exit code other than 0 as a failed step, which is also what happened to the script when it ran as a `powershell` step; a gate can branch on the counters instead.
+
+Outputs: `${renamed}`, `${wouldRename}`, `${sourceNotFound}`, `${skippedTargetExists}`, `${unusableRows}`, `${duplicateTargets}`, `${targetsOnDisk}`, `${renameFailed}`, `${mappingRows}`, `${idPaddingUsed}` and `${firstLookedFor}`, the first name the step looked for. When sources are missing the log prints that name next to the list: comparing it with a real file name is usually enough to see whether the prefix, the template or the padding is wrong.
+
+### Parameters
+
+Required: `csvPath`, `directory`. Choosing `filerename` in the designer writes every other parameter into the step with its default, so the saved workflow states every value the run uses. A parameter left empty means its default.
+
+- `csvPath` — the mapping CSV. A relative path is resolved against `${feedDir}`.
+- `csvDelimiter` — default `;`; one character or `tab`.
+- `csvCharset` — default `windows-1252`; a byte-order mark wins.
+- `nameColumn` — the new name, default `original_object_name`.
+- `idColumn` — the id used by `{ID}`, default `object_id`.
+- `extColumn` — the extension used by `{EXT}`, dot included, default `mime_type`. Required only when the template contains `{EXT}`.
+- `directory` — the directory whose files are renamed. A relative path is resolved against `${feedDir}`.
+- `sourceTemplate` — default `{PREFIX}.OID{ID}{EXT}`.
+- `prefix` — the value of `{PREFIX}`, typically the feed stem; empty by default.
+- `idPadding` — default 5; 0 for automatic.
+- `paddingBasis` — `MaxId` (default), `RowCount` or `DirectoryCount`; used only when `idPadding` is 0.
+- `reverse` — default `false`; `true` renames from the column back to the template form.
+- `force` — default `false`; `true` skips colliding rows instead of stopping.
+- `whatIf` — default `false`; `true` is the dry run.
+- `summaryOnly` — default `false`; `true` drops the line per file. `FAIL` lines are always written.
+- `maxReport` — default 30: how many names are listed per category. Counts are always complete.
+- `logFile` — optional: every line is also written to this file, in UTF-8 with the script's timestamps. An existing directory gets `rename-map-yyyyMMdd-HHmmss.log` inside it. The `What if:` lines go only to the step log, as they went only to the console.
+
+### Where it differs from the script
+
+- **The extension column is required only when it is used.** The script refused a CSV without its `-ExtColumn` column even when the template had no `{EXT}` and the value would have been thrown away. When the column exists it is read exactly as before.
+- **Counts are real counts.** The script reported the size of its lists, which stop at `-MaxReport`, so 100 unusable rows were reported as 30. The lists are still capped, with `... +N more` for the rest.
+- **The dry run says how many renames it would have done**, in one extra summary line and in `${wouldRename}`.
+- **Stop is honoured between two renames**: the step ends cleanly with exit 1 and a line saying how many files were renamed, instead of being killed mid-operation.
+
+Relative paths are resolved against `${feedDir}` rather than the current directory, and a character Windows does not allow in a file name is refused on every host, where the script refused only what the host it ran on refused. Nothing else changes which file gets which name.
+
+One thing worth knowing about the script itself: its default `-Encoding windows-1252` is not accepted by `Import-Csv` in Windows PowerShell 5.1, whose `-Encoding` takes only a fixed list of names, so with that default the script runs only under PowerShell 7. The step has no such limit.

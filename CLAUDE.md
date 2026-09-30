@@ -3486,3 +3486,33 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   when the command returned and produced nothing** — found by checking the process, not the launch.
   Run instead in four foreground slices.
 * Notes in `.claude/2026-09-30-objpack-source-object-id.md`.
+
+## filerename — the executor form of Rename-FilesFromCsvMap.ps1
+* New internal executor: renames the files of a directory from a CSV mapping, name on disk built
+  from a template (`{PREFIX}`, `{ID}` padded, `{EXT}`, any `{Column}`), new name from a column.
+  Same 16 parameters plus `-WhatIf`, same defaults, checks, log lines and exit codes (0 / 2 / 1) as
+  the script. Spec `.claude/FILE_RENAME_EXECUTOR.md`, with the intersections of its rules (§3).
+* **"Every parameter explicit in the viewer"**: all 17 are panel fields, and choosing the executor
+  in the designer WRITES the defaults into the step (`frSeed`, called from `updNodeR` like the
+  `validateChecks` seeding), never overwriting a value already there. The saved XML states every
+  value the run uses.
+* **The oracle was the script itself**, on pwsh 7.4.6 for Linux downloaded from the PowerShell
+  GitHub releases — `github.com` is reachable from the sandbox. 656 executor scenarios and 623 CSV
+  texts compared with the real script and the real `Import-Csv`: 0 unexplained differences. Worth
+  reusing for the next PowerShell port instead of reading the script and predicting it.
+* The CSV is read by `rename/PsCsvReader`, a port of PowerShell's `ImportCsvHelper`, NOT by
+  `FlatCsvReader`: the script accepts quoted line breaks, skips blank lines, keeps trailing blanks
+  of unquoted values, lets a BOM override the charset. A different reader would see different rows.
+* **JDK 8 `Files.move` on Windows is a no-op for a case-only rename** (`WindowsFileCopy.move`
+  returns early when source and target are the same file); .NET renames. Handled with
+  `ATOMIC_MOVE` plus a `toRealPath()` read-back. From the jdk8u source, not run on Windows.
+* **The script's default `-Encoding windows-1252` does not pass `Import-Csv`'s `ValidateSet` on
+  Windows PowerShell 5.1** (5.1-era source): with its defaults it runs only on PowerShell 7.
+* Four stated deviations: `{EXT}` column required only when used; real counts (the script's were
+  capped at `MaxReport`); dry run reports `${wouldRename}`; Stop honoured between renames. Chains
+  and swaps (A->B then B->C) pass the pre-check and fail at run time, as in the script — Gate 0 Q3.
+* Mutations: core 23/24 (one equivalent on the outcome, caught by the parser differential),
+  parser 8/8, wiring 10/10, panel 11/11. Two survivors were real suite gaps (literal tab; a stray
+  `</div>` invisible with a single card) and were closed.
+* NOT verified: `mvn clean package`, any run on Windows, Windows PowerShell 5.1, a real browser.
+* Note in `.claude/2026-09-30-filerename-executor.md`.
