@@ -1,66 +1,50 @@
-objpack: a source column named object_id is not the id
+CLAUDE.md: overlapping rules in a spec must decide their intersection
 
-The discard option shipped yesterday. The next run on tf0005766 discarded
-one stale row and then failed with
-  the mapped object_id must ascend from 1 with no gaps (spec 3.2): row 6 on
-  line 8 has object_id 7, expected 6. Leave map.objectId unset to have the
-  packager assign 1..N.
-- while map.objectId WAS unset. The message told the user to do what they
-had already done.
+A contract amendment, no code.
 
-The same run carried the first real measurement of yesterday's lookup
-change: "read 100 rows, paired 100 objects in 0.5s", against 101.4 s the
-day before on the same share.
+Twice in the same executor, in the same month, a spec that said two
+things produced code that followed the worse half:
 
-TWO DEFECTS, STACKED.
+- objpack's objectSource default. The prose said "order is not the
+  default", the parameter table said it was. The code followed the table:
+  seven wrong row/object pairings out of seven on a real feed, stopped only
+  by chance by a mime-type check. Had every object shared an extension,
+  seven documents would have been archived under a neighbour's metadata.
+- objpack's object_id. "An unmapped role falls back to the Transarch name"
+  against "an unmapped object_id means assign 1..N". The code followed the
+  first, and the row-discard option was unusable on every real metadata
+  CSV, all of which carry an object_id column. The PowerShell script being
+  replaced stated the answer plainly ("Se object_id e' presente nel
+  sorgente lo ignoriamo"); the spec had not carried it over.
 
-The specification contradicted itself and the code followed the wrong
-half. Section 3.2 of OBJECT_PACKAGE_EXECUTOR.md said both that "an unmapped
-role falls back to the Transarch name" and that "leaving objectId unmapped
-means assign 1..N". For a CSV with an object_id column those cannot both
-hold, and every Transarch-shaped metadata CSV has one - it is a mandatory
-column. The code took the fallback, so a column merely NAMED object_id
-became the id. The PowerShell script took the other reading, explicitly:
-"Se object_id e' presente nel sorgente lo ignoriamo" (its lines 214-217).
-So discarding any row from a normally shaped CSV left a gap and failed: the
-discard option was unusable on exactly the files it was built for. This is
-the second time in this executor that a spec saying two things produced
-code following the worse one; the first was the positional-pairing default.
+Added under "Principi non negoziabili", directly after Spec-first so it
+sits in the part of the contract that is always read in full: when two
+statements in a spec can apply to the same case, the spec names which one
+wins on that case, with an example - next to BOTH statements; prose and
+parameter table agree on defaults and change together; a reference
+contract's behaviour on the intersection is quoted; a contradiction found
+later is corrected where it originated, struck through.
 
-The guard written to prevent this very message checked the wrong thing.
-Yesterday's patch added a clear error for discarding under a mapped
-object_id, testing whether the map.objectId PARAMETER was set. Here the id
-came through the name fallback, the parameter was empty, the guard never
-fired, and the confusing error it was meant to replace appeared anyway. Its
-test used an explicit mapping. NO TEST IN THE SUITE HAD AN UNMAPPED
-OBJECT_ID COLUMN - the shape of every real metadata file.
+And a corollary from the same incident: a test must present a case the way
+production presents it. The guard for "discarding under a mapped object_id"
+tested the map.objectId parameter; in production the id arrived through the
+column name, the parameter was empty, and the guard never fired. Its test
+used an explicit mapping, and no test in the suite had an unmapped
+object_id column - the shape of every real file. The mutation that removes
+a guard must fail its test, and the failure must distinguish the new
+message from the old one rather than match a phrase they share.
 
-THE FIX. object_id no longer falls back. Only an explicit map.objectId
-makes a source column the id. A column merely named object_id is set aside,
-with a live-console line saying so and how to use it instead, and the kept
-rows are numbered 1..N - the script's contract. The spec is corrected where
-the contradiction originated, struck through rather than deleted.
+Pre-commit checklist item 8 points back to the principle, so it is checked
+at the moment of delivery and not only remembered.
 
-WHY NO RUN THAT WORKED CAN CHANGE. A fallback-mapped object_id only ever
-succeeded when its values were exactly 1..N in row order; the sequence
-check enforced it. Assigning 1..N yields the same values. Only
-configurations that used to fail behave differently. A test asserts it on a
-source already numbered 1..4, and all 190 existing assertions passed
-unchanged after the fix.
+While reading the contract for this, two checks from "Verifica prima della
+consegna" turned out never to have been run on the designer changes made
+across the objpack and csvsql batches: no literal \n or \r inside inline
+<script> (the UBS proxy rewrites them), and no [[ / [( outside Thymeleaf
+comments. node --check had been run every time and catches neither. Both
+were run now on designer.html at 4af270a: zero occurrences of each. The
+scanner was first shown to find a planted \n and a stray [[ while allowing
+the /*[[...]]*/ form, so the zero is a real result.
 
-VERIFIED: 198 assertions. New tests reproduce the production shape - an
-unmapped object_id column 1..12, one stale row discarded - and assert
-eleven packaged, numbered 1..11 with no gap, the row after the discarded
-one taking id 6 where the source had 7, the source column not passed
-through twice, and the log line present. An unmapped source of 5,9,2 gets
-1,2,3; an explicit mapping is still the feed's own and still refused out of
-order. 62 mutations, ALL CAUGHT, including the one restoring the fallback -
-i.e. the code that produced the production error.
-
-The full mutation set now exceeds the five-minute limit on one command. A
-first attempt ran it "in the background"; it was killed when the command
-returned and produced nothing, which I noticed only by checking the process
-rather than trusting the launch. It was then run in the foreground in four
-slices, reporting per mutation.
-
-NOT VERIFIED: mvn clean package; a run on the real feed with this fix.
+Applies cleanly on 4af270a both before and after the pending object_id
+patch; the two touch different regions of CLAUDE.md.

@@ -289,6 +289,48 @@ quindi verificato tutto il verificabile, e **dichiarato** cio' che non lo e'.
   massa da Variables / matrice.
 * **Spec-first**: per una feature non banale, prima una `.md` in `.claude/` con
   le decisioni, poi implementazione a batch con conferma tra uno e l'altro.
+* **Regole che si sovrappongono: la spec decide il caso di intersezione, per
+  nome.** Quando due affermazioni di una spec possono applicarsi allo stesso
+  caso, la spec deve dire *quale vince su quel caso*, con un esempio concreto.
+  Una spec che dice due cose non resta ambigua: il codice ne sceglie una, e
+  nessuno si accorge quale finche' non arriva il dato reale. Successo **due
+  volte** nello stesso executor (`objpack`, settembre 2026), ogni volta con il
+  codice che segue la meta' peggiore:
+  - default di `objectSource`: la prosa diceva "order non e' il default", la
+    tabella parametri diceva il contrario. Il codice ha seguito la tabella: 7
+    accoppiamenti riga/oggetto sbagliati su 7 su un feed reale, fermati solo per
+    caso da un controllo sul mime type. Con estensioni tutte uguali, 7 documenti
+    sarebbero stati archiviati sotto i metadati del vicino.
+  - `object_id`: "un ruolo non mappato ricade sul nome Transarch" contro
+    "object_id non mappato = assegna 1..N". Il codice ha seguito la prima, e
+    l'opzione di scarto righe e' risultata inutilizzabile su ogni metadata CSV
+    reale, che ha sempre una colonna `object_id`.
+
+  Come applicarla:
+  1. Per ogni regola generale, cercare nella spec le eccezioni gia' dichiarate
+     altrove e scrivere il caso di intersezione **accanto a entrambe**, non in
+     una sola.
+  2. Prosa e tabella dei parametri devono dire la stessa cosa sui default. Chi
+     ne cambia una cambia l'altra nello stesso commit.
+  3. Se esiste un contratto di riferimento (lo script che si sostituisce, una
+     spec esterna), la spec dice cosa fa quel contratto sul caso di
+     intersezione e se lo si segue. Nel caso `object_id` lo script PowerShell
+     lo diceva in chiaro ("Se object_id e' presente nel sorgente lo
+     ignoriamo") e la spec non l'aveva riportato.
+  4. Una contraddizione scoperta si corregge **dove e' nata**, nella spec
+     (barrata, non cancellata), oltre che nel codice.
+* **Corollario: il test riproduce la forma del dato reale, non quella comoda.**
+  Un test che percorre una strada diversa da quella della produzione non
+  protegge la produzione. La guardia per "scarto con `object_id` mappato"
+  controllava il *parametro* `map.objectId`; in produzione l'id arrivava dal
+  nome della colonna, il parametro era vuoto e la guardia non e' mai scattata,
+  mostrando proprio il messaggio confuso che doveva sostituire. Il suo test
+  usava il mapping esplicito; nessun test della suite aveva una colonna
+  `object_id` non mappata, cioe' la forma di ogni file reale. Per ogni guardia:
+  il test deve presentare il caso **nel modo in cui arriva davvero**, e deve
+  fallire sul codice senza la guardia (mutazione) - e quel fallimento deve
+  distinguere il messaggio nuovo dal vecchio, non cercare una frase che hanno
+  in comune.
 * **Lingua**: conversazione in italiano; codice, commit e documentazione in
   inglese.
 * **Dichiarare i limiti**: se qualcosa non e' stato provato, dirlo nella
@@ -340,6 +382,10 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 6. **Nuovi executor interni** — verificare tutte e 4 le location di
    registrazione (vedi sezione sopra).
 7. **Java 8** — niente API ≥ 9.
+8. **Spec con regole sovrapposte** — se la consegna tocca una spec in
+   `.claude/`, ogni regola generale che ha un'eccezione dichiarata altrove ha
+   il caso di intersezione scritto accanto a entrambe, e prosa e tabella
+   parametri concordano sui default (vedi «Principi non negoziabili»).
 
 ## Mask pools: selezione per-file + gestione
 
