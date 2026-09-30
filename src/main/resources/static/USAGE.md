@@ -1105,7 +1105,7 @@ The source CSV rarely uses Transarch's column names, so the step maps them. Leav
 
 The four mandatory columns are written first and in that order, as the archive requires; **every other source column follows unchanged**, so the searchable attributes a feed cares about survive without being listed anywhere.
 
-`object_id` is the exception. Left unmapped, the step numbers the objects 1..N — normally what you want, since the id belongs to the submission rather than to the data. Map it and the values must already ascend from 1 with no gaps: anything else is **refused, not renumbered**, because silently replacing an id the feed chose would break every reference to it elsewhere.
+`object_id` is the exception, and the one role that does **not** fall back to its Transarch name. Left unmapped, the step numbers the objects 1..N — **even if the source CSV has a column called `object_id`**, which is set aside with a line in the log saying so. That is what the PowerShell script did, and it is what makes discarding a row possible: the id belongs to the submission, not to the data. Map it explicitly with `map.objectId` and the values must already ascend from 1 with no gaps: anything else is **refused, not renumbered**, because silently replacing an id the feed chose would break every reference to it elsewhere — and for the same reason, discarding rows under an explicit mapping is refused.
 
 #### The date format, and the one mask that looks right and is not
 

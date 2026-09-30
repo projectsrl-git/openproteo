@@ -1,90 +1,66 @@
-objpack: discard stale rows on request; look objects up instead of listing
+objpack: a source column named object_id is not the id
 
-A run on tf0005766 stopped with "line 7: record_business_date 20160921 is
-older than 120 months (spec 4)". The feed needs an option to leave such a
-row out rather than fail. The same run's console also answered the
-question the progress work was built for.
+The discard option shipped yesterday. The next run on tf0005766 discarded
+one stale row and then failed with
+  the mapped object_id must ascend from 1 with no gaps (spec 3.2): row 6 on
+  line 8 has object_id 7, expected 6. Leave map.objectId unset to have the
+  packager assign 1..N.
+- while map.objectId WAS unset. The message told the user to do what they
+had already done.
 
-DISCARDING. onStaleBusinessDate = warn | fail | skip replaces the
-failOnStaleBusinessDate checkbox. The boolean is still read, and still
-means fail, whenever the new setting is absent - so a workflow that ticked
-it, as this feed did, fails exactly as before until the choice is changed.
-The designer shows such a step as "fail the step".
+The same run carried the first real measurement of yesterday's lookup
+change: "read 100 rows, paired 100 objects in 0.5s", against 101.4 s the
+day before on the same share.
 
-The window now runs BEFORE object ids are assigned. It used to run in
-pre-flight, after ids and file names existed; skipping there would have
-left a gap in the OID sequence and a width computed from the pre-discard
-count. Kept rows are now numbered 1..N and the OID width follows N.
+TWO DEFECTS, STACKED.
 
-A discarded row is never silent. In a legal archive it is a document that
-does not arrive, so every one - stale under skip, or missing under
-onMissingObject=skip - goes to discarded_rows.<base>.csv in the output
-directory, with its source line, the reason and every original column. The
-name deliberately does NOT start with the submission base name, so a
-delivery mask like "<base>.*" can never send it to the archive. Exposed as
-${discardedFile}. The missing-object skip used to write one warning per
-row; it now shares the file and a single summary line, and warn mode for
-stale dates likewise reports one line with a count.
+The specification contradicted itself and the code followed the wrong
+half. Section 3.2 of OBJECT_PACKAGE_EXECUTOR.md said both that "an unmapped
+role falls back to the Transarch name" and that "leaving objectId unmapped
+means assign 1..N". For a CSV with an object_id column those cannot both
+hold, and every Transarch-shaped metadata CSV has one - it is a mandatory
+column. The code took the fallback, so a column merely NAMED object_id
+became the id. The PowerShell script took the other reading, explicitly:
+"Se object_id e' presente nel sorgente lo ignoriamo" (its lines 214-217).
+So discarding any row from a normally shaped CSV left a gap and failed: the
+discard option was unusable on exactly the files it was built for. This is
+the second time in this executor that a spec saying two things produced
+code following the worse one; the first was the positional-pairing default.
 
-Refused rather than guessed: discarding under a mapped object_id (an id the
-feed chose cannot be renumbered, and with rows gone it cannot ascend from
-1 - the message says so instead of the sequence error that would otherwise
-appear), and discarding every row.
+The guard written to prevent this very message checked the wrong thing.
+Yesterday's patch added a clear error for discarding under a mapped
+object_id, testing whether the map.objectId PARAMETER was set. Here the id
+came through the name fallback, the parameter was empty, the guard never
+fired, and the confusing error it was meant to replace appeared anyway. Its
+test used an explicit mapping. NO TEST IN THE SUITE HAD AN UNMAPPED
+OBJECT_ID COLUMN - the shape of every real metadata file.
 
-THE MEASUREMENT. The console showed
-  listed 19933 files in 101.4s
-  read 100 rows, paired 100 objects in 101.4s
-All 101 seconds went into listing the objects directory on P: - about 5 ms
-per file, two round trips each (isDirectory, then isFile) - to find 100
-files. The second line is cumulative; reading and pairing cost nothing.
+THE FIX. object_id no longer falls back. Only an explicit map.objectId
+makes a source column the id. A column merely named object_id is set aside,
+with a live-console line saying so and how to use it instead, and the kept
+rows are numbered 1..N - the script's contract. The spec is corrected where
+the contradiction originated, struck through rather than deleted.
 
-So in name mode without recursion the directory is no longer listed: each
-row's file is looked up directly, one call per row. Only when an exact name
-fails to resolve on a CASE-SENSITIVE file system is the directory listed,
-once, to match regardless of case as a listing always did. With recursion
-the listing stays. Case sensitivity is ASKED OF THE FILE SYSTEM, not assumed
-from the platform: the objects directory's own name with its case flipped
-must resolve to the same canonical path, so sibling folders that differ
-only in case do not fool it; if the probe cannot tell it answers
-"sensitive", and being wrong costs a listing - the old behaviour, slow but
-never incorrect. Names that are not plain file names (sub/x.json, ../m.csv)
-are never resolved as paths in name mode; a listing never matched them.
+WHY NO RUN THAT WORKED CAN CHANGE. A fallback-mapped object_id only ever
+succeeded when its values were exactly 1..N in row order; the sequence
+check enforced it. Assigning 1..N yields the same values. Only
+configurations that used to fail behave differently. A test asserts it on a
+source already numbered 1..4, and all 190 existing assertions passed
+unchanged after the fix.
 
-VERIFIED: 190 assertions, 60 mutations ALL CAUGHT. Two stale rows among
-twelve discarded, the ten kept numbered OID01..OID10, nothing stale or
-discarded in the package, the audit counting ten, the discards file's exact
-header and one line per discard with its source line, its name not
-starting with the base name; fail with the old message; the old boolean
-still failing and the new setting overriding it; warn giving one line;
-unknown values, all-discarded and mapped-id-with-discards refused. Two
-files found among 1502 with no listing; a case mismatch found through
-exactly one listing; a sibling OBJECTS folder not fooling the probe;
-sub/x.json and ../m.csv not resolved as paths.
+VERIFIED: 198 assertions. New tests reproduce the production shape - an
+unmapped object_id column 1..12, one stale row discarded - and assert
+eleven packaged, numbered 1..11 with no gap, the row after the discarded
+one taking id 6 where the source had 7, the source column not passed
+through twice, and the log line present. An unmapped source of 5,9,2 gets
+1,2,3; an explicit mapping is still the feed's own and still refused out of
+order. 62 mutations, ALL CAUGHT, including the one restoring the fallback -
+i.e. the code that produced the production error.
 
-Things that did not pass first time, none in the code. Two tests encoded
-the old behaviour (per-row skip warnings, a "listed" line in name mode) and
-now assert the new one. A fixture had an object_id column with empty
-values, which by the documented fallback counts as mapped - the step
-rightly refused it. MY OWN FIXTURE EDITS MISSED THEIR ANCHORS TWICE, once
-through a Python escape and once because an earlier attempt had already
-applied one; the script now asserts each anchor matches exactly once, and
-that assertion caught the second. TWO MUTATIONS SURVIVED AND BOTH EXPOSED
-WEAK TESTS: the "one warning line" test counted lines by their wording, so
-a differently worded flood slipped past - the mutation now reproduces the
-regression that actually existed; and the mapped-id test looked for "Leave
-map.objectId unset", which the OLD confusing message also contains - it now
-looks for "were discarded". A third mutation removed the only call that
-could throw IOException, leaving an unreachable catch that javac rejects;
-rewritten to compile. The output-documentation check missed md5 and
-md5File because its regex rejected digits; the guide was complete.
+The full mutation set now exceeds the five-minute limit on one command. A
+first attempt ran it "in the background"; it was killed when the command
+returned and produced nothing, which I noticed only by checking the process
+rather than trusting the launch. It was then run in the foreground in four
+slices, reporting per mutation.
 
-The designer's stale-mode line was executed under node, extracted verbatim:
-an existing step with the boolean set shows "fail", the new setting wins,
-and clearing the boolean on change does not bring "fail" back. Panel and
-executor: 35 parameters each way. Guide: 35/35 parameters, 9/9 outputs.
-
-NOT VERIFIED: mvn clean package. The probe's answer on the Windows share -
-getCanonicalPath returning the on-disk case is expected of JDK 8 on
-Windows but was not observed here; if it does not, a miss costs a listing
-and nothing else. A run on the real feed, which should now show a lookup
-line instead of a 101-second listing.
+NOT VERIFIED: mvn clean package; a run on the real feed with this fix.

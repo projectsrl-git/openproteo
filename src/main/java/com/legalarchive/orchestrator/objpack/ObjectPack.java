@@ -231,7 +231,23 @@ public final class ObjectPack {
         try {
             headers = Arrays.asList(r.header());
             sourceHeader = headers;
-            String cId    = resolve(mapObjectId, FALLBACK[0], headers, false);
+            // object_id is the one role that does NOT fall back to its Transarch name. The id
+            // belongs to the submission, not to the source: a source column that happens to be
+            // called object_id is ignored and the kept rows are numbered 1..N, exactly as the
+            // PowerShell script did ("Se object_id e' presente nel sorgente lo ignoriamo", its
+            // lines 214-217). Only an explicit map.objectId makes a source column the id. Falling
+            // back here made every Transarch-shaped CSV - which always has an object_id column -
+            // unable to discard a row, since the source ids then had a gap.
+            String cId    = resolve(mapObjectId, null, headers, false);
+            if (cId == null) {
+                for (String h : headers) {
+                    if (h.equalsIgnoreCase(FALLBACK[0])) {
+                        say("the source column '" + h + "' is not used as the id: object ids are assigned 1..N"
+                                + " (set map.objectId to use the source values instead)");
+                        break;
+                    }
+                }
+            }
             String cDate  = resolve(mapRecordBusinessDate, FALLBACK[1], headers, true);
             String cMime  = resolve(mapMimeType, FALLBACK[2], headers, true);
             String cName  = resolve(mapOriginalObjectName, FALLBACK[3], headers, true);

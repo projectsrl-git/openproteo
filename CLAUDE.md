@@ -3419,3 +3419,24 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   escape; an already-applied edit) — the script now asserts each anchor matches once, which caught
   the second. The output-doc check's regex rejected digits and missed `md5`; the guide was fine.
 * Notes in `.claude/2026-09-29-objpack-discard-and-direct-lookup.md`.
+
+## objpack — a source object_id column is not the id
+* Right after the discard option shipped, tf0005766 discarded one stale row and failed with the
+  sequence error advising "Leave map.objectId unset" — **while it was unset**. Same run, first real
+  measurement of the lookup change: **0.5 s** to pair 100 rows, against 101.4 s the day before.
+* **§3.2 of the spec contradicted itself** ("an unmapped role falls back to the Transarch name" vs
+  "leaving objectId unmapped means assign 1..N") and the code followed the fallback — so a column
+  merely NAMED `object_id`, present in every Transarch-shaped CSV, became the id, and any discard
+  left a gap. The PowerShell script dropped that column explicitly (its lines 214-217). **Second time
+  a self-contradicting spec produced code following the worse half** (the first: positional pairing).
+* **The guard added with the discard option checked the wrong thing**: it tested the `map.objectId`
+  PARAMETER, but the id came through the name fallback, so the guard never ran. Its test used an
+  explicit mapping. **No test had an unmapped `object_id` column** — the shape of every real file.
+* Fix: `object_id` does not fall back; only explicit `map.objectId` uses a source column; a
+  same-named column is set aside with a log line. **Cannot change a working run**: fallback ids only
+  ever succeeded as exactly 1..N in row order, which is what assignment produces — tested.
+* 198 assertions, 62 mutations all caught, including restoring the fallback (the production code).
+  **The full mutation set now exceeds the 5-minute command limit; a "background" launch was killed
+  when the command returned and produced nothing** — found by checking the process, not the launch.
+  Run instead in four foreground slices.
+* Notes in `.claude/2026-09-30-objpack-source-object-id.md`.

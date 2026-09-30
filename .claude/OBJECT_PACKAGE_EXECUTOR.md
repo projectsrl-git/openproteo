@@ -121,12 +121,17 @@ because the roles and their fallback behaviour it describes are unchanged:
 - **Roles, not positions.** Four mandatory roles plus two optional ones (`objectPath`, §3.3;
   `nameLabel`, the "extra information in between" permitted by §3.3 of the transcription, e.g.
   `…V001.monthly_report.OID2.pdf`).
-- **An unmapped role falls back to the Transarch name**, so a CSV that already uses `object_id`,
-  `record_business_date`, `mime_type`, `original_object_name` needs no `<column>` at all.
+- **An unmapped role falls back to the Transarch name**, so a CSV that already uses ~~`object_id`,~~
+  `record_business_date`, `mime_type`, `original_object_name` needs no mapping at all.
+  **Corrected 2026-09-30: not `object_id`.** This line and the next bullet contradicted each other
+  for `object_id`, and the code followed this one — so a source column merely *named* `object_id`
+  became the id. See §17.
 - **`objectId` is a special case.** §3.2 requires it to start at 1 and ascend within the submission,
   which is a property of the *package*, not of the source data. Mapping it means "use this column's
-  value"; leaving it unmapped means "assign 1..N in processing order". The second is what the script
-  does (line 256, `object_id = ($i + 1)`) and is the default. A mapped `objectId` that is not a
+  value"; leaving it unmapped means "assign 1..N in processing order" — **even when the source has a
+  column called `object_id`, which is then ignored**, as the script did explicitly ("Se object_id è
+  presente nel sorgente lo ignoriamo", its lines 214-217). The second is what the script does (line
+  256, `object_id = ($i + 1)`) and is the default. A mapped `objectId` that is not a
   strictly ascending integer sequence starting at 1 is **refused, not renumbered**: silently
   replacing an id the feed chose would break every downstream reference to it.
 - **All remaining source columns pass through**, in source order, after the four mandatory ones —
@@ -463,3 +468,34 @@ reason and with a message that blamed a legitimate file.
 
 The earlier claim in `USAGE.md`, that the original-name comparison was "one of the things the
 archive validates on arrival", was wrong and is withdrawn there.
+
+---
+
+## 17. A source object_id column is not the id, 2026-09-30
+
+After §15's discard option shipped, a run discarded one stale row and then failed with
+`the mapped object_id must ascend from 1 with no gaps … Leave map.objectId unset to have the
+packager assign 1..N` — while `map.objectId` **was** unset.
+
+Two defects, stacked:
+
+* **§3.2 contradicted itself.** "An unmapped role falls back to the Transarch name" and "leaving
+  objectId unmapped means assign 1..N" cannot both hold for a CSV that has an `object_id` column,
+  and every Transarch-shaped metadata CSV has one. The code followed the fallback. The PowerShell
+  script it replaces followed the second — it drops a source `object_id` column outright. So
+  discarding any row from a normally shaped CSV left a gap and failed, which made the discard
+  option unusable on exactly the files it was built for.
+* **The guard added with the discard option checked the wrong thing.** It fired on an explicit
+  `map.objectId`; the id here had been resolved through the name fallback, so the guard never ran
+  and the confusing sequence error it was written to replace appeared anyway — advising the user
+  to unset a parameter that was already unset. Its test used an explicit mapping, so it never
+  exercised the path production takes.
+
+Fix: `object_id` no longer falls back. Only an explicit `map.objectId` makes a source column the
+id; a column merely named `object_id` is set aside with a log line saying so, and the kept rows are
+numbered 1..N.
+
+**Why this cannot change a run that worked.** A fallback-mapped `object_id` only ever succeeded when
+its values were exactly 1..N in row order — the sequence check enforced it. Assigning 1..N produces
+those same values. The only configurations that change are ones that used to fail. A test asserts
+exactly that, on a source already numbered 1..4.
