@@ -3516,3 +3516,26 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   `</div>` invisible with a single card) and were closed.
 * NOT verified: `mvn clean package`, any run on Windows, Windows PowerShell 5.1, a real browser.
 * Note in `.claude/2026-09-30-filerename-executor.md`.
+
+## unarchive — Batch 1: readers, name validator, detection (standalone, unwired)
+* Gate 0: name `unarchive`; formats zip, tar, tar.gz/tgz, gz; producers Windows and Linux only.
+  Package `unarchive`: `ArchiveFormat`, `EntryName`, `NameIndex`, `TarStreamReader`, `GzipSupport`,
+  `UnarchiveException` (carries a `Rule`, so tests assert WHICH rule refused). JDK only,
+  `--release 8 -Xlint:all` clean. **No call site, no registration**: no feed can reach it yet.
+* **Spec corrected, struck through**: the case-collision key was `toLowerCase(Locale.ROOT)` - measured
+  wrong (`İ` becomes two chars; string upper-case makes `straße` == `STRASSE`; NTFS does neither). Now
+  per-character upper-casing, the rule `rename.CaseInsensitive` already has; the suite compiles the
+  real class from the repo and compares over every BMP char: 0 differences. zip legacy charset
+  recommendation IBM437 -> IBM850 after Q3 (Windows producers, Western-European OEM page).
+* **Intersections decided by name** (the 2026-09-30 principle): 27 in §16 of the spec, each beside
+  both rules and pinned by a test or assigned to its batch. Writing them out found two undecided cases:
+  gzipped zeros (`.gz` single file, `.tgz` empty tar) and a 0-byte `.tar` (refused, as GNU tar and
+  python do - measured).
+* 232 assertions; 18 benign fixtures from real tools (GNU tar gnu/pax/ustar/oldgnu/incremental/v7,
+  git archive, python PAX, gzip, multi-member gzip split mid-payload) byte-identical with GNU tar's
+  extraction, also through a 1-byte-per-read stream whose `skip()` never moves; 29 hostile fixtures
+  each refused by its own rule. 34 mutations all caught, in foreground slices. **One survived first and
+  was a real gap**: the ustar prefix read under the GNU magic - `tar --format=gnu -G` writes atime/ctime
+  there, so `a.txt` would become `15257155562/a.txt`; fixture added.
+* Still no USAGE.md section (executor unreachable until batch 3). Note in
+  `.claude/2026-09-30-unarchive-batch1-readers.md`.

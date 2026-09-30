@@ -1,7 +1,14 @@
 # Archive extraction executor (`unarchive`) — specification
 
-Status: **Batch 0 — spec only, no code.** Gate 0 in §13 is open; batch 1 waits on Q1, Q2 and Q3.
-Base commit when written: `0997815`.
+Status: **Batch 1 delivered** (readers, name validator, detection — standalone, unwired). Gate 0
+Q1–Q3 answered 2026-09-30 (§13); Q4–Q12 keep their recommended defaults and are confirmed before
+batch 2, which is where they take effect. Batch 0 written on `0997815`, revised on `0509aa9`.
+
+**Revision 2026-09-30** — three corrections, struck through where they were made rather than
+rewritten: the case-folding rule (§5, it disagreed with `rename.CaseInsensitive` and with NTFS),
+the zip legacy charset recommendation (§4.2, after Q3), and the registration line numbers (§11).
+And, per the CLAUDE.md principle added on 2026-09-30, every rule that meets another rule on the
+same case now says which one wins, beside both; §16 lists them all with the test that pins each.
 
 Extracts the archives found in a directory: format chosen by the author or detected, with detection
 driven by magic bytes and the extension only as a hint. Security and robustness rules come first
@@ -108,7 +115,8 @@ Measured, not assumed. Each one changes a decision below.
 | gzip | `1F 8B` | yes; then the decompressed stream is sniffed for tar |
 | tar (POSIX) | `ustar\0` at offset 257 | yes |
 | tar (GNU) | `ustar␠␠\0` at offset 257 | yes |
-| tar (v7, no magic) | none — only a valid header checksum | only when the author or the extension says tar (§3.2) |
+| tar (v7, no magic) | none — only a valid header checksum | only when the author or the extension says tar (§3.2, **∩ I3**) |
+| tar (empty) | first 512 bytes all zero (GNU's empty archive is 10 240 zero bytes, measured) | same condition as v7 (**∩ I3**) |
 | bzip2 | `42 5A 68` (`BZh`) | recognised, refused with the reason |
 | xz | `FD 37 7A 58 5A 00` | recognised, refused |
 | 7z | `37 7A BC AF 27 1C` | recognised, refused |
@@ -125,19 +133,31 @@ is actionable, "unknown format" sends someone to open the file in a hex editor.
 
 * **`auto`: the magic bytes decide.** The extension is compared and a disagreement is **logged as a
   WARNING naming both** (`report.tar is a gzip archive`), never fatal — the renamed gzip of §2.6 is
-  exactly the case auto exists for. No magic at all and an extension of `.tar` → tried as v7 tar,
+  exactly the case auto exists for. **∩ I1** with the extension, **∩ I6** with §3.3: the magic wins
+  over the extension only when the magic names an archive; a `.zip` that is plain text is refused. No magic at all and an extension of `.tar` → tried as v7 tar,
   accepted only if the first header's checksum is valid (either the unsigned or the signed sum, as
   GNU tar accepts). Anything else unrecognised → refused (§3.3).
 * **Explicit format: the author has asserted it, and a file that contradicts the assertion is
   refused**, naming what the magic says. Silently extracting a zip because it was "obviously" one
-  would make the parameter decorative.
+  would make the parameter decorative. **∩ I2**: the explicit format wins even where `auto` would
+  have read the file — `format=tar` on a gzip is refused, not unpacked. **∩ I5**: `format=gz` means
+  *decompress only* and never unpacks a tar inside; `format=tar.gz` refuses a gzip whose content is
+  not a tar. One exception to "the mismatch is named": a file whose magic is a refused format
+  (`x.bz2` with `format=tar`) is refused as UNSUPPORTED naming the real format, which is the more
+  useful of the two messages.
 * **Short files**: a file shorter than the magic it would need is not a tar "with zero members" —
   it is refused as unrecognised. This closes §2.5's empty-list-without-error by construction.
+  **∩ I4**: a **0-byte** file is refused as `EMPTY_FILE` whatever its name — measured, GNU tar ("does
+  not look like a tar archive") and python both refuse it — while GNU's 10 240-zero empty archive
+  named `.tar` is a valid tar with zero members (**∩ I3**).
 
 ### 3.3. A selected file that is not an archive
 
 A file matched by the author's `pattern` and not recognised as an archive **fails the step** by
-default: the pattern said it was one. `pattern` is the author's filter; widening it to `*` and
+default: the pattern said it was one. **∩ I6** with `auto`'s tolerance of extensions (§3.2): the
+tolerance covers a wrong *archive* extension, never a non-archive. **∩ I22**: names ending in `.done`
+(`afterExtract=rename`) and the `.unarchive-*.part` staging directories are never selected, whatever
+`pattern` says — a pattern of `*` must not re-extract yesterday's archives. `pattern` is the author's filter; widening it to `*` and
 relying on detection to skip non-archives is a configuration the executor should not encourage.
 
 ## 4. Reading
@@ -155,20 +175,36 @@ Sequential, one pass, the payload streamed to its destination and never buffered
   size is refused.
 * **Name**: `prefix + "/" + name` **only when the magic is POSIX** `ustar\0`. In the GNU header those
   bytes are not a prefix (GNU keeps other fields there), so using them would corrupt names — the
-  mirror image of §2.5's lost prefix.
+  mirror image of §2.5's lost prefix. **Measured in batch 1**: `tar --format=gnu -G` writes atime and
+  ctime in octal there (`15257155562\0…`), so with the prefix read `a.txt` would become
+  `15257155562/a.txt`. The first suite had no such fixture and the mutation survived (§17). **∩ I17**.
 * **Extended names**: GNU `L` (long name) and `K` (long link name) apply to the next header; pax `x`
   records (`<len> <key>=<value>\n`) apply `path`, `linkpath`, `size`, `mtime` to the next header;
-  pax `g` (global) is **parsed and ignored**, its keys logged once per archive (§2.4). An `L`/`K`/`x`
-  not followed by a header is refused.
+  pax `g` (global) is **parsed and ignored**, its keys logged once per archive (§2.4, **∩ I18**). An
+  `L`/`K`/`x` not followed by a header is refused. Extended blocks are capped at 1 MiB — a name is not
+  a megabyte, and the cap stops a header from allocating whatever it declares.
+  **∩ I15**: pax `path` wins over the header name, the ustar prefix and a GNU `L`; when it is present
+  the header name bytes are **not decoded at all**, so a producer that writes a transliterated legacy
+  name in the header and the real one in pax (the shape expected from Windows `tar.exe`, argued, not
+  measured — bsdtar is not installable in its Windows form here) is read correctly. pax `path` and a
+  GNU `L` on the same member are refused as `AMBIGUOUS_NAME`. **∩ I16**: pax `size` wins over the
+  header size, which may be 0 for a member over 8 GiB.
 * **Typeflags**: `0`, `\0`, `7` → regular file; `5` → directory; `1` hardlink, `2` symlink → §6;
   `3`/`4` device, `6` FIFO → §6; `S` sparse, `M` multivolume, `D` dumpdir → refused naming the flag;
   `V` volume label → ignored and logged. Any other flag → refused naming it.
 * **Name charset**: pax `path` is UTF-8 by the standard. Plain header names are decoded as **strict
-  UTF-8** (malformed → refused, naming the header offset). Whether a legacy fallback is needed for
-  tar names depends on who produces the archives — Q3.
+  UTF-8** (malformed → refused, naming the header offset). Q3 answered *Windows and Linux*: Linux tar
+  writes UTF-8 bytes; Windows `tar.exe` (libarchive) is expected to carry non-ASCII names in pax,
+  which **∩ I15** reads without touching the header bytes. **No legacy fallback in batch 1**; a real
+  Windows `.tar` failing with `BAD_NAME_ENCODING` is the evidence that would add one.
 * **End of archive**: two zero blocks end it. **A missing end marker is a WARNING, not a failure**,
   matching GNU tar (§2.7) — producers vary and refusing would be stricter than every tool the
   operator will compare against. **A stream that ends inside a header or a payload is a failure.**
+  **∩ I19**, the boundary between the two: the stream ending *exactly* on a header boundary, with no
+  zero block, is the warning; ending anywhere else — inside a header, a payload, its padding, or after
+  an extended header — is `TRUNCATED`. A truncated payload fails **inside the payload read**, not
+  later at the next header, so no caller can keep a short file believing it complete (asserted).
+  The reader only *reports* the missing marker; turning it into a warning line is batch 2's.
 * `InputStream.skip` is never trusted (objpack's `skipFully` lesson).
 
 ### 4.2. zip — `ZipFile`, the central directory, and our own CRC
@@ -185,11 +221,15 @@ Sequential, one pass, the payload streamed to its destination and never buffered
   2. `0x7075` Unicode-path extra present and its CRC matches the raw name → use its UTF-8 name;
   3. raw bytes are **valid strict UTF-8** → UTF-8 (this is the Info-ZIP case of §2.8; a CP437 name
      with accented letters is never valid UTF-8, because `80`–`9F` alone are continuation bytes);
-  4. otherwise → `zipNameCharset`, default `IBM437` (Q4).
+  4. otherwise → `zipNameCharset`, default ~~`IBM437`~~ **`IBM850`** (Q4, revised after Q3). The only
+     producers that write unflagged legacy names are Windows tools using the machine's OEM code page,
+     and on Western European Windows (Italian, German, French) that page is 850, not 437. The two
+     agree on `à è é ì ò ù` and on `ä ö ü ß` (§2.11); they differ on `Ø`, `ı` and box-drawing.
   The step log states, per archive, how many names each rule decided. A charset guess that is never
   reported is a guess nobody can check.
   `zipNameCharset` set to a charset name **forces** step 4 for every unflagged name (skipping 2–3),
-  for the day a heuristic is wrong.
+  for the day a heuristic is wrong. **∩ I20**: bit 11 wins over a forced charset, always — the
+  producer declared UTF-8 and the JDK decodes it before the charset is consulted.
 * **Refused, naming the entry**: encrypted entries (bit 0); a compression method other than STORED
   (0) or DEFLATED (8), named by number — DEFLATE64 (9) is the likely one from Windows tooling and is
   not in the JDK; spanned archives.
@@ -220,38 +260,64 @@ produce it and refusing it would refuse ordinary archives.
 
 **Accepted and transformed:**
 
-* a leading `./` (and a bare `./` root entry, which creates nothing) — §2.2;
+* a leading `./` (and a bare `./` root entry, which creates nothing) — §2.2. **∩ I7** with the
+  dot-segment rule below: **one** leading `./`, first segment only; `././a` and `a/./b` are refused;
 * `\` treated as a separator equal to `/` **for validation** — so `..\x` is caught on every host —
-  and written as the platform separator. Counted and logged, since APPNOTE says zip names use `/`;
-* a trailing `/` on a directory entry.
+  and written as the platform separator. Counted and logged, since APPNOTE says zip names use `/`.
+  **∩ I8** with the absolute rule below: a **leading** `\` is absolute and refused; only one inside a
+  name separates. On Linux a tar member literally named `a\b` becomes `a/b` — deliberately, so the
+  same archive gives the same tree on a Linux test box and on the Windows server;
+* a trailing `/` on a directory entry. **∩ I9** with the empty-segment rule: exactly one; `a//` is
+  refused.
 
 **Refused (rule named in the message):**
 
-* **Traversal**: any `..` segment, after splitting on both separators. Per segment, not substring:
+* **Traversal**: any `..` segment, after splitting on both separators. **∩ I10**: `..` also ends in
+  `.` and the trailing-dot rule would refuse it too; traversal is checked first, so the message names
+  traversal (measured: with this check mutated away the trailing-dot rule refused it instead). Per segment, not substring:
   `report..v2.pdf` is a legal name. (`WorkflowPorter.extractToStaging` uses `contains("..")` and
   would refuse it; noted, not changed — out of scope.)
-* **Absolute and rooted**: leading `/` or `\`; a drive letter (`C:`, `C:x`, `C:\x` — `C:x` is
+* **Absolute and rooted** (**∩ I8**): leading `/` or `\`; a drive letter (**∩ I11**: checked before
+  the `:` rule so the message says *drive*; note `a:b` IS a drive path — drive A: — and my first test
+  expected `COLON` for it, which was my error, not the code's) (`C:`, `C:x`, `C:\x` — `C:x` is
   relative to *that drive's* current directory, never to ours, the copy-file-list lesson); UNC
   `\\server\share`; device paths `\\?\`, `\\.\`.
 * **`:` anywhere**: besides drive letters it is the NTFS alternate data stream separator —
   `report.pdf:hidden` writes a stream **inside** `report.pdf` that no directory listing shows.
+  **∩ I25**: refused on Linux too, where `report_10:41.txt` is a legal name — the same workflow must
+  give the same result on every host, and production is Windows.
 * **Windows-invalid characters**: `< > " | ? *` and code points `0x00`–`0x1F`.
 * **Windows reserved device names**, per segment, case-insensitive, **with or without an extension**:
   `CON PRN AUX NUL COM1`–`COM9 LPT1`–`LPT9`, the superscript forms `COM¹ COM² COM³ LPT¹ LPT² LPT³`,
   `CONIN$ CONOUT$`. `nul.txt` is as reserved as `NUL`.
 * **Segments ending in `.` or space**: Win32 strips them, so `a.txt.` and `a.txt` are one file.
-* **Empty segments** (`a//b`) and `.` segments other than the leading one — no real tool produces
-  them; accepting them would be normalising silently.
+* **Empty segments** (`a//b`, **∩ I9**) and `.` segments other than the leading one (**∩ I7**) — no
+  real tool produces them; accepting them would be normalising silently.
+* **Segments over 255** UTF-16 units **or** 255 UTF-8 bytes (NTFS counts the first, ext4 the second;
+  both are checked so every host agrees). Added in batch 1.
 * **Path length**: the **absolute** target path (output directory + subdirectory + entry) longer than
   `maxPathLength` (default 259, Windows `MAX_PATH` minus the terminator). Java on Windows may well
   *create* a longer path (NIO prefixes `\\?\`), which is exactly why the limit exists: the file
   would be written and then be unreadable to Explorer, PowerShell 5.1 and the next `ifscopy`.
   Checked against the resolved output directory at run time, since `${stepDir}` differs per host.
+  **∩ I26**: in `subdir` layout the subdirectory name counts. A path of exactly the limit passes
+  (asserted at 259).
 * **Case-insensitive collisions within one archive**: two entries equal under
-  `toLowerCase(Locale.ROOT)` are refused, naming both. On NTFS the second silently overwrites the
+  ~~`toLowerCase(Locale.ROOT)`~~ **per-character upper-casing, no culture** (`OrdinalIgnoreCase`, the
+  rule of `rename.CaseInsensitive`) are refused, naming both. Corrected in batch 1, measured: string
+  `toLowerCase` turns `İ` into two characters, string `toUpperCase` makes `straße` equal `STRASSE`;
+  NTFS does neither. The package keeps its own copy — it may not depend on another executor's — and
+  the suite compares the two over all 65 536 BMP characters: 0 differences. **∩ I14**: refused
+  whatever `onExisting` says; `onExisting` governs what was on disk *before*, never two entries of one
+  archive. **∩ I24**: the key does not normalise Unicode, so an NFC and an NFD spelling are two names —
+  as they are on NTFS. On NTFS the second silently overwrites the
   first. **Enforced on every host, Linux test boxes included**: a workflow must not extract two files
   on a developer's machine and one on the server (the `FileMask` lesson).
-* **Exact duplicates** (§2.14): refused, naming the entry and both positions. tar's "the later one
+* **Exact duplicates** (§2.14): refused, naming the entry. **∩ I12**: a *directory* named twice with
+  the same spelling is accepted — creating it is idempotent and GNU tar stores a directory again when
+  it is named twice on the command line; a *file* named twice is refused. **∩ I13**: two directories
+  differing only in case (`Dir/a`, `dir/b`) are refused as `DIRECTORY_CASE_MISMATCH` — merged on
+  Windows, separate on Linux — and parents count even without a directory entry of their own. tar's "the later one
   wins" (append mode) is not supported: which of two same-named documents is the real one is the
   question the objpack pairing defect showed must never be answered by position.
 * **A file and a directory with the same path** (`a` as file, `a/b` as entry): refused.
@@ -301,7 +367,9 @@ sizes are used only to refuse *early*.
   is in elarxml. 200 is ~8× the highest legitimate ratio measured (§2.18: 25.5) and ~5× below
   deflate's ceiling (1028). For zip, compressed bytes = the entry's central-directory size, which is
   also what bounds `ZipFile`'s inflater input. For `tar.gz`, compressed bytes = a counter under the
-  `GZIPInputStream`, and the ratio is also evaluated over the whole stream.
+  `GZIPInputStream`, and the ratio is also evaluated over the whole stream. **∩ I21**: both the
+  per-entry and the whole-stream ratio apply; the first to trip decides and the message names which.
+  The counter exists since batch 1 and is asserted to equal the file length after a full read.
 * **Free disk** (`checkFreeDisk`, default on): for a zip the declared uncompressed total is known
   from the central directory before a byte is written — refused early if free space on the output
   volume is below it plus 10%. For `tar.gz` nothing trustworthy is known in advance (gzip ISIZE is
@@ -404,6 +472,7 @@ DATA shows it: 100 000 paths there is unusable. Instead
 second read (`manifestHash`, default on — Q11). File names and hashes only, never content.
 
 `failOnEmpty` (default off, same shape as `sqlreport`'s): no archive matched the pattern → fail.
+**∩ I23**: it is about *no archive matched*, never about an archive with zero entries.
 Off, the step follows the `safecopy` convention (§2.20) and exits 0 with `archivesFound=0`. An
 archive with zero entries is a WARNING either way.
 
@@ -419,7 +488,7 @@ archive with zero entries is a WARNING either way.
 | `layout` | `subdir` | §8.1 |
 | `onExisting` | `fail` | §8.3 |
 | `onUnsupportedEntry` | `fail` | §6 |
-| `zipNameCharset` | `auto` | §4.2; a charset name forces it for unflagged names |
+| `zipNameCharset` | `auto` (legacy fallback `IBM850`) | §4.2; a charset name forces it for unflagged names; never over bit 11 (**∩ I20**) |
 | `maxEntries` / `maxEntryMb` / `maxArchiveMb` / `maxRatio` | 100000 / 2048 / 20480 / 200 | §7 |
 | `maxPathLength` | 259 | §5 |
 | `checkFreeDisk` | `true` | §7; same name and default as elarxml's |
@@ -434,16 +503,19 @@ cannot delete, overwrite, follow a link or accept an ambiguous name.
 
 ## 11. Registration and the exit code
 
-Verified on the code at `0997815`, not on the CLAUDE.md table (§2.19). Eight places:
+Verified on the code, not on the CLAUDE.md table (§2.19). Eight places. ~~Line numbers at `0997815`~~
+— they move with every executor; at `0509aa9`, after `filerename`, read on `objpack`/`filerename`:
 
 1. `WorkflowXmlParser` whitelist (line 89)
 2. `WorkflowXmlParser` error message (line 91) — the one that gets forgotten
 3. `WorkflowXmlParser` `internal` set (line 94)
 4. `WorkflowEngine.internalKind()` (line 1027)
-5. `InternalSteps.run()` dispatch (line 117) — **passing `control`**, which `runObjPack` does not
-6. `designer.html` `<option>` (line 1019)
-7. `designer.html` panel branch (~1777)
-8. `designer.html` `clientValidate` (~2180)
+5. `InternalSteps.run()` dispatch (lines 117–119) — **passing `control`**, which `runObjPack` does not
+6. `designer.html` `<option>` (~1055)
+7. `designer.html` panel branch (~1813 objpack, ~1914 filerename)
+8. `designer.html` `clientValidate` (~2291, ~2302)
+
+Re-read on the day of batch 3; these numbers are a pointer, not a contract.
 
 plus `variables.html` `PARAM_OPTIONS` for the unambiguous enums (`format`, `layout`, `onExisting`,
 `onUnsupportedEntry`, `afterExtract`), and `USAGE.md`. `buildXml` should need no change — every
@@ -484,7 +556,16 @@ Codes: 0 success; 2 refusal (configuration or data); −997 Stop; 1 via the gene
 
 ## 13. Gate 0
 
-**Blocking batch 1:**
+**Blocking batch 1 — ANSWERED 2026-09-30:**
+
+* **Q1 — ANSWERED: `unarchive`.**
+* **Q2 — ANSWERED: zip, tar, tar.gz/tgz, gz.** The five others stay recognised and refused.
+* **Q3 — ANSWERED: Windows and Linux only.** Consequences taken: tar names strict UTF-8 with pax
+  winning (§4.1); zip legacy fallback moved to IBM850 (§4.2, Q4); DEFLATE64 stays refused by number
+  (Windows tooling is the likely source). Still wanted: one real zip from Explorer and one `.tar` from
+  Windows `tar.exe`, since neither can be produced here.
+
+*As written at batch 0:*
 
 * **Q1 — Name.** Recommended `unarchive`. `extract` collides visually with three existing step ids
   (§2.21); `unzip` misnames tar.
@@ -500,7 +581,8 @@ Codes: 0 success; 2 refusal (configuration or data); −997 Stop; 1 via the gene
 **With a recommended default, not blocking:**
 
 * **Q4 — zip legacy charset**: `IBM437` (APPNOTE) or `IBM850` (Italian Windows OEM page)? Identical
-  for `à è é ì ò ù` (§2.11); different for `Ø`, `ı`, box-drawing. Recommended `IBM437`, with the
+  for `à è é ì ò ù` (§2.11); different for `Ø`, `ı`, box-drawing. Recommended ~~`IBM437`~~ **`IBM850`**
+  since Q3 (the producers are Windows machines, whose OEM page is 850 in Western Europe), with the
   per-rule counts in the log making a wrong choice visible.
 * **Q5 — zip symlinks**: parse the central directory ourselves to read external attributes, with
   a cross-check against `ZipFile` (recommended), or extract them as small regular files?
@@ -517,7 +599,7 @@ Codes: 0 success; 2 refusal (configuration or data); −997 Stop; 1 via the gene
 
 * **0** — this spec.
 * **1** — core readers: `ArchiveFormat` (detection), `EntryName` (every §5 rule), `TarStreamReader`
-  (§4.1), gzip handling (§4.3). Standalone, unwired, fixtures and hostile set.
+  (§4.1), gzip handling (§4.3). Standalone, unwired, fixtures and hostile set. **Delivered**, §17.
 * **2** — `ZipArchiveReader` (§4.2, including Q5's central-directory parser if chosen), limits
   (§7), staging and commit (§8), manifest (§9), `UnarchiveRun` end to end.
 * **3** — registration (eight places), `runUnarchive`, Stop, exit-code lint.
@@ -535,3 +617,79 @@ Codes: 0 success; 2 refusal (configuration or data); −997 Stop; 1 via the gene
   `IBM850` live in `charsets.jar` on a Java 8 JRE; one line on the server confirms it:
   `jrunscript -e "print(java.nio.charset.Charset.isSupported('IBM850'))"`.
 * bsdtar / Windows `tar.exe` archives (Q3).
+
+## 16. Decided intersections
+
+Every place where two rules of this spec can apply to the same case, the winner, and the assertion
+that pins it. Each is also written beside both rules above (marked **∩ In**).
+
+| # | Case | Rules that meet | Winner | Pinned by |
+|---|---|---|---|---|
+| I1 | `report.tar` that is gzip | magic vs extension (`auto`) | magic, warning logged | format: `b_renamed.tar` |
+| I2 | `format=tar` on a gzip | explicit format vs what `auto` would do | explicit: refused | format: `b_pax.tgz tar` |
+| I3 | zero-filled or magic-less first block | "magic decides" vs no magic | tar only if named `.tar` or `format=tar` | format: `data.bin`, `zeros.tar` |
+| I4 | 0-byte `x.tar` | `.tar` name vs empty content | refused `EMPTY_FILE` (GNU/python parity) | format: `zero.tar` |
+| I5 | tar inside `format=gz`; CSV inside `format=tar.gz`; zeros in `.gz` vs `.tgz` | explicit gzip formats vs the inner sniff | `gz` never unpacks; `tar.gz` refuses non-tar; zeros are a tar only in `.tgz`/`.tar.gz` | gzip group |
+| I6 | `.zip` that is text | `auto` tolerance vs "pattern said archive" | refused | format: `text.tar` |
+| I7 | `././a`, `a/./b` | leading `./` accepted vs `.` segment refused | one leading `./`, first segment only | names |
+| I8 | `\x`, `a\b` | `\` as separator vs absolute | leading = absolute; inside = separator | names, `h_ABSOLUTE2` |
+| I9 | `a//` | trailing separator vs empty segment | exactly one trailing separator | names |
+| I10 | `..` | traversal vs trailing dot | traversal checked first, names it | mutation 15 |
+| I11 | `C:x`, `a:b` | drive letter vs colon | drive letter first | names, `h_DRIVE_LETTER` |
+| I12 | same directory twice | duplicate vs idempotent mkdir | directories accepted, files refused | `h_DUPLICATE` |
+| I13 | `Dir/a` + `dir/b` | case collision vs directory merge | refused `DIRECTORY_CASE_MISMATCH` | `h_DIRECTORY_CASE_MISMATCH` |
+| I14 | `A.txt` + `a.txt`, `onExisting=replace` | case collision vs overwrite policy | collision refused regardless | batch 2 |
+| I15 | pax `path` + header name / prefix / `L` | extended names | pax wins; pax + `L` refused | `b_pax.tar`, `h_AMBIGUOUS_NAME` |
+| I16 | pax `size` + header size | sizes | pax wins | `b_paxsize.tar` |
+| I17 | bytes 345+ in a GNU header | prefix vs GNU atime/ctime | prefix only under POSIX magic | `b_gnu_incr.tar` |
+| I18 | pax `g` with `path` or `size` | global vs per-entry | global never changes an entry | `b_git.tar` |
+| I19 | stream ends | missing end marker vs truncation | boundary = warning; elsewhere = `TRUNCATED`, inside the payload read | flags, hostile |
+| I20 | UTF-8 flag + forced `zipNameCharset` | flag vs parameter | flag | batch 2 |
+| I21 | tar.gz ratio | per-entry vs whole-stream | both; first to trip | batch 2 |
+| I22 | `x.zip.done`, `.part` dirs, `pattern=*` | pattern vs own artefacts | own artefacts never selected | batch 2 |
+| I23 | empty archive, `failOnEmpty=true` | "nothing to do" vs "nothing inside" | `failOnEmpty` only for no archive matched | batch 2 |
+| I24 | NFC + NFD spellings | collision key vs normalisation | not a collision, reported | names (flag) |
+| I25 | `a:b.txt` from Linux | colon rule vs Linux legality | refused on every host | names |
+| I26 | long subdir + long entry | path length vs layout | subdir counts | batch 2 |
+| I27 | hardlink `copy` mode (if Q6 says yes) | "never creates links" vs copy | a copy is a regular file: allowed | batch 2 |
+
+## 17. Batch 1 as built
+
+Package `com.legalarchive.orchestrator.unarchive`: `ArchiveFormat`, `EntryName`, `NameIndex`,
+`TarStreamReader`, `GzipSupport`, `UnarchiveException`. JDK only, `javac --release 8 -Xlint:all`
+clean. **Nothing outside the package changes**; no registration, no call site — no feed can reach
+it, by design. Read-only by construction for now: a scan finds no write API in the package, and the
+same scan finds 12 in `objpack` (positive control). No `ofPattern` anywhere.
+
+**Verification — 232 assertions green**, suite not committed (as the `elar`/`objpack` suites):
+
+* **Byte-identical against GNU tar 1.35 on 18 benign fixtures produced by real tools**: GNU tar in
+  `gnu` (with `-C dir .` and with an explicit list), `pax`, `ustar`, `oldgnu`, `gnu -G`
+  (incremental) and `v7` formats; `git archive` of this repository; python `tarfile` PAX with
+  Italian and Japanese names; a gzip of each; a gzip renamed `.tar`; **a multi-member gzip split in
+  the middle of a member's payload**; GNU's empty archive; a tar cut at a member boundary; and three
+  hand-built headers each first confirmed accepted by GNU tar — base-256 size, signed checksum, pax
+  size over a header size of 0. The fixture set includes a 700 000-byte member and members of 0,
+  511, 512 and 513 bytes.
+* **The same archives read one byte per `read()` through a stream whose `skip()` never moves**:
+  names with every payload left unread equal `tar --quoting-style=literal -tf`, and extraction is
+  byte-identical. This is what pins "never trust `skip()`".
+* **29 hostile fixtures, each refused by the rule written for it** — the test compares the
+  `UnarchiveException.Rule`, not a phrase — plus the truncated payload failing *inside the payload
+  read*.
+* Detection on 25 cases (10 accepted with kind, handling and warning asserted; 15 refused with the
+  rule), name validation on 49, the collision key against the real `rename.CaseInsensitive` compiled
+  from the repository over 65 541 strings, gzip naming and the compressed counter.
+
+**34 mutations on copies of the package, all caught.** Each anchor asserted to match exactly once
+and the file asserted changed; `javac`'s and the suite's exit codes read directly. Run in three
+foreground slices under the command limit. **One survived first and was a real suite gap**: reading
+the prefix under the GNU magic changed nothing because no fixture had data in those bytes. GNU's
+incremental format does (measured: atime/ctime in octal), `b_gnu_incr.tar` was added, and the mutation
+is caught. Two first-run suite failures were **my expectations**: `a:b` is a drive path, not a
+colon case; and a hand-built pax record declared 13 bytes for a 10-byte record — GNU tar refused it,
+it was corrected, and the wrong one kept as the hostile `BAD_EXTENDED_HEADER` fixture.
+
+**Not verified**: Windows (reserved names, `MAX_PATH`), Java 8 at runtime (JDK 21 with `--release 8`
+checks the API, not behaviour), Windows `tar.exe` output, and `mvn clean package` — which this batch
+does not need, since no file outside the new package changes, but which will compile it.

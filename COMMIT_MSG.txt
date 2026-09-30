@@ -1,74 +1,32 @@
-filerename: rename a directory's files from a CSV mapping
+unarchive: batch 1, tar/gzip readers, name validator, detection
 
-A new internal executor doing what Rename-FilesFromCsvMap.ps1 does: the
-name a file has on disk is built from a template and an id, the name it
-must take is read from a column. Same 16 parameters plus -WhatIf, same
-defaults, the same checks in the same order, the same log lines and the
-same exit codes (0 done, 2 some rows not applied, 1 error or aborted).
+Gate 0 Q1-Q3 answered: name "unarchive"; formats zip, tar, tar.gz/tgz,
+gz; archives produced on Windows and Linux only.
 
-Every parameter is a field in the designer, and choosing the executor
-writes the script's defaults into the step, so the saved XML states every
-value the run uses. A value already present is never overwritten.
+New package com.legalarchive.orchestrator.unarchive, JDK only, standalone
+and unwired - no registration, no call site, no feed can reach it:
+ArchiveFormat (magic bytes decide, extension compared, explicit format
+refuses a contradicting file, bzip2/xz/7z/rar/zstd recognised and refused
+by name), EntryName (one validator, refusal as the rule), NameIndex
+(duplicates, case collisions, file/dir conflicts), TarStreamReader
+(POSIX + GNU magic, pax x/g, GNU L/K, base-256, prefix only under POSIX
+magic), GzipSupport (counted compressed bytes, FNAME never used),
+UnarchiveException (carries the Rule that refused).
 
-The whole mapping is checked before the first rename: a duplicate target
-or a name already taken on disk stops the step with nothing renamed,
-unless force is set.
+Spec revised: the case-collision key corrected (toLowerCase measured
+wrong; now per-char upper-casing, the rule of rename.CaseInsensitive),
+zip legacy charset recommendation IBM437 -> IBM850 after Q3, and 27
+intersections of rules decided by name per the new CLAUDE.md principle.
 
-The oracle was the script itself, not a reading of it: PowerShell 7.4.6
-downloaded for Linux, the script and the executor run on copies of the
-same directories.
-- 656 executor scenarios (26 targeted, 630 random): final directory,
-  exit code, every counter and the ordered REN/SKIP/FAIL/What-if events
-  compared. 0 unexplained differences; 25 expected ones asserted in both
-  directions (24 of deviation 1 below, 1 host difference: pwsh on Linux
-  accepts CR/LF in a file name, Windows and the executor do not).
-- The CSV is read by a port of PowerShell's ImportCsvHelper (MIT), not by
-  FlatCsvReader: quoted line breaks, skipped blank lines, a BOM overriding
-  the charset. 623 CSV texts, 600 of them fuzzed, parsed by Import-Csv and
-  by the port: 0 differences.
+Verified: javac --release 8 -Xlint:all clean. 232 assertions: 18 benign
+fixtures from real tools byte-identical with GNU tar 1.35's extraction,
+also through a 1-byte-read stream whose skip() never moves; 29 hostile
+fixtures each refused by its own rule; collision key equal to the real
+rename.CaseInsensitive over every BMP char. 34 mutations on copies, all
+caught; one survived first and was a real suite gap (GNU incremental
+headers carry atime/ctime where POSIX has the prefix), fixture added.
+Suite not committed.
 
-Deviations, none changing which file gets which name for an input the
-script accepted on Windows:
-- the {EXT} column is required only when the template uses it; the script
-  refused a CSV without it even when the value was thrown away;
-- counts are real counts; the script reported list sizes capped at
-  MaxReport, so 100 unusable rows read as 30;
-- the dry run reports ${wouldRename};
-- Stop is honoured between two renames.
-
-Kept as in the script, by choice: a chain in the wrong order (A->B then
-B->C) passes the pre-check and fails at run time, leaving the directory
-half renamed. Gate 0 Q3 in the spec proposes an opt-in check.
-
-Found on the way:
-- JDK 8 Files.move on Windows returns without doing anything for a
-  case-only rename (same file); .NET renames. Handled with ATOMIC_MOVE and
-  a read-back of the on-disk name.
-- The script's default -Encoding windows-1252 is not accepted by
-  Import-Csv on Windows PowerShell 5.1 (ValidateSet, 5.1-era source): with
-  its defaults it runs only on PowerShell 7.
-
-Verified:
-- the core with javac --release 8;
-- runFileRename lifted verbatim from InternalSteps and compiled with
-  --release 8 against the real StepExecutor, VarResolver and RunControl,
-  32 assertions, exit code checked on every path including success;
-- the designer panel with jsdom on the real template, controls driven
-  through their own handlers, 133 assertions; the pre-patch template
-  fails the suite;
-- USAGE.md through docs.html's own render(), 30 assertions; guide,
-  executor and designer agree on 17/17 parameters, 11/11 outputs and
-  9/9 defaults;
-- node --check with a positive control, no literal \n or \r in the
-  added JS, no [[ or [(, braces balanced before and after;
-- mutations: core 23/24 (the survivor is equivalent on the outcome and
-  caught by the parser differential), parser 8/8, wiring 10/10, panel
-  11/11. Two survivors were real suite gaps and were closed: a literal
-  tab delimiter, and a stray </div> invisible with a single card.
-
-NOT verified: mvn clean package; any run on Windows, including the
-case-only rename path, which is argued from the jdk8u source; Windows
-PowerShell 5.1 as an oracle; the panel in a real browser.
-
-Spec .claude/FILE_RENAME_EXECUTOR.md, note
-.claude/2026-09-30-filerename-executor.md.
+Not verified: mvn clean package (no file outside the new package
+changes), Windows, Java 8 at runtime (JDK 21 --release 8), Windows
+tar.exe output. No USAGE.md section until the executor is reachable.
