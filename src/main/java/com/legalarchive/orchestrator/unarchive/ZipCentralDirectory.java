@@ -55,6 +55,14 @@ public final class ZipCentralDirectory {
             return madeOnUnix() ? (int) ((externalAttributes >>> 16) & 0170000) : -1;
         }
 
+        /**
+         * Host 0 = MS-DOS/FAT. unzip treats {@code \\} as a separator only for such zips (measured on
+         * Info-ZIP 6.0: made-by FAT converted, NTFS, VFAT and Unix kept literally).
+         */
+        public boolean madeOnDos() {
+            return (versionMadeBy >>> 8) == 0;
+        }
+
         public boolean utf8Flag() {
             return (flags & 0x800) != 0;
         }

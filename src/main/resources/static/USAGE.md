@@ -1324,16 +1324,23 @@ Each archive is extracted into its own folder under `outputDir` (by default the 
 
 Nothing incomplete ever appears under a final name. Each archive is first extracted into a hidden working folder next to its destination (`.unarchive-…part`) and moved into place in one rename once it is complete. If an archive fails, its working folder is deleted; archives extracted before it in the same run stay extracted and are listed in the log. If the server stops in the middle of an archive, the next run of the step removes the leftover working folder.
 
+### Windows and Linux servers
+
+The name rules follow the operating system of the server the step runs on, detected automatically; the log's first line and `${hostRules}` (`windows` or `linux`) say which rules a run used. On a **Windows** server, names Windows cannot hold are refused (below). On a **Linux** server they are extracted exactly as GNU tar and unzip extract them there: `report_10:41.txt`, `CON`, `nul.txt`, a name ending in a dot or a space, `Makefile` next to `makefile`. The protections that are about safety, not about Windows, are the same on both. A server that is neither Windows nor Linux is refused.
+
+The same workflow can therefore extract different files on a Windows test machine and on a Linux production server; `${hostRules}` in the run's outputs is how to tell afterwards.
+
 ### What is refused, and why
 
 The step refuses rather than repairs. An archive is refused, with the entry and the rule named in the message, when an entry:
 
-- leaves its folder: `../` anywhere, a path starting with `/` or `\`, a drive letter (`C:`), a network path;
-- would be invisible or ambiguous on Windows: a `:` (it writes a hidden stream inside another file), a reserved name such as `CON`, `NUL`, `AUX`, `COM1` — with or without an extension, `nul.txt` included — a name ending in a dot or a space, characters Windows does not allow, a path longer than 259 characters once extracted;
-- collides with another entry: two names that differ only in case (`A.txt`, `a.txt` — one file on Windows), the same file twice, a file and a folder with the same name;
+- leaves its folder: `../` anywhere, a path starting with `/` (on Windows also `\`, a drive letter `C:` or a network path);
+- would collide: the same file twice, a file and a folder with the same name — and, on Windows only, two names that differ only in case (`A.txt`, `a.txt` are one file there);
+- on Windows only, would be invisible or ambiguous there: a `:` (it writes a hidden stream inside another file), a reserved name such as `CON`, `NUL`, `AUX`, `COM1` — with or without an extension, `nul.txt` included — a name ending in a dot or a space, characters Windows does not allow;
+- is too long: a name over 255 bytes, or a path over `maxPathLength` once extracted (by default 259 characters on Windows, 4096 bytes on Linux);
 - is a link, a device or a pipe (only files and folders are ever created; `onUnsupportedEntry=skip` leaves such entries out, still checking their names).
 
-The same rules apply on every server, Linux included, so a workflow extracts the same files on a test machine as in production. A zip whose entries are encrypted, or compressed with a method other than deflate (bzip2, LZMA, or DEFLATE64, which some Windows tools use for large files), is refused naming the method. A zip entry whose content does not match its checksum is refused as corrupted.
+On Linux, a `\` in a tar entry is part of the name, as GNU tar treats it; in a zip it separates folders only when the zip was made on MS-DOS or Windows tools that declare it (Explorer, Java, .NET do), which is what unzip does. A zip whose entries are encrypted, or compressed with a method other than deflate (bzip2, LZMA, or DEFLATE64, which some Windows tools use for large files), is refused naming the method. A zip entry whose content does not match its checksum is refused as corrupted.
 
 ### Limits against archive bombs
 
@@ -1347,7 +1354,7 @@ Zip files do not always say how their names are encoded. The step uses the name 
 
 **0** done; **2** refused — a parameter or an archive, the message names the rule and the archive; **-997** stopped by the user (the archive in progress is removed, earlier ones stay); **1** an unexpected I/O error.
 
-Outputs: `${archivesFound}`, `${archivesExtracted}`, `${archivesSkipped}`, `${entriesExtracted}`, `${entriesSkipped}`, `${bytesExtracted}`, `${warnings}`, `${extractDirs}` (the folders extracted, separated by `;`) and `${manifestFile}`.
+Outputs: `${archivesFound}`, `${archivesExtracted}`, `${archivesSkipped}`, `${entriesExtracted}`, `${entriesSkipped}`, `${bytesExtracted}`, `${warnings}`, `${extractDirs}` (the folders extracted, separated by `;`), `${manifestFile}` and `${hostRules}` (`windows` or `linux`: the name rules applied).
 
 The manifest, `unarchive_manifest.csv` in the step directory, lists every extracted file: archive, name in the archive, where it was written, size, SHA-256 and modification time. It is UTF-8 without BOM, `;`-separated, one row per file, and contains only archives that were completely extracted.
 
@@ -1368,7 +1375,7 @@ Required: `sourceDir`. A parameter left empty means its default (the designer sh
 - `maxEntryMb` — default 2048.
 - `maxArchiveMb` — default 20480.
 - `maxRatio` — default 200.
-- `maxPathLength` — default 259.
+- `maxPathLength` — default `auto`: 259 characters on a Windows server, 4096 bytes on Linux. A number applies on both, counted in the server's unit.
 - `checkFreeDisk` — default `true`.
 - `afterExtract` — default `keep`; `rename` adds `.done` to each archive once it is extracted, so the next run does not take it again.
 - `preserveMtime` — default `true`: files keep the modification time stored in the archive.

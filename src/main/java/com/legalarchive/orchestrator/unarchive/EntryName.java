@@ -73,6 +73,24 @@ public final class EntryName {
      * directory whatever its spelling (tar typeflag 5); a trailing separator says so too.
      */
     public static Name validate(String raw, boolean directoryByType) throws UnarchiveException {
+        return validate(raw, directoryByType, HostRules.WINDOWS, true);
+    }
+
+    /**
+     * Validates {@code raw} under the host's rules. {@link HostRules#WINDOWS} is the rule set above,
+     * unchanged, and ignores {@code backslashSeparates} ({@code \} always separates there).
+     *
+     * <p>{@link HostRules#LINUX} (spec section 21): {@code \} separates only when
+     * {@code backslashSeparates} - never in a tar (GNU tar keeps it as a character, measured), in a zip
+     * only when the zip was made on MS-DOS (what unzip does, measured). Refused, as on Windows: an
+     * empty name, a leading {@code /} (or {@code \} where it separates), {@code ..}, {@code .} other
+     * than one leading {@code ./}, empty segments, NUL, a segment over 255 UTF-8 bytes (NAME_MAX,
+     * measured). Everything else is a legal Linux name and is kept: {@code :}, {@code < > " | ? *},
+     * {@code CON}, trailing dots and spaces, control characters, {@code C:x}.
+     */
+    public static Name validate(String raw, boolean directoryByType, HostRules rules, boolean backslashSeparates)
+            throws UnarchiveException {
+        if (rules == HostRules.LINUX) return validateLinux(raw, directoryByType, backslashSeparates);
         if (raw == null || raw.isEmpty()) {
             throw refuse(UnarchiveException.Rule.EMPTY_NAME, "(empty)", "an entry has no name");
         }
@@ -115,6 +133,52 @@ public final class EntryName {
         }
         boolean notNfc = !Normalizer.isNormalized(raw, Normalizer.Form.NFC);
         return new Name(segs, dir, usedBackslash, notNfc);
+    }
+
+    private static Name validateLinux(String raw, boolean directoryByType, boolean bs) throws UnarchiveException {
+        if (raw == null || raw.isEmpty()) {
+            throw refuse(UnarchiveException.Rule.EMPTY_NAME, "(empty)", "an entry has no name");
+        }
+        String s = raw;
+        if (s.equals(".") || s.equals("./") || (bs && s.equals(".\\"))) {
+            return new Name(new ArrayList<String>(), true, bs && s.indexOf('\\') >= 0, false);
+        }
+        char c0 = s.charAt(0);
+        if (c0 == '/' || (bs && c0 == '\\')) {
+            throw refuse(UnarchiveException.Rule.ABSOLUTE, raw, "starts with a separator (absolute path)");
+        }
+        if (s.startsWith("./") || (bs && s.startsWith(".\\"))) s = s.substring(2);
+        boolean usedBackslash = bs && s.indexOf('\\') >= 0;
+        boolean dir = directoryByType;
+        char last = s.charAt(s.length() - 1);
+        if (last == '/' || (bs && last == '\\')) {
+            dir = true;
+            s = s.substring(0, s.length() - 1);
+        }
+        if (s.isEmpty()) {
+            throw refuse(UnarchiveException.Rule.EMPTY_SEGMENT, raw, "has an empty path segment");
+        }
+        List<String> segs = new ArrayList<String>();
+        int start = 0;
+        for (int i = 0; i <= s.length(); i++) {
+            if (i == s.length() || s.charAt(i) == '/' || (bs && s.charAt(i) == '\\')) {
+                segs.add(s.substring(start, i));
+                start = i + 1;
+            }
+        }
+        for (String seg : segs) {
+            if (seg.isEmpty()) throw refuse(UnarchiveException.Rule.EMPTY_SEGMENT, raw, "has an empty path segment");
+            if (seg.equals("..")) throw refuse(UnarchiveException.Rule.TRAVERSAL, raw, "has a '..' segment");
+            if (seg.equals(".")) {
+                throw refuse(UnarchiveException.Rule.DOT_SEGMENT, raw, "has a '.' segment other than one leading './'");
+            }
+            if (seg.indexOf('\0') >= 0) throw refuse(UnarchiveException.Rule.INVALID_CHAR, raw, "contains NUL");
+            if (seg.getBytes(StandardCharsets.UTF_8).length > MAX_SEGMENT) {
+                throw refuse(UnarchiveException.Rule.SEGMENT_TOO_LONG, raw,
+                        "has a segment over " + MAX_SEGMENT + " UTF-8 bytes (Linux NAME_MAX)");
+            }
+        }
+        return new Name(segs, dir, usedBackslash, !Normalizer.isNormalized(raw, Normalizer.Form.NFC));
     }
 
     private static void checkSegment(String raw, String seg) throws UnarchiveException {
@@ -195,13 +259,24 @@ public final class EntryName {
         return base.length() + (sep ? 0 : 1) + n.path.length();
     }
 
-    /** Refuses a path whose absolute length exceeds {@code max}. */
+    /** Refuses a path whose absolute length exceeds {@code max}, counted as Windows counts it. */
     public static void checkLength(String base, Name n, int max) throws UnarchiveException {
-        int len = absoluteLength(base, n);
+        checkLength(base, n, max, HostRules.WINDOWS);
+    }
+
+    /**
+     * The same, in the host's unit: UTF-16 units on Windows ({@code MAX_PATH}), UTF-8 bytes on Linux
+     * ({@code PATH_MAX}, measured 4096).
+     */
+    public static void checkLength(String base, Name n, int max, HostRules rules) throws UnarchiveException {
+        int len = rules == HostRules.LINUX
+                ? (n.isRoot() ? base : base + (base.endsWith("/") ? "" : "/") + n.path).getBytes(StandardCharsets.UTF_8).length
+                : absoluteLength(base, n);
         if (len > max) {
             throw refuse(UnarchiveException.Rule.PATH_TOO_LONG, n.path,
-                    "would be " + len + " characters as an absolute path, over the limit of " + max
-                            + " (Explorer, PowerShell 5.1 and later steps could not open it)");
+                    "would be " + len + (rules == HostRules.LINUX ? " UTF-8 bytes" : " characters")
+                            + " as an absolute path, over the limit of " + max
+                            + (rules == HostRules.LINUX ? "" : " (Explorer, PowerShell 5.1 and later steps could not open it)"));
         }
     }
 

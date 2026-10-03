@@ -1,7 +1,8 @@
 # Archive extraction executor (`unarchive`) — specification
 
-Status: **complete — batch 4 delivered** (designer panel, the last three registration places,
-`PARAM_OPTIONS`). Batch 3 registered the executor in the backend and wrote USAGE.md. Batch 2 delivered the zip reader, limits,
+Status: **Linux hosts — batch L1 delivered** (§21): name rules follow the server's OS, detected
+automatically; Windows behaviour unchanged. Batch L2 (links, permissions, directory times on Linux)
+is next. Batches 0–4 delivered the executor for Windows. Batch 2 delivered the zip reader, limits,
 staging, commit and manifest. Gate 0 Q1–Q3 answered 2026-09-30, Q4–Q12 confirmed with the recommended
 defaults 2026-10-03 (§13). Batch 0 written on `0997815`, revised on `0509aa9`, batch 2 on `a4f02c8`.
 
@@ -480,7 +481,7 @@ directory is a plain directory), which is why Q8 asks whether `delete` should ex
 
 Published: `archivesFound`, `archivesExtracted`, `archivesSkipped`, `entriesExtracted`,
 `entriesSkipped`, `bytesExtracted`, `extractDirs` (`;`-list of committed subdirs, or `outputDir` in
-flat layout), `manifestFile`.
+flat layout), `manifestFile`, `warnings`, and since §21 `hostRules` (`windows` | `linux`).
 
 **No per-file list in run variables.** The engine audits every out var with its value and OUTPUT
 DATA shows it: 100 000 paths there is unusable. Instead
@@ -507,7 +508,7 @@ archive with zero entries is a WARNING either way.
 | `onUnsupportedEntry` | `fail` | §6 |
 | `zipNameCharset` | `auto` (legacy fallback `IBM850`) | §4.2; a charset name forces it for unflagged names; never over bit 11 (**∩ I20**). The fallback itself is NOT a step parameter: `UnarchiveRun.zipLegacyCharset` exists so a test can show the refusal when the charset is missing from the JRE (Java 8 keeps it in `lib/charsets.jar`) |
 | `maxEntries` / `maxEntryMb` / `maxArchiveMb` / `maxRatio` | 100000 / 2048 / 20480 / 200 | §7 |
-| `maxPathLength` | 259 | §5 |
+| `maxPathLength` | ~~259~~ `auto` | §5, §21: `auto` = 259 UTF-16 units on a Windows host, 4096 UTF-8 bytes on Linux; a number applies on both, in the host's unit |
 | `checkFreeDisk` | `true` | §7; same name and default as elarxml's |
 | `afterExtract` | `keep` | §8.4; `keep` or `rename`, ~~`delete`~~ refused naming Gate 0 Q8 |
 | `preserveMtime` | `true` | §8.5 |
@@ -886,3 +887,90 @@ control writing a misspelt name crashed the suite before it printed the failure 
 suite now records a throw as a failure and prints everything found.
 
 **Not verified**: a real browser (jsdom only), `mvn clean package`, a run inside the container.
+
+## 21. Linux hosts
+
+### 21.1. The requirement and the decision
+
+New requirement (2026-10-03): extraction must be fully compatible with a Linux environment. Gate 0:
+**L1 answered (a)** — Linux and Windows both supported, **everything built so far kept**; and the
+rule set is chosen by **detecting the server's OS automatically**, not by a parameter (Fabiano's
+decision). The trade-off, stated once: the same workflow can extract different files on a Windows
+test machine and on a Linux server. It is made visible rather than avoided: the first log line names
+the host and the rules, and every run publishes `${hostRules}`.
+
+L2–L6 were recommendations; adopted as defaults since the instruction was to apply what Linux needs:
+L2 links created on Linux, confined; L3 `rwx` preserved, never setuid/setgid/sticky or owner;
+**L4 corrected by measurement** (below); L5 FIFO/devices/sparse unchanged; L6 non-UTF-8 tar names still
+refused (Java cannot create arbitrary byte names reliably). L2 and L3 are batch L2.
+
+### 21.2. Measured on this Linux host (GNU tar 1.35, Info-ZIP unzip 6.0 Debian, ext4)
+
+* GNU tar extracts **as is**: `report_10:41.txt`, `a<b>c|d?e*f"g.txt`, `CON`, `nul.txt`, `aux.c`, names
+  ending in `.` or space, `Makefile` and `makefile`, `Dir/` and `dir/`, `a\b.txt`, `C:x`,
+  `\lead.txt`, and a name containing a newline.
+* NAME_MAX is **255 bytes**: a 256-byte name fails (`File name too long`), so does 128 × `é`
+  (256 bytes); GNU tar exits 2 on it. PATH_MAX 4096. `os.name` = `Linux`.
+* **unzip converts `\` to `/` only for a zip whose "made by" host is 0 (MS-DOS)**, with a warning;
+  made-by NTFS (11), VFAT (14) and Unix (3) keep it literally. The batch-0 recommendation ("`\`
+  separates in zips, as unzip does") was wrong for most zips and is corrected here.
+* `jar` (Java) declares host 0 together with the UTF-8 flag, and **Debian's unzip mangles that zip's
+  non-ASCII names** (`perché.txt` → `perch├й.txt`): it applies its OEM conversion to DOS-made zips
+  even when they declare UTF-8. Python declares host 3, and unzip reads it correctly.
+
+### 21.3. The rules
+
+`HostRules.detect(os.name)`: starts with `Windows` → **WINDOWS**; `Linux` → **LINUX**; anything else
+→ refused (CONFIGURATION). macOS is refused on purpose: its default file system is case-insensitive
+like Windows yet allows what Windows refuses, so neither rule set describes it.
+
+**WINDOWS**: §3–§9 exactly as built. The existing signatures (`EntryName.validate(raw, dir)`,
+`checkLength(base, n, max)`, `new NameIndex()`) still mean the Windows rules, so batches 1–2's suites
+run unchanged — the batch 2 suite gained one line setting the host to Windows, and no assertion.
+
+**LINUX** — what changes:
+
+| Rule | Windows | Linux |
+|---|---|---|
+| `\` | separator | **tar: a character** (GNU tar); **zip: separator only if made on MS-DOS** (unzip) — ∩ I34 |
+| drive letter, `:`, `< > " \| ? *`, control chars | refused | kept (NUL still refused) — ∩ I33, I39 |
+| reserved device names, trailing `.`/space | refused | kept — ∩ I33 |
+| case-only differences (files, directories, subdirectory names) | refused | distinct — ∩ I33, I40 |
+| segment length | 255 UTF-16 units and 255 bytes | 255 UTF-8 bytes (NAME_MAX) — ∩ I38 |
+| `maxPathLength=auto` | 259 UTF-16 units | 4096 UTF-8 bytes — ∩ I37 |
+
+What does **not** change on Linux — deliberate restrictions where GNU tar is more permissive, kept
+because they are about safety or ambiguity, not about Windows (∩ I35, I36): a leading `/` is refused
+(GNU tar strips it with a warning); `a/./b` and `a//b` are refused (GNU tar normalises them); an exact
+duplicate is refused (GNU tar keeps the later one); `..` is refused wherever the separator is.
+
+### 21.4. Intersections
+
+| # | Case | Rules that meet | Winner |
+|---|---|---|---|
+| I33 | `:`, `CON`, `a.`, `A.txt`+`a.txt` on Linux | Windows-only refusals vs a Linux host | Linux: kept as names (GNU tar parity); Windows: refused, unchanged |
+| I34 | `\` in a name on Linux | separator vs character | tar: character; zip: separator iff made-by host 0; Windows: always separator |
+| I35 | leading `/`, `a/./b`, `a//b` on Linux | GNU tar parity vs refuse-not-normalise | refused on both hosts |
+| I36 | exact duplicate on Linux | GNU tar "later wins" vs §5 | refused on both hosts |
+| I37 | `maxPathLength` | one number vs two units | `auto` = the host's limit; a number = that many units of the host |
+| I38 | segment length | UTF-16 vs bytes | Windows keeps both checks; Linux bytes only (NAME_MAX) |
+| I39 | control characters | log safety vs Linux legality | Linux keeps them in names (GNU tar does, measured); the log still escapes them |
+| I40 | `a.tar` + `A.tar` | subdirectory collision key | the host's key: Windows case-insensitive, Linux exact |
+| I41 | host neither Windows nor Linux | detection | refused before anything is read |
+| I42 | zip made on MS-DOS with the UTF-8 flag (jar) on Linux | unzip parity vs the zip's declaration | the declaration (∩ I20): the step writes `perché.txt` where Debian's unzip writes `perch├й.txt` |
+
+### 21.5. Batch L1 as built
+
+`HostRules` (new); `EntryName.validate(raw, dir, rules, backslashSeparates)` and
+`checkLength(base, n, max, rules)` (new overloads; Linux path added, Windows path untouched);
+`NameIndex(HostRules)`; `ZipCentralDirectory.Record.madeOnDos()` and `ZipArchiveReader.Entry.backslashSeparates`;
+`UnarchiveRun.hostOs` (default `os.name`), `hostRules`, `maxPathLength` 0 = auto, the log line;
+`runUnarchive` accepts `maxPathLength=auto` and publishes `hostRules`; the panel seeds `auto` (the field
+is now text, since a number field cannot hold it), validates it, and says the rules follow the server;
+USAGE.md "Windows and Linux servers".
+
+**Verification**: the Windows suites unchanged and green (232 + 194). **Linux suite, 138 assertions**:
+GNU tar / unzip parity on every benign fixture of batches 1–2 and on new Linux fixtures; every
+hostile fixture either still refused by its rule with nothing left behind, or — the Windows-only
+ones — byte-identical to GNU tar or unzip; the backslash rule on zips made by FAT, NTFS, VFAT, Unix;
+NAME_MAX and PATH_MAX boundaries in bytes; detection, refusal of other OSes, the log line.

@@ -1,25 +1,30 @@
-unarchive: batch 4, designer panel - the executor is complete
+unarchive: batch L1, Linux hosts - name rules follow the detected OS
 
-The last three registration places, in the designer: the executor
-option, the panel and the client-side validation. Choosing the executor
-writes its 17 defaults into the step (never over a value already set),
-so the saved workflow states every value the run uses. buildXml is
-unchanged: it already emits every parameter.
+New requirement: extraction fully compatible with Linux, keeping all the
+Windows behaviour. The server's OS is detected (os.name): Windows keeps
+every rule built so far, unchanged; Linux lifts the Windows-only refusals
+so archives extract as GNU tar and unzip extract them there; any other OS
+is refused. Each run logs the rules it applied and publishes
+${hostRules}.
 
-variables.html: eight PARAM_OPTIONS keys. failOnEmpty and checkFreeDisk
-are shared with sqlreport and elarxml (same meaning and default); the
-panel writes true/false, never yes/no, since sqlreport accepts only
-"true".
+On Linux: drive letters, ':', Windows-forbidden characters, reserved
+names, trailing dot/space and case-only differences are kept as names;
+'\' is a character in tars and a separator only in zips made on MS-DOS
+(what unzip does, measured); names are limited to 255 UTF-8 bytes;
+maxPathLength defaults to auto (259 characters on Windows, 4096 bytes on
+Linux). Leading '/', 'a/./b', 'a//b', duplicates and '..' stay refused.
 
-USAGE.md: two sentences written in batch 3 had become false once the
-panel existed ("No designer panel yet") and are replaced.
+runUnarchive accepts maxPathLength=auto and publishes hostRules; the
+designer seeds auto and says the rules follow the server; USAGE.md gains
+"Windows and Linux servers".
 
-Verified: panel suite 111 assertions on the real template in jsdom,
-every control driven through its own handler; names written by the panel
-equal names read by runUnarchive (19), seeded values equal the executor's
-defaults, select options equal the values the executor accepts. The XML
-the designer emits is read by the real parser and runs through
-runUnarchive with exit 0. The pre-patch template fails the suite. 19
-mutations: 18 caught, 1 equivalent (argued in the spec). No Java changed.
+Measured on Linux: GNU tar extracts every Windows-illegal name as is;
+unzip converts backslashes only for made-by host 0; Debian's unzip
+mangles UTF-8 names of jar zips, where the step follows the zip's flag.
 
-Not verified: a real browser, mvn clean package, a run in the container.
+Verified: Windows suites unchanged (232 + 194); Linux suite 140 with GNU
+tar / unzip parity; wiring 90; panel 114; guide 43; designer XML through
+the real parser to runUnarchive; 24 mutations, all caught.
+
+Not verified: mvn clean package, a run in the container, a real Linux
+server deployment.

@@ -415,10 +415,12 @@ public class InternalSteps {
         for (String k : nums) {
             String raw = pv(params, vars, k);
             if (raw == null) continue;
+            // maxPathLength=auto: the server's limit (259 characters on Windows, 4096 bytes on Linux)
+            if ("maxPathLength".equals(k) && "auto".equalsIgnoreCase(raw)) continue;
             long n;
             try { n = Long.parseLong(raw); }
             catch (NumberFormatException e) {
-                line.accept("unarchive: " + k + " must be a whole number, not '" + raw + "'");
+                line.accept("unarchive: " + k + " must be a whole number" + ("maxPathLength".equals(k) ? " or auto" : "") + ", not '" + raw + "'");
                 res.exitCode = 2; res.lastLines = k + " must be a whole number"; return;
             }
             if ("maxEntries".equals(k)) u.maxEntries = n;
@@ -454,6 +456,7 @@ public class InternalSteps {
         res.outVars.put("entriesSkipped", String.valueOf(u.entriesSkipped));
         res.outVars.put("bytesExtracted", String.valueOf(u.bytesExtracted));
         res.outVars.put("warnings", String.valueOf(u.warnings));
+        res.outVars.put("hostRules", u.hostRules);
         StringBuilder dirs = new StringBuilder();
         for (String d : u.extractDirs) { if (dirs.length() > 0) dirs.append(';'); dirs.append(d); }
         res.outVars.put("extractDirs", dirs.toString());

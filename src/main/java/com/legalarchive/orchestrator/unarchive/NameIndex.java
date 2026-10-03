@@ -37,6 +37,25 @@ public final class NameIndex {
     }
 
     private final Map<String, Seen> byKey = new HashMap<String, Seen>();
+    private final HostRules rules;
+
+    /** Windows rules, as batches 1-4 built them. */
+    public NameIndex() {
+        this(HostRules.WINDOWS);
+    }
+
+    /**
+     * Under {@link HostRules#LINUX} names are compared exactly, as ext4 compares them: {@code A.txt}
+     * and {@code a.txt}, {@code Dir/} and {@code dir/} are distinct (GNU tar extracts both, measured).
+     * Duplicates and file/directory conflicts are still refused there.
+     */
+    public NameIndex(HostRules rules) {
+        this.rules = rules;
+    }
+
+    private String key(String path) {
+        return rules == HostRules.LINUX ? path : EntryName.collisionKey(path);
+    }
 
     /** Registers a validated name, or refuses it against what was registered before. */
     public void add(EntryName.Name n) throws UnarchiveException {
@@ -52,7 +71,7 @@ public final class NameIndex {
             registerDirectory(n.path, n.path);
             return;
         }
-        String key = EntryName.collisionKey(n.path);
+        String key = key(n.path);
         Seen prev = byKey.get(key);
         if (prev == null) {
             byKey.put(key, new Seen(n.path, false));
@@ -71,7 +90,7 @@ public final class NameIndex {
     }
 
     private void registerDirectory(String path, String entry) throws UnarchiveException {
-        String key = EntryName.collisionKey(path);
+        String key = key(path);
         Seen prev = byKey.get(key);
         if (prev == null) {
             byKey.put(key, new Seen(path, true));

@@ -3595,3 +3595,20 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   hint. A "caught" mutation was a crash hiding the real failure - throws are now recorded failures.
 * No batch 5: the panel's part of the guide went in here. Note in
   `.claude/2026-10-03-unarchive-batch4-panel.md`.
+
+## unarchive — Batch L1: Linux hosts (name rules follow the detected OS)
+* Requirement: full Linux compatibility. Gate 0: keep everything, DETECT the OS (Fabiano's decision;
+  trade-off - same workflow, different files on a Windows test box and a Linux server - made visible
+  by the first log line and `${hostRules}`). `HostRules`: Windows* / Linux / anything else refused.
+* Linux: Windows-only refusals lifted (drive, `:`, forbidden chars, CON/NUL, trailing dot/space, case
+  collisions); `\` a character in tars, a separator only in zips made on MS-DOS; 255 UTF-8 bytes per
+  name; `maxPathLength=auto` (259 chars Windows / 4096 bytes Linux). Still refused on both, though GNU
+  tar is lenient: leading `/`, `a/./b`, `a//b`, exact duplicates, `..`. Windows path untouched (old
+  signatures = Windows rules; Windows suites unchanged).
+* **Measured: unzip converts `\` only for made-by host 0 (MS-DOS)** - corrected my batch-0 claim.
+  **Debian unzip mangles jar zips' UTF-8 names** (host 0 + flag); the step follows the flag.
+* Linux suite 140 (GNU tar / unzip parity), Windows 232 + 194, wiring 90, panel 114, guide 43;
+  mutations 24, all caught. **A flaky test of mine** (one temp dir's length reused for another, 1 in 3
+  failing even on clean code) was found because a mutation's reported reason made no sense.
+* Next: L2 - confined links, permissions, directory times on Linux. Note in
+  `.claude/2026-10-03-unarchive-L1-linux-names.md`.

@@ -477,7 +477,7 @@
     var UA_DEFAULTS = [ ['pattern', '*.zip;*.tar;*.tgz;*.tar.gz;*.gz'], ['recursive', 'false'], ['format', 'auto'],
         ['layout', 'subdir'], ['onExisting', 'fail'], ['onUnsupportedEntry', 'fail'], ['zipNameCharset', 'auto'],
         ['maxEntries', '100000'], ['maxEntryMb', '2048'], ['maxArchiveMb', '20480'], ['maxRatio', '200'],
-        ['maxPathLength', '259'], ['checkFreeDisk', 'true'], ['afterExtract', 'keep'], ['preserveMtime', 'true'],
+        ['maxPathLength', 'auto'], ['checkFreeDisk', 'true'], ['afterExtract', 'keep'], ['preserveMtime', 'true'],
         ['manifestHash', 'true'], ['failOnEmpty', 'false'] ];
     function uaDefault(name) { for (var k = 0; k < UA_DEFAULTS.length; k++) if (UA_DEFAULTS[k][0] === name) return UA_DEFAULTS[k][1]; return ''; }
     function uaSeed(n) {
@@ -2059,7 +2059,7 @@
                         '<div class="field"><label>Max MB per file</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxEntryMb')) + '" placeholder="' + uaDefault('maxEntryMb') + '" oninput="setNodeParam(' + i + ',\'maxEntryMb\',this.value)"></div>' +
                         '<div class="field"><label>Max MB per archive</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxArchiveMb')) + '" placeholder="' + uaDefault('maxArchiveMb') + '" oninput="setNodeParam(' + i + ',\'maxArchiveMb\',this.value)"></div>' +
                         '<div class="field"><label>Max ratio</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxRatio')) + '" placeholder="' + uaDefault('maxRatio') + '" title="How much an entry may expand against its compressed size, checked once it has written 10 MB." oninput="setNodeParam(' + i + ',\'maxRatio\',this.value)"></div>' +
-                        '<div class="field"><label>Max path length</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxPathLength')) + '" placeholder="' + uaDefault('maxPathLength') + '" title="Of the extracted file, absolute: what Explorer and PowerShell 5.1 can open." oninput="setNodeParam(' + i + ',\'maxPathLength\',this.value)"></div></div>';
+                        '<div class="field"><label>Max path length</label><input value="' + attresc(nodeParam(n, 'maxPathLength')) + '" placeholder="' + uaDefault('maxPathLength') + '" title="Of the extracted file, absolute. auto = the server\'s limit: 259 characters on Windows (what Explorer and PowerShell 5.1 can open), 4096 bytes on Linux." oninput="setNodeParam(' + i + ',\'maxPathLength\',this.value)"></div></div>';
                     h += '<div class="form-row">' +
                         '<div class="field"><label>Free-space check</label><select onchange="setNodeParam(' + i + ',\'checkFreeDisk\',this.value)">' +
                         '<option value="true"' + (uaYesOrBlank(nodeParam(n, 'checkFreeDisk')) ? ' selected' : '') + '>yes \u2014 zips need their size + 10%</option>' +
@@ -2068,7 +2068,7 @@
                         '<option value="false"' + (!uaYes(nodeParam(n, 'failOnEmpty')) ? ' selected' : '') + '>ok, 0 extracted</option>' +
                         '<option value="true"' + (uaYes(nodeParam(n, 'failOnEmpty')) ? ' selected' : '') + '>fail the step</option></select></div></div>';
                     h += '</div>';
-                    h += '<div class="dim small" style="margin-top:4px">Entries that would leave their folder, collide on Windows (case, reserved names like CON or NUL, a trailing dot) or are links are refused, on every server. Nothing incomplete appears under a final name. Outputs: ${archivesExtracted}, ${entriesExtracted}, ${extractDirs}, ${manifestFile} and more \u2014 see the guide.</div>';
+                    h += '<div class="dim small" style="margin-top:4px">Name rules follow the server the step runs on: on Windows, names Windows cannot hold (a colon, CON or NUL, a trailing dot, two names differing only in case) are refused; on Linux they are extracted as GNU tar extracts them. ${hostRules} says which rules a run used. On both, entries that would leave their folder or are links are refused. Nothing incomplete appears under a final name. Outputs: ${archivesExtracted}, ${entriesExtracted}, ${extractDirs}, ${manifestFile} and more \u2014 see the guide.</div>';
                 } else if (ex === 'encoding') {
                     var encFrom = nodeParam(n, 'from');
                     var charsets = ['', 'windows-1252', 'ISO-8859-1', 'ISO-8859-15', 'UTF-8', 'UTF-16', 'UTF-16LE', 'UTF-16BE', 'IBM500', 'Cp1140'];
@@ -2398,7 +2398,8 @@
                     if (!String(nodeParam(n, 'sourceDir') || '').trim()) errs.push(label + ' (' + n.id + '): unarchive needs the directory holding the archives (sourceDir)');
                     ['maxEntries', 'maxEntryMb', 'maxArchiveMb', 'maxRatio', 'maxPathLength'].forEach(function (k) {
                         var v = String(nodeParam(n, k) || '').trim();
-                        if (v && v.indexOf('${') < 0 && !/^[1-9][0-9]*$/.test(v)) errs.push(label + ' (' + n.id + '): ' + k + ' must be a whole number above 0');
+                        if (k === 'maxPathLength' && v.toLowerCase() === 'auto') return;
+                        if (v && v.indexOf('${') < 0 && !/^[1-9][0-9]*$/.test(v)) errs.push(label + ' (' + n.id + '): ' + k + ' must be a whole number above 0' + (k === 'maxPathLength' ? ', or auto' : ''));
                     });
                     var uaL = String(nodeParam(n, 'layout') || '').trim().toLowerCase();
                     if (uaL && uaL !== 'subdir') errs.push(label + ' (' + n.id + '): layout must be subdir (the only layout available)');

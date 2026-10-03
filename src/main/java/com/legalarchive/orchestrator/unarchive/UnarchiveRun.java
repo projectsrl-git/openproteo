@@ -72,7 +72,8 @@ public final class UnarchiveRun {
     public long maxEntryMb = 2048;
     public long maxArchiveMb = 20480;
     public long maxRatio = 200;
-    public int maxPathLength = 259;
+    /** 0 = auto: the host's limit, 259 UTF-16 units on Windows, 4096 UTF-8 bytes on Linux (section 21). */
+    public int maxPathLength = 0;
     public boolean checkFreeDisk = true;
     public String afterExtract = "keep";
     public boolean preserveMtime = true;
@@ -83,6 +84,9 @@ public final class UnarchiveRun {
     public BooleanSupplier aborted = () -> false;
     /** Free space on a directory; injected by tests, since a disk cannot be filled on demand. */
     public ToLongFunction<File> usableSpace = File::getUsableSpace;
+
+    /** The OS the name rules follow; {@code os.name} in production, set by tests to exercise both. */
+    public String hostOs = System.getProperty("os.name");
 
     /** A rename; injected by tests, since a rename cannot be made to fail on demand. */
     public interface Mover {
@@ -102,6 +106,8 @@ public final class UnarchiveRun {
     public int warnings;
     public int mtimeFailures;
     public boolean wasAborted;
+    /** The rule set applied, "windows" or "linux" - published so a run says which it used. */
+    public String hostRules = "";
     public final List<String> extractDirs = new ArrayList<String>();
 
     static final String STAGING_PREFIX = ".unarchive-";
@@ -114,6 +120,8 @@ public final class UnarchiveRun {
     private ArchiveFormat.Requested requested;
     private Path out;
     private BufferedWriter manifest;
+    private HostRules rules;
+    private int pathLimit;
 
     /** Thrown internally when Stop is seen; the run records it and stops cleanly. */
     static final class Aborted extends IOException {
@@ -149,6 +157,8 @@ public final class UnarchiveRun {
 
     public void run() throws IOException {
         configure();
+        log.accept("unarchive: host " + hostOs + ": " + rules.label() + " name rules, path limit " + pathLimit
+                + (rules == HostRules.LINUX ? " UTF-8 bytes" : " characters"));
         sweep();
         List<Candidate> found = select();
         archivesFound = found.size();
@@ -191,6 +201,11 @@ public final class UnarchiveRun {
     // ------------------------------------------------------------------ steps
 
     private void configure() throws IOException {
+        rules = HostRules.detect(hostOs);
+        if (rules == null) {
+            throw config("the host OS '" + hostOs + "' is neither Windows nor Linux; unarchive has name rules for those two only");
+        }
+        hostRules = rules.label();
         if (sourceDir == null || !sourceDir.isDirectory()) {
             throw config("sourceDir is not a directory: " + sourceDir);
         }
@@ -228,9 +243,10 @@ public final class UnarchiveRun {
                     + " (on a Java 8 JRE it lives in lib/charsets.jar)");
         }
         legacyCharset = Charset.forName(zipLegacyCharset);
-        if (maxEntries <= 0 || maxEntryMb <= 0 || maxArchiveMb <= 0 || maxRatio <= 0 || maxPathLength <= 0) {
+        if (maxEntries <= 0 || maxEntryMb <= 0 || maxArchiveMb <= 0 || maxRatio <= 0 || maxPathLength < 0) {
             throw config("limits must be positive");
         }
+        pathLimit = maxPathLength == 0 ? rules.defaultMaxPath() : maxPathLength;
         if (new FileMask(pattern).isEmpty()) throw config("pattern selects nothing");
     }
 
@@ -272,16 +288,16 @@ public final class UnarchiveRun {
         String exist = low(onExisting, "fail");
         boolean rename = low(afterExtract, "keep").equals("rename");
         for (Candidate c : found) {
-            EntryName.Name n = EntryName.validate(c.subdir, true);
+            EntryName.Name n = EntryName.validate(c.subdir, true, rules, false);
             if (n.segments.size() != 1) {
                 throw new UnarchiveException(UnarchiveException.Rule.CONFIGURATION,
                         c.rel + " would extract into '" + c.subdir + "', which is not a single directory name");
             }
-            EntryName.checkLength(out.toString(), n, maxPathLength);
-            Candidate prev = bySubdir.put(EntryName.collisionKey(c.subdir), c);
+            EntryName.checkLength(out.toString(), n, pathLimit, rules);
+            Candidate prev = bySubdir.put(rules == HostRules.LINUX ? c.subdir : EntryName.collisionKey(c.subdir), c);
             if (prev != null) {
                 throw new UnarchiveException(UnarchiveException.Rule.SUBDIR_COLLISION, prev.rel + " and " + c.rel
-                        + " would both extract into '" + c.subdir + "' (names compared as Windows does)");
+                        + " would both extract into '" + c.subdir + "'" + (rules == HostRules.LINUX ? "" : " (names compared as Windows does)"));
             }
             if (exist.equals("fail") && Files.exists(out.resolve(c.subdir))) {
                 throw new UnarchiveException(UnarchiveException.Rule.TARGET_EXISTS, out.resolve(c.subdir)
@@ -366,7 +382,7 @@ public final class UnarchiveRun {
         final Path staging, target;
         final Budget budget;
         final List<Row> rows;
-        final NameIndex index = new NameIndex();
+        final NameIndex index;
         final List<String> skippedNames = new ArrayList<String>();
         int backslashNames, notNfcNames;
 
@@ -376,6 +392,7 @@ public final class UnarchiveRun {
             this.target = target;
             this.budget = budget;
             this.rows = rows;
+            this.index = new NameIndex(rules);
         }
     }
 
@@ -385,7 +402,7 @@ public final class UnarchiveRun {
         while ((e = r.next()) != null) {
             checkAbort();
             x.budget.startEntry(e.name);
-            EntryName.Name n = EntryName.validate(e.name, e.type == TarStreamReader.Type.DIRECTORY);
+            EntryName.Name n = EntryName.validate(e.name, e.type == TarStreamReader.Type.DIRECTORY, rules, false);
             note(x, n);
             if (e.type != TarStreamReader.Type.FILE && e.type != TarStreamReader.Type.DIRECTORY) {
                 unsupported(x, e.name, e.type.name().toLowerCase(Locale.ROOT)
@@ -418,15 +435,15 @@ public final class UnarchiveRun {
                             + " bytes and " + free + " are free on the output volume (10% margin required)");
                 }
             }
-            StringBuilder rules = new StringBuilder();
+            StringBuilder decided = new StringBuilder();
             for (ZipArchiveReader.NameRule nr : ZipArchiveReader.NameRule.values()) {
-                if (z.count(nr) > 0) rules.append(rules.length() == 0 ? "" : ", ").append(nr).append('=').append(z.count(nr));
+                if (z.count(nr) > 0) decided.append(decided.length() == 0 ? "" : ", ").append(nr).append('=').append(z.count(nr));
             }
-            log.accept("unarchive: " + x.c.rel + ": names decided by " + (rules.length() == 0 ? "(no entries)" : rules));
+            log.accept("unarchive: " + x.c.rel + ": names decided by " + (decided.length() == 0 ? "(no entries)" : decided));
             for (ZipArchiveReader.Entry e : z.entries()) {
                 checkAbort();
                 x.budget.startEntry(e.name);
-                EntryName.Name n = EntryName.validate(e.name, e.type == ZipArchiveReader.Type.DIRECTORY);
+                EntryName.Name n = EntryName.validate(e.name, e.type == ZipArchiveReader.Type.DIRECTORY, rules, e.backslashSeparates);
                 note(x, n);
                 if (e.type == ZipArchiveReader.Type.SYMLINK || e.type == ZipArchiveReader.Type.SPECIAL) {
                     unsupported(x, e.name, e.type == ZipArchiveReader.Type.SYMLINK ? "symlink" : "special file");
@@ -447,7 +464,7 @@ public final class UnarchiveRun {
     private void extractSingle(Ctx x, GzipSupport.Opened g) throws IOException {
         String name = ArchiveFormat.innerNameOfGzip(x.c.file.getFileName().toString());
         x.budget.startEntry(name);
-        EntryName.Name n = EntryName.validate(name, false);
+        EntryName.Name n = EntryName.validate(name, false, rules, false);
         place(x, n, name, g.decompressed, -1, g.compressedCounter, -1);
         finish(x);
     }
@@ -460,7 +477,7 @@ public final class UnarchiveRun {
     private void place(Ctx x, EntryName.Name n, String raw, InputStream in, long entryCompressed,
                        GzipSupport.Counting counter, long mtimeMillis) throws IOException {
         x.index.add(n);
-        EntryName.checkLength(x.target.toString(), n, maxPathLength);
+        EntryName.checkLength(x.target.toString(), n, pathLimit, rules);
         if (n.isRoot()) return;
         Path p = x.staging.resolve(n.path);
         if (!p.normalize().startsWith(x.staging)) {                    // the net, never the rule
