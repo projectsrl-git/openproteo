@@ -3539,3 +3539,27 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   there, so `a.txt` would become `15257155562/a.txt`; fixture added.
 * Still no USAGE.md section (executor unreachable until batch 3). Note in
   `.claude/2026-09-30-unarchive-batch1-readers.md`.
+
+## unarchive — Batch 2: zip, limits, staging and commit, manifest (still unwired)
+* Gate 0 Q4–Q12 confirmed: IBM850 legacy zip charset, central directory parsed ourselves, hardlinks
+  refused, `onExisting=fail`, `afterExtract` keep|rename (delete REFUSED naming Q8), `subdir` only
+  (flat REFUSED naming Q10), manifest with SHA-256, missing tar end marker = warning.
+* New: `ZipCentralDirectory`, `ZipArchiveReader` (`ZipFile` streams + our records, cross-checked on
+  count and every name before pairing; CRC-32 and size checked per entry), `FileMask` (copy of
+  json2csv's, compared), `Budget`, `UnarchiveRun` (prechecks over EVERY archive before the first is
+  extracted; `.part` staging, one rename to commit; `replace` puts the old dir back if the rename
+  fails). Test seams `usableSpace` and `mover`, the elarxml "inject the figure" kind.
+* **Spec corrected by tests, struck through**: per-entry ratio is meaningless for gzip (read-ahead:
+  30 MB of zeros = ~30 KB compressed, all consumed before entry 1 -> infinite ratio even at
+  maxRatio=5000); **JDK 21's `ZipFile` constructor refuses encrypted/method-12 zips, Java 8's does
+  not** - checks moved onto our own records so the rule is the same on both; tar magic + bad checksum
+  = corrupted tar (BAD_CHECKSUM), not unrecognised (∩ I30).
+* **Measured value of the zip cross-check**: a 1-byte parser error without it extracts silently under
+  wrong names (`erché.txtU`); with it, a refusal.
+* 194 + 232 assertions. Zips from Info-ZIP / jar / python / python-streaming byte-identical to their
+  source tree; real ZIP64 (66 000 entries; 5 GiB entry refused by declared size, nothing written).
+  Every hostile zip and tar refused by its own rule with `outputDir` EMPTY (no staging).
+  Mutations: batch 2 35 (33 caught, 2 equivalent, argued), batch 1 34 re-run all caught.
+* **Incident**: suites left temp dirs, the disk filled mid-mutation-run (936 KB free); all those results
+  discarded, suites now delete their run root, everything re-run from zero.
+* Note in `.claude/2026-10-03-unarchive-batch2-zip-run.md`.

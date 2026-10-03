@@ -79,11 +79,12 @@ public final class ArchiveFormat {
         if (starts(b, len, 0x28, 0xB5, 0x2F, 0xFD)) return Kind.ZSTD;
         if (len >= 512) {
             if (allZero(b, 512)) return Kind.TAR_EMPTY;
-            if (TarStreamReader.checksumValid(b)) {
-                if (TarStreamReader.isPosixMagic(b)) return Kind.TAR_POSIX;
-                if (TarStreamReader.isGnuMagic(b)) return Kind.TAR_GNU;
-                return Kind.TAR_V7;
-            }
+            // ∩ I30: a tar magic is a magic - with a wrong checksum it is a CORRUPTED tar, and the
+            // reader refuses it as BAD_CHECKSUM, the useful message. Only a magic-less header needs
+            // the checksum as its sole evidence of being a tar at all.
+            if (TarStreamReader.isPosixMagic(b)) return Kind.TAR_POSIX;
+            if (TarStreamReader.isGnuMagic(b)) return Kind.TAR_GNU;
+            if (TarStreamReader.checksumValid(b)) return Kind.TAR_V7;
         }
         return Kind.UNKNOWN;
     }

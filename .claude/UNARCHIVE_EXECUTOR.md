@@ -1,8 +1,8 @@
 # Archive extraction executor (`unarchive`) — specification
 
-Status: **Batch 1 delivered** (readers, name validator, detection — standalone, unwired). Gate 0
-Q1–Q3 answered 2026-09-30 (§13); Q4–Q12 keep their recommended defaults and are confirmed before
-batch 2, which is where they take effect. Batch 0 written on `0997815`, revised on `0509aa9`.
+Status: **Batch 2 delivered** (zip reader, limits, staging and commit, manifest — `UnarchiveRun`
+end to end, still unwired). Gate 0 Q1–Q3 answered 2026-09-30, Q4–Q12 confirmed with the recommended
+defaults 2026-10-03 (§13). Batch 0 written on `0997815`, revised on `0509aa9`, batch 2 on `a4f02c8`.
 
 **Revision 2026-09-30** — three corrections, struck through where they were made rather than
 rewritten: the case-folding rule (§5, it disagreed with `rename.CaseInsensitive` and with NTFS),
@@ -230,8 +230,12 @@ Sequential, one pass, the payload streamed to its destination and never buffered
   `zipNameCharset` set to a charset name **forces** step 4 for every unflagged name (skipping 2–3),
   for the day a heuristic is wrong. **∩ I20**: bit 11 wins over a forced charset, always — the
   producer declared UTF-8 and the JDK decodes it before the charset is consulted.
-* **Refused, naming the entry**: encrypted entries (bit 0); a compression method other than STORED
-  (0) or DEFLATED (8), named by number — DEFLATE64 (9) is the likely one from Windows tooling and is
+* **Refused, naming the entry**: encrypted entries (bit 0, or bit 6); a compression method other than STORED
+  (0) or DEFLATED (8), named by number. **Checked on our own central-directory records BEFORE
+  `ZipFile` is opened** (batch 2): measured, JDK 21 already refuses such an archive in the `ZipFile`
+  constructor (`invalid CEN header (encrypted entry)`, `(bad compression method: 12)`), while Java 8's
+  native zip code does not — so without the early check the same file would be refused under a
+  different rule on each JDK — DEFLATE64 (9) is the likely one from Windows tooling and is
   not in the JDK; spanned archives.
 * **Link detection** (§2.15) needs the external attributes, which Java 8 does not expose. Two ways,
   Q5: read the central directory ourselves (EOCD, ZIP64 EOCD, one record per entry: raw name,
@@ -239,6 +243,12 @@ Sequential, one pass, the payload streamed to its destination and never buffered
   names in the same order, else refuse; or accept that a zip symlink is extracted as a small
   regular file holding the target's path. Recommended: the first. It also yields the raw names
   directly, so the ISO-8859-1 bijection becomes a cross-check rather than the mechanism.
+  **Q5 answered: parse.** Batch 2 measured what the cross-check is worth: with our parser's name
+  offset mutated by one byte AND the cross-check removed, the archive extracts **silently under wrong
+  names** (`erché.txtU`, `ir/U`); with the cross-check, the same defect is a `ZIP_STRUCTURE` refusal.
+* **∩ I28**: an entry is a directory if and only if its name ends in a separator; attributes decide
+  only the Unix special types. A DOS directory bit on a name without a trailing separator does not
+  make a directory.
 
 ### 4.3. gzip
 
@@ -367,9 +377,15 @@ sizes are used only to refuse *early*.
   is in elarxml. 200 is ~8× the highest legitimate ratio measured (§2.18: 25.5) and ~5× below
   deflate's ceiling (1028). For zip, compressed bytes = the entry's central-directory size, which is
   also what bounds `ZipFile`'s inflater input. For `tar.gz`, compressed bytes = a counter under the
-  `GZIPInputStream`, and the ratio is also evaluated over the whole stream. **∩ I21**: both the
-  per-entry and the whole-stream ratio apply; the first to trip decides and the message names which.
-  The counter exists since batch 1 and is asserted to equal the file length after a full read.
+  `GZIPInputStream`, and the ratio is also evaluated over the whole stream. **∩ I21**: ~~both the
+  per-entry and the whole-stream ratio apply; the first to trip decides and the message names which~~.
+  **Corrected in batch 2, measured**: the per-entry ratio applies only where an entry's compressed
+  size is KNOWN — zip, from the central directory. For a gzip stream only the whole-stream ratio
+  applies: a per-entry figure would be the compressed bytes consumed during the entry, and the
+  decompressor's read-ahead makes that meaningless — 30 MB of zeros compress to ~30 KB, all of it
+  read before the first entry starts, so every entry read as an infinite ratio and a legitimate
+  setting (`maxRatio=5000`) still refused it. The counter exists since batch 1 and is asserted to
+  equal the file length after a full read.
 * **Free disk** (`checkFreeDisk`, default on): for a zip the declared uncompressed total is known
   from the central directory before a byte is written — refused early if free space on the output
   volume is below it plus 10%. For `tar.gz` nothing trustworthy is known in advance (gzip ISIZE is
@@ -485,14 +501,14 @@ archive with zero entries is a WARNING either way.
 | `recursive` | `false` | same name and default as the existing `PARAM_OPTIONS` entry |
 | `format` | `auto` | §3.2 |
 | `outputDir` | `${stepDir}` | §8.1 |
-| `layout` | `subdir` | §8.1 |
+| `layout` | `subdir` | §8.1; ~~`flat`~~ refused naming Gate 0 Q10 |
 | `onExisting` | `fail` | §8.3 |
 | `onUnsupportedEntry` | `fail` | §6 |
-| `zipNameCharset` | `auto` (legacy fallback `IBM850`) | §4.2; a charset name forces it for unflagged names; never over bit 11 (**∩ I20**) |
+| `zipNameCharset` | `auto` (legacy fallback `IBM850`) | §4.2; a charset name forces it for unflagged names; never over bit 11 (**∩ I20**). The fallback itself is NOT a step parameter: `UnarchiveRun.zipLegacyCharset` exists so a test can show the refusal when the charset is missing from the JRE (Java 8 keeps it in `lib/charsets.jar`) |
 | `maxEntries` / `maxEntryMb` / `maxArchiveMb` / `maxRatio` | 100000 / 2048 / 20480 / 200 | §7 |
 | `maxPathLength` | 259 | §5 |
 | `checkFreeDisk` | `true` | §7; same name and default as elarxml's |
-| `afterExtract` | `keep` | §8.4 |
+| `afterExtract` | `keep` | §8.4; `keep` or `rename`, ~~`delete`~~ refused naming Gate 0 Q8 |
 | `preserveMtime` | `true` | §8.5 |
 | `manifestHash` | `true` | §9 |
 | `failOnEmpty` | `false` | §9 |
@@ -580,6 +596,14 @@ Codes: 0 success; 2 refusal (configuration or data); −997 Stop; 1 via the gene
 
 **With a recommended default, not blocking:**
 
+**Q4–Q12 — CONFIRMED 2026-10-03 with the recommended defaults**: IBM850; parse the central
+directory (Q5); hardlinks refused, no copy mode (Q6); `onExisting=fail` (Q7); `afterExtract` keep or
+rename, no delete (Q8); limits as §7 and `maxPathLength` 259 (Q9); `subdir` layout only (Q10);
+manifest with SHA-256 (Q11); missing tar end marker is a warning (Q12). `layout=flat` and
+`afterExtract=delete` are therefore REFUSED with a message naming the Gate 0 question, not ignored.
+
+*As written at batch 0:*
+
 * **Q4 — zip legacy charset**: `IBM437` (APPNOTE) or `IBM850` (Italian Windows OEM page)? Identical
   for `à è é ì ò ù` (§2.11); different for `Ø`, `ı`, box-drawing. Recommended ~~`IBM437`~~ **`IBM850`**
   since Q3 (the producers are Windows machines, whose OEM page is 850 in Western Europe), with the
@@ -601,7 +625,7 @@ Codes: 0 success; 2 refusal (configuration or data); −997 Stop; 1 via the gene
 * **1** — core readers: `ArchiveFormat` (detection), `EntryName` (every §5 rule), `TarStreamReader`
   (§4.1), gzip handling (§4.3). Standalone, unwired, fixtures and hostile set. **Delivered**, §17.
 * **2** — `ZipArchiveReader` (§4.2, including Q5's central-directory parser if chosen), limits
-  (§7), staging and commit (§8), manifest (§9), `UnarchiveRun` end to end.
+  (§7), staging and commit (§8), manifest (§9), `UnarchiveRun` end to end. **Delivered**, §18.
 * **3** — registration (eight places), `runUnarchive`, Stop, exit-code lint.
 * **4** — designer panel, `PARAM_OPTIONS`, mechanical parameter comparison.
 * **5** — `USAGE.md`, verified through `docs.html`'s own `render()`.
@@ -638,20 +662,23 @@ that pins it. Each is also written beside both rules above (marked **∩ In**).
 | I11 | `C:x`, `a:b` | drive letter vs colon | drive letter first | names, `h_DRIVE_LETTER` |
 | I12 | same directory twice | duplicate vs idempotent mkdir | directories accepted, files refused | `h_DUPLICATE` |
 | I13 | `Dir/a` + `dir/b` | case collision vs directory merge | refused `DIRECTORY_CASE_MISMATCH` | `h_DIRECTORY_CASE_MISMATCH` |
-| I14 | `A.txt` + `a.txt`, `onExisting=replace` | case collision vs overwrite policy | collision refused regardless | batch 2 |
+| I14 | `A.txt` + `a.txt`, `onExisting=replace` | case collision vs overwrite policy | collision refused regardless | existing: `zh_CASE_COLLISION` under replace |
 | I15 | pax `path` + header name / prefix / `L` | extended names | pax wins; pax + `L` refused | `b_pax.tar`, `h_AMBIGUOUS_NAME` |
 | I16 | pax `size` + header size | sizes | pax wins | `b_paxsize.tar` |
 | I17 | bytes 345+ in a GNU header | prefix vs GNU atime/ctime | prefix only under POSIX magic | `b_gnu_incr.tar` |
 | I18 | pax `g` with `path` or `size` | global vs per-entry | global never changes an entry | `b_git.tar` |
 | I19 | stream ends | missing end marker vs truncation | boundary = warning; elsewhere = `TRUNCATED`, inside the payload read | flags, hostile |
-| I20 | UTF-8 flag + forced `zipNameCharset` | flag vs parameter | flag | batch 2 |
-| I21 | tar.gz ratio | per-entry vs whole-stream | both; first to trip | batch 2 |
-| I22 | `x.zip.done`, `.part` dirs, `pattern=*` | pattern vs own artefacts | own artefacts never selected | batch 2 |
-| I23 | empty archive, `failOnEmpty=true` | "nothing to do" vs "nothing inside" | `failOnEmpty` only for no archive matched | batch 2 |
+| I20 | UTF-8 flag + forced `zipNameCharset` | flag vs parameter | flag | zipNames, mutation |
+| I21 | tar.gz ratio | per-entry vs whole-stream | ~~both; first to trip~~ zip: both; gzip: whole stream only (read-ahead, measured) | ratio, grace |
+| I22 | `x.zip.done`, `.part` dirs, `pattern=*` | pattern vs own artefacts | own artefacts never selected | afterExtract, sweep |
+| I23 | empty archive, `failOnEmpty=true` | "nothing to do" vs "nothing inside" | `failOnEmpty` only for no archive matched | config |
 | I24 | NFC + NFD spellings | collision key vs normalisation | not a collision, reported | names (flag) |
 | I25 | `a:b.txt` from Linux | colon rule vs Linux legality | refused on every host | names |
-| I26 | long subdir + long entry | path length vs layout | subdir counts | batch 2 |
-| I27 | hardlink `copy` mode (if Q6 says yes) | "never creates links" vs copy | a copy is a regular file: allowed | batch 2 |
+| I26 | long subdir + long entry | path length vs layout | subdir counts, final path not staging path | pathLength, mutation |
+| I27 | ~~hardlink `copy` mode (if Q6 says yes)~~ | ~~"never creates links" vs copy~~ | **Q6 answered: no copy mode** — hardlinks are refused or skipped like links | unsupported |
+| I28 | zip entry: DOS dir bit, no trailing `/` | attributes vs name | the name; attributes decide only Unix special types | equivalent mutation (two spellings of one rule) |
+| I29 | link named `../x` with `onUnsupportedEntry=skip` | skip vs name validation | the name is validated first, refused even though the entry would be skipped | unsupported: `hostile_link.tar` |
+| I30 | tar magic with a wrong checksum | detection vs reader | the magic: a corrupted tar, refused `BAD_CHECKSUM`; only a magic-less header needs the checksum | `h_BAD_CHECKSUM` via the run, mutation |
 
 ## 17. Batch 1 as built
 
@@ -693,3 +720,62 @@ it was corrected, and the wrong one kept as the hostile `BAD_EXTENDED_HEADER` fi
 **Not verified**: Windows (reserved names, `MAX_PATH`), Java 8 at runtime (JDK 21 with `--release 8`
 checks the API, not behaviour), Windows `tar.exe` output, and `mvn clean package` — which this batch
 does not need, since no file outside the new package changes, but which will compile it.
+
+## 18. Batch 2 as built
+
+New in package `unarchive`: `ZipCentralDirectory` (EOCD, ZIP64 locator and record, sizes from extra
+`0x0001`, raw names, external attributes), `ZipArchiveReader` (`ZipFile` for the streams, our
+records for names, types, encryption and method, the two readings cross-checked before pairing,
+CRC-32 and size checked at the end of each entry's stream), `FileMask` (copy of `json2csv`'s,
+compared with it), `Budget` (§7 limits on bytes written), `UnarchiveRun` (the whole executor,
+Spring-free). Batch 1 classes changed in two places only: `ArchiveFormat.sniff` (∩ I30) and new
+rules in `UnarchiveException`. **Still no registration and no call site.**
+
+Two test seams, both of the "inject the figure" kind already used by elarxml's disk guard:
+`usableSpace` (a disk cannot be filled on demand) and `mover` (a rename cannot be made to fail on
+demand). Production uses `File.getUsableSpace` and `Files.move(ATOMIC_MOVE)` with the back-off.
+
+Manifest rows of an archive are kept in memory until it commits (bounded by `maxEntries`: 100 000
+rows of a few hundred bytes), so a failed archive never leaves a row.
+
+**Verification**: batch 2 suite **194 assertions**, batch 1 suite **232** re-run green on the batch 2
+code. Benign zips from **four real producers** — Info-ZIP 3.0 (UTF-8, no flag), `jar` (flag + data
+descriptor), python (flag), python streaming (STORED + data descriptor) — each extracted
+**byte-identical to the source tree it was built from**; a real ZIP64 with 66 000 entries (EOCD64
+present) and one with a 5 GiB entry (sizes only in the extra field), refused early by the declared
+size without writing a byte. Every hostile zip AND every hostile tar of batch 1 run through
+`UnarchiveRun`: refused by its own rule, and **`outputDir` empty — no subdirectory, no staging**.
+End-to-end over four archives of four kinds; failure in the middle (first committed, rest not,
+manifest lists only the first); every precheck refusing before the first extraction; skip, replace,
+replace with a hostile archive (old content intact), replace whose rename fails (old moved back);
+sweep touching only its own directories; Stop mid-archive; each limit; ratio over the grace and
+under it; the disk margin at 5% (refused) and exactly 10% (passes); path length one over and exactly
+at the limit; mtimes; warnings; links skipped or refused, and a skipped link with a traversing name
+still refused; selection (recursive, case-sensitive, `.done` never selected, a non-archive refused);
+manifest bytes (no BOM, CRLF, RFC 4180, one row per file, SHA-256 equal to the file).
+
+**Mutations, on copies, foreground slices**: batch 2 **35 — 33 caught, 2 equivalent**, each opened:
+removing the cross-check (equivalent while our parser is right; the compound mutation in §4.2 shows
+what it guards) and removing the trailing-slash directory test in the zip reader (the validator
+applies the same rule, ∩ I28). **One was caught only after a test was strengthened**: removing the
+explicit `layout=flat` refusal still refused through the generic "must be subdir" check, and the
+suite compared only the rule — the message naming Gate 0 Q10 could have gone unnoticed (the
+CLAUDE.md corollary: a test must tell the new message from the old). Three mutations of mine did not
+compile or missed their anchor and were repaired, not dropped. Batch 1's **34** re-run on the cleaned
+harness: all caught. The "no sort" mutation is caught because ext4's enumeration order differs from
+the sorted order on this fixture set; on a file system that enumerates sorted it would pass, which
+is why the sort is stated in the code rather than left to the test.
+
+**An incident, stated**: during the first mutation run the suites left their temporary directories
+behind and the disk filled (3 090 directories, 936 KB free). Every mutation result from that run was
+discarded; the suites now delete their own run root in a `finally`, and all mutations of both
+batches were re-run from zero with 9.7 GB free.
+
+**Corrections to the spec found by tests in this batch**: the per-entry ratio for gzip (∩ I21, struck
+through above); the JDK 21 `ZipFile` constructor refusing what Java 8 accepts (§4.2); the
+magic-with-bad-checksum case nobody had decided (∩ I30). One fixture of mine was invalid by my own
+rules (a `"` in an entry name).
+
+**Not verified**: Windows (reserved names, `MAX_PATH`, rename under a scanner — the back-off is
+argued, the seam proves only the rollback logic), Java 8 at runtime, a real Explorer zip or Windows
+`tar.exe` archive, `mvn clean package`.

@@ -1,32 +1,31 @@
-unarchive: batch 1, tar/gzip readers, name validator, detection
+unarchive: batch 2, zip reader, limits, staging and commit, manifest
 
-Gate 0 Q1-Q3 answered: name "unarchive"; formats zip, tar, tar.gz/tgz,
-gz; archives produced on Windows and Linux only.
+Gate 0 Q4-Q12 confirmed with the recommended defaults. UnarchiveRun now
+extracts end to end against real files; still unregistered, no call site.
 
-New package com.legalarchive.orchestrator.unarchive, JDK only, standalone
-and unwired - no registration, no call site, no feed can reach it:
-ArchiveFormat (magic bytes decide, extension compared, explicit format
-refuses a contradicting file, bzip2/xz/7z/rar/zstd recognised and refused
-by name), EntryName (one validator, refusal as the rule), NameIndex
-(duplicates, case collisions, file/dir conflicts), TarStreamReader
-(POSIX + GNU magic, pax x/g, GNU L/K, base-256, prefix only under POSIX
-magic), GzipSupport (counted compressed bytes, FNAME never used),
-UnarchiveException (carries the Rule that refused).
+New in package unarchive: ZipCentralDirectory (our own central directory
+reading, ZIP64 included, for raw names and external attributes),
+ZipArchiveReader (ZipFile for streams, our records for names/types/
+encryption/method, cross-checked on count and every name; four-rule name
+charset with IBM850 fallback; symlinks recognised; CRC-32 and size checked
+per entry), FileMask (copy of json2csv's), Budget (limits on bytes
+written), UnarchiveRun (config refusals, sweep, selection, prechecks over
+every archive before the first extraction, .part staging, one rename to
+commit, replace with rollback, manifest with SHA-256, Stop).
 
-Spec revised: the case-collision key corrected (toLowerCase measured
-wrong; now per-char upper-casing, the rule of rename.CaseInsensitive),
-zip legacy charset recommendation IBM437 -> IBM850 after Q3, and 27
-intersections of rules decided by name per the new CLAUDE.md principle.
+Spec corrected by tests: per-entry compression ratio dropped for gzip
+(decompressor read-ahead makes it meaningless, measured); encryption and
+method checks moved before ZipFile is opened (JDK 21 refuses such zips in
+the constructor, Java 8 does not); tar magic with a bad checksum is a
+corrupted tar, not unrecognised (I30).
 
-Verified: javac --release 8 -Xlint:all clean. 232 assertions: 18 benign
-fixtures from real tools byte-identical with GNU tar 1.35's extraction,
-also through a 1-byte-read stream whose skip() never moves; 29 hostile
-fixtures each refused by its own rule; collision key equal to the real
-rename.CaseInsensitive over every BMP char. 34 mutations on copies, all
-caught; one survived first and was a real suite gap (GNU incremental
-headers carry atime/ctime where POSIX has the prefix), fixture added.
-Suite not committed.
+Verified: javac --release 8 -Xlint:all clean. 194 assertions (batch 2) +
+232 (batch 1, re-run). Zips from Info-ZIP, jar, python and python
+streaming byte-identical to their source tree; real ZIP64; every hostile
+zip and tar refused by its own rule with outputDir left empty. Mutations:
+batch 2 35 (33 caught, 2 equivalent, argued in the spec), batch 1 34 all
+caught. An earlier mutation run was discarded after the suites' temp dirs
+filled the disk; suites now clean up and everything was re-run.
 
-Not verified: mvn clean package (no file outside the new package
-changes), Windows, Java 8 at runtime (JDK 21 --release 8), Windows
-tar.exe output. No USAGE.md section until the executor is reachable.
+Not verified: mvn clean package, Windows, Java 8 at runtime, a real
+Explorer zip or Windows tar.exe archive.
