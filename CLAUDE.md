@@ -3563,3 +3563,20 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * **Incident**: suites left temp dirs, the disk filled mid-mutation-run (936 KB free); all those results
   discarded, suites now delete their run root, everything re-run from zero.
 * Note in `.claude/2026-10-03-unarchive-batch2-zip-run.md`.
+
+## unarchive — Batch 3: registration, runUnarchive, USAGE.md (reachable from XML)
+* Backend registration in the five places verified on the code (parser whitelist, error message,
+  `internal` set; `internalKind`; dispatch WITH `control`). The three designer places go with the
+  panel in batch 4. `runUnarchive`: 19 params, 9 outputs on every path, codes 0 / 2 / -997 / 1 set
+  explicitly; manifest in `${stepDir}`.
+* **Found while wiring: the dispatcher's catch keeps -1** (`res.exitCode == 0 ? 1 : res.exitCode`) -
+  an exception reaching it before a code is set ends the step as -1, not 1. `runUnarchive` handles
+  its own exceptions; the suite asserts never -1.
+* **Exit-code lint extended**: `res.exitCode = code` (filerename, unarchive) was a false alarm for the
+  original lint; a variable now counts through its own assignments, a call is opaque. 30 run* methods,
+  none flagged; on the pre-objpack-fix code it still flags exactly runObjPack.
+* USAGE.md section, verified through docs.html's own render() (39 assertions, pre-patch fails 19).
+  Wiring 78 assertions on methods lifted verbatim + the real parser; mechanical spec/code/default
+  agreement 19/19. 17 wiring mutations caught - two only after closing gaps (numeric param reaching
+  the WRONG field went unseen; config refusals tested on a hostile feed ended in exit 2 anyway).
+* Note in `.claude/2026-10-03-unarchive-batch3-registration.md`.

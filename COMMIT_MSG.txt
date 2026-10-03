@@ -1,31 +1,29 @@
-unarchive: batch 2, zip reader, limits, staging and commit, manifest
+unarchive: batch 3, register the executor and document it
 
-Gate 0 Q4-Q12 confirmed with the recommended defaults. UnarchiveRun now
-extracts end to end against real files; still unregistered, no call site.
+exec="unarchive" is now accepted in a workflow XML. The designer panel
+and its three registration places are batch 4.
 
-New in package unarchive: ZipCentralDirectory (our own central directory
-reading, ZIP64 included, for raw names and external attributes),
-ZipArchiveReader (ZipFile for streams, our records for names/types/
-encryption/method, cross-checked on count and every name; four-rule name
-charset with IBM850 fallback; symlinks recognised; CRC-32 and size checked
-per entry), FileMask (copy of json2csv's), Budget (limits on bytes
-written), UnarchiveRun (config refusals, sweep, selection, prechecks over
-every archive before the first extraction, .part staging, one rename to
-commit, replace with rollback, manifest with SHA-256, Stop).
+Registration in the five backend places, verified on the code:
+WorkflowXmlParser whitelist, error message and internal set;
+WorkflowEngine.internalKind; InternalSteps dispatch, passing control for
+Stop. runUnarchive translates the 19 parameters (relative paths rebased
+on ${feedDir}, outputDir defaulting to ${stepDir}, malformed numbers
+refused), publishes nine outputs on every path and sets the exit code
+explicitly: 0 done, 2 refused, -997 Stop, 1 I/O failure.
 
-Spec corrected by tests: per-entry compression ratio dropped for gzip
-(decompressor read-ahead makes it meaningless, measured); encryption and
-method checks moved before ZipFile is opened (JDK 21 refuses such zips in
-the constructor, Java 8 does not); tar magic with a bad checksum is a
-corrupted tar, not unrecognised (I30).
+Found while wiring: the dispatcher's generic catch keeps an exit code of
+-1 when an exception arrives before a code was set, so runUnarchive
+handles its own exceptions. The exit-code lint was extended so that
+res.exitCode = code is not a false alarm; it still flags exactly
+runObjPack on the code before that fix.
 
-Verified: javac --release 8 -Xlint:all clean. 194 assertions (batch 2) +
-232 (batch 1, re-run). Zips from Info-ZIP, jar, python and python
-streaming byte-identical to their source tree; real ZIP64; every hostile
-zip and tar refused by its own rule with outputDir left empty. Mutations:
-batch 2 35 (33 caught, 2 equivalent, argued in the spec), batch 1 34 all
-caught. An earlier mutation run was discarded after the suites' temp dirs
-filled the disk; suites now clean up and everything was re-run.
+USAGE.md: "The unarchive step" and its line in the executor list.
 
-Not verified: mvn clean package, Windows, Java 8 at runtime, a real
-Explorer zip or Windows tar.exe archive.
+Verified: wiring suite 78 assertions on methods lifted verbatim from
+the sources plus the real parser; spec table, executor and defaults
+agree 19/19; USAGE.md through docs.html's render() 39 assertions (the
+pre-patch guide fails 19); 17 wiring mutations caught, two after
+closing suite gaps; batch 1 and 2 suites re-run green.
+
+Not verified: mvn clean package, a run in the container, Windows,
+Java 8 at runtime.

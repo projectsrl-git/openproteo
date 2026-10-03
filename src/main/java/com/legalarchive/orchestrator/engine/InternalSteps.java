@@ -118,6 +118,8 @@ public class InternalSteps {
                 runObjPack(step, resolvedParams, vars, res, line);
             } else if ("filerename".equals(kind)) {
                 runFileRename(resolvedParams, vars, res, line, control);
+            } else if ("unarchive".equals(kind)) {
+                runUnarchive(resolvedParams, vars, res, line, control);
             } else {
                 line.accept("unknown internal step kind: " + kind);
                 res.exitCode = -996;
@@ -366,6 +368,101 @@ public class InternalSteps {
                     : "renamed " + m.renamed + ", source not found " + m.sourceNotFound + ", target exists "
                       + m.skippedTargetExists + ", unusable " + m.unusableRows + ", duplicate " + m.duplicateTargets
                       + ", failed " + m.failed;
+        }
+        res.exitCode = code;
+    }
+
+    // -------------------------------------------------------------- unarchive
+    /**
+     * Extracts the archives of a directory (zip, tar, tar.gz/tgz, gz) - spec
+     * {@code .claude/UNARCHIVE_EXECUTOR.md}. Everything is in {@code unarchive.UnarchiveRun}; this
+     * method only translates parameters in and counters out, and sets an explicit exit code on
+     * EVERY path: {@code Result.exitCode} starts at -1, and the dispatcher's catch keeps a non-zero
+     * code as it is, so an exception thrown here before a code was set would end the step as -1.
+     * Codes: 0 done; 2 refused (configuration or data, the message names the rule); -997 Stop;
+     * 1 an unexpected I/O failure.
+     */
+    private void runUnarchive(Map<String, String> params, Map<String, String> vars, StepExecutor.Result res,
+                              java.util.function.Consumer<String> line, final RunControl control) {
+        com.legalarchive.orchestrator.unarchive.UnarchiveRun u = new com.legalarchive.orchestrator.unarchive.UnarchiveRun();
+        String src = pv(params, vars, "sourceDir");
+        if (src == null) { line.accept("unarchive: sourceDir (the directory holding the archives) is required"); res.exitCode = 2; res.lastLines = "sourceDir is required"; return; }
+        u.sourceDir = new java.io.File(rebaseRel(src, vars));
+        String stepDir = blankToNull(vars.get("stepDir"));
+        String out = pv(params, vars, "outputDir");
+        if (out == null) out = stepDir;
+        if (out == null) { line.accept("unarchive: outputDir is required when the step has no step directory"); res.exitCode = 2; res.lastLines = "outputDir is required"; return; }
+        u.outputDir = new java.io.File(rebaseRel(out, vars));
+        u.manifestFile = new java.io.File(stepDir != null ? stepDir : u.outputDir.getPath(), "unarchive_manifest.csv");
+
+        String v;
+        if ((v = pv(params, vars, "pattern")) != null) u.pattern = v;
+        if ((v = pv(params, vars, "format")) != null) u.format = v;
+        if ((v = pv(params, vars, "layout")) != null) u.layout = v;
+        if ((v = pv(params, vars, "onExisting")) != null) u.onExisting = v;
+        if ((v = pv(params, vars, "onUnsupportedEntry")) != null) u.onUnsupportedEntry = v;
+        if ((v = pv(params, vars, "zipNameCharset")) != null) u.zipNameCharset = v;
+        if ((v = pv(params, vars, "afterExtract")) != null) u.afterExtract = v;
+        u.recursive = yes(pv(params, vars, "recursive"), false);
+        u.checkFreeDisk = yes(pv(params, vars, "checkFreeDisk"), true);
+        u.preserveMtime = yes(pv(params, vars, "preserveMtime"), true);
+        u.manifestHash = yes(pv(params, vars, "manifestHash"), true);
+        u.failOnEmpty = yes(pv(params, vars, "failOnEmpty"), false);
+
+        // Numbers are refused when malformed, never defaulted: a limit typed as "2O48" that silently
+        // became the default would look configured and be something else.
+        String[] nums = { "maxEntries", "maxEntryMb", "maxArchiveMb", "maxRatio", "maxPathLength" };
+        for (String k : nums) {
+            String raw = pv(params, vars, k);
+            if (raw == null) continue;
+            long n;
+            try { n = Long.parseLong(raw); }
+            catch (NumberFormatException e) {
+                line.accept("unarchive: " + k + " must be a whole number, not '" + raw + "'");
+                res.exitCode = 2; res.lastLines = k + " must be a whole number"; return;
+            }
+            if ("maxEntries".equals(k)) u.maxEntries = n;
+            else if ("maxEntryMb".equals(k)) u.maxEntryMb = n;
+            else if ("maxArchiveMb".equals(k)) u.maxArchiveMb = n;
+            else if ("maxRatio".equals(k)) u.maxRatio = n;
+            else if (n > Integer.MAX_VALUE) { line.accept("unarchive: maxPathLength is too large"); res.exitCode = 2; res.lastLines = "maxPathLength is too large"; return; }
+            else u.maxPathLength = (int) n;
+        }
+
+        String runId = blankToNull(vars.get("runId"));
+        u.runId = (runId != null ? runId.replaceAll("[^A-Za-z0-9_-]", "_") + "-" : "") + System.currentTimeMillis();
+        u.log = line;
+        u.aborted = new java.util.function.BooleanSupplier() {
+            public boolean getAsBoolean() { return control != null && control.aborted; }
+        };
+        int code;
+        String failure = null;
+        try {
+            u.run();
+            code = u.wasAborted ? -997 : 0;
+        } catch (com.legalarchive.orchestrator.unarchive.UnarchiveException e) {
+            code = 2;
+            failure = e.getMessage();
+        } catch (java.io.IOException e) {
+            code = 1;
+            failure = "I/O failure: " + e;
+        }
+        res.outVars.put("archivesFound", String.valueOf(u.archivesFound));
+        res.outVars.put("archivesExtracted", String.valueOf(u.archivesExtracted));
+        res.outVars.put("archivesSkipped", String.valueOf(u.archivesSkipped));
+        res.outVars.put("entriesExtracted", String.valueOf(u.entriesExtracted));
+        res.outVars.put("entriesSkipped", String.valueOf(u.entriesSkipped));
+        res.outVars.put("bytesExtracted", String.valueOf(u.bytesExtracted));
+        res.outVars.put("warnings", String.valueOf(u.warnings));
+        StringBuilder dirs = new StringBuilder();
+        for (String d : u.extractDirs) { if (dirs.length() > 0) dirs.append(';'); dirs.append(d); }
+        res.outVars.put("extractDirs", dirs.toString());
+        res.outVars.put("manifestFile", u.manifestFile.exists() ? u.manifestFile.getPath() : "");
+        if (failure != null) {
+            line.accept("unarchive: " + failure);
+            res.lastLines = failure;
+        } else if (code == -997) {
+            res.lastLines = "stopped by user after " + u.archivesExtracted + " archive(s)";
         }
         res.exitCode = code;
     }

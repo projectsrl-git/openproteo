@@ -1,7 +1,8 @@
 # Archive extraction executor (`unarchive`) — specification
 
-Status: **Batch 2 delivered** (zip reader, limits, staging and commit, manifest — `UnarchiveRun`
-end to end, still unwired). Gate 0 Q1–Q3 answered 2026-09-30, Q4–Q12 confirmed with the recommended
+Status: **Batch 3 delivered** — the executor is registered and reachable from a workflow XML
+(`exec="unarchive"`); the designer panel is batch 4. Batch 2 delivered the zip reader, limits,
+staging, commit and manifest. Gate 0 Q1–Q3 answered 2026-09-30, Q4–Q12 confirmed with the recommended
 defaults 2026-10-03 (§13). Batch 0 written on `0997815`, revised on `0509aa9`, batch 2 on `a4f02c8`.
 
 **Revision 2026-09-30** — three corrections, struck through where they were made rather than
@@ -541,7 +542,15 @@ field is a `<param>` — **to be confirmed by reading the emission in the panel 
 **`runUnarchive` sets `res.exitCode = 0` on success** — `StepExecutor.Result.exitCode` starts at −1
 and `runObjPack` reported every successful run as FAILED for exactly that. The lint from
 `2026-09-25-objpack-exit-code.md` is re-run over all `run*` methods in the registration batch.
-Codes: 0 success; 2 refusal (configuration or data); −997 Stop; 1 via the generic catch.
+Codes: 0 success; 2 refusal (configuration or data); −997 Stop; 1 ~~via the generic catch~~ **set
+explicitly for an unexpected I/O failure**. Found while wiring: the dispatcher's catch does
+`res.exitCode = res.exitCode == 0 ? 1 : res.exitCode`, so an exception reaching it while the code is
+still −1 ends the step as **−1**, not 1. `runUnarchive` therefore catches its own exceptions and sets
+a code on every path; the wiring suite asserts the code is never −1.
+
+**Batch 3 split, stated**: the five backend places (1–5) are in batch 3; the three designer places
+(6–8) go with the panel in batch 4, where they are verified together with it. Until then the step is
+written in the XML, and USAGE.md says so.
 
 ## 12. Testability and verification discipline
 
@@ -626,9 +635,11 @@ manifest with SHA-256 (Q11); missing tar end marker is a warning (Q12). `layout=
   (§4.1), gzip handling (§4.3). Standalone, unwired, fixtures and hostile set. **Delivered**, §17.
 * **2** — `ZipArchiveReader` (§4.2, including Q5's central-directory parser if chosen), limits
   (§7), staging and commit (§8), manifest (§9), `UnarchiveRun` end to end. **Delivered**, §18.
-* **3** — registration (eight places), `runUnarchive`, Stop, exit-code lint.
+* **3** — registration (eight places), `runUnarchive`, Stop, exit-code lint. **Delivered** (backend
+  places 1–5, USAGE.md section), §19.
 * **4** — designer panel, `PARAM_OPTIONS`, mechanical parameter comparison.
-* **5** — `USAGE.md`, verified through `docs.html`'s own `render()`.
+* **5** — ~~`USAGE.md`, verified through `docs.html`'s own `render()`~~ moved into batch 3, since the
+  executor became reachable there; batch 5 only adds the panel's part to it.
 
 ## 15. Not verifiable here, said now
 
@@ -779,3 +790,54 @@ rules (a `"` in an entry name).
 **Not verified**: Windows (reserved names, `MAX_PATH`, rename under a scanner — the back-off is
 argued, the seam proves only the rollback logic), Java 8 at runtime, a real Explorer zip or Windows
 `tar.exe` archive, `mvn clean package`.
+
+## 19. Batch 3 as built
+
+**Registration, backend**: `WorkflowXmlParser` whitelist, error message and `internal` set;
+`WorkflowEngine.internalKind()`; `InternalSteps.run()` dispatch passing `control`. **`runUnarchive`**
+translates the 19 parameters (relative paths rebased on `${feedDir}`, `outputDir` defaulting to
+`${stepDir}`, malformed numbers refused naming the parameter, never defaulted), runs `UnarchiveRun`,
+publishes the nine outputs on every path, and sets 0 / 2 / −997 / 1 explicitly. The manifest goes to
+`${stepDir}/unarchive_manifest.csv`. Nothing in the `unarchive` package changed.
+
+**USAGE.md**: "The unarchive step", plus its line in the executor list. The deviation stated since
+batch 0 ends here: the guide arrives with the first batch that makes the step usable.
+
+**Verification**:
+* **Wiring, 78 assertions**: `runUnarchive`, `pv`, `yes`, `rebaseRel`, `blankToNull` and
+  `WorkflowEngine.internalKind` are **lifted verbatim** from the sources by a script (only `private`
+  removed so the harness can call them) and compiled with `--release 8` against the real
+  `StepExecutor`, `VarResolver`, `RunControl`; the **real parser** is compiled with `model/def`. Every
+  exit path, every output, every parameter reaching its own field, Stop, `${feedDir}` rebasing,
+  `${stepDir}` default, an unsafe `runId`.
+* **Mechanical agreement**, script: spec §10 table == names read by `runUnarchive` (19/19); boolean,
+  string and numeric defaults equal across spec, adapter and `UnarchiveRun`; the dispatch line calls
+  `runUnarchive` with `control` (`run()` cannot be lifted: it carries Spring dependencies).
+* **Exit-code lint, extended**: the original accepted only a literal 0, a ternary with a 0 branch, or
+  delegation, so `res.exitCode = code` (used by `filerename` and now here) would be a false alarm.
+  Now a variable counts if one of its own assignments can be 0, and a method call is opaque. Run on
+  the current code: 30 `run*` methods, none flagged. **Positive controls**: the code BEFORE the objpack
+  fix (`fea867e~1`, 28 methods) flags exactly `runObjPack`, as the original lint did; a synthetic
+  method that can only return non-zero is flagged.
+* **USAGE.md through `docs.html`'s own `render()`** (lifted verbatim, run in node, HTML read with
+  jsdom): 39 assertions — section, contents, the XML example shown as text, no raw markdown, 19/19
+  parameters equal to the executor and the spec, every stated default equal to `UnarchiveRun`'s, 9/9
+  outputs, the four exit codes equal to those set. **The pre-patch guide fails 19**, and a guide with
+  one default changed on purpose fails on exactly that default.
+* Batch 1 and 2 suites re-run: 232 + 194 green.
+
+**Mutations, wiring: 17, all caught.** **Two were caught only after closing real gaps**: assigning
+`maxPathLength` to the wrong field changed nothing because no test proved each numeric parameter
+reaches its own limit (now each gets a value that changes the outcome recognisably); and ignoring a
+malformed number survived because the configuration cases ran on the HOSTILE feed, which ended in
+exit 2 anyway — exit 2 for the wrong reason, the CLAUDE.md corollary again. They now run on a benign
+feed and must name the parameter.
+
+**Mistakes of mine caught on the way**: the documentation check's default regex stopped at the first
+`.` and compared `*` with the pattern; it then compared `textContent`, where backticks no longer exist,
+and checked 5 defaults instead of the 16 the guide states literally (plus `outputDir`, stated in words); and one "pre-patch exit 0" was `tail`'s exit code, not node's.
+All three fixed before any result was used.
+
+**Not verified**: `mvn clean package` (first batch that changes `InternalSteps`, `WorkflowEngine` and
+the parser — compiled here only as lifted methods and, for the parser, as itself), a run inside the
+container, Windows, Java 8 at runtime.

@@ -135,6 +135,7 @@ OpenProteo deliberately **ships no database driver**. Bundling one per vendor wo
 - **ftpsend** — deliver the files of a packaging directory to an FTPS server over explicit TLS, authenticating with a client certificate held in a PKCS#12 file. An ordered list of file masks decides what is sent and in what order; every upload is verified with `SIZE` against the local byte count and the first failure ends the step. See The ftpsend step below.
 - **objpack** — build a Transarch **object submission**: renamed objects, metadata CSV, audit JSON, control file, `.tar` and `.md5`, from a source metadata CSV and a directory of objects. One CSV row per object. Objects are streamed into the archive from where they already are, so no temporary copy is made. See The objpack step below.
 - **filerename** — rename the files of a directory according to a CSV mapping: the name on disk is built from a template and an id, the new name is a column. The whole mapping is checked before the first rename, and a collision stops the step with nothing renamed. The executor form of `Rename-FilesFromCsvMap.ps1`. See The filerename step below.
+- **unarchive** — extract the archives of a directory (zip, tar, tar.gz/tgz, gz), each into its own folder. The format comes from the file's content, not its name; entries that would leave their folder, collide on Windows or are links are refused; limits stop archive bombs; nothing incomplete appears under a final name. See The unarchive step below.
 - **split** — split an **existing file** into parts by rows and/or MB, using the same logic
   as the SQL export. Use it to run a LOOP only over the final steps, after validation and
   anonymization (see Splitting and Loops).
@@ -1303,3 +1304,77 @@ Required: `csvPath`, `directory`. Choosing `filerename` in the designer writes e
 Relative paths are resolved against `${feedDir}` rather than the current directory, and a character Windows does not allow in a file name is refused on every host, where the script refused only what the host it ran on refused. Nothing else changes which file gets which name.
 
 One thing worth knowing about the script itself: its default `-Encoding windows-1252` is not accepted by `Import-Csv` in Windows PowerShell 5.1, whose `-Encoding` takes only a fixed list of names, so with that default the script runs only under PowerShell 7. The step has no such limit.
+
+## The unarchive step
+
+`unarchive` extracts the archives found in one directory: **zip**, **tar**, **tar.gz / tgz** and plain **gz**. What an archive is, is decided by its content (its first bytes), not by its name: a gzip file that someone renamed `.tar` is read as the gzip it is, and the log says so. bzip2, xz, 7z, rar and zstd archives are recognised and refused with a message that names the format, because Java 8 cannot read them; recompress them as zip or tar.gz.
+
+Until the designer offers the step, write it directly in the workflow XML:
+
+```xml
+<step id="unpack" exec="unarchive">
+  <param name="sourceDir" value="${feedDir}/incoming"/>
+  <param name="pattern"   value="*.zip;*.tar.gz"/>
+</step>
+```
+
+### Where the files go
+
+Each archive is extracted into its own folder under `outputDir` (by default the step directory), named after the archive without its extension: `report.tar.gz` becomes `report/`, `data.zip` becomes `data/`, `d.csv.gz` becomes `d.csv/` holding `d.csv`. Two archives that would share a folder (`a.zip` and `a.tar`, or `a.tar` and `A.TAR`) stop the step before anything is extracted.
+
+Nothing incomplete ever appears under a final name. Each archive is first extracted into a hidden working folder next to its destination (`.unarchive-…part`) and moved into place in one rename once it is complete. If an archive fails, its working folder is deleted; archives extracted before it in the same run stay extracted and are listed in the log. If the server stops in the middle of an archive, the next run of the step removes the leftover working folder.
+
+### What is refused, and why
+
+The step refuses rather than repairs. An archive is refused, with the entry and the rule named in the message, when an entry:
+
+- leaves its folder: `../` anywhere, a path starting with `/` or `\`, a drive letter (`C:`), a network path;
+- would be invisible or ambiguous on Windows: a `:` (it writes a hidden stream inside another file), a reserved name such as `CON`, `NUL`, `AUX`, `COM1` — with or without an extension, `nul.txt` included — a name ending in a dot or a space, characters Windows does not allow, a path longer than 259 characters once extracted;
+- collides with another entry: two names that differ only in case (`A.txt`, `a.txt` — one file on Windows), the same file twice, a file and a folder with the same name;
+- is a link, a device or a pipe (only files and folders are ever created; `onUnsupportedEntry=skip` leaves such entries out, still checking their names).
+
+The same rules apply on every server, Linux included, so a workflow extracts the same files on a test machine as in production. A zip whose entries are encrypted, or compressed with a method other than deflate (bzip2, LZMA, or DEFLATE64, which some Windows tools use for large files), is refused naming the method. A zip entry whose content does not match its checksum is refused as corrupted.
+
+### Limits against archive bombs
+
+The limits count what is actually written, never what an archive declares: `maxEntries` entries per archive, `maxEntryMb` per file, `maxArchiveMb` per archive, and `maxRatio`, how much an entry may expand compared with its compressed size, checked once it has written 10 MB. A zip that declares more than `maxArchiveMb`, or more than the free space on the output drive plus 10%, is refused before anything is written.
+
+### File names inside zips
+
+Zip files do not always say how their names are encoded. The step uses the name as declared when the zip says UTF-8; otherwise it accepts the name as UTF-8 when the bytes are valid UTF-8 (what Linux tools write), and falls back to the Windows Western-European code page IBM850 (what older Windows tools write). The log says, per archive, how many names each rule decided. If the names come out wrong, set `zipNameCharset` to the code page of the machine that made the zip.
+
+### Exit codes and outputs
+
+**0** done; **2** refused — a parameter or an archive, the message names the rule and the archive; **-997** stopped by the user (the archive in progress is removed, earlier ones stay); **1** an unexpected I/O error.
+
+Outputs: `${archivesFound}`, `${archivesExtracted}`, `${archivesSkipped}`, `${entriesExtracted}`, `${entriesSkipped}`, `${bytesExtracted}`, `${warnings}`, `${extractDirs}` (the folders extracted, separated by `;`) and `${manifestFile}`.
+
+The manifest, `unarchive_manifest.csv` in the step directory, lists every extracted file: archive, name in the archive, where it was written, size, SHA-256 and modification time. It is UTF-8 without BOM, `;`-separated, one row per file, and contains only archives that were completely extracted.
+
+### Parameters
+
+Required: `sourceDir`. A parameter left empty means its default. Relative paths are resolved against `${feedDir}`.
+
+- `sourceDir` — the folder holding the archives.
+- `pattern` — default `*.zip;*.tar;*.tgz;*.tar.gz;*.gz`; masks separated by `;` or `,`, case-sensitive on every server. A matching file that is not an archive stops the step. Names ending in `.done` are never selected.
+- `recursive` — default `false`; `true` also looks in subfolders.
+- `format` — default `auto`; `zip`, `tar`, `tar.gz` or `gz` asserts the format, and a file that is something else is refused. `gz` only decompresses, even when the content is a tar.
+- `outputDir` — default the step directory. It may not be `sourceDir`, nor be inside it when `recursive` is on.
+- `layout` — `subdir`, the only layout available.
+- `onExisting` — default `fail`: a destination folder that already exists stops the step before anything is extracted. `skip` leaves that archive out; `replace` extracts the new content first and swaps it in, putting the old folder back if the swap fails.
+- `onUnsupportedEntry` — default `fail`; `skip` leaves links, devices and pipes out.
+- `zipNameCharset` — default `auto`; a code page name (`IBM437`, `IBM850`, `windows-1252`…) forces it for zip names that do not declare UTF-8.
+- `maxEntries` — default 100000.
+- `maxEntryMb` — default 2048.
+- `maxArchiveMb` — default 20480.
+- `maxRatio` — default 200.
+- `maxPathLength` — default 259.
+- `checkFreeDisk` — default `true`.
+- `afterExtract` — default `keep`; `rename` adds `.done` to each archive once it is extracted, so the next run does not take it again.
+- `preserveMtime` — default `true`: files keep the modification time stored in the archive.
+- `manifestHash` — default `true`; `false` leaves the SHA-256 column empty.
+- `failOnEmpty` — default `false`; `true` fails the step when no archive matched. An archive with nothing inside is a warning either way.
+
+### What it does not do yet
+
+No designer panel yet: write the step in the XML. No extraction of everything into one folder (one folder per archive only), no deletion of the archive after extraction (`rename` exists), and no archive inside an archive is opened — extract it with a second step.
