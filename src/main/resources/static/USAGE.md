@@ -1309,7 +1309,7 @@ One thing worth knowing about the script itself: its default `-Encoding windows-
 
 `unarchive` extracts the archives found in one directory: **zip**, **tar**, **tar.gz / tgz** and plain **gz**. What an archive is, is decided by its content (its first bytes), not by its name: a gzip file that someone renamed `.tar` is read as the gzip it is, and the log says so. bzip2, xz, 7z, rar and zstd archives are recognised and refused with a message that names the format, because Java 8 cannot read them; recompress them as zip or tar.gz.
 
-Until the designer offers the step, write it directly in the workflow XML:
+In the designer, choose **unarchive** as the executor: the panel has three sections — Archives, Output, Safety and limits — and choosing the executor writes every default into the step, so the saved workflow states every value the run uses. In the XML the step looks like this:
 
 ```xml
 <step id="unpack" exec="unarchive">
@@ -1353,7 +1353,7 @@ The manifest, `unarchive_manifest.csv` in the step directory, lists every extrac
 
 ### Parameters
 
-Required: `sourceDir`. A parameter left empty means its default. Relative paths are resolved against `${feedDir}`.
+Required: `sourceDir`. A parameter left empty means its default (the designer shows it as the field's placeholder). Relative paths are resolved against `${feedDir}`.
 
 - `sourceDir` — the folder holding the archives.
 - `pattern` — default `*.zip;*.tar;*.tgz;*.tar.gz;*.gz`; masks separated by `;` or `,`, case-sensitive on every server. A matching file that is not an archive stops the step. Names ending in `.done` are never selected.
@@ -1377,4 +1377,4 @@ Required: `sourceDir`. A parameter left empty means its default. Relative paths 
 
 ### What it does not do yet
 
-No designer panel yet: write the step in the XML. No extraction of everything into one folder (one folder per archive only), no deletion of the archive after extraction (`rename` exists), and no archive inside an archive is opened — extract it with a second step.
+No extraction of everything into one folder (one folder per archive only), no deletion of the archive after extraction (`rename` exists), and no archive inside an archive is opened — extract it with a second step.

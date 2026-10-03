@@ -1,29 +1,25 @@
-unarchive: batch 3, register the executor and document it
+unarchive: batch 4, designer panel - the executor is complete
 
-exec="unarchive" is now accepted in a workflow XML. The designer panel
-and its three registration places are batch 4.
+The last three registration places, in the designer: the executor
+option, the panel and the client-side validation. Choosing the executor
+writes its 17 defaults into the step (never over a value already set),
+so the saved workflow states every value the run uses. buildXml is
+unchanged: it already emits every parameter.
 
-Registration in the five backend places, verified on the code:
-WorkflowXmlParser whitelist, error message and internal set;
-WorkflowEngine.internalKind; InternalSteps dispatch, passing control for
-Stop. runUnarchive translates the 19 parameters (relative paths rebased
-on ${feedDir}, outputDir defaulting to ${stepDir}, malformed numbers
-refused), publishes nine outputs on every path and sets the exit code
-explicitly: 0 done, 2 refused, -997 Stop, 1 I/O failure.
+variables.html: eight PARAM_OPTIONS keys. failOnEmpty and checkFreeDisk
+are shared with sqlreport and elarxml (same meaning and default); the
+panel writes true/false, never yes/no, since sqlreport accepts only
+"true".
 
-Found while wiring: the dispatcher's generic catch keeps an exit code of
--1 when an exception arrives before a code was set, so runUnarchive
-handles its own exceptions. The exit-code lint was extended so that
-res.exitCode = code is not a false alarm; it still flags exactly
-runObjPack on the code before that fix.
+USAGE.md: two sentences written in batch 3 had become false once the
+panel existed ("No designer panel yet") and are replaced.
 
-USAGE.md: "The unarchive step" and its line in the executor list.
+Verified: panel suite 111 assertions on the real template in jsdom,
+every control driven through its own handler; names written by the panel
+equal names read by runUnarchive (19), seeded values equal the executor's
+defaults, select options equal the values the executor accepts. The XML
+the designer emits is read by the real parser and runs through
+runUnarchive with exit 0. The pre-patch template fails the suite. 19
+mutations: 18 caught, 1 equivalent (argued in the spec). No Java changed.
 
-Verified: wiring suite 78 assertions on methods lifted verbatim from
-the sources plus the real parser; spec table, executor and defaults
-agree 19/19; USAGE.md through docs.html's render() 39 assertions (the
-pre-patch guide fails 19); 17 wiring mutations caught, two after
-closing suite gaps; batch 1 and 2 suites re-run green.
-
-Not verified: mvn clean package, a run in the container, Windows,
-Java 8 at runtime.
+Not verified: a real browser, mvn clean package, a run in the container.

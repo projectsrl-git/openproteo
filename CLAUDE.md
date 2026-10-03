@@ -3580,3 +3580,18 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   agreement 19/19. 17 wiring mutations caught - two only after closing gaps (numeric param reaching
   the WRONG field went unseen; config refusals tested on a hostile feed ended in exit 2 anyway).
 * Note in `.claude/2026-10-03-unarchive-batch3-registration.md`.
+
+## unarchive — Batch 4: designer panel (executor complete)
+* Designer option, `uaSeed` from `updNodeR` (17 defaults written on choosing the executor, never over
+  an existing value), three-section panel, `clientValidate`; `buildXml` unchanged (read: generic
+  params). `PARAM_OPTIONS`: 8 keys; `failOnEmpty`/`checkFreeDisk` are SHARED with sqlreport/elarxml -
+  the panel writes true/false, never yes/no, because sqlreport accepts only "true".
+* USAGE.md: two batch-3 sentences had become false ("No designer panel yet") - replaced; the guide
+  check now asserts the guide does not deny the panel.
+* Panel suite 111 on the real template in jsdom, controls driven through their own handlers; names
+  written == read (19), seeded == executor defaults, options == values configure() accepts (read from
+  the Java source). Designer XML -> real parser -> runUnarchive: exit 0. Pre-patch template fails.
+  19 mutations: 18 caught, 1 equivalent. Gap closed: no test changed a select ITSELF and looked for its
+  hint. A "caught" mutation was a crash hiding the real failure - throws are now recorded failures.
+* No batch 5: the panel's part of the guide went in here. Note in
+  `.claude/2026-10-03-unarchive-batch4-panel.md`.

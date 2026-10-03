@@ -283,6 +283,16 @@
         validate: [ ['','no (default)'], ['true','yes']],
         verifyHash: [ ['','no — it decodes every payload (default)'], ['true','yes']],
         whatIf: [ ['false','no — rename (default)'], ['true','yes — dry run, nothing renamed']],
+        // unarchive. failOnEmpty and checkFreeDisk are shared with sqlreport / elarxml: same meaning,
+        // same default, and written as true/false because sqlreport accepts only "true".
+        format: [ ['auto','auto — from the content (default)'], ['zip','zip'], ['tar','tar'], ['tar.gz','tar.gz / tgz'], ['gz','gz — decompress only']],
+        onExisting: [ ['fail','fail — stop before extracting (default)'], ['skip','skip that archive'], ['replace','replace — extract, then swap in']],
+        onUnsupportedEntry: [ ['fail','refuse the archive (default)'], ['skip','leave links, devices, pipes out']],
+        afterExtract: [ ['keep','keep the archive (default)'], ['rename','rename it to .done']],
+        preserveMtime: [ ['true','from the archive (default)'], ['false','time of extraction']],
+        manifestHash: [ ['true','yes (default)'], ['false','no — empty column']],
+        failOnEmpty: [ ['false','no (default)'], ['true','yes — fail when nothing is found']],
+        checkFreeDisk: [ ['true','yes (default)'], ['false','no']],
         'match.*.type': [ ['text','text'], ['numeric','numeric'] ],
         'match.*.agg': [ ['value','value'], ['sum','sum (numeric)'], ['count','count'], ['count_distinct','distinct count'] ],
         unmappedColumnPolicy: [ ['fail','fail (require every column classified)'], ['redact','redact'], ['passthrough','passthrough']]

@@ -454,6 +454,7 @@
             wf.nodes[i].validateChecks = ['rowCount','colCount','jsonSchema','noQuotes','colNames','notNull','businessDate','displayDates'];
         }
         if (f === 'exec' && v === 'filerename') frSeed(wf.nodes[i]);
+        if (f === 'exec' && v === 'unarchive') uaSeed(wf.nodes[i]);
         updNode(i, f, v); renderNodes();
     }
     // filerename: the executor form of Rename-FilesFromCsvMap.ps1. Every parameter the script has is a
@@ -468,6 +469,25 @@
         n.params = n.params || [];
         FR_DEFAULTS.forEach(function (d) { if (nodeParam(n, d[0]) === '') n.params.push({ name: d[0], value: d[1] }); });
     }
+    // unarchive: choosing the executor WRITES every default into the step (the filerename rule:
+    // the saved XML states every value the run uses). outputDir and sourceDir are not seeded: the
+    // first defaults to the step directory, the second has no default. The values are written as
+    // true/false, never yes/no: failOnEmpty and checkFreeDisk are also read by sqlreport and
+    // elarxml, and sqlreport accepts only "true".
+    var UA_DEFAULTS = [ ['pattern', '*.zip;*.tar;*.tgz;*.tar.gz;*.gz'], ['recursive', 'false'], ['format', 'auto'],
+        ['layout', 'subdir'], ['onExisting', 'fail'], ['onUnsupportedEntry', 'fail'], ['zipNameCharset', 'auto'],
+        ['maxEntries', '100000'], ['maxEntryMb', '2048'], ['maxArchiveMb', '20480'], ['maxRatio', '200'],
+        ['maxPathLength', '259'], ['checkFreeDisk', 'true'], ['afterExtract', 'keep'], ['preserveMtime', 'true'],
+        ['manifestHash', 'true'], ['failOnEmpty', 'false'] ];
+    function uaDefault(name) { for (var k = 0; k < UA_DEFAULTS.length; k++) if (UA_DEFAULTS[k][0] === name) return UA_DEFAULTS[k][1]; return ''; }
+    function uaSeed(n) {
+        n.params = n.params || [];
+        UA_DEFAULTS.forEach(function (d) { if (nodeParam(n, d[0]) === '') n.params.push({ name: d[0], value: d[1] }); });
+    }
+    /** The executor's yes(): yes/true/1/on, case-insensitive. Blank is false. */
+    function uaYes(v) { var s = String(v || '').trim().toLowerCase(); return s === 'yes' || s === 'true' || s === '1' || s === 'on'; }
+    /** For parameters whose default is true: blank means the default, so blank is true. */
+    function uaYesOrBlank(v) { return String(v || '').trim() === '' || uaYes(v); }
     /** The executor's yes(): yes/true/1/on, case-insensitive. */
     function frYes(v) { var s = String(v || '').trim().toLowerCase(); return s === 'yes' || s === 'true' || s === '1' || s === 'on'; }
     /** What the step will look for and rename to, for id 1: what the executor builds, as far as the panel can know it. */
@@ -1053,6 +1073,7 @@
                     '<option value="ftpsend"' + (ex === 'ftpsend' ? ' selected' : '') + '>ftpsend (deliver files to an FTPS server)</option>' +
                     '<option value="objpack"' + (ex === 'objpack' ? ' selected' : '') + '>objpack (build a Transarch object submission: tar + md5)</option>' +
                     '<option value="filerename"' + (ex === 'filerename' ? ' selected' : '') + '>filerename (rename the files of a directory from a CSV mapping)</option>' +
+                    '<option value="unarchive"' + (ex === 'unarchive' ? ' selected' : '') + '>unarchive (extract zip, tar, tar.gz and gz archives)</option>' +
                     '</select></div>';
                 h += '<div class="field wide"><label>Script / executable (relative to scripts dir or absolute)' + (isExternal(ex) ? ' *' : '') + '</label>' +
                     '<input value="' + attresc(n.script) + '" placeholder="' + (isExternal(ex) ? 'Prepare-Feed.ps1 | tool.bat | app.jar' : '(not used for this executor)') + '" oninput="updNode(' + i + ',\'script\',this.value)"' + (isExternal(ex) ? '' : ' disabled') + '></div>' +
@@ -1974,6 +1995,80 @@
                     }
                     h += '</div>';
                     h += '<div class="dim small" style="margin-top:4px">The whole mapping is checked before the first rename: two rows producing the same name, or a name already taken on disk, stop the step with nothing renamed. Exit 0 all done, 2 some rows not applied, 1 error or aborted. Counters: <b>${renamed}</b>, <b>${wouldRename}</b>, <b>${sourceNotFound}</b>, <b>${skippedTargetExists}</b>, <b>${unusableRows}</b>, <b>${duplicateTargets}</b>, <b>${targetsOnDisk}</b>, <b>${renameFailed}</b>, <b>${mappingRows}</b>, <b>${idPaddingUsed}</b>, <b>${firstLookedFor}</b>.</div>';
+                } else if (ex === 'unarchive') {
+                    var uaCs = nodeParam(n, 'zipNameCharset') || 'auto';
+                    var uaCharsets = ['auto', 'IBM850', 'IBM437', 'windows-1252', 'UTF-8'];
+                    if (uaCharsets.indexOf(uaCs) < 0) uaCharsets.push(uaCs);
+                    var uaFmt = String(nodeParam(n, 'format') || 'auto').toLowerCase();
+                    var uaEx = String(nodeParam(n, 'onExisting') || 'fail').toLowerCase();
+                    var uaAfter = String(nodeParam(n, 'afterExtract') || 'keep').toLowerCase();
+                    var uaUns = String(nodeParam(n, 'onUnsupportedEntry') || 'fail').toLowerCase();
+                    var uaOut = String(nodeParam(n, 'outputDir') || '').trim();
+
+                    h += '<div class="sub"><div class="sub-h">Archives</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Source directory *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'sourceDir')) + '" placeholder="${feedDir}/incoming" title="The folder holding the archives. A relative path is resolved against ${feedDir}." oninput="setNodeParam(' + i + ',\'sourceDir\',this.value)"></div>' +
+                        '<div class="field wide"><label>Pattern</label><input value="' + attresc(nodeParam(n, 'pattern')) + '" placeholder="' + attresc(uaDefault('pattern')) + '" title="Masks separated by ; or , - case-sensitive on every server. A matching file that is not an archive stops the step. Names ending in .done are never selected." oninput="setNodeParam(' + i + ',\'pattern\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Subfolders</label><select onchange="setNodeParam(' + i + ',\'recursive\',this.value)">' +
+                        '<option value="false"' + (!uaYes(nodeParam(n, 'recursive')) ? ' selected' : '') + '>no \u2014 this folder only</option>' +
+                        '<option value="true"' + (uaYes(nodeParam(n, 'recursive')) ? ' selected' : '') + '>yes \u2014 also subfolders</option></select></div>' +
+                        '<div class="field wide"><label>Format</label><select onchange="setNodeParam(' + i + ',\'format\',this.value); renderNodes()" title="auto decides from the content. A stated format refuses any file that is something else.">' +
+                        '<option value="auto"' + (uaFmt === 'auto' ? ' selected' : '') + '>auto \u2014 from the content, not the name</option>' +
+                        '<option value="zip"' + (uaFmt === 'zip' ? ' selected' : '') + '>zip</option>' +
+                        '<option value="tar"' + (uaFmt === 'tar' ? ' selected' : '') + '>tar</option>' +
+                        '<option value="tar.gz"' + (uaFmt === 'tar.gz' || uaFmt === 'tgz' ? ' selected' : '') + '>tar.gz / tgz</option>' +
+                        '<option value="gz"' + (uaFmt === 'gz' ? ' selected' : '') + '>gz \u2014 decompress only</option></select></div></div>';
+                    if (uaFmt === 'gz') h += '<div class="dim small" style="color:#b9770e">gz only decompresses: a .tar.gz gives the .tar file, not its contents.</div>';
+                    h += '</div>';
+
+                    h += '<div class="sub"><div class="sub-h">Output</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Output directory</label><input class="sugin" list="pathsug" value="' + attresc(uaOut) + '" placeholder="(the step directory)" title="Empty = the step directory. Not the source directory, nor inside it when subfolders are on." oninput="setNodeParam(' + i + ',\'outputDir\',this.value)"></div>' +
+                        '<div class="field"><label>Layout</label><div class="dim small" title="The only layout available: each archive into its own folder, moved into place in one rename.">one folder per archive</div></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Folder already there</label><select onchange="setNodeParam(' + i + ',\'onExisting\',this.value); renderNodes()">' +
+                        '<option value="fail"' + (uaEx === 'fail' ? ' selected' : '') + '>fail \u2014 stop before extracting anything</option>' +
+                        '<option value="skip"' + (uaEx === 'skip' ? ' selected' : '') + '>skip that archive</option>' +
+                        '<option value="replace"' + (uaEx === 'replace' ? ' selected' : '') + '>replace \u2014 extract, then swap in</option></select></div>' +
+                        '<div class="field wide"><label>After extraction</label><select onchange="setNodeParam(' + i + ',\'afterExtract\',this.value); renderNodes()">' +
+                        '<option value="keep"' + (uaAfter === 'keep' ? ' selected' : '') + '>keep the archive</option>' +
+                        '<option value="rename"' + (uaAfter === 'rename' ? ' selected' : '') + '>rename it to .done</option></select></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Modification times</label><select onchange="setNodeParam(' + i + ',\'preserveMtime\',this.value)">' +
+                        '<option value="true"' + (uaYesOrBlank(nodeParam(n, 'preserveMtime')) ? ' selected' : '') + '>from the archive</option>' +
+                        '<option value="false"' + (!uaYesOrBlank(nodeParam(n, 'preserveMtime')) ? ' selected' : '') + '>time of extraction</option></select></div>' +
+                        '<div class="field"><label>Manifest SHA-256</label><select onchange="setNodeParam(' + i + ',\'manifestHash\',this.value)">' +
+                        '<option value="true"' + (uaYesOrBlank(nodeParam(n, 'manifestHash')) ? ' selected' : '') + '>yes</option>' +
+                        '<option value="false"' + (!uaYesOrBlank(nodeParam(n, 'manifestHash')) ? ' selected' : '') + '>no \u2014 empty column</option></select></div></div>';
+                    h += '<div class="dim small">report.tar.gz \u2192 <code>' + esc(uaOut || '(step directory)') + '/report/</code>; the list of files is in <code>unarchive_manifest.csv</code> in the step directory.</div>';
+                    if (uaEx === 'replace') h += '<div class="dim small" style="color:#b9770e">Replace: the new content is extracted completely first; the old folder is removed only once the new one is in place, and put back if the swap fails.</div>';
+                    if (uaAfter === 'rename') h += '<div class="dim small" style="color:#b9770e">Each archive becomes <code>name.done</code> once it is extracted, so the next run does not take it again.</div>';
+                    h += '</div>';
+
+                    h += '<div class="sub"><div class="sub-h">Safety and limits</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Links, devices, pipes</label><select onchange="setNodeParam(' + i + ',\'onUnsupportedEntry\',this.value)">' +
+                        '<option value="fail"' + (uaUns === 'fail' ? ' selected' : '') + '>refuse the archive</option>' +
+                        '<option value="skip"' + (uaUns === 'skip' ? ' selected' : '') + '>leave them out (names still checked)</option></select></div>' +
+                        '<div class="field wide"><label>Zip names not declared UTF-8</label><select onchange="setNodeParam(' + i + ',\'zipNameCharset\',this.value)" title="auto: valid UTF-8 is UTF-8, otherwise IBM850 (older Western-European Windows tools). The log says how each name was decided.">';
+                    uaCharsets.forEach(function (cs) { h += '<option value="' + attresc(cs) + '"' + (uaCs === cs ? ' selected' : '') + '>' + esc(cs === 'auto' ? 'auto (UTF-8, else IBM850)' : cs) + '</option>'; });
+                    h += '</select></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Max entries</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxEntries')) + '" placeholder="' + uaDefault('maxEntries') + '" title="Per archive." oninput="setNodeParam(' + i + ',\'maxEntries\',this.value)"></div>' +
+                        '<div class="field"><label>Max MB per file</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxEntryMb')) + '" placeholder="' + uaDefault('maxEntryMb') + '" oninput="setNodeParam(' + i + ',\'maxEntryMb\',this.value)"></div>' +
+                        '<div class="field"><label>Max MB per archive</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxArchiveMb')) + '" placeholder="' + uaDefault('maxArchiveMb') + '" oninput="setNodeParam(' + i + ',\'maxArchiveMb\',this.value)"></div>' +
+                        '<div class="field"><label>Max ratio</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxRatio')) + '" placeholder="' + uaDefault('maxRatio') + '" title="How much an entry may expand against its compressed size, checked once it has written 10 MB." oninput="setNodeParam(' + i + ',\'maxRatio\',this.value)"></div>' +
+                        '<div class="field"><label>Max path length</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxPathLength')) + '" placeholder="' + uaDefault('maxPathLength') + '" title="Of the extracted file, absolute: what Explorer and PowerShell 5.1 can open." oninput="setNodeParam(' + i + ',\'maxPathLength\',this.value)"></div></div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Free-space check</label><select onchange="setNodeParam(' + i + ',\'checkFreeDisk\',this.value)">' +
+                        '<option value="true"' + (uaYesOrBlank(nodeParam(n, 'checkFreeDisk')) ? ' selected' : '') + '>yes \u2014 zips need their size + 10%</option>' +
+                        '<option value="false"' + (!uaYesOrBlank(nodeParam(n, 'checkFreeDisk')) ? ' selected' : '') + '>no</option></select></div>' +
+                        '<div class="field"><label>No archive found</label><select onchange="setNodeParam(' + i + ',\'failOnEmpty\',this.value)">' +
+                        '<option value="false"' + (!uaYes(nodeParam(n, 'failOnEmpty')) ? ' selected' : '') + '>ok, 0 extracted</option>' +
+                        '<option value="true"' + (uaYes(nodeParam(n, 'failOnEmpty')) ? ' selected' : '') + '>fail the step</option></select></div></div>';
+                    h += '</div>';
+                    h += '<div class="dim small" style="margin-top:4px">Entries that would leave their folder, collide on Windows (case, reserved names like CON or NUL, a trailing dot) or are links are refused, on every server. Nothing incomplete appears under a final name. Outputs: ${archivesExtracted}, ${entriesExtracted}, ${extractDirs}, ${manifestFile} and more \u2014 see the guide.</div>';
                 } else if (ex === 'encoding') {
                     var encFrom = nodeParam(n, 'from');
                     var charsets = ['', 'windows-1252', 'ISO-8859-1', 'ISO-8859-15', 'UTF-8', 'UTF-16', 'UTF-16LE', 'UTF-16BE', 'IBM500', 'Cp1140'];
@@ -2298,6 +2393,21 @@
                     if (!String(nodeParam(n, 'targetDestination') || '').trim()) errs.push(label + ' (' + n.id + '): objpack needs targetDestination for a TAR-packaged submission');
                     if (!String(nodeParam(n, 'metadataCsv') || '').trim()) errs.push(label + ' (' + n.id + '): objpack needs metadataCsv');
                     if (!String(nodeParam(n, 'objectsDir') || '').trim()) errs.push(label + ' (' + n.id + '): objpack needs objectsDir');
+                }
+                if (ex === 'unarchive') {
+                    if (!String(nodeParam(n, 'sourceDir') || '').trim()) errs.push(label + ' (' + n.id + '): unarchive needs the directory holding the archives (sourceDir)');
+                    ['maxEntries', 'maxEntryMb', 'maxArchiveMb', 'maxRatio', 'maxPathLength'].forEach(function (k) {
+                        var v = String(nodeParam(n, k) || '').trim();
+                        if (v && v.indexOf('${') < 0 && !/^[1-9][0-9]*$/.test(v)) errs.push(label + ' (' + n.id + '): ' + k + ' must be a whole number above 0');
+                    });
+                    var uaL = String(nodeParam(n, 'layout') || '').trim().toLowerCase();
+                    if (uaL && uaL !== 'subdir') errs.push(label + ' (' + n.id + '): layout must be subdir (the only layout available)');
+                    var uaA = String(nodeParam(n, 'afterExtract') || '').trim().toLowerCase();
+                    if (uaA && uaA !== 'keep' && uaA !== 'rename') errs.push(label + ' (' + n.id + '): afterExtract must be keep or rename');
+                    var uaE = String(nodeParam(n, 'onExisting') || '').trim().toLowerCase();
+                    if (uaE && ['fail', 'skip', 'replace'].indexOf(uaE) < 0) errs.push(label + ' (' + n.id + '): onExisting must be fail, skip or replace');
+                    var uaS = String(nodeParam(n, 'sourceDir') || '').trim(), uaO = String(nodeParam(n, 'outputDir') || '').trim();
+                    if (uaS && uaO && uaS.replace(/[\\/]+$/, '') === uaO.replace(/[\\/]+$/, '')) errs.push(label + ' (' + n.id + '): the output directory cannot be the source directory');
                 }
                 if (ex === 'filerename') {
                     if (!String(nodeParam(n, 'csvPath') || '').trim()) errs.push(label + ' (' + n.id + '): filerename needs the mapping CSV (csvPath)');

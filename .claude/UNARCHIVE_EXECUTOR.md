@@ -1,7 +1,7 @@
 # Archive extraction executor (`unarchive`) — specification
 
-Status: **Batch 3 delivered** — the executor is registered and reachable from a workflow XML
-(`exec="unarchive"`); the designer panel is batch 4. Batch 2 delivered the zip reader, limits,
+Status: **complete — batch 4 delivered** (designer panel, the last three registration places,
+`PARAM_OPTIONS`). Batch 3 registered the executor in the backend and wrote USAGE.md. Batch 2 delivered the zip reader, limits,
 staging, commit and manifest. Gate 0 Q1–Q3 answered 2026-09-30, Q4–Q12 confirmed with the recommended
 defaults 2026-10-03 (§13). Batch 0 written on `0997815`, revised on `0509aa9`, batch 2 on `a4f02c8`.
 
@@ -549,7 +549,8 @@ still −1 ends the step as **−1**, not 1. `runUnarchive` therefore catches it
 a code on every path; the wiring suite asserts the code is never −1.
 
 **Batch 3 split, stated**: the five backend places (1–5) are in batch 3; the three designer places
-(6–8) go with the panel in batch 4, where they are verified together with it. Until then the step is
+(6–8) go with the panel in batch 4, where they are verified together with it. **Done in batch 4**;
+no other place in the designer names executors (checked on the template, not on the table). Until then the step is
 written in the XML, and USAGE.md says so.
 
 ## 12. Testability and verification discipline
@@ -637,9 +638,10 @@ manifest with SHA-256 (Q11); missing tar end marker is a warning (Q12). `layout=
   (§7), staging and commit (§8), manifest (§9), `UnarchiveRun` end to end. **Delivered**, §18.
 * **3** — registration (eight places), `runUnarchive`, Stop, exit-code lint. **Delivered** (backend
   places 1–5, USAGE.md section), §19.
-* **4** — designer panel, `PARAM_OPTIONS`, mechanical parameter comparison.
+* **4** — designer panel, `PARAM_OPTIONS`, mechanical parameter comparison. **Delivered**, §20.
 * **5** — ~~`USAGE.md`, verified through `docs.html`'s own `render()`~~ moved into batch 3, since the
-  executor became reachable there; batch 5 only adds the panel's part to it.
+  executor became reachable there; ~~batch 5 only adds the panel's part to it~~ the panel's part went
+  into batch 4 with the panel. **No batch 5.**
 
 ## 15. Not verifiable here, said now
 
@@ -689,6 +691,8 @@ that pins it. Each is also written beside both rules above (marked **∩ In**).
 | I27 | ~~hardlink `copy` mode (if Q6 says yes)~~ | ~~"never creates links" vs copy~~ | **Q6 answered: no copy mode** — hardlinks are refused or skipped like links | unsupported |
 | I28 | zip entry: DOS dir bit, no trailing `/` | attributes vs name | the name; attributes decide only Unix special types | equivalent mutation (two spellings of one rule) |
 | I29 | link named `../x` with `onUnsupportedEntry=skip` | skip vs name validation | the name is validated first, refused even though the entry would be skipped | unsupported: `hostile_link.tar` |
+| I31 | `failOnEmpty`, `checkFreeDisk` | this executor's `yes()` vs sqlreport's `"true".equalsIgnoreCase` and elarxml's, on the same `PARAM_OPTIONS` key | the panel writes `true`/`false`, never `yes`/`no`, so the shared key is right for all three; same meaning and default in each | panel suite |
+| I32 | `layout` | "every parameter explicit" vs a parameter with one value | shown as fixed text, not a select; still seeded as `subdir` | panel suite, mechanical |
 | I30 | tar magic with a wrong checksum | detection vs reader | the magic: a corrupted tar, refused `BAD_CHECKSUM`; only a magic-less header needs the checksum | `h_BAD_CHECKSUM` via the run, mutation |
 
 ## 17. Batch 1 as built
@@ -841,3 +845,44 @@ All three fixed before any result was used.
 **Not verified**: `mvn clean package` (first batch that changes `InternalSteps`, `WorkflowEngine` and
 the parser — compiled here only as lifted methods and, for the parser, as itself), a run inside the
 container, Windows, Java 8 at runtime.
+
+## 20. Batch 4 as built
+
+**Designer** (`designer.html`): the `<option>`; `uaSeed`, called from `updNodeR` like `frSeed`, which
+writes the 17 defaults into the step when the executor is chosen and never overwrites a value already
+there (`sourceDir` has no default, `outputDir` defaults to the step directory and is left empty); the
+panel in three sections — Archives, Output, Safety and limits — with every parameter except `layout`
+as a control (∩ I32); hints that follow `format=gz`, `onExisting=replace`, `afterExtract=rename`;
+`clientValidate` mirroring the executor's static refusals (`sourceDir` required, whole numbers above
+0 unless a `${variable}`, `layout` subdir only, `afterExtract` keep or rename, `onExisting` values,
+`outputDir` equal to `sourceDir` with a trailing separator ignored). **`buildXml` needed no change**:
+read, not predicted — it emits every `n.params` entry as `<param>`.
+**`variables.html`**: eight `PARAM_OPTIONS` keys; `failOnEmpty` and `checkFreeDisk` shared (∩ I31).
+**USAGE.md**: two sentences written in batch 3 had become false ("Until the designer offers the
+step…", "No designer panel yet") — replaced; the guide check now asserts it does not deny the panel.
+
+**Verification**:
+* **Panel, 111 assertions, the REAL template in jsdom** (scripts on, network stubbed, the one
+  Thymeleaf rendering the script needs — `th:href="@{/}"` — applied), every control driven through
+  **its own handler attribute**. Mechanically: the 18 names the controls write + seeded `layout` ==
+  the 19 names `runUnarchive` reads; every seeded value == `UnarchiveRun`'s default; every select's
+  options == the values `configure()` accepts (read from the Java source, not assumed), booleans only
+  true/false, no `delete` or `flat` offered; `PARAM_OPTIONS` == the panel's options with the
+  executor's default marked; placeholders == defaults; emptying a field removes the parameter.
+* **Designer → parser → run**: the XML `buildXml` emits is read by the real `WorkflowXmlParser`
+  (`script=null`: recognised as internal) and its parameters run through `runUnarchive` lifted
+  verbatim, on a feed with a real tar: exit 0, extracted.
+* **The pre-patch template fails** (unarchive not offered). USAGE.md: 41 assertions; the batch-3
+  guide fails exactly the two new staleness checks.
+* Batch 1–3 suites unaffected (no Java changed in this batch).
+
+**Mutations, panel: 19 — 18 caught, 1 equivalent.** The equivalent: rendering a blank `preserveMtime`
+with neither option selected — the browser then shows the first option, which is the default, so the
+display is identical (it relies on the default being listed first, as it is for every boolean select
+here). **One was caught only after closing a real gap**: removing the re-render from the format
+select's handler survived, because the tests set the parameter and re-rendered by hand — no test
+changed the select itself and looked for its hint. **One "caught" was caught for the wrong reason**: a
+control writing a misspelt name crashed the suite before it printed the failure that named it; the
+suite now records a throw as a failure and prints everything found.
+
+**Not verified**: a real browser (jsdom only), `mvn clean package`, a run inside the container.
