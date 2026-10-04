@@ -1,34 +1,43 @@
-FTPS targets: trust mode by host, and what cannot work here (L2)
+Linux: the audit's fixes - rename, order, glob case, links (L3)
 
-Step L2 of the Linux work (finding F7 of the audit).
+Step L3: section 5 of .claude/LINUX_AUDIT.md. No runtime parameter.
+Under Windows rules every changed function returns what it returned.
 
-On a server without the Windows certificate store, a target using
-trust mode WINDOWS cannot connect; nothing said so before the first
-run, and a new target was proposed that very mode.
+platform/HostFiles holds four JDK operations whose result changes with
+the host without any error:
 
-- ftps/TrustAdvice and GET /api/ftp-targets/trust: whether the store
-  exists on this JVM, and the mode to propose for a NEW target
-  (WINDOWS where it exists, JVM elsewhere).
-- FTPS targets page: a new target takes the proposed mode; WINDOWS is
-  labelled not available and explains itself when chosen; targets that
-  would fail are marked in the list; placeholders are neutral.
-- SslContexts: the WINDOWS failure says what to choose instead.
-- USAGE.md: "The server certificate, on Windows and on Linux".
+- A processed input is never renamed over an older one. File.renameTo
+  refuses an existing target on Windows and REPLACES it on Linux; the
+  .done of an earlier delivery was lost silently. Now refused on both
+  (elarxml, json2csv, ftpsend, elar split).
+- filecopy / safecopy / encoding batch take files in name order off
+  Windows, where enumeration is in hash order. On Windows the
+  enumeration is not touched.
+- filecopy / safecopy say in the log when the host matches file names
+  case-sensitively, and how many files a pattern left behind for case
+  alone ("*.csv" does not take DATA.CSV on Linux, exit 0).
+- RunStore and WorkflowPorter delete recursively without following
+  symbolic links.
 
-A saved target is never changed. An absent trust mode still means
-WINDOWS on every host - deliberately: FtpsTarget is not touched, and
-TrustMode.parse keeps its fallback. Reasons and risk in the spec, 9.4.
+Every step logs a WARNING for a parameter that is a Linux path joined
+with a backslash; no value is changed.
 
-If the endpoint does not answer the page behaves as before. No runtime
-parameter. README.md and CLAUDE.md not touched.
+USAGE.md: "Moving a workflow from Windows to Linux". CLAUDE.md: two
+rules, in their sections. README.md not touched.
 
-Verified on Linux (sandbox; Java 1.8.0_432 and JDK 21.0.12): 23
-assertions on the real TrustAdvice / TrustMode / FtpsTarget /
-SslContexts with keytool-made truststores, 8 mutations; the page in
-jsdom, 37, beside the pre-patch page - identical list, hints and save
-payload where the store exists - 13 mutations; USAGE.md through
-docs.html render(), 21 + the earlier 122; git apply --check on a
-second clean clone.
+Found and NOT done: the standalone artifact cannot be given a JDBC
+driver JAR. Proposed as L4 in the spec, 9.5; the decision is the
+author's.
+
+Verified on Linux (sandbox; Java 1.8.0_432 and JDK 21.0.12, root and
+non-root, ext4 and tmpfs): 41 assertions on the real HostFiles,
+ElarRun.renameDone and Json2CsvRun.renameProcessed, 18 mutations; the
+filecopy / safecopy / encoding bodies lifted from InternalSteps and run
+beside the pre-patch bodies, 21; differential compile of the classes
+that cannot be built here - it found a missing import; USAGE.md through
+docs.html render(), 21 + 143 earlier; git apply --check on a second
+clean clone.
 Verified on Windows: nothing.
-Not verified on either: the new endpoint (ApiController needs Spring);
-a connection to a real FTPS server from Linux.
+Not verified on either: mvn clean package; the call sites inside
+InternalSteps.run, RunStore and WorkflowPorter beyond the differential
+compile; that NTFS order equals the sort - hence no sort on Windows.

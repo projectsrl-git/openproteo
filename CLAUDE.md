@@ -114,6 +114,18 @@ sulla stessa ultima riga. Da ora:
 8. **Deploy WAR**: a Tomcat fermo, cancellare **sia** `webapps/openproteo.war`
    **sia** la cartella esplosa `webapps/openproteo/` prima di ricopiare il
    WAR. Altrimenti rimane l'esploso stantio.
+9. **Operazioni sui file che cambiano con l'host** (aggiunto 2026-10-04, audit
+   Linux): quattro operazioni del JDK danno risultati diversi su Windows e su
+   Linux **senza alcun errore**, e passano tutte da `platform/HostFiles`.
+   `File.renameTo` su un nome che esiste rifiuta su Windows e **sostituisce**
+   su Linux: usare `renameNoReplace`. L'ordine di `listFiles()` /
+   `newDirectoryStream` e' per nome su NTFS e casuale su Linux: se l'ordine
+   esce dallo step (una variabile, un indice, un report), usare `inHostOrder`.
+   Il glob di `newDirectoryStream(dir, glob)` ignora il maiuscolo/minuscolo su
+   Windows e non su Linux: lo step lo dice nel log. Una cancellazione
+   ricorsiva fatta con `File.listFiles()` **entra nei link simbolici**: usare
+   `deleteTreeNoFollow` o `Files.walkFileTree`. Dettagli e misure in
+   `.claude/LINUX_AUDIT.md`.
 
 ## Layout del progetto
 
@@ -404,6 +416,16 @@ quindi verificato tutto il verificabile, e **dichiarato** cio' che non lo e'.
   **si esegue**: e' stato fatto per `PlatformController` e per `StepExecutor`.
   Quello che cosi' NON si prova - il wiring di Spring, il JSON di Jackson, la
   build Maven - va scritto tra le cose non verificate.
+* **Compilazione differenziale per le classi che qui non si compilano**
+  (aggiunto 2026-10-04). `InternalSteps`, `WorkflowEngine`, `ApiController` e
+  le altre classi che usano Spring, Jackson o POI non si compilano nel sandbox,
+  ma `javac` le analizza lo stesso: si raccolgono gli errori **prima** e
+  **dopo** la modifica, senza numeri di riga, e si confrontano. Ogni errore
+  nuovo e' della modifica - ha trovato un `LinkedHashMap` non importato alla
+  prima applicazione. Il controllo ha il suo controllo positivo: un errore
+  messo apposta in una riga modificata deve comparire nel confronto. Dove si
+  puo', il corpo vero del metodo si **estrae per posizione** e si esegue accanto
+  a quello pre-patch estratto allo stesso modo, sugli stessi file.
 * **Un runtime Java 8 vero si puo' avere nel sandbox** (aggiunto 2026-10-04):
   Temurin 8 si scarica dalle release GitHub di `adoptium/temurin8-binaries`
   (`github.com` e' raggiungibile; l'API di GitHub ha un limite di richieste, gli

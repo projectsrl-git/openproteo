@@ -298,6 +298,22 @@ A script that starts a background program and then ends normally is not touched:
 
 **Stop on a parallel step stops every item.** A step that runs once per item of a list, several at a time, used to lose all but one of its running scripts on Stop: the others carried on to their end. Stop now reaches all of them.
 
+### Moving a workflow from Windows to Linux
+
+A workflow written on a Windows server runs on a Linux one, but Linux treats file names differently in a few ways that Windows hides. None of them produces an error by itself, which is why they are listed here. Open the **Platform** page on the new server first: it shows most of them before a run does.
+
+**File names are case-sensitive.** On Windows `Prepare.ps1` and `prepare.ps1` are the same file; on Linux they are two. A script, an input file or a folder must be written in the workflow exactly as it is named on disk.
+
+**A pattern is case-sensitive too.** In `filecopy` and `safecopy`, `*.csv` takes `DATA.CSV` on Windows and leaves it behind on Linux. The step does not fail: it copies what matches. So on a server where case matters the step log says `file names are matched case-sensitively on this server`, and when files were left behind for that reason alone it says how many, in a line containing `only if case is ignored`. If you see that line, fix the pattern or the file names.
+
+**The order of the files.** `${matchedFiles}` from `filecopy` and `safecopy`, and the order in which `encoding` converts a folder, are in name order on Linux, ignoring case: `ab.csv`, `Alpha.csv`, `a_b.csv`, `beta.csv`. On Windows they stay in the order the disk returns them, as they always were, which for a local disk is normally the same. A step that runs once per file therefore numbers its items the same way on both. The `tiffcompress` report is the exception: it lists files in the order the disk returns them, on every server.
+
+**A backslash is not a separator.** `${stepDir}\out.csv` works on Windows. On Linux it creates one file whose name contains a backslash, in the folder above, without any error. Write paths with `/`, which works on both. When a parameter looks like a Linux path joined with a backslash, the step log carries a line beginning `WARNING:` that names the parameter; nothing is changed for you, because a backslash is legitimate in other values, such as a search pattern.
+
+**An input is never renamed over an older one.** The steps that rename what they have processed (`elarxml` and `json2csv` to `.done`, `ftpsend` with its suffix) refuse when a file with that name is already there, and say so, on Windows and on Linux alike. The older file is the record of the earlier delivery and is left untouched.
+
+**What else to check on the new server.** External scripts need their interpreter there (see «External scripts»). An FTPS target saved with the Windows store must be edited once (see «The server certificate, on Windows and on Linux»). Paths that begin with a drive letter must be rewritten.
+
 ## Copying the files listed in a CSV (ifscopy, filecopy, safecopy)
 
 The **Files to copy** dropdown on an `ifscopy`, `filecopy` or `safecopy` step chooses between two shapes. **directory + pattern** is what each executor has always done — list a directory and copy what matches the wildcard — and it is what a step with nothing set still does, unchanged. **The ones listed in a CSV column** copies exactly the files named in one column of a CSV, typically the output of an earlier step in the same workflow: an extraction produces a list of document paths, and the step fetches those and nothing else. An unrecognised value fails the step instead of falling back, because a typo answered by a directory copy with no pattern set is a copy of everything.

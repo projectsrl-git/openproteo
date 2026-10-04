@@ -156,6 +156,17 @@ the section on moving a workflow from Windows.**
 
 None adds a parameter. None changes what an existing Windows feed produces.
 
+**Delivered 2026-10-04** on base `3456bd1`, as listed. `platform/HostFiles` holds the four
+operations; the call sites changed are `ElarRun.renameDone`, `Json2CsvRun.renameProcessed`,
+`InputSplitter`, and in `InternalSteps` the `ftpsend` rename, `filecopy` and `safecopy` in pattern
+mode, the `encoding` batch, and one check at the start of every internal step (F5); `StepExecutor`
+for external steps (F5); `RunStore.deleteTree` and `WorkflowPorter.deleteRecursive` (F6). How each
+was verified, and what was not, is in `.claude/2026-10-04-linux-fixes-l3.md`.
+
+One thing F2 does beyond its line in the table: the count of files left behind for case alone is
+logged whenever it is above zero, not only when nothing matched - a run that takes eight files and
+leaves a ninth for its capital letters is the more likely case, and the quieter one.
+
 ## 6. Not audited
 
 - Scripts and workflows themselves: a `.ps1` that calls a Windows-only cmdlet, a path with a drive
@@ -163,5 +174,12 @@ None adds a parameter. None changes what an existing Windows feed produces.
 - `templates/` and `static/js/`: the browser side has no host.
 - JDBC drivers on the STANDALONE artifact. `USAGE.md` says where the driver goes for a servlet
   container (`CATALINA_HOME/lib`); it does not say where it goes for `openproteo-standalone.war`,
-  and this audit did not find out. To be answered by reading the launcher configuration in L3.
+  and this audit did not find out. ~~To be answered by reading the launcher configuration in L3.~~
+  **Read in L3, not solved:** the standalone artifact is a Spring Boot repackage with the default
+  layout, whose launcher takes its classpath from inside the archive and reads no external
+  directory. So on the standalone, on any OS, a `sql` step can use only what is bundled (jt400, H2).
+  The clean fix is the core of batch 5 without its upload page - a drivers directory loaded through
+  a class loader of its own and a delegating `Driver` - proposed as step **L4** in
+  `LINUX_AND_GUI_CONFIG.md` §9.5. Not done here: it adds a file-only parameter and deserves its own
+  measurement.
 - The contract's own statements against the code (`CLAUDE.md` was reorganised, not audited).

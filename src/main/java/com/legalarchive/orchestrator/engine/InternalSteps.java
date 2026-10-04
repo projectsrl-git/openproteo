@@ -72,6 +72,12 @@ public class InternalSteps {
 
             if (control != null && control.aborted) { line.accept("aborted before start"); res.exitCode = -997; return res; }
 
+            // A Linux path joined with a Windows separator is a file NAME there: say so, change nothing.
+            Map<String, String> pathLike = new java.util.LinkedHashMap<String, String>(resolvedParams);
+            pathLike.put("source", VarResolver.resolve(step.source, vars));
+            pathLike.put("dest", VarResolver.resolve(step.dest, vars));
+            for (String w : com.legalarchive.orchestrator.platform.HostFiles.backslashWarnings(pathLike)) line.accept(w);
+
             if ("sql".equals(kind)) {
                 runSql(step, resolvedParams, vars, res, line, control);
             } else if ("ifscopy".equals(kind)) {
@@ -617,7 +623,8 @@ public class InternalSteps {
                         + " transfer=" + pf.transfer() + " order=" + pf.order() + " ms=" + ms);
                 if (!renameSent.isEmpty()) {
                     java.io.File to = new java.io.File(dir, pf.name() + renameSent);
-                    if (local.renameTo(to)) line.accept("renamed file=" + pf.name() + " to=" + to.getName());
+                    // never onto an existing file: on Linux File.renameTo would replace it silently
+                    if (com.legalarchive.orchestrator.platform.HostFiles.renameNoReplace(local, to)) line.accept("renamed file=" + pf.name() + " to=" + to.getName());
                     else line.accept("WARNING: could not rename " + pf.name() + " after sending it");
                 }
             }
@@ -2521,9 +2528,13 @@ public class InternalSteps {
             outDir = Paths.get(dest);
             Files.createDirectories(outDir);
         }
+        if (com.legalarchive.orchestrator.platform.HostFiles.globIsCaseSensitive()) {
+            line.accept("filecopy: file names are matched case-sensitively on this server (*.csv does not match DATA.CSV)");
+        }
         DirectoryStream<Path> ds = Files.newDirectoryStream(src, glob);
         try {
-            for (Path f : ds) {
+            // name order off Windows, where enumeration is in hash order; untouched on Windows
+            for (Path f : com.legalarchive.orchestrator.platform.HostFiles.inHostOrder(ds)) {
                 if (Files.isDirectory(f)) continue;
                 names.add(f.getFileName().toString());
                 if ("list".equals(mode)) continue;
@@ -2538,6 +2549,11 @@ public class InternalSteps {
             }
         } finally {
             ds.close();
+        }
+        int caseOnly = com.legalarchive.orchestrator.platform.HostFiles.matchOnlyIgnoringCase(src, java.util.Collections.singletonList(glob));
+        if (caseOnly > 0) {
+            line.accept("filecopy: " + caseOnly + " more file(s) in " + source + " match '" + glob
+                    + "' only if case is ignored, and were NOT taken - check the pattern or the file names");
         }
         res.outVars.put("matchedCount", String.valueOf(names.size()));
         res.outVars.put("matchedFiles", String.join(step.delimiter == null ? ";" : step.delimiter, names));
@@ -2588,13 +2604,17 @@ public class InternalSteps {
         Files.createDirectories(outDir);
         line.accept("safecopy  " + source + "  patterns " + globs + "  -> " + dest + "  (temp suffix " + tmpSuffix + ")");
 
+        if (com.legalarchive.orchestrator.platform.HostFiles.globIsCaseSensitive()) {
+            line.accept("safecopy: file names are matched case-sensitively on this server (*.csv does not match DATA.CSV)");
+        }
         java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<String>();   // dedup across patterns
         List<String> names = new ArrayList<String>();
         long bytes = 0;
         for (String oneGlob : globs) {
             DirectoryStream<Path> ds = Files.newDirectoryStream(src, oneGlob);
             try {
-                for (Path f : ds) {
+                // name order off Windows, where enumeration is in hash order; untouched on Windows
+                for (Path f : com.legalarchive.orchestrator.platform.HostFiles.inHostOrder(ds)) {
                     if (Files.isDirectory(f)) continue;
                     String name = f.getFileName().toString();
                     if (name.endsWith(tmpSuffix)) continue;   // never copy someone else's in-flight temp
@@ -2614,6 +2634,11 @@ public class InternalSteps {
             } finally {
                 ds.close();
             }
+        }
+        int caseOnly = com.legalarchive.orchestrator.platform.HostFiles.matchOnlyIgnoringCase(src, globs);
+        if (caseOnly > 0) {
+            line.accept("safecopy: " + caseOnly + " more file(s) in " + source + " match " + globs
+                    + " only if case is ignored, and were NOT taken - check the patterns or the file names");
         }
         res.outVars.put("matchedCount", String.valueOf(names.size()));
         res.outVars.put("matchedFiles", String.join(step.delimiter == null ? ";" : step.delimiter, names));
@@ -4053,6 +4078,7 @@ public class InternalSteps {
 
         java.util.List<java.io.File> files = new ArrayList<java.io.File>();
         collectFiles(inDir, recursive, files);
+        com.legalarchive.orchestrator.platform.HostFiles.sortFilesForHost(files);   // path order off Windows; untouched on Windows
         int converted = 0, skipped = 0, failed = 0;
         for (java.io.File f : files) {
             if (!matchesFilter(f.getName(), filter)) { skipped++; continue; }

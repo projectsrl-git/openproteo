@@ -437,11 +437,10 @@ public class WorkflowPorter {
         }
     }
 
+    /** Best effort, and never through a symbolic link: a link is removed, its target is not entered. */
     private void deleteRecursive(File f) {
         if (f == null) return;
-        File[] kids = f.listFiles();
-        if (kids != null) for (File k : kids) deleteRecursive(k);
-        if (!f.delete()) f.deleteOnExit();
+        com.legalarchive.orchestrator.platform.HostFiles.deleteTreeNoFollow(f.toPath());
     }
 
     // ============================================================ helpers

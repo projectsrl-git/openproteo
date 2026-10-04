@@ -575,7 +575,8 @@ public final class ElarRun {
     static void renameDone(File in, boolean renameProcessed, Consumer<String> log) {
         if (!renameProcessed) return;
         File done = new File(in.getParentFile(), in.getName() + ".done");
-        if (!in.renameTo(done)) {
+        // never onto an existing .done: on Linux File.renameTo would replace it silently
+        if (!com.legalarchive.orchestrator.platform.HostFiles.renameNoReplace(in, done)) {
             log.accept("elarxml: could not rename " + in.getName() + " to .done; every batch it produced is"
                     + " delivered, but this file will be picked up again unless it is moved by hand");
         }

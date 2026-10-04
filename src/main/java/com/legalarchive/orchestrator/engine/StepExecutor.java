@@ -147,6 +147,8 @@ public class StepExecutor {
         final BufferedWriter log = Files.newBufferedWriter(logFile, StandardCharsets.UTF_8,
                 java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
         final Object lock = new Object();
+        // A Linux path joined with a Windows separator is a file NAME there: say so, change nothing.
+        for (String w : com.legalarchive.orchestrator.platform.HostFiles.backslashWarnings(params)) writeLine(log, lock, 'S', w);
 
         // stdout: parse ##VAR, keep tail
         Thread pumpOut = new Thread(new Runnable() {

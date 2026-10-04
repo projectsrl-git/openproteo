@@ -70,11 +70,10 @@ public class RunStore {
         return existed;
     }
 
+    /** Best effort, and never through a symbolic link: a link is removed, its target is not entered. */
     private void deleteTree(File f) {
-        if (f == null || !f.exists()) return;
-        File[] kids = f.listFiles();
-        if (kids != null) for (File k : kids) deleteTree(k);
-        f.delete();
+        if (f == null) return;
+        com.legalarchive.orchestrator.platform.HostFiles.deleteTreeNoFollow(f.toPath());
     }
 
     public List<WorkflowRun> list(FeedLayout layout, int max) {

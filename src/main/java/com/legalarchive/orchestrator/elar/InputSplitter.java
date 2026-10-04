@@ -119,7 +119,7 @@ final class InputSplitter {
         }
 
         // the rename comes last, so a failure above leaves the original in place under its own name
-        if (!input.renameTo(failed)) {
+        if (!com.legalarchive.orchestrator.platform.HostFiles.renameNoReplace(input, failed)) {
             throw new IOException("the two halves were written but " + input.getName() + " could not be"
                     + " renamed to " + failed.getName() + ". Rename it by hand before re-running, or the"
                     + " next run will process it whole and deliver its first rows a second time.");

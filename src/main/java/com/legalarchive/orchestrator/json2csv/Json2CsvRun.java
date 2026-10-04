@@ -113,7 +113,8 @@ public final class Json2CsvRun {
         if (c.processed == null) return 0;
         for (int i = 0; i < c.processed.size(); i++) {
             File f = c.processed.get(i);
-            if (f.renameTo(new File(f.getParentFile(), f.getName() + ".done"))) renamed++;
+            // never onto an existing .done: on Linux File.renameTo would replace it silently
+            if (com.legalarchive.orchestrator.platform.HostFiles.renameNoReplace(f, new File(f.getParentFile(), f.getName() + ".done"))) renamed++;
             else say(log, "json2csv: could not rename " + f.getName() + " to .done");
         }
         return renamed;

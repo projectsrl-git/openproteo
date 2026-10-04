@@ -880,3 +880,18 @@ pre-patch page and are identical.
 with the new message, `JVM` and `ANY` build, `FILE` builds from a JKS, a PKCS#12 and an upper-case
 `.PFX` made with `keytool`. That is the first time the FTPS trust code has run on Linux. NOT run:
 a connection to an FTPS server.
+
+### 9.5 L3 delivered 2026-10-04; and one gap L3 found
+
+L3 is `.claude/LINUX_AUDIT.md` §5, delivered as listed. No parameter added; under Windows rules
+every changed function returns what it returned before (asserted where the function can be run).
+
+**Gap, proposed as step L4: JDBC drivers on the standalone artifact.** `openproteo-standalone.war`
+cannot be given a driver JAR: its launcher reads no external directory. A `sql` step against
+Oracle, SQL Server or PostgreSQL therefore works under Tomcat (`CATALINA_HOME/lib`) and not on the
+standalone - which is what the author ran on Linux. L4 would add a drivers directory, loaded by the
+application through its own class loader with a delegating `java.sql.Driver` (the mechanism batch 5
+needs anyway, minus the upload page, so no new function reachable from the GUI). It introduces one
+file-only key and is therefore incomplete by checklist 10 until batch 4, like `bash-exe`.
+**Not started: it is not on the list the author gave (L1, L2, L3, W).** It is recorded here so that
+the decision is his.
