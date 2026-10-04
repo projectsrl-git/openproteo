@@ -3888,3 +3888,37 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * `USAGE.md` «Platform diagnostics», through `docs.html`'s own `render()`; every verdict label is
   lifted from the page and must appear in the guide. Note in
   `.claude/2026-10-04-platform-panel-batch1-code.md`.
+
+## bash runner, process-tree kill, PowerShell on Linux — Batch 2 (spec only)
+* Spec in `.claude/LINUX_AND_GUI_CONFIG.md` §8. **No code in this commit.** Eight Gate 2 questions
+  (§8.14) block it; one of them (6) needs a look at a real Windows step log, not a recommendation.
+* **Fifteen measurements came before the design (§8.2), on a real Java 8 runtime** (Temurin
+  1.8.0_432, fetched into the sandbox) beside JDK 21, with PowerShell 7.4.6 for Linux and the REAL
+  `StepExecutor` / `RunControl` compiled by the Java 8 `javac`. "Verified on Linux" can now mean
+  Java 8, not `--release 8`.
+* **`destroyForcibly()` kills the interpreter and nothing else**: of six children of a bash script
+  all six survive, the FOREGROUND one included, and they hold the step's stdout so `execute` returns
+  five seconds late. Walking the tree from the pid misses the orphans. Launching under `setsid` and
+  killing the session plus the descendants leaves zero, in 54 ms. What still escapes is a process
+  that leaves both the tree and the session - measured, and declared.
+* **Stop does not stop a fan-out, today, on every platform.** `RunControl.process` is one field per
+  run; concurrent items overwrite it. Measured with the real classes: three items, Stop - the last
+  one dies, the other two run to the end and exit 0. Found while measuring the kill; the fix is
+  proposed in this batch because that code is being rewritten.
+* **A non-ASCII parameter handed to a child by `ProcessBuilder` silently becomes `???` when the
+  service has no UTF-8 locale** - as an argument AND as an environment variable, on Java 8 and 21.
+  That decided the bash convention: the values travel in an all-ASCII `bash -c` bootstrap as
+  `$'\xNN'` escapes and are exported as `OP_<name>`, the way PowerShell's travel as base64. After
+  the `exec` the command line carries no value.
+* **The PowerShell bootstrap works unchanged under `pwsh` on Linux** - verified, not presumed. What
+  does not work is the error stream: `#< CLIXML` and ANSI escapes in the step log; `-OutputFormat
+  Text` plus `TERM=dumb` gives plain text, and nothing else tried does.
+* **The bundled `application.properties` sets `orchestrator.powershell-exe=powershell.exe`**, so the
+  key is always "configured" and no platform default can ever apply until that line leaves.
+* **Windows tree kill is NOT solved and the spec says so**: Java 8 holds a HANDLE, not a pid. The
+  code delivery will carry a measurement kit for the author to run there; the design follows the
+  measurements, as it did on Linux.
+* The author's screenshot of `/platform` on Windows is recorded in §7.13 for exactly what it shows.
+  Not shown: interpreters, trust store, the case probe - and with `./feeds` missing the
+  `CASE_INSENSITIVE` branch has still not run. Note in
+  `.claude/2026-10-04-bash-runner-batch2-spec.md`.

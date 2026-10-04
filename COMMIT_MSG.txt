@@ -1,44 +1,40 @@
-Platform diagnostics panel: /platform, read-only (batch 1)
+bash runner, process-tree kill, pwsh on Linux: batch 2 spec
 
-Batch 1 of the Linux / GUI-configuration programme. Gate 1 answered,
-all five as recommended.
+Spec only, no code. No Java, template, JS, pom.xml, README.md change;
+USAGE.md goes with the code; no new runtime parameter in this commit.
 
-New page /platform (dashboard nav, after Docs) over GET /api/platform:
-OS and JVM identity incl. sun.jnu.encoding and the effective default
-charset, user.dir beside ten resolved paths (exists, kind, writable),
-SunMSCAPI presence, each configured interpreter resolved WITHOUT being
-executed, and a case-sensitivity probe of defaultBaseDir. Read-only:
-nothing is created, a missing directory is a finding. No new runtime
-parameter, no dependency, no executor touched.
+.claude/LINUX_AND_GUI_CONFIG.md section 8, written on fifteen
+measurements (8.2) taken with a real Java 8 runtime (Temurin 1.8.0_432)
+and JDK 21, PowerShell 7.4.6 for Linux, and the real StepExecutor and
+RunControl compiled by the Java 8 javac:
 
-platform/PlatformProbe is JDK-only and holds every decision;
-web/PlatformController only chooses which values are described. Probe
-again is POST /api/platform/case-probe: the probe writes one temp file,
-is cached for the JVM's life and refuses more than one write per 60 s.
-An empty path is "not set", never resolved; a relative interpreter path
-is UNDETERMINED; a not-determined probe is never cached.
+- destroyForcibly() leaves every child of a bash script alive, the
+  foreground one included, and execute() returns 5 s late. Launching
+  under setsid and killing the session plus the descendants leaves
+  none. What still escapes is measured and declared.
+- Stop does not stop a fan-out today, on any platform: RunControl holds
+  one process per run and concurrent items overwrite it. Three items,
+  Stop: one dies, two run to the end. Fix proposed in this batch.
+- A non-ASCII parameter passed by ProcessBuilder becomes "???" when the
+  service has no UTF-8 locale, as argument and as environment variable.
+  So bash receives its parameters as OP_<name> variables built by an
+  all-ASCII bootstrap, as PowerShell receives base64.
+- The PowerShell bootstrap works unchanged under pwsh on Linux; its
+  error stream does not (CLIXML and ANSI escapes) without
+  -OutputFormat Text and TERM=dumb.
+- The bundled application.properties sets powershell-exe, so no
+  platform default can apply until that line is removed.
+- Windows tree kill is not solved: Java 8 holds a HANDLE, not a pid.
+  The code delivery will include a measurement kit to run there.
 
-tools/scan_platform_whitelist.js (exit 1) enforces the whitelist:
-property and environment reads by literal name within the list, fixed
-AppProperties getters, one createFile and one delete, nothing that
-creates a directory or starts a process.
+Six intersections decided by name; eight Gate 2 questions block the
+code. Section 7.13 records what the author's Windows screenshot of
+/platform verifies and what it does not.
 
-USAGE.md: "Platform diagnostics". Spec section 7 marked delivered, 7.13
-records what the implementation decided. README.md not touched.
-
-Verified on Linux (sandbox, JDK 21.0.12, javac --release 8 -Xlint:all):
-PlatformProbe run for real as root AND as a non-root user, 132/133
-assertions - two mutations are caught only non-root; the controller
-compiled with Spring stubbed against the real AppProperties and
-GlobalVarsStore and called, 19 (a masking secret set on the properties
-is nowhere in the response); agreement with unarchive.HostRules, 12;
-whitelist scan clean + 21 controls; platform.html in jsdom, 74; USAGE.md
-through docs.html's own render(), 71 (26 fail pre-patch). Mutations:
-probe 35 (1 green first, a real gap, closed), page 21 (1 equivalent,
-argued), guide 8. git apply --check on a second clean clone.
-Verified on Windows: nothing. The list of what to check there, with the
-expected values, is in the session note.
-Not verified on either: mvn clean package; Spring wiring and the JSON
-serialisation; a browser; a real pwsh; CASE_INSENSITIVE on a real file
-system (the sandbox kernel refused vfat and casefold mounts) - NTFS on
-the author's machine is the first.
+Verified on Linux (sandbox; Java 1.8.0_432 and JDK 21.0.12, bash 5.2,
+pwsh 7.4.6): every row of 8.2 by running it; every cited file:line read
+at 12cfc3a; patch touches only CLAUDE.md and two .claude files;
+git apply --check on a second clean clone.
+Verified on Windows: nothing by me; by the author, what 7.13 records.
+Not verified on either: Windows process trees; whether a failing .ps1
+logs CLIXML under Windows PowerShell 5.1 (Gate question 6).

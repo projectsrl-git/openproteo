@@ -455,3 +455,269 @@ only; `System.lineSeparator()` in the audit report left as it is.
   found; `powershell.exe` and `cmd.exe` are correctly `NOT_FOUND` here.
 - **Windows.** The search order is exercised with an injected `os.name`, environment and a fake
   directory tree - the logic, not the platform.
+
+**Windows, seen by the author 2026-10-04 (screenshot of `/platform` at `12cfc3a`, Windows 11, Azul
+Java 1.8.0_362, working directory `D:\Programmi\openproteo`).** What the screenshot shows, and
+therefore what is now verified on Windows: the controller is wired and Jackson serialises the
+document; the page renders in a browser; the system rows are right (`Cp1252` / `windows-1252`); the
+path rows resolve against `user.dir` and report `missing` for `./workflows`, `./scripts`, `./shared`,
+`./feeds`, and `absent, can be created` for `./datasources.json`. What it does NOT show, being below
+the fold: the interpreter rows, the trust store row and the case probe. And since `./feeds` is
+missing on that instance, the probe there answers `NOT_DETERMINED` - **the `CASE_INSENSITIVE` branch
+has still not run on a real file system.** One cosmetic defect seen: the Setting column wraps
+(`orchestrator.workflows-` / `dir`); fixed with the batch 2 code.
+
+## 8. Batch 2 — `bash` runner, process-tree kill, platform-sensitive PowerShell (SPEC ONLY)
+
+Written 2026-10-04 on base `12cfc3a`. Code follows only after the author answers §8.14.
+
+### 8.1 Scope
+
+A fourth external runner, `bash`; the kill of the whole process tree on timeout and abort; a
+PowerShell default that follows the host. `bash` is a NEW exec: no existing workflow uses it, so
+nothing existing changes because of it. Two things DO change existing behaviour and are argued by
+name: the tree kill (§8.7) and Stop on a fan-out step (§8.8).
+
+### 8.2 Measured before designing
+
+Sandbox: Linux 6.18, bash 5.2.21, **a real Java 8 runtime** (Temurin 1.8.0_432) and JDK 21,
+**PowerShell 7.4.6 for Linux**. Every row was run, with the REAL `StepExecutor` and `RunControl`
+compiled by the Java 8 `javac` wherever the row is about them.
+
+| # | Question | Measured |
+|---|---|---|
+| M1 | Does the `-EncodedCommand` / `-ExecutionPolicy Bypass` / `[ScriptBlock]::Create` bootstrap work unchanged under `pwsh` on Linux? | **Yes.** Named parameters arrive intact (`O'Brien & co`, `a "q" $x` and a backtick), `##VAR` is parsed, UTF-8 output is intact, `exit 7` -> 7, a `throw` -> 1, a native command's exit code propagates, a script path containing `'` works. `-ExecutionPolicy Bypass` is accepted and has no effect (`Get-ExecutionPolicy` says `Unrestricted`). |
+| M2 | What does the current default `powershell.exe` do on Linux? | `IOException: Cannot run program "powershell.exe" ... error=2`. |
+| M3 | How do PowerShell errors reach the step log under `pwsh`? | As `#< CLIXML` followed by one XML line full of `_x001B_[31;1m` escapes. With `-OutputFormat Text` and `TERM=dumb` in the child's environment: `Exception: boom`. `NO_COLOR`, `$PSStyle.OutputRendering` and `$ErrorView` do NOT remove the colouring. |
+| M4 | What does `destroyForcibly()` leave behind? Script: a background child, an orphaned child (`(sleep &)`), a grandchild, a `setsid` child, a `nohup` double fork, a foreground child. | **All six survive**, the foreground one included. They hold the step's stdout pipe, so the pump thread stays blocked and `execute` returns 5 s late. |
+| M5 | Kill by walking the tree from the pid? | Four die. The two orphans survive: once their parent has exited they belong to pid 1. Pump still blocked. |
+| M6 | Launch under `setsid`, then kill everything in that session plus the descendants? | **Zero survivors, 54 ms, pump released.** Same result on Java 8 and 21. `setsid` did not fork: the Java `Process` pid IS the session leader. |
+| M7 | What still escapes M6? | A process that leaves BOTH the tree and the session: `( setsid sleep & )`. Measured: it survives and holds the pipe. |
+| M8 | Is the pid reachable on Java 8? | Yes: field `pid` of `java.lang.UNIXProcess`, by reflection. On Java 9+ `Process.pid()` exists and is public. |
+| M9 | A non-ASCII parameter value (`è€日`) handed to a child by `ProcessBuilder`, service started with no locale (`sun.jnu.encoding=ANSI_X3.4-1968`) | **Silently becomes `???`**, as a positional argument AND as an environment variable, on Java 8 and 21. With `LANG=C.UTF-8` both are intact. |
+| M10 | The same value inside an all-ASCII `bash -c` bootstrap, written as `$'\xc3\xa8...'` | **Intact under every locale**, as PowerShell's base64 is. |
+| M11 | `./script.sh` vs `bash script.sh` on a `noexec` mount | `Permission denied` vs runs. A script with no `x` bit also runs through the interpreter. |
+| M12 | A `.sh` with CRLF line endings | Simple commands print their output with a trailing CR; an `if`/`fi` gives `syntax error: unexpected end of file`, exit 2. Nothing mentions line endings. |
+| M13 | `##VAR name=value\r\n` | Already tolerated today: `readLine()` drops the CR and the value is trimmed (`StepExecutor:105-108`). A CR in the MIDDLE of a line ends the line there. |
+| M14 | Stop on a fan-out step, three concurrent items | **Only the last-started item is killed. The other two run to the end** (12 s, exit 0). See §8.8. |
+| M15 | The bootstrap under a shell that is not bash (`dash`) | `exec: : Permission denied`, exit 126 - it fails, but says nothing useful. |
+
+### 8.3 How an external runner is registered - derived from the code, not from the internal table
+
+The 8-location rule is for internal executors. An external runner touches:
+
+1. `StepExecutor`: the `Kind` enum, `resolveKind` (exec name and file extension), `buildCommand`, and the constructor that receives the interpreter.
+2. `AppProperties` (field, getter, setter) and `WorkflowEngine:1047`, which builds the `StepExecutor`.
+3. `WorkflowXmlParser:89`: the allowed `exec` values AND the error text beside it. NOT the `internal` list, so `script` stays required.
+4. `designer.html`: `isExternal` (754), the `<option>` list (1050), the script placeholder (1079), the parameter hint (2109), the help line (165). `buildXml` writes `exec` generically.
+5. `filespanel.js`: the editable-extension regex (20), the upload label (36).
+6. `PlatformController` and `platform.html` (`EXE_LABELS`): the interpreter row.
+7. `USAGE.md`, «Executors».
+
+Nothing in `WorkflowEngine.internalKind`, `WorkflowPorter` (it bundles any `script`), or the upload endpoint (no extension check).
+
+### 8.4 The `bash` runner
+
+| | |
+|---|---|
+| Kind | `BASH` |
+| `exec` | `bash`. No `sh` alias: the runner needs bash (§8.4, M15), and a name that promises POSIX sh would lie. |
+| Auto-detect | `.sh` |
+| Interpreter | `orchestrator.bash-exe`, default `/bin/bash` |
+| Invocation | always through the interpreter (M11): `[bashExe, "-c", <bootstrap>]` |
+
+**The script travels as a path and the parameters as data, in an all-ASCII bootstrap** - the
+PowerShell precedent, for the reason M9 measured:
+
+```
+[ -n "$BASH_VERSION" ] || { echo "orchestrator.bash-exe is not bash" >&2; exit 126; }
+export OP_inputFile=$'/data/\xc3\xa8 file.csv'
+export OP_dir_STEP=$'/x/it\x27s'
+exec "$BASH" $'/opt/op/scripts/prepare.sh'
+```
+
+After the `exec` the process IS `bash /opt/op/scripts/prepare.sh`: `$0` is the script, the exit
+code is the script's, and the command line carries no value (measured).
+
+#### Parameter convention, against the two that exist
+
+| Runner | Convention | Order matters | Value on the command line |
+|---|---|---|---|
+| CMD, JAR | positional, the name is a label | yes | yes, readable |
+| PowerShell | named, `-Name 'Value'` | no | yes, base64 |
+| **bash** | **named, environment variable `OP_<name>`** | **no** | **no** |
+
+Why named: a workflow declares `<param name="...">`, and a positional script breaks silently when
+two params are reordered in the designer. Why the environment and not `--name value`: bash has no
+parameter binding, so named arguments would make every script carry its own `getopts` loop.
+Why not positional as well: on Linux a command line is readable by every local user
+(`/proc/<pid>/cmdline` is mode 0444) and the environment only by the same user (0400); positional
+values would put FTPS passwords where `ps` shows them. And batch 6 needs the environment anyway.
+
+**Name mapping.** `OP_` + the parameter name with every character outside `[A-Za-z0-9_]` replaced
+by `_`; case kept. `inputFile` -> `OP_inputFile`, `dir.STEP` -> `OP_dir_STEP`. The prefix is not
+decoration: without it a parameter named `PATH`, `IFS` or `LD_PRELOAD` would reconfigure the shell.
+Two parameters that map to the same variable (`a.b` and `a_b`) fail the step BEFORE launch, naming
+both. Reserved engine params (`deleteOnSuccess*`, `outputData.*`) are not passed, as for the others.
+
+**Limits.** A value cannot contain NUL. The bootstrap is one argument, and Linux caps one argument
+at 128 KiB: a step whose parameters exceed that fails before launch with the size, instead of
+`E2BIG` from the kernel. `orchestrator.bash-exe` must be bash: the bootstrap's first line says so
+in words when it is not (M15).
+
+### 8.5 Protocol parity
+
+`##VAR name=value`, exit code, timeout (`-999`), abort: the same code path as the other kinds, no
+branch. M13 shows the trailing `\r` is already tolerated; the code batch adds the assertion, not a
+change. stdout and stderr are read as UTF-8 as today.
+
+### 8.6 A `.sh` with CRLF line endings
+
+A script edited on Windows and uploaded fails as in M12. Proposed: **refused before launch**, with
+the line number of the first CRLF and the words "bash needs LF line endings". Not normalised on the
+fly: executing a corrected copy would mean the text that ran is not the file in `scripts/`, which is
+the property batch 6 wants to keep as evidence. (Batch 6 normalises INLINE bodies because there it
+owns the materialisation.) The check reads the file once; a file over 16 MB is not checked and runs.
+
+### 8.7 Process-tree kill on timeout and abort
+
+**Linux, and any non-Windows host with `/proc`** - for every external runner there (bash, `pwsh`,
+`java -jar`), because the defect is the launcher's, not bash's:
+
+1. The step is launched as `[setsid, <the command>]` when `setsid` is found on `PATH` (searched
+   once at startup, without executing it, as the Platform page searches). It becomes a session
+   leader; pid, exit code and streams are unchanged (M6).
+2. The pid is taken by reflection: `Process.pid()` when it exists, else the `pid` field (M8).
+3. On timeout or abort: victims = descendants of the pid by `/proc/*/stat`, plus every process whose
+   session id is the pid. `SIGSTOP` to all, a second scan to catch a fork that raced the first,
+   `SIGKILL` to all. Then `destroyForcibly()` as today. Signals are sent by `/bin/sh -c "kill ..."`
+   with numeric pids only: `kill` is a builtin there, so no extra binary is assumed.
+
+**Degraded modes, each written into the step log and shown on the Platform page, never silent:**
+
+| Condition | What happens |
+|---|---|
+| no `setsid` | descendants only - orphans survive (M5) |
+| pid not obtainable (reflection refused) | `destroyForcibly()` only, as today (M4) |
+| no `/proc` | `destroyForcibly()` only |
+
+**Risks.**
+- Reflection on a private JDK field (Java 8). If the field is absent or inaccessible the code
+  degrades, it does not fail the step. On Java 9+ no private access is needed.
+- Pid reuse between the scan and the signal. The window is milliseconds and `SIGSTOP` freezes the
+  set first; a process that died and whose pid was reused inside that window would be killed by
+  mistake. Mitigated, not eliminated: before `SIGKILL` each victim's start time (`stat` field 22) is
+  compared with the one read at scan time, and a mismatch is skipped.
+- A process that leaves both the tree and the session survives (M7). Declared in `USAGE.md`.
+- A script that starts a background child and then exits NORMALLY leaves it running. Not touched:
+  the request is timeout and abort, and starting a daemon is a legitimate thing for a script to do.
+
+**Why this may change existing behaviour.** `destroyForcibly()` today kills the interpreter and
+nothing else (M4). A step that timed out keeps working in the background, writing into a run the
+orchestrator has already closed as failed, and the next run can start beside it. Killing the tree
+is what "the process was killed by the orchestrator" - the line already written to the log - has
+always claimed.
+
+**Windows: NOT solved in this batch, and said so.** On Java 8 `java.lang.ProcessImpl` holds a
+HANDLE, not a pid, and turning one into the other needs native code this project does not have. A
+design exists - find the child among the JVM's children by command line through
+`Get-CimInstance Win32_Process`, then `taskkill /T /F`, refusing when the match is not unique - but
+none of it can be run here, and a kill that picks the wrong process is worse than no kill. So:
+PowerShell and CMD on Windows keep today's behaviour, the Platform page says "process tree is not
+killed on this host", and the code delivery includes a **measurement kit**: one self-contained Java
+class and a `.cmd` for the author to run on Windows, which reports what survives today, whether the
+CIM lookup identifies the child, and how long it takes. The Windows design is then written on
+measurements, as the Linux one is. On Java 9+ under Windows `Process.pid()` + `taskkill /T /F`
+would work; the kit measures that too.
+
+### 8.8 Found while measuring: Stop does not stop a fan-out
+
+`RunControl.process` is ONE field per run (`RunControl:10`). A `forEach` step with concurrency > 1
+runs several `StepExecutor.execute` calls on the same control; each overwrites the field at
+`StepExecutor:90` and clears it at `:142`. `WorkflowEngine.stop()` (`:490`) destroys whatever is in
+the field at that instant. M14: three items, Stop after two seconds - the last item dies, the other
+two run to completion and exit 0. On every platform, for PowerShell and CMD, today.
+
+Proposed in this batch, because the kill code is being rewritten anyway: the control holds the SET
+of live processes; Stop kills each (with its tree where §8.7 applies). `process` stays as a field
+for source compatibility and is no longer what Stop reads.
+
+### 8.9 PowerShell follows the host
+
+- **Default.** `orchestrator.powershell-exe` unset -> `powershell.exe` on Windows, `pwsh` elsewhere.
+  For that to exist, the line `orchestrator.powershell-exe=powershell.exe` must LEAVE the bundled
+  `application.properties` (line 15): while it is there the key is always "configured" and no
+  default can apply. A value in the external file is never touched.
+- **Error stream (M3).** Outside Windows the command gains `-OutputFormat Text` and the child gets
+  `TERM=dumb`. On Windows nothing changes - pending §8.14 question 6.
+- M1 stands: the bootstrap itself needs no change.
+
+### 8.10 Platform page
+
+A `bash` interpreter row. A new row "Process-tree kill" with one of: `session` (setsid found),
+`descendants only`, `not available on this host`. A VERDICT on the file-name encoding row: on a
+non-Windows host a `sun.jnu.encoding` that is not UTF-8 is red, with what M9 measured in one
+sentence. The Setting column stops wrapping.
+
+### 8.11 Intersections, decided by name
+
+1. **"Invoke through the interpreter, `bash script.sh`" × the bootstrap.** The first process is
+   `bash -c <bootstrap>`; after `exec` it is `bash script.sh`, same pid. The noexec property holds
+   (M11): the file is never executed directly at any point.
+2. **"Parameters as environment variables" × a service with no UTF-8 locale.** The environment the
+   SCRIPT sees is built by bash from ASCII escapes, not handed over by the JVM, so M9 does not
+   apply. For CMD and JAR kinds on a non-Windows host M9 DOES apply, today: a parameter the JVM
+   cannot encode fails the step before launch with a message pointing at the Platform page, instead
+   of reaching the program as `?`. That is a new refusal on an existing runner; it replaces a
+   silent corruption and cannot occur on Windows, where arguments are passed as UTF-16.
+3. **"A configured value is never rewritten" × the bundled `powershell-exe` line.** Removing it is
+   not rewriting a configured value: it is the only way an unset key can exist. A Windows instance
+   computes the same `powershell.exe` it had. A Linux instance with no explicit value moves from
+   `powershell.exe` - which cannot start (M2) - to `pwsh`. An explicit value anywhere wins.
+4. **"No change to existing runners" × tree kill and fan-out Stop.** Both change what timeout and
+   Stop DO; neither changes what a step that completes produces. Tree kill: non-Windows only.
+   Fan-out Stop: every platform.
+5. **"Equivalente" × `cmd` on Linux and `bash` on Windows.** Neither is made to work. Each is
+   reported by the Platform page and, per the rule, in the designer when batch 6 adds that signal.
+   On Windows a configured Git-bash or WSL `bash.exe` is launched as configured; it is not tested.
+6. **Checklist 10 × `orchestrator.bash-exe`.** A new runtime parameter that only a file can set,
+   because batch 4 does not exist. The delivery declares itself incomplete on that point and adds
+   the key to the debt list in «Configurazione esterna». Applies: at the next run of a step.
+
+### 8.12 What is NOT in this batch
+
+Inline commands (batch 6). Designer warning for an unavailable interpreter (batch 6). Windows tree
+kill (measurement kit only). Any change to PowerShell's command on Windows.
+
+### 8.13 Verification plan
+
+Verified on Linux, on a real Java 8 runtime AND JDK 21, as root and as a non-root user: the real
+`StepExecutor` through bash (values with quotes, `$`, backticks, newlines, non-ASCII under `LANG`
+unset and `C.UTF-8`; mapping and its collision; the 128 KiB refusal; CRLF refusal with the line
+number; a non-bash interpreter; exit codes; `##VAR` with CR; a noexec mount; no `x` bit); the kill
+matrix of M4-M7 as assertions with survivor counts, in each degraded mode; fan-out Stop; `pwsh`
+through the real bootstrap with the error stream as text; the default of `powershell-exe` by
+`os.name`; designer and Platform page in jsdom; `USAGE.md` through `render()`; mutations on copies.
+
+Left to the author on Windows: that PowerShell and CMD steps behave exactly as before (same command,
+same log), fan-out Stop, the default staying `powershell.exe`, and the measurement kit.
+
+### 8.14 Gate 2 - questions before any code
+
+1. **Parameters to bash as `OP_<name>` environment variables only** (§8.4)? Alternative: also
+   positional `$1..$n`, at the cost of the values being on the command line.
+2. **A `.sh` with CRLF is refused before launch** (§8.6)? Alternatives: run it as it is (M12), or
+   normalise a temporary copy.
+3. **Tree kill for every external runner on non-Windows**, launched under `setsid` (§8.7)?
+   Alternative: bash only.
+4. **Windows: measurement kit now, design after** (§8.7)? Alternative: implement the CIM lookup
+   blind and have the author test it.
+5. **Fix fan-out Stop in this batch** (§8.8)? It changes existing behaviour on Windows: Stop will
+   stop every item.
+6. **What does a FAILING `.ps1` step log look like on Windows today** - readable text, or
+   `#< CLIXML`? If it is CLIXML there too, `-OutputFormat Text` is worth applying on both; if it is
+   readable, Windows stays untouched. This one needs a look at a real log, not a recommendation.
+7. **Refuse a CMD/JAR parameter the JVM cannot encode, on non-Windows** (§8.11.2), and make the
+   file-name encoding row red when it is not UTF-8?
+8. **Remove `orchestrator.powershell-exe=powershell.exe` from the bundled `application.properties`**
+   (§8.9)? Without it no platform-sensitive default is possible.
