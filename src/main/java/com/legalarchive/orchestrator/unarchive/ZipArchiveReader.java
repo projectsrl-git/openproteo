@@ -58,6 +58,8 @@ public final class ZipArchiveReader implements Closeable {
         public final long mtimeMillis;
         /** On a Linux host, whether {@code \\} separates in this entry's name: only in a zip made on MS-DOS. */
         public final boolean backslashSeparates;
+        /** Unix permission bits when the zip was made on Unix, else -1; applied only on Linux hosts. */
+        public final int unixMode;
         final ZipEntry jdk;
         final ZipCentralDirectory.Record record;
 
@@ -69,6 +71,7 @@ public final class ZipArchiveReader implements Closeable {
             this.compressedSize = record.compressedSize;
             this.mtimeMillis = jdk.getLastModifiedTime() == null ? -1 : jdk.getLastModifiedTime().toMillis();
             this.backslashSeparates = record.madeOnDos();
+            this.unixMode = record.madeOnUnix() ? (int) ((record.externalAttributes >>> 16) & 07777) : -1;
             this.jdk = jdk;
             this.record = record;
         }

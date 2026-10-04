@@ -3612,3 +3612,17 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   failing even on clean code) was found because a mutation's reported reason made no sense.
 * Next: L2 - confined links, permissions, directory times on Linux. Note in
   `.claude/2026-10-03-unarchive-L1-linux-names.md`.
+
+## unarchive — Batch L2: links, permissions, folder times on Linux (Linux work complete)
+* Linux hosts only: symlinks created if they stay inside the archive's folder - `LinkGuard.lexical`
+  per link + `LinkGuard.verify` before commit, resolving through the archive's OTHER links (catches
+  `d/up -> ..` + `d/up2 -> up/..`, and dangling tails); symlinks registered in `NameIndex` as files,
+  so nothing is written through a link (a mutation proved the write otherwise goes through). Hard
+  links only to an earlier regular file of the same archive.
+* Modes as the tools do non-root (MEASURED): tar `& ~umask` (GNU tar), zip as stored (unzip); never
+  setuid/sticky/owner. Folder modes/times after content, deepest first. **Cleanup chmods folders
+  before deleting**: a `555` folder made `rm -rf` fail non-root - invisible to any test run as root;
+  verified by a program run as a non-root user, with a positive control.
+* Links suite 77 (GNU tar / unzip parity incl. modes, times, inodes), non-root 6/6, Windows 232+194
+  unchanged, Linux 140, wiring 90, panel 114, guide 45; 17 mutations caught. Note in
+  `.claude/2026-10-03-unarchive-L2-links-permissions.md`.

@@ -1,30 +1,23 @@
-unarchive: batch L1, Linux hosts - name rules follow the detected OS
+unarchive: batch L2, links, permissions and folder times on Linux
 
-New requirement: extraction fully compatible with Linux, keeping all the
-Windows behaviour. The server's OS is detected (os.name): Windows keeps
-every rule built so far, unchanged; Linux lifts the Windows-only refusals
-so archives extract as GNU tar and unzip extract them there; any other OS
-is refused. Each run logs the rules it applied and publishes
-${hostRules}.
+Second and last Linux batch; Windows behaviour unchanged.
 
-On Linux: drive letters, ':', Windows-forbidden characters, reserved
-names, trailing dot/space and case-only differences are kept as names;
-'\' is a character in tars and a separator only in zips made on MS-DOS
-(what unzip does, measured); names are limited to 255 UTF-8 bytes;
-maxPathLength defaults to auto (259 characters on Windows, 4096 bytes on
-Linux). Leading '/', 'a/./b', 'a//b', duplicates and '..' stay refused.
+On a Linux host: symbolic links are created when they stay inside the
+archive's folder - checked as text per link, then resolved through the
+archive's other links before the commit, so chains and dangling tails
+that escape only when followed are refused; nothing is ever written
+through a link. Hard links only to a regular file extracted earlier from
+the same archive. Permission bits restored as GNU tar and unzip do as a
+non-root user (tar minus the umask, zip as stored), never setuid,
+setgid, sticky or owner. Folder modes and times applied after their
+content. Cleanup gives the owner rwx back before deleting a folder, since
+a read-only folder made rm -rf fail for a non-root user (measured).
 
-runUnarchive accepts maxPathLength=auto and publishes hostRules; the
-designer seeds auto and says the rules follow the server; USAGE.md gains
-"Windows and Linux servers".
-
-Measured on Linux: GNU tar extracts every Windows-illegal name as is;
-unzip converts backslashes only for made-by host 0; Debian's unzip
-mangles UTF-8 names of jar zips, where the step follows the zip's flag.
-
-Verified: Windows suites unchanged (232 + 194); Linux suite 140 with GNU
-tar / unzip parity; wiring 90; panel 114; guide 43; designer XML through
-the real parser to runUnarchive; 24 mutations, all caught.
+Verified: links suite 77 (identical to GNU tar and unzip in types, link
+targets, content, modes, times and hard-link inodes; 12 hostile fixtures
+refused); a program run as a non-root user 6/6 with a positive control;
+Windows suites unchanged (232 + 194); Linux 140; wiring 90; panel 114;
+guide 45; 17 mutations caught.
 
 Not verified: mvn clean package, a run in the container, a real Linux
 server deployment.

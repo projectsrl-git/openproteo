@@ -2048,7 +2048,7 @@
 
                     h += '<div class="sub"><div class="sub-h">Safety and limits</div>';
                     h += '<div class="form-row">' +
-                        '<div class="field wide"><label>Links, devices, pipes</label><select onchange="setNodeParam(' + i + ',\'onUnsupportedEntry\',this.value)">' +
+                        '<div class="field wide"><label>Devices, pipes (and links on Windows)</label><select onchange="setNodeParam(' + i + ',\'onUnsupportedEntry\',this.value)" title="On a Linux server links are created, but only inside the archive\'s folder; a link that leaves it stops the archive whatever this says.">' +
                         '<option value="fail"' + (uaUns === 'fail' ? ' selected' : '') + '>refuse the archive</option>' +
                         '<option value="skip"' + (uaUns === 'skip' ? ' selected' : '') + '>leave them out (names still checked)</option></select></div>' +
                         '<div class="field wide"><label>Zip names not declared UTF-8</label><select onchange="setNodeParam(' + i + ',\'zipNameCharset\',this.value)" title="auto: valid UTF-8 is UTF-8, otherwise IBM850 (older Western-European Windows tools). The log says how each name was decided.">';
@@ -2068,7 +2068,7 @@
                         '<option value="false"' + (!uaYes(nodeParam(n, 'failOnEmpty')) ? ' selected' : '') + '>ok, 0 extracted</option>' +
                         '<option value="true"' + (uaYes(nodeParam(n, 'failOnEmpty')) ? ' selected' : '') + '>fail the step</option></select></div></div>';
                     h += '</div>';
-                    h += '<div class="dim small" style="margin-top:4px">Name rules follow the server the step runs on: on Windows, names Windows cannot hold (a colon, CON or NUL, a trailing dot, two names differing only in case) are refused; on Linux they are extracted as GNU tar extracts them. ${hostRules} says which rules a run used. On both, entries that would leave their folder or are links are refused. Nothing incomplete appears under a final name. Outputs: ${archivesExtracted}, ${entriesExtracted}, ${extractDirs}, ${manifestFile} and more \u2014 see the guide.</div>';
+                    h += '<div class="dim small" style="margin-top:4px">Name rules follow the server the step runs on: on Windows, names Windows cannot hold (a colon, CON or NUL, a trailing dot, two names differing only in case) are refused; on Linux they are extracted as GNU tar extracts them. ${hostRules} says which rules a run used. On Linux, links and permissions are restored as GNU tar and unzip restore them, links only inside the archive\'s folder; on Windows links are refused. On both, entries that would leave their folder are refused. Nothing incomplete appears under a final name. Outputs: ${archivesExtracted}, ${entriesExtracted}, ${extractDirs}, ${manifestFile} and more \u2014 see the guide.</div>';
                 } else if (ex === 'encoding') {
                     var encFrom = nodeParam(n, 'from');
                     var charsets = ['', 'windows-1252', 'ISO-8859-1', 'ISO-8859-15', 'UTF-8', 'UTF-16', 'UTF-16LE', 'UTF-16BE', 'IBM500', 'Cp1140'];

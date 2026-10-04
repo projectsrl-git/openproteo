@@ -18,6 +18,12 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.LinkOption;
+import java.nio.file.Paths;
+import java.util.EnumSet;
+import java.util.Set;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -122,6 +128,8 @@ public final class UnarchiveRun {
     private BufferedWriter manifest;
     private HostRules rules;
     private int pathLimit;
+    /** The process umask, read from the staging folder Java just created (0777 & ~umask); -1 = no POSIX view. */
+    private int umask = -1;
 
     /** Thrown internally when Stop is seen; the run records it and stops cleanly. */
     static final class Aborted extends IOException {
@@ -334,6 +342,7 @@ public final class UnarchiveRun {
 
         Path staging = out.resolve(STAGING_PREFIX + runId + "-" + n + ".part");
         Files.createDirectory(staging);
+        umask = rules == HostRules.LINUX ? umaskOf(staging) : -1;
         List<Row> rows = new ArrayList<Row>();
         boolean committed = false;
         try {
@@ -355,6 +364,7 @@ public final class UnarchiveRun {
                         else extractSingle(x, g);
                     }
             }
+            if (rules == HostRules.LINUX) linuxFinish(x);
             commit(staging, target, n);
             committed = true;
         } catch (UnarchiveException e) {
@@ -384,6 +394,14 @@ public final class UnarchiveRun {
         final List<Row> rows;
         final NameIndex index;
         final List<String> skippedNames = new ArrayList<String>();
+        /** Linux: regular files written so far, by path, for hardlink targets. */
+        final Map<String, Row> files = new HashMap<String, Row>();
+        /** Linux: symlinks created, verified together before the commit. */
+        final List<Path> symlinks = new ArrayList<Path>();
+        /** Linux: directory entries' mode and time, applied deepest first after everything else. */
+        final List<Object[]> dirs = new ArrayList<Object[]>();
+        /** ∩ I46: a zip's modes are applied as stored (unzip, measured); a tar's minus the umask (GNU tar). */
+        boolean zip;
         int backslashNames, notNfcNames;
 
         Ctx(Candidate c, Path staging, Path target, Budget budget, List<Row> rows) {
@@ -404,12 +422,20 @@ public final class UnarchiveRun {
             x.budget.startEntry(e.name);
             EntryName.Name n = EntryName.validate(e.name, e.type == TarStreamReader.Type.DIRECTORY, rules, false);
             note(x, n);
+            if (rules == HostRules.LINUX && e.type == TarStreamReader.Type.SYMLINK) {
+                symlink(x, n, e.name, e.linkName == null ? "" : e.linkName);
+                continue;
+            }
+            if (rules == HostRules.LINUX && e.type == TarStreamReader.Type.HARDLINK) {
+                hardlink(x, n, e.name, e.linkName == null ? "" : e.linkName, e.mtime >= 0 ? e.mtime * 1000 : -1);
+                continue;
+            }
             if (e.type != TarStreamReader.Type.FILE && e.type != TarStreamReader.Type.DIRECTORY) {
                 unsupported(x, e.name, e.type.name().toLowerCase(Locale.ROOT)
                         + (e.linkName != null ? " -> " + e.linkName : ""));
                 continue;
             }
-            place(x, n, e.name, r.payload(), -1, counter, e.mtime >= 0 ? e.mtime * 1000 : -1);
+            place(x, n, e.name, r.payload(), -1, counter, e.mtime >= 0 ? e.mtime * 1000 : -1, e.mode);
         }
         if (r.endMarkerMissing()) warn(x.c.rel + ": the tar has no end-of-archive blocks (accepted, as GNU tar does)");
         if (r.loneZeroBlock()) warn(x.c.rel + ": the tar ends with a single zero block (accepted, as GNU tar does)");
@@ -420,6 +446,7 @@ public final class UnarchiveRun {
     }
 
     private void extractZip(Ctx x) throws IOException {
+        x.zip = true;
         try (ZipArchiveReader z = new ZipArchiveReader(x.c.file.toFile(), forcedCharset, legacyCharset)) {
             long declared = z.declaredTotal();
             if (declared > maxArchiveMb * 1024 * 1024) {
@@ -445,15 +472,29 @@ public final class UnarchiveRun {
                 x.budget.startEntry(e.name);
                 EntryName.Name n = EntryName.validate(e.name, e.type == ZipArchiveReader.Type.DIRECTORY, rules, e.backslashSeparates);
                 note(x, n);
+                if (rules == HostRules.LINUX && e.type == ZipArchiveReader.Type.SYMLINK) {
+                    // a zip stores a symlink as an entry whose CONTENT is the target (zip -y, measured)
+                    byte[] t;
+                    try (InputStream in = z.open(e)) {
+                        t = readTarget(in, e.name);
+                    }
+                    String target = ZipArchiveReader.tryUtf8(t);
+                    if (target == null) {
+                        throw new UnarchiveException(UnarchiveException.Rule.BAD_LINK_TARGET, "link '" + EntryName.printable(e.name)
+                                + "' has a target that is not valid UTF-8");
+                    }
+                    symlink(x, n, e.name, target);
+                    continue;
+                }
                 if (e.type == ZipArchiveReader.Type.SYMLINK || e.type == ZipArchiveReader.Type.SPECIAL) {
                     unsupported(x, e.name, e.type == ZipArchiveReader.Type.SYMLINK ? "symlink" : "special file");
                     continue;
                 }
                 if (n.directory) {
-                    place(x, n, e.name, null, -1, null, -1);
+                    place(x, n, e.name, null, -1, null, e.mtimeMillis, e.unixMode);
                 } else {
                     try (InputStream in = z.open(e)) {
-                        place(x, n, e.name, in, e.compressedSize, null, e.mtimeMillis);
+                        place(x, n, e.name, in, e.compressedSize, null, e.mtimeMillis, e.unixMode);
                     }
                 }
             }
@@ -465,7 +506,7 @@ public final class UnarchiveRun {
         String name = ArchiveFormat.innerNameOfGzip(x.c.file.getFileName().toString());
         x.budget.startEntry(name);
         EntryName.Name n = EntryName.validate(name, false, rules, false);
-        place(x, n, name, g.decompressed, -1, g.compressedCounter, -1);
+        place(x, n, name, g.decompressed, -1, g.compressedCounter, -1, -1);
         finish(x);
     }
 
@@ -475,16 +516,20 @@ public final class UnarchiveRun {
      * skipped); only entries that are written are registered, since a skipped one creates nothing.
      */
     private void place(Ctx x, EntryName.Name n, String raw, InputStream in, long entryCompressed,
-                       GzipSupport.Counting counter, long mtimeMillis) throws IOException {
+                       GzipSupport.Counting counter, long mtimeMillis, int mode) throws IOException {
         x.index.add(n);
         EntryName.checkLength(x.target.toString(), n, pathLimit, rules);
-        if (n.isRoot()) return;
+        if (n.isRoot()) {
+            if (rules == HostRules.LINUX) x.dirs.add(new Object[]{x.staging, mode, mtimeMillis});
+            return;
+        }
         Path p = x.staging.resolve(n.path);
         if (!p.normalize().startsWith(x.staging)) {                    // the net, never the rule
             throw new UnarchiveException(UnarchiveException.Rule.TRAVERSAL, "'" + raw + "' resolves outside the staging directory");
         }
         if (n.directory) {
             Files.createDirectories(p);
+            if (rules == HostRules.LINUX) x.dirs.add(new Object[]{p, mode, mtimeMillis});
             return;
         }
         Files.createDirectories(p.getParent());
@@ -513,9 +558,148 @@ public final class UnarchiveRun {
                 mtimeFailures++;
             }
         }
+        if (rules == HostRules.LINUX && mode >= 0) setMode(p, mode, !x.zip);
         entriesExtracted++;
         bytesExtracted += bytes;
-        x.rows.add(new Row(raw, x.c.subdir + "/" + n.path, bytes, md == null ? "" : hex(md.digest()), mtimeMillis));
+        Row row = new Row(raw, x.c.subdir + "/" + n.path, bytes, md == null ? "" : hex(md.digest()), mtimeMillis);
+        x.rows.add(row);
+        if (rules == HostRules.LINUX) x.files.put(n.path, row);
+    }
+
+    // ------------------------------------------------------------------ Linux: links, modes, directories
+
+    /**
+     * A symbolic link, Linux hosts only. Registered in the index as a FILE, so nothing is ever written
+     * through it ({@code link/x} after {@code link} is a file/directory conflict). Its target must stay
+     * inside the archive's folder: checked as text now, and through the other links before the commit
+     * ({@link LinkGuard}). <b>∩ I45</b>: GNU tar extracts {@code ../outside} (measured); this step refuses it.
+     */
+    private void symlink(Ctx x, EntryName.Name n, String raw, String target) throws IOException {
+        if (n.isRoot() || n.directory) {
+            throw new UnarchiveException(UnarchiveException.Rule.BAD_LINK_TARGET, "link '" + EntryName.printable(raw)
+                    + "' is named as a folder");
+        }
+        x.index.add(n);
+        EntryName.checkLength(x.target.toString(), n, pathLimit, rules);
+        LinkGuard.lexical(raw, n.segments.subList(0, n.segments.size() - 1), target);
+        Path p = x.staging.resolve(n.path);
+        if (!p.normalize().startsWith(x.staging)) {
+            throw new UnarchiveException(UnarchiveException.Rule.TRAVERSAL, "'" + raw + "' resolves outside the staging directory");
+        }
+        Files.createDirectories(p.getParent());
+        Files.createSymbolicLink(p, Paths.get(target));
+        x.symlinks.add(p);
+        entriesExtracted++;
+        x.rows.add(new Row(raw, x.c.subdir + "/" + n.path, 0, "", -1));
+    }
+
+    /**
+     * A hard link, Linux hosts only: allowed only to a REGULAR file already extracted from the same
+     * archive (GNU tar stores the second name of a multiply-linked file this way, measured), so both
+     * names share one inode inside the staging folder and nothing outside can be reached.
+     */
+    private void hardlink(Ctx x, EntryName.Name n, String raw, String linkName, long mtimeMillis) throws IOException {
+        if (n.isRoot() || n.directory) {
+            throw new UnarchiveException(UnarchiveException.Rule.BAD_LINK_TARGET, "hard link '" + EntryName.printable(raw)
+                    + "' is named as a folder");
+        }
+        EntryName.Name tn = EntryName.validate(linkName, false, rules, false);
+        Row t = x.files.get(tn.path);
+        if (t == null) {
+            throw new UnarchiveException(UnarchiveException.Rule.LINK_TARGET_MISSING, "hard link '" + EntryName.printable(raw)
+                    + "' -> '" + EntryName.printable(linkName) + "': the target must be a regular file extracted earlier from the same archive");
+        }
+        x.index.add(n);
+        EntryName.checkLength(x.target.toString(), n, pathLimit, rules);
+        Path p = x.staging.resolve(n.path);
+        if (!p.normalize().startsWith(x.staging)) {
+            throw new UnarchiveException(UnarchiveException.Rule.TRAVERSAL, "'" + raw + "' resolves outside the staging directory");
+        }
+        Files.createDirectories(p.getParent());
+        Files.createLink(p, x.staging.resolve(tn.path));
+        entriesExtracted++;
+        Row row = new Row(raw, x.c.subdir + "/" + n.path, t.bytes, t.sha, mtimeMillis);
+        x.rows.add(row);
+        x.files.put(n.path, row);
+    }
+
+    /** Before the commit: links verified through each other, then folders' modes and times, deepest first. */
+    private void linuxFinish(Ctx x) throws IOException {
+        LinkGuard.verify(x.staging, x.symlinks);
+        List<Object[]> ds = new ArrayList<Object[]>(x.dirs);
+        ds.sort((a, b) -> ((Path) b[0]).getNameCount() - ((Path) a[0]).getNameCount());
+        for (Object[] d : ds) {
+            Path p = (Path) d[0];
+            int mode = (Integer) d[1];
+            long mt = (Long) d[2];
+            if (mode >= 0) setMode(p, mode, !x.zip);
+            if (preserveMtime && mt >= 0) {
+                try {
+                    Files.setLastModifiedTime(p, FileTime.fromMillis(mt));
+                } catch (IOException e) {
+                    mtimeFailures++;
+                }
+            }
+        }
+        if (!x.symlinks.isEmpty()) log.accept("unarchive: " + x.c.rel + ": " + x.symlinks.size() + " symbolic link(s) created, all inside the archive's folder");
+    }
+
+    /**
+     * The archive's permission bits, as the reference tool applies them when not run as root
+     * (measured): a tar's {@code & ~umask} (GNU tar), a zip's as stored (Info-ZIP unzip ignores the
+     * umask: 777 stays 777) - ∩ I46. Setuid, setgid and sticky never; owner never; on both. No POSIX
+     * view: nothing is set.
+     */
+    private void setMode(Path p, int mode, boolean applyUmask) {
+        if (umask < 0) return;
+        int bits = mode & 0777 & (applyUmask ? ~umask : 0777);
+        try {
+            Files.setPosixFilePermissions(p, perms(bits));
+        } catch (IOException | UnsupportedOperationException e) {
+            mtimeFailures++;
+        }
+    }
+
+    static int umaskOf(Path freshDir) {
+        PosixFileAttributeView v = Files.getFileAttributeView(freshDir, PosixFileAttributeView.class);
+        if (v == null) return -1;
+        try {
+            return 0777 & ~bits(v.readAttributes().permissions());
+        } catch (IOException e) {
+            return -1;
+        }
+    }
+
+    private static final PosixFilePermission[] ORDER = {
+            PosixFilePermission.OTHERS_EXECUTE, PosixFilePermission.OTHERS_WRITE, PosixFilePermission.OTHERS_READ,
+            PosixFilePermission.GROUP_EXECUTE, PosixFilePermission.GROUP_WRITE, PosixFilePermission.GROUP_READ,
+            PosixFilePermission.OWNER_EXECUTE, PosixFilePermission.OWNER_WRITE, PosixFilePermission.OWNER_READ };
+
+    static Set<PosixFilePermission> perms(int bits) {
+        Set<PosixFilePermission> s = EnumSet.noneOf(PosixFilePermission.class);
+        for (int i = 0; i < ORDER.length; i++) if ((bits & (1 << i)) != 0) s.add(ORDER[i]);
+        return s;
+    }
+
+    static int bits(Set<PosixFilePermission> s) {
+        int b = 0;
+        for (int i = 0; i < ORDER.length; i++) if (s.contains(ORDER[i])) b |= 1 << i;
+        return b;
+    }
+
+    /** A zip symlink's content, at most PATH_MAX bytes; read to the end so the CRC is checked. */
+    private static byte[] readTarget(InputStream in, String name) throws IOException {
+        java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+        byte[] b = new byte[1024];
+        int r;
+        while ((r = in.read(b)) > 0) {
+            o.write(b, 0, r);
+            if (o.size() > 4096) {
+                throw new UnarchiveException(UnarchiveException.Rule.BAD_LINK_TARGET, "link '" + EntryName.printable(name)
+                        + "' has a target longer than 4096 bytes");
+            }
+        }
+        return o.toByteArray();
     }
 
     private void unsupported(Ctx x, String name, String what) throws UnarchiveException {
@@ -675,6 +859,27 @@ public final class UnarchiveRun {
     static void deleteTree(Path root) throws IOException {
         if (!Files.exists(root)) return;
         Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+            /**
+             * A folder made read-only by its archive (0555, applied after its content as GNU tar does)
+             * cannot be emptied as it is - measured, rm -rf fails on it as a non-root user - so the owner
+             * gets rwx back before the folder is entered. Links are never followed.
+             */
+            @Override
+            public FileVisitResult preVisitDirectory(Path d, BasicFileAttributes a) {
+                PosixFileAttributeView v = Files.getFileAttributeView(d, PosixFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+                if (v != null) {
+                    try {
+                        Set<PosixFilePermission> s = v.readAttributes().permissions();
+                        if (s.add(PosixFilePermission.OWNER_READ) | s.add(PosixFilePermission.OWNER_WRITE) | s.add(PosixFilePermission.OWNER_EXECUTE)) {
+                            v.setPermissions(s);
+                        }
+                    } catch (IOException ignored) {
+                        // the delete below reports it
+                    }
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
             @Override
             public FileVisitResult visitFile(Path f, BasicFileAttributes a) throws IOException {
                 Files.delete(f);

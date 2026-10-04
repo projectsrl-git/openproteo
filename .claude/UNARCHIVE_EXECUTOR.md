@@ -1,8 +1,8 @@
 # Archive extraction executor (`unarchive`) — specification
 
-Status: **Linux hosts — batch L1 delivered** (§21): name rules follow the server's OS, detected
-automatically; Windows behaviour unchanged. Batch L2 (links, permissions, directory times on Linux)
-is next. Batches 0–4 delivered the executor for Windows. Batch 2 delivered the zip reader, limits,
+Status: **Linux hosts complete — batches L1 and L2 delivered** (§21): name rules, links,
+permissions and folder times follow the server's OS, detected automatically; Windows behaviour
+unchanged. Batches 0–4 delivered the executor for Windows. Batch 2 delivered the zip reader, limits,
 staging, commit and manifest. Gate 0 Q1–Q3 answered 2026-09-30, Q4–Q12 confirmed with the recommended
 defaults 2026-10-03 (§13). Batch 0 written on `0997815`, revised on `0509aa9`, batch 2 on `a4f02c8`.
 
@@ -974,3 +974,64 @@ GNU tar / unzip parity on every benign fixture of batches 1–2 and on new Linux
 hostile fixture either still refused by its rule with nothing left behind, or — the Windows-only
 ones — byte-identical to GNU tar or unzip; the backslash rule on zips made by FAT, NTFS, VFAT, Unix;
 NAME_MAX and PATH_MAX boundaries in bytes; detection, refusal of other OSes, the log line.
+
+### 21.6. Batch L2: links, permissions, folder times (Linux hosts only)
+
+**Measured** (GNU tar 1.35 run as a non-root user and, equivalently, as root with
+`--no-same-permissions --no-same-owner`; Info-ZIP unzip 6.0 as root and as a non-root user; umask 022):
+
+* GNU tar applies the archive's permission bits **minus the umask** (`777` → `755`) and drops
+  setuid/setgid/sticky (`4755` → `755`); **unzip applies them as stored** (`777` stays `777`) and
+  also drops setuid. Root with the two flags gives exactly the non-root result.
+* GNU tar creates symlinks as stored, **including `../outside`**, and dangling ones; hard links share
+  an inode; a `555` folder gets its mode **after** its content, and folder times are restored.
+* `rm -rf` of such a tree **fails** for a non-root user (`Permission denied` on the read-only folder).
+* A same-parent directory rename keeps the renamed folder's time; Java's `Files.createDirectory` and
+  `Files.write` create with `0777`/`0666 & ~umask`, so the umask is read from the fresh staging folder.
+
+**The rules**, applied only when the host is Linux (on Windows nothing changes: links refused or
+skipped as before, no modes):
+
+* **Symlinks** (tar `2`; zip entries with Unix mode `S_IFLNK`, whose content is the target) are
+  created when they stay inside the archive's folder. `LinkGuard.lexical` refuses at once an empty
+  target, NUL, an absolute target, or a climb above the root *as text*; `LinkGuard.verify`, once every
+  entry exists and before the commit, resolves each link **through the archive's other links** inside
+  the staging folder, never outside it, and refuses an escape or a loop (more than 40 hops). The text
+  check alone misses chains — `d/up -> ..`, `d/up2 -> up/..` — and so does a dangling tail —
+  `d/m -> up/nothere/../../x`; both are fixtures.
+* **Nothing is written through a link**: a symlink is registered in `NameIndex` as a file, so
+  `link/x` after `link` is a file/directory conflict. (Without that, measured by mutation: the write
+  went through the link into the folder it points to.)
+* **Hard links** (tar `1`) only to a regular file already extracted from the same archive; the
+  manifest row carries the target's size and hash.
+* **Modes**: the permission bits only — `& ~umask` for a tar, as stored for a zip (∩ I46) — never
+  setuid, setgid, sticky (Java's `PosixFilePermission` cannot even express them) or owner.
+* **Folders**: modes and times applied after everything else, deepest first, the archive root's on
+  the staging folder itself (it keeps them across the commit's rename).
+* **Cleanup**: deleting a staging folder, a replaced tree or a leftover gives the owner `rwx` back on
+  each folder before entering it; links are never followed.
+
+**Intersections**:
+
+| # | Case | Rules that meet | Winner |
+|---|---|---|---|
+| I43 | `link`, then `link/x` | GNU tar writes through the link vs "nothing written through a link" | refused (`FILE_DIRECTORY_CONFLICT`) on both hosts |
+| I44 | a symlink's manifest row | manifest format unchanged vs links being entries | listed with `bytes` 0 and an empty `sha256`; a hard link's row carries its target's size and hash |
+| I45 | `../outside`, `/etc/passwd`, an escaping chain | GNU tar parity vs confinement | refused (`LINK_ESCAPE`), as Python's `data` filter refuses them |
+| I46 | permission bits | GNU tar (minus umask) vs unzip (as stored) | per format: tar like GNU tar, zip like unzip; setuid/setgid/sticky/owner never |
+| I47 | `onUnsupportedEntry=skip` on Linux | skip vs links being supported there | applies to devices and FIFOs only; an escaping link is refused even with `skip` |
+| I48 | a read-only folder in the archive | applying its mode vs extracting into it and deleting it later | mode applied after the content; cleanup restores owner `rwx` before deleting |
+
+**Verification**: Windows suites unchanged (232 + 194); Linux L1 suite 140 (one expectation changed
+on purpose: a confined zip symlink is now created, as unzip does); **links suite 77** — GNU tar's own
+archive of a real tree identical to GNU tar's extraction in types, link targets, content, modes, file
+and folder times and hard-link inode groups; `zip -ry` of the same tree identical to unzip's; 12
+hostile fixtures refused by their rule with nothing left, also under `skip`; Windows unchanged on the
+same archives; the FIFO still under the policy; `LinkGuard` units; manifest rows; the umask read
+equals the shell's. **Run as a non-root user** (it cannot be seen as root): extraction with a `555`
+folder, `replace` over it, a failed commit after modes were applied, the sweep of a leftover — 6/6;
+with the cleanup's `chmod` removed the same program fails 3 of them (positive control).
+
+**Mutations, 17, all caught**, two of them only observable as a non-root user (folder modes applied
+before the content; cleanup without `chmod`). No mutation for "setuid applied": Java's NIO permission
+API has no way to set it, so the strip is structural.

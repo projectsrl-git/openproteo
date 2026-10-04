@@ -287,7 +287,7 @@
         // same default, and written as true/false because sqlreport accepts only "true".
         format: [ ['auto','auto — from the content (default)'], ['zip','zip'], ['tar','tar'], ['tar.gz','tar.gz / tgz'], ['gz','gz — decompress only']],
         onExisting: [ ['fail','fail — stop before extracting (default)'], ['skip','skip that archive'], ['replace','replace — extract, then swap in']],
-        onUnsupportedEntry: [ ['fail','refuse the archive (default)'], ['skip','leave links, devices, pipes out']],
+        onUnsupportedEntry: [ ['fail','refuse the archive (default)'], ['skip','leave devices, pipes (and links on Windows) out']],
         afterExtract: [ ['keep','keep the archive (default)'], ['rename','rename it to .done']],
         preserveMtime: [ ['true','from the archive (default)'], ['false','time of extraction']],
         manifestHash: [ ['true','yes (default)'], ['false','no — empty column']],

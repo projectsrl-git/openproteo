@@ -30,7 +30,9 @@ public final class UnarchiveException extends IOException {
         ZIP_STRUCTURE, ZIP_ENCRYPTED, ZIP_METHOD, BAD_CRC,
         // policy, limits, layout (sections 6-8), added in batch 2
         LINK_OR_SPECIAL, LIMIT_ENTRIES, LIMIT_ENTRY_SIZE, LIMIT_ARCHIVE_SIZE, LIMIT_RATIO, DISK_SPACE,
-        CONFIGURATION, TARGET_EXISTS, SUBDIR_COLLISION, DONE_EXISTS, COMMIT_FAILED
+        CONFIGURATION, TARGET_EXISTS, SUBDIR_COLLISION, DONE_EXISTS, COMMIT_FAILED,
+        // links on Linux hosts (section 21.6), added in batch L2
+        LINK_ESCAPE, LINK_TARGET_MISSING, BAD_LINK_TARGET
     }
 
     private final Rule rule;

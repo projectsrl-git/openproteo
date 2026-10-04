@@ -51,13 +51,16 @@ public final class TarStreamReader {
         public final Type type;
         public final char typeflag;
         public final long size;
+        /** Permission bits from the header (07777 at most); applied only on Linux hosts. */
+        public final int mode;
         /** Seconds since the epoch; pax fractions dropped. */
         public final long mtime;
         /** Byte offset of this member's own header in the (decompressed) tar stream. */
         public final long headerOffset;
 
-        Entry(String name, String linkName, Type type, char typeflag, long size, long mtime, long headerOffset) {
+        Entry(String name, String linkName, Type type, char typeflag, long size, int mode, long mtime, long headerOffset) {
             this.name = name;
+            this.mode = mode;
             this.linkName = linkName;
             this.type = type;
             this.typeflag = typeflag;
@@ -192,7 +195,8 @@ public final class TarStreamReader {
             }
             remaining = size;
             padding = padded(size) - size;
-            return new Entry(name, link.isEmpty() ? null : link, type, flag, size, mtime, at);
+            int mode = (int) (number(header, 100, 8, at, "mode") & 07777);
+            return new Entry(name, link.isEmpty() ? null : link, type, flag, size, mode, mtime, at);
         }
     }
 

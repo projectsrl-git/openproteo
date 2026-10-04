@@ -1328,6 +1328,15 @@ Nothing incomplete ever appears under a final name. Each archive is first extrac
 
 The name rules follow the operating system of the server the step runs on, detected automatically; the log's first line and `${hostRules}` (`windows` or `linux`) say which rules a run used. On a **Windows** server, names Windows cannot hold are refused (below). On a **Linux** server they are extracted exactly as GNU tar and unzip extract them there: `report_10:41.txt`, `CON`, `nul.txt`, a name ending in a dot or a space, `Makefile` next to `makefile`. The protections that are about safety, not about Windows, are the same on both. A server that is neither Windows nor Linux is refused.
 
+On a Linux server the step also does what GNU tar and unzip do there with links and permissions:
+
+- **symbolic links** are created, but only when they stay inside the archive's folder: a link to `/etc/passwd` or to `../outside` stops the archive (GNU tar would create it), and so does a chain of links that leaves the folder only when followed. Nothing is ever written *through* a link;
+- **hard links** are created when they point to a regular file extracted earlier from the same archive — GNU tar stores the second name of a file that has two this way;
+- **permissions** are restored without setuid, setgid, sticky or owner: a tar's as GNU tar does (minus the server's umask, so `777` becomes `755` with umask `022`), a zip's as unzip does (as stored);
+- **folders** get their stored permissions and times after their content, so a read-only folder in the archive is read-only once extracted.
+
+On Windows links are still refused, or left out with `onUnsupportedEntry=skip`, and no permissions are applied.
+
 The same workflow can therefore extract different files on a Windows test machine and on a Linux production server; `${hostRules}` in the run's outputs is how to tell afterwards.
 
 ### What is refused, and why
@@ -1338,7 +1347,7 @@ The step refuses rather than repairs. An archive is refused, with the entry and 
 - would collide: the same file twice, a file and a folder with the same name — and, on Windows only, two names that differ only in case (`A.txt`, `a.txt` are one file there);
 - on Windows only, would be invisible or ambiguous there: a `:` (it writes a hidden stream inside another file), a reserved name such as `CON`, `NUL`, `AUX`, `COM1` — with or without an extension, `nul.txt` included — a name ending in a dot or a space, characters Windows does not allow;
 - is too long: a name over 255 bytes, or a path over `maxPathLength` once extracted (by default 259 characters on Windows, 4096 bytes on Linux);
-- is a link, a device or a pipe (only files and folders are ever created; `onUnsupportedEntry=skip` leaves such entries out, still checking their names).
+- is a device or a pipe, or — on Windows — a link (`onUnsupportedEntry=skip` leaves such entries out, still checking their names); on Linux, a link whose target leaves the archive's folder, or a hard link to anything but a file extracted earlier from the same archive.
 
 On Linux, a `\` in a tar entry is part of the name, as GNU tar treats it; in a zip it separates folders only when the zip was made on MS-DOS or Windows tools that declare it (Explorer, Java, .NET do), which is what unzip does. A zip whose entries are encrypted, or compressed with a method other than deflate (bzip2, LZMA, or DEFLATE64, which some Windows tools use for large files), is refused naming the method. A zip entry whose content does not match its checksum is refused as corrupted.
 
@@ -1369,7 +1378,7 @@ Required: `sourceDir`. A parameter left empty means its default (the designer sh
 - `outputDir` — default the step directory. It may not be `sourceDir`, nor be inside it when `recursive` is on.
 - `layout` — `subdir`, the only layout available.
 - `onExisting` — default `fail`: a destination folder that already exists stops the step before anything is extracted. `skip` leaves that archive out; `replace` extracts the new content first and swaps it in, putting the old folder back if the swap fails.
-- `onUnsupportedEntry` — default `fail`; `skip` leaves links, devices and pipes out.
+- `onUnsupportedEntry` — default `fail`; `skip` leaves out devices and pipes, and on Windows also links. On Linux links are created instead (see above), and a link that leaves the archive's folder stops the archive even with `skip`.
 - `zipNameCharset` — default `auto`; a code page name (`IBM437`, `IBM850`, `windows-1252`…) forces it for zip names that do not declare UTF-8.
 - `maxEntries` — default 100000.
 - `maxEntryMb` — default 2048.
