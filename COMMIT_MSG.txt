@@ -1,36 +1,42 @@
-Windows process-tree kill: experimental, off by default (W)
+objunpack: specification and Gate 0 (batch 0, docs only)
 
-Step W. NOT RUN ON WINDOWS. Off unless
-orchestrator.windows-tree-kill=true; with it off a Windows instance
-does exactly what it did, and the suite asserts that nothing
-Windows-specific is called.
+.claude/OBJECT_UNPACK_EXECUTOR.md specifies objunpack, the inverse of
+objpack: a Transarch object package (.tar or .tar.gz, plus .md5) back
+to its metadata CSV and its objects under their original names, for
+the chain csvsql -> dequote -> validate -> objpack -> ftpsend.
 
-engine/WindowsTreeKill: on timeout and Stop, kill what the step started
-with taskkill /T. Java 8 holds a HANDLE, not a pid, so the step is
-found among the JVM's own children (one PowerShell CIM query) by the
-moment it was started and by its command line. Exactly one candidate or
-nothing: not found, or two steps that cannot be told apart, and only
-the interpreter is killed, as before, with the reason in the step log.
-Never the JVM, never a system pid. On Java 9+ Process.pid() is used.
+No code. Batches 1-4 wait for the eight Gate 0 answers in section 11.
 
-ProcessTree gains a TASKKILL mode, live only on Windows with the switch
-on; the Platform page shows it as "partial". USAGE.md describes the
-option and says plainly that it has not been run on Windows.
+The name mapping is the join audit.json (file_name, object_id) with
+metadata.csv (object_id, original_object_name), never a name template.
+Section 3 records what that decision met on ten packages made by the
+real producers, objpack and the legacy PowerShell script:
 
-INCOMPLETE by checklist 10: orchestrator.windows-tree-kill is
-file-only; added to the debt list in CLAUDE.md.
+- AuditJson has no reader and SubmissionName parses no names: both are
+  specified as additions to those classes, objpack's writing untouched.
+- The legacy tar holds the objects BEFORE audit and metadata: objects
+  are staged under their member names and renamed afterwards.
+- PsCsvReader reads the packaged metadata; FlatCsvReader miscounts a
+  record that spans two lines.
+- LinkGuard is not called: a package is flat, a link is refused.
+- A full package has 100 003 members, above unarchive's maxEntries.
+- objpack's default delimiter would change a legacy feed's; the
+  template passes the package's own.
 
-Spec 9.7 lists every decision taken without the author in L1, L2, L3
-and W, for review. README.md not touched.
+Eight intersections decided by name (U1-U8); seven limits declared.
 
-Verified on Linux (sandbox; Java 1.8.0_432 and JDK 21.0.12, PowerShell
-7.4.6): 45 assertions on the decision, every refusal, the wiring under
-an injected os.name, and the query's PowerShell expression executed by
-a real PowerShell in a non-UTC time zone; 20 mutations; the batch 2
-executor suite (126) and the controller suite (22) re-run; Platform
-page 90; guide suites; differential compile identical; git apply
---check on a second clean clone.
+Found, NOT fixed here: ObjectPack.glob lower-cases a regex built with
+Pattern.quote, so any include/exclude pattern other than bare * or ?
+throws when the objects directory is listed. Needs its own patch.
+
+Verified on Linux (sandbox; Temurin 1.8.0_432 run, PowerShell 7.4.6,
+GNU tar 1.35, bsdtar 3.7.2, root, LANG=C.UTF-8): the reused packages
+compiled with the Java 8 javac; ten real packages; the tar readers
+against Python tarfile; both CSV readers against Python csv; a
+prototype of the join re-packed by the real ObjectPack, 9 of 10 both
+for restore and round trip, the exceptions being declared limits;
+git apply --check on a second clean clone.
 Verified on Windows: nothing.
-Not verified on either: Get-CimInstance, taskkill, Windows PowerShell
-5.1, the command line Windows records for a Java-started process; mvn
-clean package; Spring binding of the new property.
+Not verified on either: any implementation of objunpack (none
+exists); Windows PowerShell 5.1; a legacy package made on Windows; the
+chain's csvsql, dequote, validate and ftpsend on an unpacked CSV.
