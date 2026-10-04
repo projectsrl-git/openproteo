@@ -3626,3 +3626,15 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
 * Links suite 77 (GNU tar / unzip parity incl. modes, times, inodes), non-root 6/6, Windows 232+194
   unchanged, Linux 140, wiring 90, panel 114, guide 45; 17 mutations caught. Note in
   `.claude/2026-10-03-unarchive-L2-links-permissions.md`.
+
+## unarchive — Batch C: afterExtract=delete (opt-in); batch R specified
+* Gate 0 2026-10-04: flat excluded (F1), FIFO/devices unchanged (D1), zip/tar/gz suffice, non-UTF-8
+  tar names refused; C1 delete opt-in; R1-R6 nested archives (recommended answers).
+* `afterExtract=delete` only after the archive's own commit - never failed / stopped / skipped; a
+  failed deletion fails the step with the extraction kept (verified only as a NON-root user: root
+  cannot make a deletion fail). Suites: batch 2 199, non-root 7, panel 117, guide 47, wiring 92; 10
+  mutations caught. Three expectations inverted by the decision, not deleted.
+* **Lesson**: a suite that does not compile leaves the PREVIOUS classes in place - the non-root run
+  showed 6 checks instead of 7; check that counts move when tests are added.
+* Batch R specified in the spec §22.4 (nested by name only - Office files are zips). Note in
+  `.claude/2026-10-04-unarchive-C-delete.md`.

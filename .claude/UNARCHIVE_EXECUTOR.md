@@ -1,8 +1,7 @@
 # Archive extraction executor (`unarchive`) — specification
 
-Status: **Linux hosts complete — batches L1 and L2 delivered** (§21): name rules, links,
-permissions and folder times follow the server's OS, detected automatically; Windows behaviour
-unchanged. Batches 0–4 delivered the executor for Windows. Batch 2 delivered the zip reader, limits,
+Status: **batch C delivered** (opt-in deletion, §22.3); **batch R specified** (opt-in nested
+archives, §22.4), next. Linux hosts complete (§21). Batches 0–4 delivered the executor for Windows. Batch 2 delivered the zip reader, limits,
 staging, commit and manifest. Gate 0 Q1–Q3 answered 2026-09-30, Q4–Q12 confirmed with the recommended
 defaults 2026-10-03 (§13). Batch 0 written on `0997815`, revised on `0509aa9`, batch 2 on `a4f02c8`.
 
@@ -464,7 +463,8 @@ extraction — and unsafe in another: if the archive changed since, the old cont
 the archive's commit**, never before — the elarxml `deleteContentAfterEmbed` rule: tied to the same
 event that makes the output final, so an archive that failed is never renamed or deleted. Unlike
 elarxml there is no store type to make deletion impossible where it would be wrong (a plain
-directory is a plain directory), which is why Q8 asks whether `delete` should exist at all.
+directory is a plain directory), which is why Q8 asks whether `delete` should exist at all. ~~Q8: not offered~~ — **Gate 0 C1 (2026-10-04): offered, opt-in**, deleted only after the
+archive's own commit, never when it failed, was stopped or was skipped (§22.3, ∩ I49, I50).
 
 ### 8.5. Stop and mtime
 
@@ -510,7 +510,7 @@ archive with zero entries is a WARNING either way.
 | `maxEntries` / `maxEntryMb` / `maxArchiveMb` / `maxRatio` | 100000 / 2048 / 20480 / 200 | §7 |
 | `maxPathLength` | ~~259~~ `auto` | §5, §21: `auto` = 259 UTF-16 units on a Windows host, 4096 UTF-8 bytes on Linux; a number applies on both, in the host's unit |
 | `checkFreeDisk` | `true` | §7; same name and default as elarxml's |
-| `afterExtract` | `keep` | §8.4; `keep` or `rename`, ~~`delete`~~ refused naming Gate 0 Q8 |
+| `afterExtract` | `keep` | §8.4; `keep`, `rename` or `delete` (~~refused naming Gate 0 Q8~~ opt-in since Gate 0 C1, §22.3) |
 | `preserveMtime` | `true` | §8.5 |
 | `manifestHash` | `true` | §9 |
 | `failOnEmpty` | `false` | §9 |
@@ -1035,3 +1035,71 @@ with the cleanup's `chmod` removed the same program fails 3 of them (positive co
 **Mutations, 17, all caught**, two of them only observable as a non-root user (folder modes applied
 before the content; cleanup without `chmod`). No mutation for "setuid applied": Java's NIO permission
 API has no way to set it, so the strip is structural.
+
+## 22. Opt-in deletion and nested archives
+
+### 22.1. Gate 0 (2026-10-04)
+
+* **F1 — `layout=flat` stays excluded.** (Answer "lasciamo flat", read as "leave flat as it is";
+  stated here so that a different reading is corrected rather than built on.)
+* **D1 — FIFOs and devices: unchanged** — refused, or skipped with `onUnsupportedEntry=skip`, on
+  both hosts. They appear only in system backups; a FIFO can block a reader forever, a device needs root.
+* **Formats** — zip, tar and gz are what is needed; the others stay recognised and refused by name.
+* **Non-UTF-8 tar names** — stay refused (confirmed): Java cannot create arbitrary byte names reliably.
+* **C1 — `afterExtract=delete`, opt-in, with the proposed rules** (§22.3). ~~Q8: delete not offered~~.
+* **R1–R6 — nested archives, opt-in, the recommended answers** (§22.4).
+
+### 22.2. Intersections added
+
+| # | Case | Rules that meet | Winner |
+|---|---|---|---|
+| I49 | `afterExtract=delete` and an archive that failed, was stopped, or was skipped | delete vs "nothing changes unless committed" | deleted only after ITS commit; failed, stopped and skipped archives are kept |
+| I50 | a failed deletion | the extraction is committed vs the step reporting success | the step fails (`COMMIT_FAILED`) saying "extracted and committed, but deleting the archive failed"; the extraction stays |
+| I51 | a `.docx` / `.xlsx` / `.jar` inside an archive, with `nested=extract` | "content decides the format" (§3) vs nested detection | nested archives are selected **by name** (`pattern`); content decides only the format of what was selected. Office files are zips and are never opened |
+| I52 | a nested archive beyond `nestedDepth` | recurse vs limit | kept as a file, with a WARNING naming it; not refused |
+| I53 | limits with nested archives | per archive vs per tree | cumulative over the outer archive and everything inside it (the 42.zip defence) |
+| I54 | `afterExtract` with nested archives | outer vs inner | `afterExtract` applies to the outer archive only; a nested archive is removed after its own extraction (R4) |
+
+### 22.3. Batch C: `afterExtract=delete` (as built)
+
+`afterExtract` accepts `delete`. The archive is deleted only at the end of `one()`, after its commit —
+a failed or stopped extraction leaves before that point, and `onExisting=skip` returns earlier still
+(∩ I49). A failed deletion fails the step with `COMMIT_FAILED`, the extraction staying committed
+(∩ I50). A symlink selected as an archive is removed as a link. Logged per archive. Designer: the
+option, a warning that there is no undo, validation; `PARAM_OPTIONS`; USAGE.md (the line "no deletion
+of the archive" removed, since it became false).
+
+**Verification**: batch 2 suite 199 (+5: deleted after commit; refused archive kept; skipped kept;
+a/b/c — committed deleted, refused kept, unreached kept; Stop — in-progress kept, earlier deleted);
+non-root program 7 (+1: a deletion that fails — source folder read-only — fails the step and keeps the
+extraction; root cannot make a deletion fail); Windows 232, Linux 140, links 77, wiring 92, panel 117,
+guide 47. Three existing expectations inverted by the decision, not deleted (delete refused → delete
+accepted; "no option offers delete" → "delete offered, flat not"; validation now flags an invented
+value instead). **Mutations 10, all caught** — the swallowed-deletion-failure one only by the non-root
+program.
+
+### 22.4. Batch R: nested archives (specification, to build)
+
+* **Parameter** `nested` = `none` (default) | `extract`; `nestedDepth` default 3 (R2). The outer
+  archive is depth 0.
+* **Selection by name (R1, ∩ I51)**: an entry is a nested archive if it is a regular file whose name
+  matches the step's `pattern` (case-sensitive, the same mask). The format of a selected entry is then
+  decided by its content (`auto`, whatever `format` says for the outer archives); an entry selected by
+  name that is not an archive refuses the outer archive, as a top-level one would (∩ I6).
+* **Placement (R3)**: `P/inner.zip` is extracted into `P/inner/` (the same `baseName` rule) inside the
+  outer archive's staging folder. If `P/inner` already exists in the archive, the outer archive is
+  refused naming both (`SUBDIR_COLLISION`).
+* **Removal (R4, ∩ I54)**: the nested archive file is removed once its own extraction succeeded;
+  `afterExtract` applies to the outer archive only.
+* **Depth (∩ I52)**: an archive found at a depth beyond `nestedDepth` is kept as a file and named in a
+  WARNING.
+* **Limits (R5, ∩ I53)**: one `Budget` for the outer archive and everything inside it — entries,
+  `maxArchiveMb`, per-entry size, ratios. A nested archive's own bytes count when written and again
+  as the bytes extracted from it.
+* **Atomicity (R6)**: everything happens in the outer archive's staging folder; any failure at any
+  depth fails the outer archive, whose staging is removed. Nothing partial is committed.
+* **Names and links**: nested entries obey the same host rules; path lengths are counted against the
+  final location. On Linux, a nested archive's links are confined to **its own** folder (`P/inner/`),
+  hard links to files of the same nested archive.
+* **Manifest**: rows for nested content name the entry as `P/inner.zip!entry` (the jar-URL
+  convention); the removed nested archive has no row of its own.

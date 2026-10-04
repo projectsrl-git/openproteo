@@ -1,23 +1,22 @@
-unarchive: batch L2, links, permissions and folder times on Linux
+unarchive: batch C, opt-in deletion after extraction; batch R specified
 
-Second and last Linux batch; Windows behaviour unchanged.
+Gate 0 of 2026-10-04: flat layout stays excluded; FIFOs and devices
+unchanged; zip, tar and gz suffice; non-UTF-8 tar names stay refused;
+deletion after extraction and nested archives become opt-in features.
 
-On a Linux host: symbolic links are created when they stay inside the
-archive's folder - checked as text per link, then resolved through the
-archive's other links before the commit, so chains and dangling tails
-that escape only when followed are refused; nothing is ever written
-through a link. Hard links only to a regular file extracted earlier from
-the same archive. Permission bits restored as GNU tar and unzip do as a
-non-root user (tar minus the umask, zip as stored), never setuid,
-setgid, sticky or owner. Folder modes and times applied after their
-content. Cleanup gives the owner rwx back before deleting a folder, since
-a read-only folder made rm -rf fail for a non-root user (measured).
+afterExtract=delete: the archive is deleted only after its own commit -
+never when its extraction failed or was stopped, never when it was
+skipped. A failed deletion fails the step and says the extraction was
+committed. Designer option with a no-undo warning, validation,
+PARAM_OPTIONS, USAGE.md.
 
-Verified: links suite 77 (identical to GNU tar and unzip in types, link
-targets, content, modes, times and hard-link inodes; 12 hostile fixtures
-refused); a program run as a non-root user 6/6 with a positive control;
-Windows suites unchanged (232 + 194); Linux 140; wiring 90; panel 114;
-guide 45; 17 mutations caught.
+The spec (section 22) also specifies batch R, nested archives: opt-in,
+selected by name only (Office files are zips), depth 3 by default,
+extracted in place, removed after their own extraction, limits counted
+over the whole tree, all or nothing per outer archive.
 
-Not verified: mvn clean package, a run in the container, a real Linux
-server deployment.
+Verified: batch 2 suite 199, a non-root program 7 (the failed deletion
+can only be produced as a non-root user), Windows 232, Linux 140, links
+77, wiring 92, panel 117, guide 47; 10 mutations caught.
+
+Not verified: mvn clean package, a run in the container.

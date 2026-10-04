@@ -44,7 +44,8 @@ import java.util.stream.Stream;
  * <p>Order of work, and why:
  * <ol>
  * <li><b>Configuration</b> refused before anything is read; settings that cannot take effect are
- *     refused, not ignored ({@code layout=flat}, {@code afterExtract=delete} - Gate 0 Q10, Q8).</li>
+ *     refused, not ignored ({@code layout=flat} - Gate 0 Q10). ({@code afterExtract=delete} was refused
+ *     the same way until Gate 0 C1 made it an opt-in, section 22.)</li>
  * <li><b>Sweep</b> of this executor's own leftovers in {@code outputDir}: directories named
  *     {@code .unarchive-*.part} or {@code .unarchive-*.old}, direct children only.</li>
  * <li><b>Selection</b>: {@code pattern}, case-sensitive; <b>∩ I22</b> names ending {@code .done} are
@@ -235,10 +236,7 @@ public final class UnarchiveRun {
         if (!oneOf(low(onExisting, "fail"), "fail", "skip", "replace")) throw config("onExisting must be fail, skip or replace");
         if (!oneOf(low(onUnsupportedEntry, "fail"), "fail", "skip")) throw config("onUnsupportedEntry must be fail or skip");
         String ae = low(afterExtract, "keep");
-        if (ae.equals("delete")) {
-            throw config("afterExtract=delete is not offered (Gate 0 Q8): use keep or rename");
-        }
-        if (!oneOf(ae, "keep", "rename")) throw config("afterExtract must be keep or rename");
+        if (!oneOf(ae, "keep", "rename", "delete")) throw config("afterExtract must be keep, rename or delete");
         requested = ArchiveFormat.Requested.parse(format);
         if (requested == null) throw config("format must be auto, zip, tar, tar.gz or gz, not '" + format + "'");
         String zc = zipNameCharset == null ? "auto" : zipNameCharset.trim();
@@ -383,6 +381,18 @@ public final class UnarchiveRun {
                 throw new UnarchiveException(UnarchiveException.Rule.COMMIT_FAILED, c.rel + " was extracted and committed to "
                         + target + ", but renaming it to .done failed: " + e.getMessage());
             }
+        } else if (low(afterExtract, "keep").equals("delete")) {
+            // Gate 0 C1 (section 22): only here, after THIS archive's commit - never when its extraction
+            // failed or was stopped (both leave before this point), never under onExisting=skip (an
+            // archive skipped was not extracted, and returned above). A symlink selected as an archive
+            // is removed as a link; its target is not touched.
+            try {
+                Files.delete(c.file);
+            } catch (IOException e) {
+                throw new UnarchiveException(UnarchiveException.Rule.COMMIT_FAILED, c.rel + " was extracted and committed to "
+                        + target + ", but deleting the archive failed: " + e);
+            }
+            log.accept("unarchive: " + c.rel + " deleted after extraction (afterExtract=delete)");
         }
     }
 

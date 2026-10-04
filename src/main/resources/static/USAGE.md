@@ -1386,11 +1386,11 @@ Required: `sourceDir`. A parameter left empty means its default (the designer sh
 - `maxRatio` — default 200.
 - `maxPathLength` — default `auto`: 259 characters on a Windows server, 4096 bytes on Linux. A number applies on both, counted in the server's unit.
 - `checkFreeDisk` — default `true`.
-- `afterExtract` — default `keep`; `rename` adds `.done` to each archive once it is extracted, so the next run does not take it again.
+- `afterExtract` — default `keep`; `rename` adds `.done` to each archive once it is extracted, so the next run does not take it again; `delete` removes it once it is completely extracted and in place — never when its extraction failed or was stopped, and not when it was skipped (`onExisting=skip`). If the deletion itself fails, the step fails and says the archive was extracted but not deleted.
 - `preserveMtime` — default `true`: files keep the modification time stored in the archive.
 - `manifestHash` — default `true`; `false` leaves the SHA-256 column empty.
 - `failOnEmpty` — default `false`; `true` fails the step when no archive matched. An archive with nothing inside is a warning either way.
 
 ### What it does not do yet
 
-No extraction of everything into one folder (one folder per archive only), no deletion of the archive after extraction (`rename` exists), and no archive inside an archive is opened — extract it with a second step.
+No extraction of everything into one folder (one folder per archive only), and no archive inside an archive is opened — extract it with a second step.

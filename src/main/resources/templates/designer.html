@@ -2033,7 +2033,8 @@
                         '<option value="replace"' + (uaEx === 'replace' ? ' selected' : '') + '>replace \u2014 extract, then swap in</option></select></div>' +
                         '<div class="field wide"><label>After extraction</label><select onchange="setNodeParam(' + i + ',\'afterExtract\',this.value); renderNodes()">' +
                         '<option value="keep"' + (uaAfter === 'keep' ? ' selected' : '') + '>keep the archive</option>' +
-                        '<option value="rename"' + (uaAfter === 'rename' ? ' selected' : '') + '>rename it to .done</option></select></div></div>';
+                        '<option value="rename"' + (uaAfter === 'rename' ? ' selected' : '') + '>rename it to .done</option>' +
+                        '<option value="delete"' + (uaAfter === 'delete' ? ' selected' : '') + '>delete it</option></select></div></div>';
                     h += '<div class="form-row">' +
                         '<div class="field"><label>Modification times</label><select onchange="setNodeParam(' + i + ',\'preserveMtime\',this.value)">' +
                         '<option value="true"' + (uaYesOrBlank(nodeParam(n, 'preserveMtime')) ? ' selected' : '') + '>from the archive</option>' +
@@ -2044,6 +2045,7 @@
                     h += '<div class="dim small">report.tar.gz \u2192 <code>' + esc(uaOut || '(step directory)') + '/report/</code>; the list of files is in <code>unarchive_manifest.csv</code> in the step directory.</div>';
                     if (uaEx === 'replace') h += '<div class="dim small" style="color:#b9770e">Replace: the new content is extracted completely first; the old folder is removed only once the new one is in place, and put back if the swap fails.</div>';
                     if (uaAfter === 'rename') h += '<div class="dim small" style="color:#b9770e">Each archive becomes <code>name.done</code> once it is extracted, so the next run does not take it again.</div>';
+                    if (uaAfter === 'delete') h += '<div class="dim small" style="color:#c0392b">Each archive is deleted once it is completely extracted and in place \u2014 never when its extraction failed, was stopped, or was skipped. There is no undo.</div>';
                     h += '</div>';
 
                     h += '<div class="sub"><div class="sub-h">Safety and limits</div>';
@@ -2404,7 +2406,7 @@
                     var uaL = String(nodeParam(n, 'layout') || '').trim().toLowerCase();
                     if (uaL && uaL !== 'subdir') errs.push(label + ' (' + n.id + '): layout must be subdir (the only layout available)');
                     var uaA = String(nodeParam(n, 'afterExtract') || '').trim().toLowerCase();
-                    if (uaA && uaA !== 'keep' && uaA !== 'rename') errs.push(label + ' (' + n.id + '): afterExtract must be keep or rename');
+                    if (uaA && uaA !== 'keep' && uaA !== 'rename' && uaA !== 'delete') errs.push(label + ' (' + n.id + '): afterExtract must be keep, rename or delete');
                     var uaE = String(nodeParam(n, 'onExisting') || '').trim().toLowerCase();
                     if (uaE && ['fail', 'skip', 'replace'].indexOf(uaE) < 0) errs.push(label + ' (' + n.id + '): onExisting must be fail, skip or replace');
                     var uaS = String(nodeParam(n, 'sourceDir') || '').trim(), uaO = String(nodeParam(n, 'outputDir') || '').trim();
