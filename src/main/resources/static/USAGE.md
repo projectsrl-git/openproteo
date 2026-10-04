@@ -1472,7 +1472,7 @@ Nothing incomplete ever appears under a final name. Each archive is first extrac
 
 ### Windows and Linux servers
 
-The name rules follow the operating system of the server the step runs on, detected automatically; the log's first line and `${hostRules}` (`windows` or `linux`) say which rules a run used. On a **Windows** server, names Windows cannot hold are refused (below). On a **Linux** server they are extracted exactly as GNU tar and unzip extract them there: `report_10:41.txt`, `CON`, `nul.txt`, a name ending in a dot or a space, `Makefile` next to `makefile`. The protections that are about safety, not about Windows, are the same on both. A server that is neither Windows nor Linux is refused.
+The name rules follow the operating system of the server the step runs on, detected automatically; the log's first line and `${hostRules}` (`windows` or `linux`) say which rules a run used. On a **Windows** server, names Windows cannot hold are refused (below). On a **Linux** server they are extracted exactly as GNU tar and unzip extract them there: `report_10:41.txt`, `CON`, `nul.txt`, a name ending in a dot or a space, `Makefile` next to `makefile`. The protections that are about safety, not about Windows, are the same on both. An **AIX** server is treated as Linux — the same name rules, and `linux` is what the log and `${hostRules}` say. A server that is none of the three is refused.
 
 On a Linux server the step also does what GNU tar and unzip do there with links and permissions:
 
@@ -1555,7 +1555,7 @@ No extraction of everything into one folder (one folder per archive only).
 
 `objunpack` is the inverse of `objpack`. It takes **one** Transarch object package — `<base>.tar` or `<base>.tar.gz`, with `<base>.md5` beside it — and gives back the objects under their original names and the package's metadata CSV, byte for byte. It exists so a submission can be corrected and resent: its output is what `csvsql`, `dequote`, `validate` and `objpack` need as input.
 
-In the designer, choose **objunpack** as the executor: the panel has three sections — Package, Output, Checks and limits — and choosing the executor writes every default into the step, so the saved XML states each value the run will use. Every setting applies from the next run of the step. A workflow template with the whole rebuild chain is described below.
+In the designer, choose **objunpack** as the executor: the panel has three sections — Package, Output (with the file-name rules), Checks and limits — and choosing the executor writes every default into the step, so the saved XML states each value the run will use. Every setting applies from the next run of the step. A workflow template with the whole rebuild chain is described below.
 
 ```xml
 <step id="OBJUNPACK" name="Unpack the package" exec="objunpack">
@@ -1618,7 +1618,7 @@ By default also when the package does not conform, each case named in the log: t
 
 ### Windows and Linux servers
 
-File-name rules follow the server, and the first log line and `${hostRules}` say which were used. On Windows a name with `:`, `< > " | ? *`, a reserved device name or a trailing dot is refused, and two names that differ only in upper and lower case are one file and are refused; on Linux all of these are legal names and are restored. On a Linux server started without a UTF-8 locale, a name with accented letters cannot be created at all: the step refuses it and says which encoding is in use — start the service with a UTF-8 locale (`LANG=C.UTF-8`); the Platform page shows the encoding.
+File-name rules follow the server, and the first log line and `${hostRules}` say which were used. Windows, Linux and AIX are recognised; AIX gets the Linux rules, and the first line says so (`file-name rules: linux (os.name AIX, a POSIX system)`). On any other system the step stops and asks you to choose: set **File-name rules** in the panel to `linux` — the POSIX rules: names are case-sensitive and only `/` is forbidden — or to `windows`. It is a setting of the step, so it applies from its next run, with no restart. `windows` can be chosen on any server: it is only stricter. `linux` on a Windows server stops the step, because Windows would not store those names as written. On Windows a name with `:`, `< > " | ? *`, a reserved device name or a trailing dot is refused, and two names that differ only in upper and lower case are one file and are refused; on Linux all of these are legal names and are restored. On a Linux server started without a UTF-8 locale, a name with accented letters cannot be created at all: the step refuses it and says which encoding is in use — start the service with a UTF-8 locale (`LANG=C.UTF-8`; on AIX `LANG=EN_US.UTF-8`); the Platform page shows the encoding. The same holds on AIX.
 
 ### Parameters
 
@@ -1633,7 +1633,8 @@ Required: `archive`. Each applies from the next run of the step.
 - `maxObjectMb` — default 2048.
 - `maxArchiveMb` — default 20480.
 - `maxRatio` — default 200, for a `.tar.gz`.
-- `maxPathLength` — default `auto`: 259 characters on a Windows server, 4096 bytes on Linux.
+- `maxPathLength` — default `auto`: 259 characters on a Windows server, 4096 bytes on Linux, 1023 bytes on AIX.
+- `nameRules` — default `auto`: the rules of the server's operating system. `linux` or `windows` choose them (see "Windows and Linux servers").
 - `preserveMtime` — default `true`.
 
 ### What cannot be recovered

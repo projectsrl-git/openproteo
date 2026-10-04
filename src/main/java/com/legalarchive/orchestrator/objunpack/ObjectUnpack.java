@@ -82,6 +82,13 @@ public final class ObjectUnpack {
     /** 0 = the host's own limit (259 UTF-16 units on Windows, 4096 UTF-8 bytes on Linux). */
     public int maxPathLength = 0;
     public boolean preserveMtime = true;
+    /**
+     * {@code auto} = the rules of the OS the server runs on. {@code linux} (the POSIX rules) or
+     * {@code windows} names them, for a host the detection does not know. Windows rules are only
+     * stricter and may be asked for anywhere; POSIX rules on a Windows host are refused, because
+     * there {@code a:b.txt} writes an alternate data stream of {@code a} and {@code CON} is a device.
+     */
+    public String nameRules = "auto";
 
     /** {@code os.name}; a field so the Windows rules can be exercised on a Linux box. */
     public String hostOs = System.getProperty("os.name");
@@ -167,10 +174,28 @@ public final class ObjectUnpack {
     public void run() throws IOException {
         String md5Mode = oneOf("md5Check", md5Check, "require", "ifpresent", "off");
         String incMode = oneOf("onInconsistency", onInconsistency, "fail", "warn");
-        rules = HostRules.detect(hostOs);
-        if (rules == null) {
-            throw new ObjUnpackException(Reason.CONFIGURATION, "this host is neither Windows nor Linux (os.name='"
-                    + hostOs + "'); no file-name rules are defined for it");
+        String nrMode = oneOf("nameRules", nameRules, "auto", "linux", "windows");
+        HostRules detected = HostRules.detect(hostOs);
+        String rulesWhy;
+        if ("auto".equals(nrMode)) {
+            if (detected == null) {
+                throw new ObjUnpackException(Reason.CONFIGURATION, "this host's operating system is not one the step knows"
+                        + " (os.name='" + hostOs + "'; known: Windows, Linux, AIX), so it cannot choose the file-name rules"
+                        + " by itself. Set File-name rules on the step (nameRules) to linux for a POSIX system -"
+                        + " case-sensitive names, only / forbidden - or to windows");
+            }
+            rules = detected;
+            rulesWhy = "linux".equalsIgnoreCase(hostOs == null ? "" : hostOs.trim()) || detected == HostRules.WINDOWS
+                    ? "" : " (os.name " + hostOs + ", a POSIX system)";
+        } else {
+            HostRules asked = "windows".equals(nrMode) ? HostRules.WINDOWS : HostRules.LINUX;
+            if (detected == HostRules.WINDOWS && asked == HostRules.LINUX) {
+                throw new ObjUnpackException(Reason.CONFIGURATION, "nameRules=linux on a Windows server (os.name='" + hostOs
+                        + "') is refused: Windows would not store those names as written - a:b.txt becomes a hidden"
+                        + " stream of the file a, CON is a device, Report.pdf and report.pdf are one file");
+            }
+            rules = asked;
+            rulesWhy = " (set on the step; os.name " + hostOs + ")";
         }
         hostRules = rules.label();
         if (maxObjects < 1) {
@@ -192,7 +217,7 @@ public final class ObjectUnpack {
         nextVersionNr = versionNr < 999 ? Integer.toString(versionNr + 1) : "";
         submissionBaseName = parsed.baseAsWritten;
         say("objunpack: " + archiveFile.getName() + " (" + archiveFile.length() + " bytes); file-name rules: "
-                + hostRules);
+                + hostRules + rulesWhy);
         if (!parsed.canonical()) {
             warn("the archive spells its base '" + parsed.baseAsWritten + "'; three-digit padding would be '"
                     + parsed.name.base() + "'");
@@ -553,7 +578,7 @@ public final class ObjectUnpack {
         Map<String, List<String>> idsByKey = new LinkedHashMap<String, List<String>>();
         Map<String, List<String>> spellingsByKey = new HashMap<String, List<String>>();
         String objectsBase = objectsDir.getAbsolutePath();
-        int maxPath = maxPathLength > 0 ? maxPathLength : rules.defaultMaxPath();
+        int maxPath = autoMaxPath();
         int mimeDiffers = 0;
         String mimeExample = null;
         int item = 0;
@@ -708,10 +733,18 @@ public final class ObjectUnpack {
         if (rules == HostRules.LINUX && !encodable(nm.path)) {
             throw new ObjUnpackException(Reason.NAME, where + ": the original name '" + EntryName.printable(original)
                     + "' cannot be written by this JVM, whose file-name encoding is " + fileNameEncoding
-                    + " (sun.jnu.encoding). Start the service under a UTF-8 locale (for example LANG=C.UTF-8);"
-                    + " the Platform page shows the encoding in use");
+                    + " (sun.jnu.encoding). Start the service under a UTF-8 locale (for example LANG=C.UTF-8;"
+                    + " on AIX LANG=EN_US.UTF-8); the Platform page shows the encoding in use");
         }
         return nm.path;
+    }
+
+    /** The configured limit, or the host's: 259 UTF-16 units under Windows rules, PATH_MAX bytes otherwise. */
+    private int autoMaxPath() {
+        if (maxPathLength > 0) {
+            return maxPathLength;
+        }
+        return rules == HostRules.WINDOWS ? rules.defaultMaxPath() : HostRules.posixPathMax(hostOs);
     }
 
     private boolean encodable(String name) {
@@ -758,7 +791,7 @@ public final class ObjectUnpack {
         if (!so.mkdir() || !sp.mkdir()) {
             throw new IOException("cannot create the staging layout under " + staging.getAbsolutePath());
         }
-        int maxPath = maxPathLength > 0 ? maxPathLength : rules.defaultMaxPath();
+        int maxPath = autoMaxPath();
         String packageBase = packageDir.getAbsolutePath();
         say("the package is coherent; giving " + objects.size() + " object(s) their original names");
         long t0 = System.nanoTime();

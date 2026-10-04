@@ -958,7 +958,7 @@ duplicate is refused (GNU tar keeps the later one); `..` is refused wherever the
 | I38 | segment length | UTF-16 vs bytes | Windows keeps both checks; Linux bytes only (NAME_MAX) |
 | I39 | control characters | log safety vs Linux legality | Linux keeps them in names (GNU tar does, measured); the log still escapes them |
 | I40 | `a.tar` + `A.tar` | subdirectory collision key | the host's key: Windows case-insensitive, Linux exact |
-| I41 | host neither Windows nor Linux | detection | refused before anything is read |
+| I41 | host neither Windows nor Linux — **since 2026-10-04 AIX is detected and gets the Linux rules** (`OBJECT_UNPACK_EXECUTOR.md` §18); ~~any other OS~~ an OS that is none of the three is refused; the auto path limit stays 4096 here | detection | refused before anything is read |
 | I42 | zip made on MS-DOS with the UTF-8 flag (jar) on Linux | unzip parity vs the zip's declaration | the declaration (∩ I20): the step writes `perché.txt` where Debian's unzip writes `perch├й.txt` |
 
 ### 21.5. Batch L1 as built

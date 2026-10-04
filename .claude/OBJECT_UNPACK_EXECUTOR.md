@@ -1,6 +1,6 @@
 # Object submission unpacker (`objunpack`) — specification
 
-Status: **first real run, 2026-10-04: a defect, fixed in §17** (a silent step). **complete — batch 4 delivered** (the template and the chain — §16) on `930aaaa`; batch 3 (designer panel — §15) on `1203b25`; batch 2 (registered — §14) on `538d1bb`; batch 1 (the core — §13) on `5f6c8c3`. Batch 0, the specification,
+Status: **AIX and `nameRules`, §18 (2026-10-04, on `f34e507`).** First real run, 2026-10-04: a defect, fixed in §17 (a silent step). **complete — batch 4 delivered** (the template and the chain — §16) on `930aaaa`; batch 3 (designer panel — §15) on `1203b25`; batch 2 (registered — §14) on `538d1bb`; batch 1 (the core — §13) on `5f6c8c3`. Batch 0, the specification,
 was written 2026-10-04 on `89a66ad`. Gate 0 answered 2026-10-04 (§11). Corrections made by batch 1
 are struck through where the wrong text was, not rewritten.
 
@@ -156,6 +156,7 @@ package whose row says `a.pdf ` (the script keeps the trailing blank): restored 
 | `maxObjectMb` / `maxArchiveMb` / `maxRatio` | 2048 / 20480 / 200 | `Budget`, as `unarchive` | next run |
 | `maxPathLength` | `auto` | as `unarchive` (259 UTF-16 units on Windows, 4096 bytes on Linux) | next run |
 | `preserveMtime` | `true` | objects keep the time stored in the tar | next run |
+| `nameRules` | `auto` | added in §18: `auto` \| `linux` \| `windows` — which file-name rules apply | next run |
 
 Every parameter is a step `<param>` set from the designer panel: checklist item 10 is met, no
 file-only key.
@@ -615,3 +616,62 @@ megabyte figure was matched by shape only — and now is asserted against the fi
 
 **Still open:** whether the author's run was slow or stuck. With this patch the console answers.
 
+## 18. AIX, and choosing the name rules from the GUI (2026-10-04, on `f34e507`)
+
+**What happened.** The author ran the template on an AIX server. The step stopped at once:
+`CONFIGURATION: this host is neither Windows nor Linux (os.name='AIX')`. That was the rule as
+written (§8, and `UNARCHIVE_EXECUTOR.md` I41: any other OS is refused rather than guessed), meeting
+a host nobody had named. The author's decision: **AIX is to be treated as Linux**, and the choice
+must be settable from the GUI without a restart.
+
+**Two changes, because they answer two different things.**
+
+1. *AIX is a fact, not a preference.* `HostRules.detect` returns the POSIX rule set (`LINUX`) for
+   `os.name` `AIX`. Nothing to configure on an AIX server. This is in `unarchive`'s class, so
+   **`unarchive` gains AIX too** — it refused it for the same reason. The label stays `linux`
+   (`${hostRules}`), and the first log line says why: `file-name rules: linux (os.name AIX, a
+   POSIX system)`.
+2. *The next unknown host should not need a new build.* A step parameter, `nameRules`:
+   `auto` (default) | `linux` | `windows`, in the panel's Output section, seeded like the others,
+   applied at the next run of the step. Under `auto` an unknown OS is still refused, and the
+   message now names the parameter.
+
+**∩ U15 — "the author chooses the rules" × "the host cannot hold the names".** `windows` may be
+chosen anywhere: it only refuses more. `linux` on a host detected as Windows is **refused**: NTFS
+would not store those names as written — `a:b.txt` becomes an alternate data stream of `a`, `CON`
+is a device, `Report.pdf` and `report.pdf` are one file — and a restore that silently differs from
+the package is exactly what §8 forbids. The host wins over the parameter in that one direction.
+Example: on Windows Server with `nameRules=linux` the step exits 2 before reading the archive.
+
+**∩ U16 — "AIX is Linux" × the path limit.** The name rules are the same; PATH_MAX is not: 4096
+bytes on Linux, **1023 on AIX** (`limits.h`; taken from the documentation, **not measured** — no AIX
+host was available to me). With `maxPathLength=auto`, `objunpack` uses 1023 on AIX, so a path that
+is too long refuses the package before anything is named, instead of failing at the file system.
+An explicit `maxPathLength` wins. `unarchive` is **not** changed in this respect: it keeps 4096 on
+AIX, and a longer path fails there as an I/O error. Changing it means touching `UnarchiveRun`
+without its suite at hand; proposed, not done.
+
+**Scope kept narrow, said plainly.** Only AIX is added to the detection: the author named it and
+runs it. Solaris, HP-UX and the BSDs are POSIX too and stay unknown — `nameRules=linux` is the way
+in, with no build. macOS stays unknown for the reason `HostRules` gives. `unarchive` has no
+`nameRules` parameter: proposed, not done.
+
+**Verification** — everything with `os.name` injected on a Linux box; **no line of this ran on
+AIX**:
+
+* core suite: 38 new assertions — detection; AIX restore, with accented names, case-only names and
+  names Windows forbids; the first log line in each case; the 1023-byte limit (refused on AIX,
+  accepted on Linux for the same path, explicit limit wins); an unknown OS under `auto`, `linux`,
+  `windows`; `windows` on Linux and on AIX; `linux` on Windows refused; value case and blanks; a
+  wrong value; `unarchive` extracting on AIX and still refusing macOS. 694 assertions in all under
+  UTF-8, green in the eight combinations;
+* 10 mutations of the new core code, on copies, all caught; the executor suite with the new
+  parameter (90 assertions) and its 23 mutations, all caught; the panel, 141 assertions, twelve
+  fields = twelve parameters read by the executor, 34 mutations, 32 caught and the same two
+  equivalent as §15; differential compile identical, 459 lines; scans of the added template lines.
+
+**Not verified, and it matters here:** the JVM on AIX (IBM's) — whether `sun.jnu.encoding` exists
+there (if it does not, the encoding rule of §8 is skipped, by design); that `Files.move` without
+replace behaves there as on Linux; the 1023 figure; the rest of the application on AIX, which is
+outside this work. The author's run is the only AIX evidence there is: it shows the application
+starts there and reaches the step.

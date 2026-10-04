@@ -507,6 +507,7 @@ public class InternalSteps {
         String v;
         if ((v = pv(params, vars, "md5Check")) != null) u.md5Check = v;
         if ((v = pv(params, vars, "onInconsistency")) != null) u.onInconsistency = v;
+        if ((v = pv(params, vars, "nameRules")) != null) u.nameRules = v;
         // The delimiter is read UNTRIMMED: a tab is a legitimate one and trimming would erase it.
         String rawDelim = params.get("metadataDelimiter");
         if (rawDelim != null) rawDelim = VarResolver.resolve(rawDelim, vars);

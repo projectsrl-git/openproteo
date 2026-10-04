@@ -489,7 +489,7 @@
     // has no default and outputDir defaults to the step directory, so neither is seeded.
     var OU_DEFAULTS = [ ['md5Check', 'require'], ['onInconsistency', 'fail'], ['metadataDelimiter', 'auto'],
         ['maxObjects', '100000'], ['maxObjectMb', '2048'], ['maxArchiveMb', '20480'], ['maxRatio', '200'],
-        ['maxPathLength', 'auto'], ['preserveMtime', 'true'] ];
+        ['maxPathLength', 'auto'], ['preserveMtime', 'true'], ['nameRules', 'auto'] ];
     function ouDefault(name) { for (var k = 0; k < OU_DEFAULTS.length; k++) if (OU_DEFAULTS[k][0] === name) return OU_DEFAULTS[k][1]; return ''; }
     function ouSeed(n) {
         n.params = n.params || [];
@@ -2095,6 +2095,7 @@
                     var ouMd5 = String(nodeParam(n, 'md5Check') || 'require').toLowerCase();
                     var ouInc = String(nodeParam(n, 'onInconsistency') || 'fail').toLowerCase();
                     var ouOut = String(nodeParam(n, 'outputDir') || '').trim();
+                    var ouNr = String(nodeParam(n, 'nameRules') || 'auto').toLowerCase();
 
                     h += '<div class="sub"><div class="sub-h">Package</div>';
                     h += '<div class="form-row">' +
@@ -2112,7 +2113,13 @@
                         '<div class="field wide"><label>Output directory</label><input class="sugin" list="pathsug" value="' + attresc(ouOut) + '" placeholder="(the step directory)" title="Empty = the step directory, which is new at every run. It receives objects/ and package/. If either already exists there, even empty, the step stops: nothing is ever replaced." oninput="setNodeParam(' + i + ',\'outputDir\',this.value); renderNodes()"></div>' +
                         '<div class="field"><label>Modification times</label><select onchange="setNodeParam(' + i + ',\'preserveMtime\',this.value)">' +
                         '<option value="true"' + (uaYesOrBlank(nodeParam(n, 'preserveMtime')) ? ' selected' : '') + '>from the package</option>' +
-                        '<option value="false"' + (!uaYesOrBlank(nodeParam(n, 'preserveMtime')) ? ' selected' : '') + '>time of unpacking</option></select></div></div>';
+                        '<option value="false"' + (!uaYesOrBlank(nodeParam(n, 'preserveMtime')) ? ' selected' : '') + '>time of unpacking</option></select></div>' +
+                        '<div class="field wide"><label>File-name rules</label><select onchange="setNodeParam(' + i + ',\'nameRules\',this.value); renderNodes()" title="Which names can be files on the server. auto knows Windows, Linux and AIX; on another system choose the rules yourself.">' +
+                        '<option value="auto"' + (ouNr === 'auto' ? ' selected' : '') + '>auto \u2014 from the server\'s operating system</option>' +
+                        '<option value="linux"' + (ouNr === 'linux' ? ' selected' : '') + '>linux \u2014 POSIX: case-sensitive, only / forbidden</option>' +
+                        '<option value="windows"' + (ouNr === 'windows' ? ' selected' : '') + '>windows \u2014 the strictest</option></select></div></div>';
+                    if (ouNr === 'linux') h += '<div class="dim small" style="color:#b9770e">For a POSIX server the step does not recognise by itself. On a Windows server this setting stops the step: Windows would not store those names as written.</div>';
+                    if (ouNr === 'windows') h += '<div class="dim small" style="color:#b9770e">Names Windows cannot hold are refused on every server, and names differing only in case count as one file.</div>';
                     h += '<div class="dim small">Objects, under their original names: <code>' + esc(ouOut || '(step directory)') + '/objects/</code> \u2014 audit, metadata and control as they were: <code>' + esc(ouOut || '(step directory)') + '/package/</code></div>';
                     if (ouOut) h += '<div class="dim small" style="color:#b9770e">A fixed output directory makes a second run stop until objects/ and package/ are removed by hand: the step never replaces them.</div>';
                     h += '</div>';
@@ -2469,6 +2476,8 @@
                     if (ouM && ouM.indexOf('${') < 0 && ['require', 'ifpresent', 'off'].indexOf(ouM) < 0) errs.push(label + ' (' + n.id + '): md5Check must be require, ifPresent or off');
                     var ouI = String(nodeParam(n, 'onInconsistency') || '').trim().toLowerCase();
                     if (ouI && ouI.indexOf('${') < 0 && ['fail', 'warn'].indexOf(ouI) < 0) errs.push(label + ' (' + n.id + '): onInconsistency must be fail or warn');
+                    var ouN = String(nodeParam(n, 'nameRules') || '').trim().toLowerCase();
+                    if (ouN && ouN.indexOf('${') < 0 && ['auto', 'linux', 'windows'].indexOf(ouN) < 0) errs.push(label + ' (' + n.id + '): nameRules must be auto, linux or windows');
                     var ouD = String(nodeParam(n, 'metadataDelimiter') || '');
                     var ouDt = ouD.trim().toLowerCase();
                     if (ouD && ouD.indexOf('${') < 0 && ouDt !== 'auto' && ouDt !== 'tab' && ouD.length !== 1 && ouD.trim().length !== 1) errs.push(label + ' (' + n.id + '): metadataDelimiter must be auto, tab or one character');

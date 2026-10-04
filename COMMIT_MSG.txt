@@ -1,29 +1,33 @@
-objunpack: say what it is doing while it runs
+AIX gets the POSIX name rules; nameRules on the objunpack step
 
-On the first real run (Windows, a 293 MB package) the live console
-showed "checksum verified" and then nothing for minutes: the step
-logged nothing between the checksum and the end of the extraction, so
-working and hung looked the same.
+On an AIX server objunpack stopped with "this host is neither Windows
+nor Linux (os.name='AIX')". By the author's decision AIX is treated as
+Linux, and the choice of rules is settable from the GUI.
 
-Now each phase logs a line when it starts, and the two long ones log a
-heartbeat every 5 seconds: members read with megabytes and percentage
-of the archive file (also from inside one large member), then files
-named. Nothing else changes - same output, variables and exit codes,
-no parameter.
+- HostRules.detect returns the Linux (POSIX) rules for AIX. unarchive
+  shares the class and now runs on AIX too. The first log line says
+  "file-name rules: linux (os.name AIX, a POSIX system)".
+- New step parameter nameRules on objunpack: auto (default), linux or
+  windows - for a server the detection does not know. In the panel's
+  Output section, seeded with the other defaults, applied at the next
+  run of the step, no restart. windows may be chosen anywhere; linux
+  on a Windows server is refused, because Windows would not store
+  those names as written.
+- With maxPathLength=auto objunpack uses 1023 bytes on AIX (its
+  PATH_MAX, from the documentation) instead of 4096.
 
-objpack had this defect and this fix on 2026-09-29; it was not carried
-into the new executor and no test asserted it. Now one does.
+No file-only key (checklist 10). On Windows and Linux nothing changes.
+USAGE.md updated for both executors; the template carries
+nameRules=auto. README.md and CLAUDE.md not touched.
 
-USAGE.md: "While it runs", including why many small objects are slow
-by their number. README.md and CLAUDE.md not touched.
-
-Verified on Linux (sandbox; Temurin 1.8.0_432 and JDK 21.0.10 both
-run; root and uid 65534; LANG=C.UTF-8 and empty): core suite in the
-eight combinations, 656 assertions, 17 new; 9 mutations of the new
-code, all caught; executor and panel suites re-run; 20 000 objects in
-a 301 MB tar unpacked in under 5 s, so nothing grows faster than the
-object count; git apply --check on a second clean clone.
-Verified on Windows: nothing by me; the author's run there found the
-defect and shows the step starts and verifies the checksum.
-Not verified on either: how long the author's package takes on his
-host; mvn clean package.
+Verified on Linux with os.name injected (sandbox; Temurin 1.8.0_432
+and JDK 21.0.10 both run; root and uid 65534; LANG=C.UTF-8 and empty):
+core suite 694 assertions in the eight combinations, 38 new; 10
+mutations of the new code, all caught; the lifted runObjUnpack, 90
+assertions, 23 mutations caught; the panel through its controls, 141
+assertions, twelve fields = twelve parameters read; differential
+compile identical; git apply --check on a second clean clone.
+Verified on Windows: nothing.
+Verified on AIX: nothing. Not one line ran there.
+Not verified on any: the IBM JVM's behaviour; the 1023 figure; mvn
+clean package; a browser.

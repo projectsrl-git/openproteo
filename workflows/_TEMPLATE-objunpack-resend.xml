@@ -18,6 +18,7 @@
             <param name="maxRatio" value="200"/>
             <param name="maxPathLength" value="auto"/>
             <param name="preserveMtime" value="true"/>
+            <param name="nameRules" value="auto"/>
         </step>
         <step id="CSVSQL" name="CSV SQL" exec="csvsql" csvFile="${stepDir}/output.csv" delimiter=",">
             <query>SELECT {{columns}} FROM SOURCE</query>

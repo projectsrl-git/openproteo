@@ -297,6 +297,7 @@
         // objunpack. preserveMtime is shared with unarchive: same meaning, same default.
         md5Check: [ ['require','require — the .md5 must exist and match (default)'], ['ifPresent','if present — warn when it is missing'], ['off','off — do not read it']],
         onInconsistency: [ ['fail','fail — restore nothing (default)'], ['warn','warn — log each case and restore']],
+        nameRules: [ ['auto','auto — from the server\'s operating system (default)'], ['linux','linux — POSIX: case-sensitive, only / forbidden'], ['windows','windows — the strictest']],
         'match.*.type': [ ['text','text'], ['numeric','numeric'] ],
         'match.*.agg': [ ['value','value'], ['sum','sum (numeric)'], ['count','count'], ['count_distinct','distinct count'] ],
         unmappedColumnPolicy: [ ['fail','fail (require every column classified)'], ['redact','redact'], ['passthrough','passthrough']]
