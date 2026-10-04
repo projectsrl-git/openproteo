@@ -29,7 +29,14 @@ Pacchettizzata come **WAR per un Tomcat esterno**, senza embedded server.
   `anonymize` è un placeholder (Batch 2a free-text funziona, Batch 2b
   k-anonymity rinviato). Lo step **`mask`** è l'executor attivo per il masking.
 * **Compatibilità Linux obbligatoria.** L'applicazione e ogni executor interno
-  devono funzionare in modo identico su Windows e su Linux. Nessun path,
+  devono funzionare in modo ~~identico~~ **equivalente** su Windows e su Linux,
+  nel rispetto del contesto e delle specificità del sistema operativo ospite:
+  OpenProteo è un simbionte che si adatta e cresce in funzione delle
+  caratteristiche dell'OS ospite (corretto 2026-10-04: «identico» era la parola
+  sbagliata, e avrebbe reso `unarchive` una violazione). Dove l'host stesso
+  differisce il comportamento lo segue, e il run dichiara quali regole ha usato.
+  Su un valore già salvato vincono i «Default conservativi» (vedi «Principi non
+  negoziabili»). Nessun path,
   separatore, encoding, fine riga, interprete o trust store può essere assunto
   dalla piattaforma: o è neutro, o è rilevato a runtime, o è configurabile. I
   runner esterni (powershell, cmd, bash) sono per natura legati a un interprete:
@@ -147,10 +154,15 @@ Questa sezione descrive il debito, non lo nasconde.
   macchina), i limiti di upload `spring.servlet.multipart.*`, e i driver JDBC
   (`CATALINA_HOME/lib` piu' riavvio).
 * Fuori scope per regola: parametri della JVM e configurazione del container.
-  **Caso aperto, non deciso qui**: `server.*` e' configurazione del container
-  sotto il Tomcat esterno (dove e' ignorata), ma nell'artefatto standalone il
-  Tomcat embedded non ha altro posto da cui prendere la porta. Lo decide per
-  nome la spec del batch "settings da GUI".
+  ~~**Caso aperto, non deciso qui**~~ **Deciso 2026-10-04**: `server.*` e'
+  configurazione del container sotto il Tomcat esterno (dove e' ignorata), ma
+  nell'artefatto standalone il Tomcat embedded non ha altro posto da cui prendere
+  la porta. Regola conservativa, per ora: **`server.port` e' impostabile dalla
+  GUI e vale dal prossimo avvio dell'applicazione** (classe "al riavvio"). Vale
+  per `server.port` soltanto; le altre chiavi `server.*` restano fuori scope.
+  ~~Lo decide per nome la spec del batch "settings da GUI".~~ Alla spec di quel
+  batch resta il come, compreso cosa mostra la GUI sotto il Tomcat esterno, dove
+  il valore non ha effetto.
 
 **Caso di intersezione, deciso per nome.** La regola dice che «una feature che
 introduce un parametro configurabile solo da file non è completa»; le chiavi
@@ -354,7 +366,14 @@ quindi verificato tutto il verificabile, e **dichiarato** cio' che non lo e'.
 
 * **Default conservativi**: ogni nuovo comportamento nasce spento. Un deploy non
   deve cambiare l'output dei feed in produzione; l'attivazione e' per step o di
-  massa da Variables / matrice.
+  massa da Variables / matrice. **Intersezione con «Compatibilità Linux
+  obbligatoria», decisa per nome (2026-10-04)**: su qualunque valore gia' salvato
+  vince questa regola. Un valore memorizzato non si riscrive e non si migra per
+  renderlo portabile; un default sensibile alla piattaforma vale solo per istanze
+  nuove e oggetti nuovi. Esempio: un target FTPS salvato con `trustMode=WINDOWS`
+  si carica, si salva e gira come WINDOWS su qualunque host (e su una JVM senza
+  SunMSCAPI fallisce con il messaggio esistente); solo a un target NUOVO viene
+  proposto un modo in base alla piattaforma.
 * **Spec-first**: per una feature non banale, prima una `.md` in `.claude/` con
   le decisioni, poi implementazione a batch con conferma tra uno e l'altro.
 * **Regole che si sovrappongono: la spec decide il caso di intersezione, per
@@ -454,6 +473,14 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
    `.claude/`, ogni regola generale che ha un'eccezione dichiarata altrove ha
    il caso di intersezione scritto accanto a entrambe, e prosa e tabella
    parametri concordano sui default (vedi «Principi non negoziabili»).
+9. **Linux / Windows** — `COMMIT_MSG.txt` e nota di sessione dichiarano su tre
+   righe separate cosa e' stato verificato su Linux (nominando il JDK), cosa su
+   Windows, e cosa su nessuno dei due.
+10. **Nessun parametro nuovo solo-su-file** — ogni parametro di runtime
+    introdotto dalla consegna e' impostabile dalla GUI e dichiara quando si
+    applica (subito / al run successivo / al riavvio). Altrimenti la consegna si
+    dichiara incompleta e aggiunge la chiave al debito in «Configurazione
+    esterna».
 
 ## Mask pools: selezione per-file + gestione
 
@@ -3752,6 +3779,7 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   rule to differ. Test applied: a behaviour may follow the host only where the host itself
   differs AND the run says which rules it used. **This reading is mine, not dictated** - it is the
   first open point of the spec, because «identico» taken literally would make L1 a violation.
+  **Resolved** - see the next section: the word was the author's mistake and is corrected.
 * **The stated context was re-verified on the code - twice, because `main` moved eight commits
   while this batch waited - and one stated fact stopped being true in between**: "no `os.name` in
   the code" held at `a4f02c8` and does not at `712db45` (unarchive L1, above). Everything else is
@@ -3766,5 +3794,28 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   carries a second Windows-path placeholder next to the one at line 73. None is changed here.
 * Open for the settings batch, not decided now: whether `server.port` is "container
   configuration" (out of scope by the rule) in the STANDALONE artifact too, where the embedded
-  Tomcat has no other place to take it from. Spec and baseline in `.claude/LINUX_AND_GUI_CONFIG.md`,
-  note in `.claude/2026-10-04-linux-gui-batch0-contract.md`.
+  Tomcat has no other place to take it from. **Resolved** - see the next section. Spec and baseline
+  in `.claude/LINUX_AND_GUI_CONFIG.md`, note in `.claude/2026-10-04-linux-gui-batch0-contract.md`.
+
+## Contract amendment, the author's four answers: «equivalente», not «identico»
+* **«Identico» was the wrong word, by the author's own account, and is corrected where it was
+  written** (struck through, not deleted): the application and every internal executor work in an
+  EQUIVALENT way on Windows and Linux, respecting the context and the specifics of the host OS.
+  OpenProteo adapts to its host. So `unarchive` following the detected OS is the rule working, not
+  an exception to it. The test from the previous section is now in the rule: where the host itself
+  differs the behaviour follows it, **and the run says which rules it used** - that last clause is
+  my addition to the author's sentence, kept because without it "adapts to the host" would also
+  cover a difference nobody can see afterwards.
+* **Linux rule vs conservative defaults is now written beside BOTH rules**, as the 2026-09-30
+  principle asks: the full case with its example under «Default conservativi», a pointer in the
+  Linux rule. It had been left in the entry only because the rule text was dictated.
+* **«Checklist pre-commit» gains 9 and 10**: the three-line Linux / Windows / neither declaration
+  (JDK named), and no new file-only runtime parameter without the delivery calling itself
+  incomplete.
+* **`server.port` decided, conservatively and for now**: settable from the GUI, effective from the
+  next start of the application. `server.port` only - the rest of `server.*` stays out of scope as
+  container configuration. Under the external Tomcat the key has no effect; what the GUI shows
+  there is left to the settings batch spec, with the rule already on record that a setting that
+  cannot take effect must say so. No code in this commit.
+* Note in `.claude/2026-10-04-linux-gui-batch0-answers.md`; spec `.claude/LINUX_AND_GUI_CONFIG.md`
+  §4 and §6 updated, the superseded lines struck through.

@@ -93,8 +93,10 @@ Per the 2026-09-30 principle. Each is written where it applies; this is the inde
    new objects only. Example: an FTPS target saved with `trustMode=WINDOWS` loads, saves and runs
    as WINDOWS on any host, and fails on a JVM without SunMSCAPI with the existing message; only a
    NEW target is proposed a mode by platform. Same for `powershellExe`: `pwsh` is proposed on a new
-   Linux instance, an already configured value is never touched. Written in the `CLAUDE.md` entry
-   of this batch; NOT beside the two rules, whose text was dictated - see §6.2.
+   Linux instance, an already configured value is never touched. ~~Written in the `CLAUDE.md` entry
+   of this batch; NOT beside the two rules, whose text was dictated - see §6.2.~~ **Since
+   2026-10-04 written beside both**: in full under «Default conservativi», as a pointer in the
+   Linux rule.
 3. **"Verified on Linux" × the sandbox JDK.** The sandbox compiles with a newer JDK and
    `--release 8`; it does not run Java 8. Every delivery names the JDK beside the word Linux.
    `ofPattern("DD")` is the recorded case where the two differ.
@@ -102,7 +104,15 @@ Per the 2026-09-30 principle. Each is written where it applies; this is the inde
    requirement is detection shown in the GUI, not identical behaviour. A `cmd` step on Linux is
    reported as unavailable; it is not a violation.
 
-5. **«Funzionare in modo identico» × `unarchive`.** The rule says every internal executor works
+5. **~~«Funzionare in modo identico»~~ «Funzionare in modo equivalente» × `unarchive` -
+   ANSWERED 2026-10-04.** «Identico» was the wrong word, by the author's account. The rule now
+   reads: equivalent, respecting the context and the specifics of the host OS; OpenProteo adapts to
+   its host. `unarchive` following the detected OS is therefore the rule working, not an exception,
+   and the reading below needed no defending. Its test is now part of the rule text: where the host
+   itself differs the behaviour follows it, and the run says which rules it used. The original
+   paragraph is kept as written:
+
+   ~~**«Funzionare in modo identico» × `unarchive`.**~~ The rule says every internal executor works
    identically on Windows and Linux. Since batch L1 `unarchive` does not, by the author's own Gate 0
    decision: it follows the detected OS, so the same workflow extracts different files on the two
    (Linux lifts the Windows-only name refusals, creates confined links, applies modes). On that
@@ -115,11 +125,17 @@ Per the 2026-09-30 principle. Each is written where it applies; this is the inde
    where the host itself differs AND the run says which rules it used. **This reading is mine** -
    see §6.1.
 
+6. **Out-of-scope "container configuration" × the standalone artifact - ANSWERED 2026-10-04.**
+   `server.port` is ignored under the external Tomcat, but in `openproteo-standalone.war` the
+   embedded Tomcat takes the port from nowhere else. ~~Container configuration or runtime
+   parameter? Batch 4 decides.~~ Conservative rule, for now: **`server.port` is settable from the
+   GUI and takes effect at the next start of the application** (class "al riavvio"). `server.port`
+   only; the other `server.*` keys stay out of scope. Left to the batch 4 spec: how, and what the
+   GUI shows under the external Tomcat, where the value has no effect - a setting that cannot take
+   effect says so, it is not silently accepted.
+
 Open, deliberately not decided in batch 0:
 
-6. **Out-of-scope "container configuration" × the standalone artifact.** `server.port` is ignored
-   under the external Tomcat, but in `openproteo-standalone.war` the embedded Tomcat takes the port
-   from nowhere else. Container configuration or runtime parameter? Batch 4 decides.
 7. **`X-User` × container identity** (§3.1 item 2). Batch 3 decides.
 
 ## 5. Declaration every delivery carries from now on
@@ -134,15 +150,19 @@ Not verified on either: ...
 
 ## 6. Open points for the author
 
-1. **Confirm or correct the reading in §4.5.** Taken literally, «identico» makes `unarchive` L1 a
+Points 1 to 3 were answered on 2026-10-04 and are struck through; the answers are in §4.2, §4.5,
+§4.6 and in `CLAUDE.md`. The `server.port` question was put in chat, not in this list; it is §4.6.
+Point 4 is still open.
+
+1. ~~**Confirm or correct the reading in §4.5.** Taken literally, «identico» makes `unarchive` L1 a
    violation of a rule written the same day. Either the reading stands (and one clause could be
    added to the rule: "dove l'host stesso differisce, il comportamento lo segue e il run lo
    dichiara"), or `unarchive` is the declared exception. The rule text was dictated, so it is not
-   edited here.
-2. Promote intersection 2 into `CLAUDE.md` next to «Default conservativi», so it sits beside both
-   rules as the principle asks? Left out because the rule text was dictated.
-3. Add two lines to «Checklist pre-commit»: (9) the Linux / Windows declaration of §5 is present;
+   edited here.~~ The word was corrected by its author; the clause was added.
+2. ~~Promote intersection 2 into `CLAUDE.md` next to «Default conservativi», so it sits beside both
+   rules as the principle asks? Left out because the rule text was dictated.~~ Done.
+3. ~~Add two lines to «Checklist pre-commit»: (9) the Linux / Windows declaration of §5 is present;
    (10) no new parameter is file-only, or the delivery says it is incomplete. Not added: the
-   request named the two places to align and the checklist was not one of them.
+   request named the two places to align and the checklist was not one of them.~~ Added.
 4. `CLAUDE.md` «Cos'è OpenProteo» still says "senza embedded server", stale since the standalone
    artifact of 2026-08-03. Seen, not touched: unrelated to this amendment.

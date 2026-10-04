@@ -1,46 +1,37 @@
-CLAUDE.md: Linux compatibility and GUI-only configuration are rules
+CLAUDE.md: "equivalente", not "identico"; the four answers applied
 
-Batch 0 of the Linux / GUI-configuration programme. Documentation only:
-no Java, template, JS, pom.xml, USAGE.md or README.md change.
+Follow-up to eee2d8c (batch 0 of the Linux / GUI-configuration
+programme). Documentation only: no Java, template, JS, pom.xml,
+USAGE.md or README.md change, and no new runtime parameter.
 
-Two rules added to "Stack e regole irrinunciabili", text as dictated:
-"Compatibilita' Linux obbligatoria" and "Configurabilita' integrale da
-GUI". The Zero CDN line and "Configurazione esterna", which both placed
-configuration in the external application.properties, are aligned; the
-old wording is struck through, not deleted.
+1. The Linux rule said "funzionare in modo identico". Wrong word, by
+   its author's account: it is now "equivalente", respecting the context
+   and the specifics of the host OS - OpenProteo adapts to its host.
+   Corrected where it was written, the old word struck through. unarchive
+   following the detected OS (batch L1) is the rule working, not an
+   exception. One clause is mine and not dictated: where the host
+   differs the behaviour follows it AND the run says which rules it
+   used.
+2. Linux rule vs conservative defaults is now written beside both
+   rules, as the 2026-09-30 principle asks: a saved value is never
+   rewritten to make it portable; platform-sensitive defaults are for
+   new instances and new objects only.
+3. "Checklist pre-commit" gains 9 (Linux / Windows / neither, on three
+   separate lines, JDK named) and 10 (no new file-only runtime
+   parameter, or the delivery calls itself incomplete).
+4. server.port: settable from the GUI, effective from the next start
+   of the application. Conservative, for now; server.port only, the
+   rest of server.* stays out of scope. Recorded in "Configurazione
+   esterna"; how, and what the GUI shows under the external Tomcat
+   where the key has no effect, is left to the settings batch spec.
 
-The rules are a target the code does not meet yet, and the contract now
-says so: "Configurazione esterna" lists what is already in the GUI and
-what is file-only debt at 712db45, and decides the intersection by name
-- existing file-only keys stay in production and are closed by the
-settings and JDBC-driver batches; any NEW file-only key makes its own
-delivery incomplete.
+.claude/LINUX_AND_GUI_CONFIG.md updated in step: answered points and
+superseded lines struck through, not deleted.
 
-New .claude/LINUX_AND_GUI_CONFIG.md: the seven batches and their
-dependencies, the stated context re-verified line by line, and what
-was found beyond it, none of it changed here: a
-fourth WINDOWS default in FtpsTarget.setTrustMode(null); the audit
-identity taken from an X-User request header before getRemoteUser();
-two runtime keys outside orchestrator.* (openproteo.logreport.*); a
-second Windows-path placeholder in ftptargets.html; System.lineSeparator
-in two API responses; every default path relative to the working dir.
-
-One stated fact stopped being true while this batch waited: "no os.name
-in the code". unarchive L1 reads it (UnarchiveRun:100, HostRules) and
-by Gate 0 behaves differently per host, while the new rule says
-"funzionare in modo identico". Decided by name: the Gate 0 decision
-stands as the rule's "rilevato a runtime" branch - the file systems
-differ and the run says which rules it used (${hostRules}). That
-reading is mine and is the first open point of the spec.
-
-Deviation: USAGE.md not updated. Nothing user-visible changed and it
-describes the product as it runs; it changes with the settings batch.
-
-Verified on Linux (sandbox): origin/main re-read before generating =
-712db45, third generation (a4f02c8, 0456c9e never committed); each
-baseline claim read at its cited line at 712db45; the patch touches
-only CLAUDE.md and two .claude files; git apply --check on a second clean
-clone; no CR in CLAUDE.md, every edit anchor matched exactly once.
+Verified on Linux (sandbox; nothing compiled, no JDK involved):
+origin/main = eee2d8c before generating, fresh clone; every edit anchor
+matched exactly once; the patch touches only CLAUDE.md and two .claude
+files; git apply --check on a second clean clone; no CR in CLAUDE.md;
+the checklist is one numbered list, 1 to 10.
 Verified on Windows: nothing - nothing here is platform-dependent.
-Not verified on either: that the two rule paragraphs are identical to
-the dictated text (transcribed; no second copy to diff against).
+Not verified on either: how the struck-through text renders.
