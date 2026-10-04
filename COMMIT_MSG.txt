@@ -1,46 +1,38 @@
-bash runner; kill the process tree on timeout and Stop (batch 2)
+CLAUDE.md is the contract again; history moved to .claude/HISTORY.md
 
-Batch 2 of the Linux / GUI-configuration programme, Gate 2 answered.
+Documentation only. No Java, template, JS, pom.xml, USAGE.md or
+README.md change; no runtime parameter.
 
-New external runner: exec="bash" or a .sh script, run through
-orchestrator.bash-exe (default /bin/bash), never as a file. Parameters
-arrive as OP_<name> environment variables, built by an all-ASCII
-"bash -c" bootstrap ending in exec - a JVM without a UTF-8 locale turns
-a non-ASCII argument or environment value into "?". Refused before
-launch, reason in the step log: name collision, nameless parameter,
-over 120 KiB, NUL, CRLF line endings.
+The 3472 lines of delivery entries at the end of CLAUDE.md are moved,
+verbatim and in order, to .claude/HISTORY.md, a closed archive.
+CLAUDE.md goes from 3962 lines to 578: it is read in full at the start
+of every session, and it had become 12% contract.
 
-engine/ProcessTree: on a non-Windows host every external step is
-started under setsid and, on timeout or Stop, killed by session and
-descent after being stopped. Degraded modes are logged and shown on
-the Platform page. destroyForcibly() alone left every child alive.
+A delivery no longer appends to CLAUDE.md. What it did and learned goes
+in its note; a lesson that must bind future work becomes a rule in the
+section it belongs to. Two chats in parallel no longer collide on the
+last line of the same file.
 
-Stop on a fan-out step stops every item: RunControl held one process
-per run and concurrent items overwrote it. Changes behaviour on every
-platform.
+Contract amended where it had fallen behind:
+- "Verifica prima della consegna": run the real class with Spring
+  stubbed, not an extract; a real Java 8 runtime and PowerShell for
+  Linux can be fetched into the sandbox; the sandbox is root and has no
+  locale; a test about processes or locales is itself a process.
+- External runners have their own registration path, now beside the
+  8-location rule for internal executors.
 
-PowerShell: unset, the executable follows the host (powershell.exe on
-Windows, pwsh elsewhere); the bundled application.properties no longer
-sets it. Outside Windows: -OutputFormat Text and TERM=dumb. On Windows
-the command is identical to before - compared with the pre-patch class.
+Programme order changed by the author (spec section 9): Linux first,
+authentication and everything that needs it last. The author's run of
+the standalone war on Linux (file copy + csvsql) is recorded for what
+was reported.
 
-CMD/JAR outside Windows: a parameter the JVM cannot encode is refused.
+APPLY BEFORE any other patch in flight: one that appends to the end of
+CLAUDE.md no longer applies after this.
 
-Platform page: bash row, "Stopping a step", encoding verdict.
-USAGE.md updated. README.md not touched.
-
-INCOMPLETE by checklist 10: orchestrator.bash-exe is file-only until
-the settings batch; added to the debt list in CLAUDE.md.
-NOT DELIVERED: process-tree kill on Windows (Java 8 has a HANDLE, not a
-pid). tools/windows-proctree-kit measures it; written blind.
-
-Verified on Linux (sandbox; Java 1.8.0_432 runtime and JDK 21.0.12,
-bash 5.2, pwsh 7.4.6; root and non-root; LANG unset and C.UTF-8): 126
-assertions on the real StepExecutor/ProcessTree/RunControl in four
-combinations; controller 22; designer 19 + its XML through the real
-parser; Platform page 87; USAGE.md through docs.html render() 122;
-mutations 40 + 28 + 7 + 12, two equivalent and argued; git apply
---check on a second clean clone.
-Verified on Windows: nothing. Checklist in the session note.
-Not verified on either: mvn clean package; Spring wiring; a browser;
-WorkflowEngine as a whole; the kit on Windows.
+Verified on Linux (sandbox; nothing compiled): origin/main = 51d173f
+before generating, fresh clone; the moved block is byte-identical
+(SHA-256 compared); no reference in the contract points at a heading
+that moved; git apply --check on a second clean clone.
+Verified on Windows: nothing; nothing here is platform-dependent.
+Not verified on either: that every fact the contract states is still
+true of the code - text was moved and amended, not audited.

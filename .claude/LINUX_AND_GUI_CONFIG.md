@@ -24,6 +24,11 @@ already reachable from the GUI and what is file-only debt.
 | 5 | JDBC drivers from the GUI (delegating `Driver` shim) | 3 | yes |
 | 6 | Inline commands and scripts for powershell, cmd, bash | 2, 3 | yes |
 
+**Order changed by the author on 2026-10-04 - see §9.** Batches 3, 4, 5 and 6 (authentication, and
+everything that waits for it) go LAST. Before them: whatever is still needed for the application to
+work on Linux, and a contract that other chats can work from. The table above keeps its numbers;
+§9 gives the order.
+
 Rule fixed by the author for the three "yes" rows: with authentication disabled the existing
 behaviour stays identical, and the NEW functions of batches 4, 5, 6 are unavailable. No new
 execution surface on an instance without authentication.
@@ -780,3 +785,50 @@ too - nobody has looked, and the rule keys on the host, not on which PowerShell 
 - **bash older than 5.2**, `setsid` from anything but util-linux, a `noexec` mount other than tmpfs.
 - **`mvn clean package`**, Spring wiring of the changed constructor call, a browser.
 - **The measurement kit** itself: compiled with Java 8, its non-Windows exit run, nothing else.
+
+## 9. Order of work from 2026-10-04: Linux first, authentication last
+
+Decided by the author after batch 2: "complete last all the authentication batches and those that
+need authentication; now I only want everything to work on Linux, and the project ready to accept
+changes from other chats."
+
+### 9.1 Where Linux stands
+
+**Run on Linux by the author, 2026-10-04:** the STANDALONE war started on a Linux machine and a
+workflow with a file-copy step and a `csvsql` step ran correctly. That is the first time the
+application itself - not classes lifted from it - has run on Linux: start-up, the embedded Tomcat,
+the engine, step directories, logs, run state, and those two executors. Not reported, so not
+recorded as verified: the distribution, the Java version, and what `/platform` showed there.
+
+**Run on Linux in the sandbox** (classes, not the application): the Platform probe, the external
+runners, the process-tree kill, fan-out Stop (§7, §8).
+
+**Not yet run on Linux by anyone:** a bash or `pwsh` step on a real instance; every other internal
+executor (`sql` with a JDBC driver, `ifscopy`, `validate`, `csvreplace`, `encoding`, `mask`,
+`split`, `safecopy`, `dequote`, `xlsx2csv`, `diff`, `sqlreport`, `elarxml`, `elarcheck`, `json2csv`,
+`tiffcompress`, `ftpsend`, `objpack`, `filerename`); `unarchive` was done in its own chat. Nobody
+has audited them for platform assumptions: "the engine is portable" was the stated context of this
+programme, re-checked only at the lines it named.
+
+**Known to need a hand on a Linux instance today** (configuration from the GUI is batch 4, now
+last): a UTF-8 locale for the service; an external `application.properties` with absolute, writable
+paths, the log file included; the masking secret; JDBC drivers placed by hand; `bash`, `setsid` and,
+for `.ps1` feeds, `pwsh` installed; and FTPS targets - a NEW target still defaults to
+`trustMode=WINDOWS`, which cannot connect on Linux, in four places (§3 and §3.1 item 1).
+
+### 9.2 The order
+
+| Step | What | Needs authentication |
+|---|---|---|
+| C | Contract reorganised: `CLAUDE.md` is the contract only, history in `.claude/HISTORY.md` | - (delivered with this section) |
+| L1 | **Linux audit of the internal executors.** Each one read for platform assumptions and, where its classes can be compiled, RUN on Linux on Java 8 with Linux paths. Output: a table per executor - runs / runs with a finding / could not be run and why - and the fixes it needs. Report first; fixes follow as their own batch. | no |
+| L2 | **FTPS on Linux.** For a NEW target the trust mode is proposed by platform; a saved target is never touched; `WINDOWS` is shown unavailable, with the reason, on a JVM without SunMSCAPI; the fourth default; neutral placeholders. Taken out of batch 4: it adds no function, it corrects a default on a page that exists. | no |
+| L3 | Whatever L1 finds. | no |
+| W | Windows process-tree kill, designed on the report of `tools/windows-proctree-kit`. Waits for that report. | no |
+| 3 | Authentication and authorisation | - |
+| 4, 5, 6 | Settings, JDBC drivers, inline scripts from the GUI | yes |
+
+**Intersection, by name: "configurable from the GUI" × "authentication last".** The rule
+«Configurabilità integrale da GUI» stays in the contract and stays unmet: batches 4 and 5 are what
+closes its debt and they now come last. Until then a Linux instance is configured by file, and
+checklist item 10 keeps doing its job - a delivery that adds a file-only key says so.
