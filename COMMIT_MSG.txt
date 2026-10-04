@@ -1,37 +1,34 @@
-Linux audit of the internal executors: report (L1)
+FTPS targets: trust mode by host, and what cannot work here (L2)
 
-No product code changed. No Java, template, JS, pom.xml, USAGE.md,
-README.md or CLAUDE.md change; no runtime parameter.
+Step L2 of the Linux work (finding F7 of the audit).
 
-.claude/LINUX_AUDIT.md: all Java sources scanned for the constructs
-through which a platform leaks into behaviour, every hit read, each
-suspected difference measured on a real Java 8 runtime.
+On a server without the Windows certificate store, a target using
+trust mode WINDOWS cannot connect; nothing said so before the first
+run, and a new target was proposed that very mode.
 
-Clean: no default-charset read or write of file content; every output
-file has a fixed line ending; no AWT, fonts, file locks; temp files
-beside their target; the audit hash independent of the line ending.
+- ftps/TrustAdvice and GET /api/ftp-targets/trust: whether the store
+  exists on this JVM, and the mode to propose for a NEW target
+  (WINDOWS where it exists, JVM elsewhere).
+- FTPS targets page: a new target takes the proposed mode; WINDOWS is
+  labelled not available and explains itself when chosen; targets that
+  would fail are marked in the list; placeholders are neutral.
+- SslContexts: the WINDOWS failure says what to choose instead.
+- USAGE.md: "The server certificate, on Windows and on Linux".
 
-Findings that change what a feed does on Linux:
-- File.renameTo replaces an existing <name>.done on Linux and refuses
-  on Windows (elarxml, json2csv, ftpsend, elar split).
-- "*.csv" matches DATA.CSV on Windows and not on Linux, exit 0
-  (filecopy, safecopy).
-- ${matchedFiles} is in name order on NTFS and hash order on Linux, and
-  a forEach iterates it (filecopy, safecopy, encoding batch).
-Plus: backslash in a path parameter, two recursive deletes that follow
-links, tiffcompress report order, the FTPS trust default.
+A saved target is never changed. An absent trust mode still means
+WINDOWS on every host - deliberately: FtpsTarget is not touched, and
+TrustMode.parse keeps its fallback. Reasons and risk in the spec, 9.4.
 
-The author cannot answer before the fixes: each decision is in the
-report, section 5, under one rule - nothing changes what an existing
-Windows feed produces.
+If the endpoint does not answer the page behaves as before. No runtime
+parameter. README.md and CLAUDE.md not touched.
 
-tools/scan_platform_assumptions.py: the scanner used.
-
-Verified on Linux (sandbox; Java 1.8.0_432): scanner over the whole
-tree; the three measurements on ext4 and tmpfs; eleven packages
-compiled with the Java 8 javac; cited lines read at 34ad944; git apply
---check on a second clean clone.
-Verified on Windows: nothing. Three statements about Windows are
-marked in the report as read, not run.
-Not verified on either: the executors hosted in InternalSteps were
-read, not run.
+Verified on Linux (sandbox; Java 1.8.0_432 and JDK 21.0.12): 23
+assertions on the real TrustAdvice / TrustMode / FtpsTarget /
+SslContexts with keytool-made truststores, 8 mutations; the page in
+jsdom, 37, beside the pre-patch page - identical list, hints and save
+payload where the store exists - 13 mutations; USAGE.md through
+docs.html render(), 21 + the earlier 122; git apply --check on a
+second clean clone.
+Verified on Windows: nothing.
+Not verified on either: the new endpoint (ApiController needs Spring);
+a connection to a real FTPS server from Linux.

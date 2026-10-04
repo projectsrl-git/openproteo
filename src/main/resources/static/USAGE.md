@@ -673,7 +673,7 @@ What a timeout or Stop can reach when an external step has started other program
 
 ### Windows trust store
 
-Whether this Java runtime has the Windows certificate store provider (SunMSCAPI). It exists only on Windows. Where it is absent, an FTPS target whose trust mode is `WINDOWS` fails when it connects, and needs a trust store file instead.
+Whether this Java runtime has the Windows certificate store provider (SunMSCAPI). It exists only on Windows. Where it is absent, an FTPS target whose trust mode is `WINDOWS` fails when it connects; the FTPS targets page marks such targets, and each needs JVM cacerts or a truststore file instead.
 
 ### File-name case in the feed base directory
 
@@ -1121,6 +1121,21 @@ The target has a **Verify uploads** setting for exactly this. `SIZE`, the defaul
 `226` is worth more than it looks and less than `SIZE`. It is the server saying it received the stream and closed the file - which is more than "the file exists", and that distinction matters, because a server creates the destination the moment it accepts `STOR`. What it does not catch is a file the server truncated without complaining. So `NONE` is a real weakening, and every run that uses it says so once in the step log before anything is sent, and marks each delivered file `remoteBytes=unverified` rather than printing a number that was never checked.
 
 Nothing else is weakened by it. A refused `STOR`, a data connection that never opens, a transfer the server rejects at the end: all of them still fail the step, and still stop everything after them.
+
+
+### The server certificate, on Windows and on Linux
+
+An FTPS target says how the server's certificate is judged: **Windows store**, **JVM cacerts**, **Truststore file** or **Accept anything**. Which of these can work depends on the server OpenProteo runs on, and the FTPS targets page shows it.
+
+**Windows store** reads the certificates the operating system trusts. It exists only on Windows. On any other server the page labels it `Windows store (not available on this server)`, and a target that uses it is marked in the list with `Windows trust store: not available on this server`: such a target fails when it connects, with a message that says what to choose instead.
+
+**A new target is proposed the mode that fits the server**: Windows store on Windows, JVM cacerts elsewhere. You can change it before saving.
+
+**A saved target is never changed for you.** A target saved with Windows store is shown, saved and run with Windows store on any server. Moving a target from a Windows server to a Linux one therefore means editing it once and choosing another mode; nothing does it silently, because the trust a transfer relies on should not change without someone deciding it.
+
+**JVM cacerts on Linux.** When Java was installed from the Linux distribution, its `cacerts` normally follows the system's own list of trusted authorities, so an internal CA installed on the system is trusted by OpenProteo as well. This was checked on Ubuntu; other distributions arrange it in their own way. A Java unpacked from an archive carries its own `cacerts` with public authorities only. If the server's CA is not there, use **Truststore file** and give the absolute path of a `.jks`, `.p12` or `.pfx` file on the server.
+
+A target written by hand without a trust mode means Windows store, on every server.
 
 ### Parameters
 

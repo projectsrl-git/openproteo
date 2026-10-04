@@ -25,6 +25,12 @@ public enum TrustMode {
      */
     ANY;
 
+    /**
+     * An ABSENT value means WINDOWS, on every host - deliberately not "whatever suits this host".
+     * A target file would otherwise mean one thing on Windows and another on Linux. Where the
+     * Windows store does not exist the target fails on connect and says what to choose; only a
+     * NEW target, in the page, is proposed a mode by host (see TrustAdvice).
+     */
     public static TrustMode parse(String s) {
         if (s == null || s.trim().isEmpty()) {
             return WINDOWS;

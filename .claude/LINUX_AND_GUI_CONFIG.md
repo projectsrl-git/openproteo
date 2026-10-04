@@ -846,3 +846,37 @@ step's own document, and is listed for review at the end. Two consequences fixed
 
 **L1 delivered 2026-10-04:** `.claude/LINUX_AUDIT.md`. Eight findings; the code base is otherwise
 clean of platform assumptions in the places an audit can see. L3 is its §5.
+
+### 9.4 L2 delivered 2026-10-04 - FTPS trust by host
+
+| Asked (batch 4 list, moved here) | Done |
+|---|---|
+| New targets: trust mode proposed by platform | `GET /api/ftp-targets/trust` (`ftps/TrustAdvice`): `WINDOWS` where SunMSCAPI exists, `JVM` elsewhere. The page applies it to a NEW target only |
+| A saved `WINDOWS` target loads, saves and runs as `WINDOWS`; no migration, no correction on load | unchanged, and asserted: editing one on a host without the store shows `WINDOWS`, warns, and sends `WINDOWS` back |
+| `WINDOWS` appears not available, with the reason | option label, hint, and a marker on each affected row of the list |
+| Neutral placeholders | both (`ftptargets.html:56` and `:73`) |
+| The `TrustMode.parse()` fallback on an empty value: change it or not, with the risk | **NOT changed** - see below |
+
+**The four model defaults stay `WINDOWS` on every host** (`FtpsTarget` field, `setTrustMode(null)`,
+`TrustMode.parse("")`, and the page when it edits a target that carries none). The alternative -
+an absent value meaning "whatever suits this host" - would give one target file two meanings: the
+same hand-written entry would verify against the Windows store on one server and against `cacerts`
+on another, and nobody would have decided that. Left as it is, such a target fails on Linux at
+connect, and the failure now says what to choose. The risk of NOT changing it: a hand-written
+target with no trust mode does not work on Linux until someone edits it. That is one edit, visible
+in the list before the first run.
+
+**Why `JVM` and not `FILE` is proposed on Linux.** On a distribution's Java, `cacerts` is the
+system CA store (checked on Ubuntu: `lib/security/cacerts -> /etc/ssl/certs/java/cacerts`), so it
+is the nearest equivalent of "what the operating system trusts", and it needs no file placed by
+hand - which matters while a truststore cannot be uploaded from the GUI. On a Java unpacked from an
+archive it holds public CAs only (checked on the Temurin 8 used here), and the page says so.
+
+**If the trust endpoint does not answer**, the page behaves exactly as before this change. And on
+a host that has the store, the list, the four hints and the payload of a save are compared with the
+pre-patch page and are identical.
+
+**Run for real on Linux**, Java 8 and 21: `SslContexts.build` for all four modes - `WINDOWS` fails
+with the new message, `JVM` and `ANY` build, `FILE` builds from a JKS, a PKCS#12 and an upper-case
+`.PFX` made with `keytool`. That is the first time the FTPS trust code has run on Linux. NOT run:
+a connection to an FTPS server.

@@ -101,6 +101,15 @@ public class ApiController {
         return out;
     }
 
+    /**
+     * What this server can do about server certificates: whether the Windows store exists here,
+     * and the trust mode to propose for a NEW target. Nothing about any saved target.
+     */
+    @GetMapping("/api/ftp-targets/trust")
+    public Map<String, Object> ftpTrustAdvice() {
+        return com.legalarchive.orchestrator.ftps.TrustAdvice.describe();
+    }
+
     @PostMapping("/api/ftp-targets")
     public ResponseEntity<Map<String, Object>> saveFtpTarget(
             @RequestBody com.legalarchive.orchestrator.ftps.FtpsTarget t) {

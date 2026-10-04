@@ -88,7 +88,8 @@ public final class SslContexts {
             return ks;
         } catch (Exception e) {
             throw new IOException("trustMode=WINDOWS needs the SunMSCAPI provider, which exists"
-                    + " only on a Windows JVM: " + e, e);
+                    + " only on a Windows JVM. On this server edit the target and choose 'JVM cacerts'"
+                    + " (the Java trust store) or 'Truststore file': " + e, e);
         }
     }
 

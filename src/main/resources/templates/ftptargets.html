@@ -53,7 +53,7 @@
                 <div class="sub"><div class="sub-h">Client certificate</div>
                     <div class="form-row">
                         <div class="field wide"><label>PKCS#12 file (absolute path on the OpenProteo server)</label>
-                            <input id="t_clientCertFile" placeholder="D:\certs\S211048_TRANSARCH.pfx"></div>
+                            <input id="t_clientCertFile" placeholder="absolute path to the .pfx or .p12 file"></div>
                         <div class="field"><label>Certificate password</label><input id="t_clientCertPassword" type="password"></div>
                     </div>
                     <div class="dim small">There is no configured base directory, so the path is absolute and the target is specific to the machine it was written on: exported to another environment it carries a path that must be rewritten. The step checks the file exists and is readable <b>before opening any socket</b>, so a wrong path says so instead of surfacing as a failed TLS handshake.</div>
@@ -70,7 +70,7 @@
                             </select>
                         </div>
                         <div class="field wide" id="trustFileField" style="display:none"><label>Truststore file</label>
-                            <input id="t_trustStoreFile" placeholder="D:\certs\internal-ca.jks"></div>
+                            <input id="t_trustStoreFile" placeholder="absolute path to the .jks, .p12 or .pfx file"></div>
                         <div class="field" id="trustPwdField" style="display:none"><label>Truststore password</label>
                             <input id="t_trustStorePassword" type="password"></div>
                     </div>
@@ -127,12 +127,36 @@
     function chk(id){ return document.getElementById(id).checked; }
     function setChk(id, v){ document.getElementById(id).checked = !!v; }
 
+    /* What this server can do, from api/ftp-targets/trust. Until it answers - and if it never
+       does - the page behaves exactly as it did before: the Windows store is assumed present. */
+    var TRUST = { windowsAvailable: true, suggested: 'WINDOWS', reason: '' };
+    var WINDOWS_MISSING = '<b>Not available on this server</b>: this Java runtime has no Windows certificate store. '
+        + 'A target saved with this mode <b>fails when it connects</b> here. Choose <b>JVM cacerts</b> or a <b>Truststore file</b> to use the target on this server; '
+        + 'leave it only if the target is meant for a Windows server.';
+
+    function applyTrust(){
+        var sel = document.getElementById('t_trustMode');
+        for (var i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].value === 'WINDOWS') {
+                sel.options[i].text = TRUST.windowsAvailable ? 'Windows store' : 'Windows store (not available on this server)';
+            }
+        }
+        /* Only a NEW target that nobody has touched yet is proposed the server's mode. A target
+           being edited keeps what it was saved with, whatever this server can do. */
+        if (document.getElementById('formTitle').textContent === 'New target' && !document.getElementById('t_id').value) {
+            setVal('t_trustMode', TRUST.suggested);
+        }
+        trustChanged();
+    }
+
     function trustChanged(){
         var m = val('t_trustMode');
         document.getElementById('trustFileField').style.display = (m==='FILE') ? 'block' : 'none';
         document.getElementById('trustPwdField').style.display  = (m==='FILE') ? 'block' : 'none';
         var h = document.getElementById('trustHint');
-        if (m === 'WINDOWS') h.innerHTML = 'Reads the operating system store, which is what the FTPS client already in service trusts \u2014 it reaches this estate without ever prompting to accept a server certificate, so the issuing CA is in the Windows store and almost certainly not in the JVM cacerts. Note that <b>Windows-ROOT holds root CAs and not intermediates</b>: if the server does not send its full chain this is where it will fail.';
+        if (m === 'WINDOWS' && !TRUST.windowsAvailable) h.innerHTML = WINDOWS_MISSING;
+        else if (m === 'WINDOWS') h.innerHTML = 'Reads the operating system store, which is what the FTPS client already in service trusts \u2014 it reaches this estate without ever prompting to accept a server certificate, so the issuing CA is in the Windows store and almost certainly not in the JVM cacerts. Note that <b>Windows-ROOT holds root CAs and not intermediates</b>: if the server does not send its full chain this is where it will fail.';
+        else if (m === 'JVM' && !TRUST.windowsAvailable) h.innerHTML = 'The Java trust store (cacerts). On a Linux server whose Java was installed from the distribution it normally follows the system CA store, so a CA installed on the system is trusted here too; a Java unpacked from an archive has its own cacerts, with public CAs only. If the server\'s CA is not there, use a Truststore file.';
         else if (m === 'JVM') h.innerHTML = 'The JVM cacerts. Correct for a server whose certificate chains to a public CA \u2014 which an internal host inside an AD domain usually does not.';
         else if (m === 'FILE') h.innerHTML = 'An explicit truststore holding the issuing CA. JKS, or PKCS#12 if the file ends in .p12 or .pfx.';
         else h.innerHTML = '<b>Accepts any server certificate, unconditionally.</b> Every run that uses this writes a warning into the step log. It exists to get a first delivery through, not to stay switched on.';
@@ -170,7 +194,8 @@
                 var cert = t.clientCertFile ? t.clientCertFile.replace(/^.*[\\\/]/, '') : '';
                 h += '<tr><td class="mono"><span class="feed-id">'+esc(t.id)+'</span></td>'+
                     '<td class="mono small dim">'+esc(t.host)+':'+esc(t.port)+
-                    (cert ? '<div class="small dim">'+esc(cert)+'</div>' : '')+'</td>'+
+                    (cert ? '<div class="small dim">'+esc(cert)+'</div>' : '')+
+                    ((!TRUST.windowsAvailable && (t.trustMode || 'WINDOWS') === 'WINDOWS') ? '<div class="small trust-missing" style="color:var(--fail)">Windows trust store: not available on this server</div>' : '')+'</td>'+
                     '<td class="small dim">'+esc(t.username)+'</td>'+
                     '<td><button class="btn sm" onclick="editAt('+i+')">Edit</button> '+
                     '<button class="btn sm danger" onclick="delAt('+i+')">Delete</button></td></tr>';
@@ -188,7 +213,7 @@
         ['t_id','t_name','t_host','t_username','t_password','t_clientCertFile','t_clientCertPassword',
          't_trustStoreFile','t_trustStorePassword'].forEach(function(id){ setVal(id,''); });
         setVal('t_port','2121'); setVal('t_connectTimeoutSec','30'); setVal('t_dataTimeoutSec','300');
-        setVal('t_trustMode','WINDOWS'); setVal('t_minTls','TLSv1.2'); setVal('t_maxTls','TLSv1.3');
+        setVal('t_trustMode', TRUST.suggested); setVal('t_minTls','TLSv1.2'); setVal('t_maxTls','TLSv1.3');
         setVal('t_verify','SIZE');
         setChk('t_passive', true); setChk('t_ignorePasvAddress', true); setChk('t_reuseTlsSession', true);
         document.getElementById('t_id').readOnly=false; document.getElementById('t_id').style.opacity=1;
@@ -278,6 +303,12 @@
     }
 
     newTarget(); load();
+    fetch(CTX + 'api/ftp-targets/trust').then(function(r){ return r.json(); }).then(function(j){
+        if (j && typeof j.windowsAvailable === 'boolean') {
+            TRUST = { windowsAvailable: j.windowsAvailable, suggested: j.suggested || 'WINDOWS', reason: j.reason || '' };
+            applyTrust(); load();
+        }
+    }).catch(function(){ /* keep the previous behaviour */ });
 </script>
 <script th:src="@{/js/modal.js(v=${buildId})}"></script>
 <script th:src="@{/js/theme.js(v=${buildId})}"></script>

@@ -132,7 +132,9 @@ step can create a link anywhere it can write. The three other recursive deletes 
 
 ### F7 - A new FTPS target defaults to the Windows trust store
 
-Step L2; four places (`LINUX_AND_GUI_CONFIG.md` §3 and §3.1 item 1).
+Step L2; four places (`LINUX_AND_GUI_CONFIG.md` §3 and §3.1 item 1). **Delivered 2026-10-04**, see
+`LINUX_AND_GUI_CONFIG.md` §9.4: the page proposes a mode by host for a NEW target and marks what
+cannot work here; the four model defaults were deliberately left as they are.
 
 ### F8 - Names are case-sensitive on Linux, and nothing can change that
 
