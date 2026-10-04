@@ -1,42 +1,38 @@
-objunpack: specification and Gate 0 (batch 0, docs only)
+objunpack: the core classes, unwired (batch 1)
 
-.claude/OBJECT_UNPACK_EXECUTOR.md specifies objunpack, the inverse of
-objpack: a Transarch object package (.tar or .tar.gz, plus .md5) back
-to its metadata CSV and its objects under their original names, for
-the chain csvsql -> dequote -> validate -> objpack -> ftpsend.
+A Transarch object package back to its objects under their original
+names and its metadata CSV byte for byte. Plain classes: no executor
+name, no dispatch, no panel yet, so nothing an existing workflow does
+can change.
 
-No code. Batches 1-4 wait for the eight Gate 0 answers in section 11.
+- objunpack/ObjectUnpack: checksum, one pass into a staging folder,
+  the join audit.json x metadata.csv, the package checks, rename,
+  commit. Extraction, name rules and limits are unarchive's; checksum
+  and name grammar are objpack's; the CSV reader is filerename's.
+- SubmissionName.parse: the inverse of archive(). Added, nothing
+  existing changed.
+- AuditJson.read: a strict JSON reader that takes each item by key, so
+  PowerShell's formatting and key order do not matter. write and
+  validate, which objpack uses, are untouched.
+- EntryName.printable made public (one word).
 
-The name mapping is the join audit.json (file_name, object_id) with
-metadata.csv (object_id, original_object_name), never a name template.
-Section 3 records what that decision met on ten packages made by the
-real producers, objpack and the legacy PowerShell script:
+Gate 0: G2 answered - names may repeat - so the refusal reports every
+clash. G1 and G3-G8 follow the spec's recommendations, to be confirmed.
 
-- AuditJson has no reader and SubmissionName parses no names: both are
-  specified as additions to those classes, objpack's writing untouched.
-- The legacy tar holds the objects BEFORE audit and metadata: objects
-  are staged under their member names and renamed afterwards.
-- PsCsvReader reads the packaged metadata; FlatCsvReader miscounts a
-  record that spans two lines.
-- LinkGuard is not called: a package is flat, a link is refused.
-- A full package has 100 003 members, above unarchive's maxEntries.
-- objpack's default delimiter would change a legacy feed's; the
-  template passes the package's own.
+Found by measuring: under an ASCII locale an accented file name cannot
+be created (Java 8 and 21); it is now refused naming the encoding and
+the remedy. The spec is corrected where the code proved it wrong, with
+the old text struck through; section 13 is the as-built.
 
-Eight intersections decided by name (U1-U8); seven limits declared.
-
-Found, NOT fixed here: ObjectPack.glob lower-cases a regex built with
-Pattern.quote, so any include/exclude pattern other than bare * or ?
-throws when the objects directory is listed. Needs its own patch.
-
-Verified on Linux (sandbox; Temurin 1.8.0_432 run, PowerShell 7.4.6,
-GNU tar 1.35, bsdtar 3.7.2, root, LANG=C.UTF-8): the reused packages
-compiled with the Java 8 javac; ten real packages; the tar readers
-against Python tarfile; both CSV readers against Python csv; a
-prototype of the join re-packed by the real ObjectPack, 9 of 10 both
-for restore and round trip, the exceptions being declared limits;
-git apply --check on a second clean clone.
-Verified on Windows: nothing.
-Not verified on either: any implementation of objunpack (none
-exists); Windows PowerShell 5.1; a legacy package made on Windows; the
-chain's csvsql, dequote, validate and ftpsend on an unpacked CSV.
+Verified on Linux (sandbox; Temurin 1.8.0_432 and JDK 21.0.10 both
+run, Java 8 javac; root and uid 65534; LANG=C.UTF-8 and empty): suite
+green in all eight combinations, 638 assertions under UTF-8 and 179
+under ASCII, plus 7 only a non-root user can observe; 44 packages, 21
+from the real ObjectPack and the legacy script under pwsh, 23 rebuilt
+from real members with GNU tar; round trip on ten packages of both
+producers; 56 mutations on copies, 55 caught, 1 equivalent; git apply
+--check on a second clean clone.
+Verified on Windows: nothing. Windows name rules ran on Linux with the
+host named: the logic, not the platform.
+Not verified on either: mvn clean package; Windows PowerShell 5.1; a
+legacy package made on Windows; size and timing at 100 000 objects.

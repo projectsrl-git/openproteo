@@ -298,7 +298,7 @@ public final class EntryName {
     }
 
     /** Control characters shown as escapes so a hostile name cannot rewrite the log line. */
-    static String printable(String s) {
+    public static String printable(String s) {
         StringBuilder b = new StringBuilder(s.length());
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);

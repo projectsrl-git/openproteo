@@ -1,7 +1,8 @@
 # Object submission unpacker (`objunpack`) — specification
 
-Status: **batch 0 — specification and Gate 0. No code.** Written 2026-10-04 on `89a66ad`.
-Nothing in batches 1–4 starts before §11 is answered.
+Status: **batch 1 delivered** (the core, unwired — §13) on `5f6c8c3`. Batch 0, the specification,
+was written 2026-10-04 on `89a66ad`. Gate 0 answered 2026-10-04 (§11). Corrections made by batch 1
+are struck through where the wrong text was, not rewritten.
 
 `objunpack` is the inverse of `objpack`: it takes a Transarch TAR-packaged object submission
 (`<base>.tar` or `<base>.tar.gz`, plus `<base>.md5`) and gives back the packaged metadata CSV and
@@ -81,8 +82,10 @@ name them:
 1. **Locate.** `archive` resolves to exactly one file (§6). Its name is parsed by a new
    `SubmissionName.parse` (same class as the builder; M5).
 2. **Checksum** (§11 G1), with `objpack.Md5.ofFile` — the code that writes the sidecar.
-3. **Extract to staging**, `<outputDir>/.objunpack-<runId>.part/`, each member under its **member
-   name**: `ArchiveFormat.decide` → `GzipSupport` → `TarStreamReader`, every name through
+3. **Extract to staging**, `<outputDir>/.objunpack-<runId>.part/`, each member ~~under its **member
+   name**~~ **under a number** (corrected in batch 1: an object never lands under its member name,
+   so staging it there only imported that name's length and character problems; the member name is
+   still validated): `ArchiveFormat.decide` → `GzipSupport` → `TarStreamReader`, every name through
    `EntryName.validate` with the detected `HostRules`, every byte through `Budget`.
 4. **Read** `audit.json` with a new `AuditJson.read` (§5.2) and `metadata.csv` with `PsCsvReader`.
 5. **Check** the package (§7). Nothing has a final name yet.
@@ -99,7 +102,10 @@ Disk: the size of the package's content, once. No second read of the archive exc
 
 `unarchive`: `ArchiveFormat`, `GzipSupport`, `TarStreamReader`, `EntryName`, `HostRules`,
 `NameIndex`, `Budget`, `UnarchiveException`. `objpack`: `SubmissionName`, `Md5`. `rename`:
-`PsCsvReader.parse`. `platform`: `HostFiles`. All already `public`; no visibility changes.
+`PsCsvReader.parse`. `platform`: `HostFiles`. ~~All already `public`; no visibility changes.~~
+**Corrected in batch 1:** one change — `EntryName.printable` (control characters shown as escapes in
+a log line) was package-private and is now `public`. The alternative was a second copy of it. Also
+reused, not listed in batch 0: `unarchive.FileMask` for the `archive` wildcard.
 
 **∩ U1 — "reuse `LinkGuard`" × "a package is flat".** A Transarch package holds regular files with
 bare names (T§1, measured on all ten). A link, directory, device or a name with a separator is not
@@ -118,7 +124,9 @@ offset; only then does it call `PsCsvReader.parse(text, delimiter)`.
 **∩ U4 — `PsCsvReader` drops leading blanks of an unquoted field (M11) × "the original name is
 restored exactly".** The reader wins: a name written unquoted with a leading blank is restored
 without it. `objpack` trims the name it looks up (M12), so the re-pack still finds the file.
-Example: `1; a.pdf` restores `a.pdf`.
+Example: `1; a.pdf` restores `a.pdf`. **Extended in batch 1 to trailing blanks, for the same
+reason:** the name is trimmed on both sides, exactly as `objpack` trims it — measured on a legacy
+package whose row says `a.pdf ` (the script keeps the trailing blank): restored as `a.pdf`.
 
 ### 5.2 New, in the class where they belong
 
@@ -171,6 +179,9 @@ is set on every path and the suite asserts it is never −1.
 
 **Always refused**, because without them the restore would be a guess:
 
+* an archive whose own name is not a submission archive name (added in batch 1): the identity
+  published as variables is read from it, so a renamed archive has none;
+* a member stored twice (added in batch 1; `NameIndex`), a hard link, a truncated tar;
 * no `*.audit.json` member, more than one, or not valid JSON; no `submission_object_files`;
 * the metadata member named by the audit (or, failing that, the single `*.metadata.csv`) missing;
 * no `object_id` or no `original_object_name` column (legacy `Order` mode does not require the
@@ -182,8 +193,9 @@ is set on every path and the suite asserts it is never −1.
   that would get the same file (§8);
 * a member that is not a regular file, or whose name has a separator (∩ U1).
 
-**Governed by `onInconsistency`** — `fail` refuses at the first, `warn` logs each, counts them in
-`${inconsistencies}` and restores:
+**Governed by `onInconsistency`** — `fail` ~~refuses at the first~~ **refuses after logging every
+one** (corrected in batch 1: the author correcting a package needs the list, not the first item),
+`warn` logs each, counts them in `${inconsistencies}` and restores:
 
 * `record_count` ≠ number of `submission_object_files` ≠ metadata rows;
 * a metadata row with no object; a tar member the audit does not list (under `warn` it is left in
@@ -215,6 +227,14 @@ detected `HostRules`, tar semantics, and must yield exactly one segment.
   Linux → restored. `objpack` resolves the exact name first (M12), so on Linux the re-pack finds
   both.
 * The run says which rules it used: first log line, `${hostRules}`.
+* **Added in batch 1, measured:** off Windows the JVM encodes file names with the service's locale
+  (`sun.jnu.encoding`). Under an ASCII locale (`LANG` empty) `Relazione perché 2026.txt` cannot be
+  created, on Java 8 and on 21. Such a name is refused naming the encoding and the remedy, before
+  anything is renamed. **∩ U9 — "the host's rules" × "the JVM's locale".** The locale is part of
+  the host: the package is refused, never restored under a substituted name. Windows file names are
+  UTF-16 and the check does not apply there.
+* `object_id` is compared as a number when it is one: `000004` in the metadata is the audit's `4`
+  (added in batch 1; anything not all digits is compared as written).
 
 **∩ U7 — "refused, never normalised" × "restore as much as possible".** Refusal wins: one bad name
 refuses the package, nothing is committed, and the message names the row and the rule. No
@@ -276,6 +296,13 @@ warning (T§3.5 requires lower). Cost, stated: one extra sequential read of the 
 20 GB). The alternative — hashing while extracting — saves that read and discovers a corrupt
 package only after staging it.
 
+**Answers, 2026-10-04.** G2: *"file names should be unique but I cannot guarantee it"*. G1, G3–G8:
+not answered one by one; batch 1 was built on the recommendations, as "yes to all" was offered —
+**to be confirmed**, each can still be reversed. On G2 the refusal stands, and because uniqueness
+is not guaranteed the refusal reports **every** clash — how many names, how many objects, and for
+the first ten the name and all its `object_id` values — so that the first real occurrence gives
+the measure needed to decide whether the separate design is worth building.
+
 **G2 — two rows with the same `original_object_name`.** Recommended: **refuse**, naming both rows.
 Why not the others: a suffix changes the name, so the metadata no longer names the file and only
 positional pairing could re-pack it; a sub-folder per row needs `objpack` in `path` mode with an
@@ -309,9 +336,69 @@ repository today either.
 | # | Content | Verified by |
 |---|---|---|
 | 0 | this spec | — |
-| 1 | `SubmissionName.parse`, `AuditJson.read`, `objunpack/ObjectUnpack`, unwired | the ten fixtures regenerated by the real producers; round trip on both; Temurin 8 and the newer JDK; root and non-root; `LANG` empty and `C.UTF-8`; mutations on copies |
+| 1 | **delivered, §13** — `SubmissionName.parse`, `AuditJson.read`, `objunpack/ObjectUnpack`, unwired | the ten fixtures regenerated by the real producers; round trip on both; Temurin 8 and the newer JDK; root and non-root; `LANG` empty and `C.UTF-8`; mutations on copies |
 | 2 | registration read on the code of `unarchive` (parser ×3, `internalKind`, dispatch passing `control`), `runObjUnpack`, exit codes | differential compile with its positive control; exit-code lint |
 | 3 | designer: seed on choosing the executor, `<option>`, panel, `clientValidate`; `variables.html` `PARAM_OPTIONS` | parameters written vs read, mechanically; `\n` and `[[` scans with positive controls; `node --check` |
 | 4 | the template, `USAGE.md`, the chain's middle steps measured | as §9 |
 
 Every delivery declares Linux, Windows and neither on three separate lines.
+
+## 13. Batch 1 as built
+
+`objpack/SubmissionName.parse` (+ `Parsed`), `objpack/AuditJson.read` (+ `Document`, `FileItem`, a
+strict JSON reader), `objunpack/ObjectUnpack`, `objunpack/ObjUnpackException`; `EntryName.printable`
+made public. JDK only, compiled with the Java 8 `javac`. **Not registered**: no executor name, no
+dispatch, no panel — that is batches 2 and 3.
+
+What the code decided beyond §4–§8, each also written where it belongs above:
+
+* Members are staged under numbers (§4.3). Refusals of `unarchive` and `objpack` keep their own
+  types; `ObjUnpackException` carries a `Reason` for the ones that are this executor's.
+* `onExisting=fail` is decided **before** the checksum is computed, and checked again at the commit
+  (a folder that appeared while the step ran is refused and left alone).
+* `onExisting=replace` deletes the old `objects/` and `package/` only after the new content is
+  complete in staging; a package that is refused leaves the old result untouched. **It is not
+  atomic**: if the old content cannot be fully deleted the step stops with part of it gone, and
+  the two folders are moved one after the other.
+* The two limits chosen rather than derived: the audit file is read whole up to 256 MB, the
+  metadata up to 512 MB.
+* A leftover `.objunpack-*.part` of a killed run is swept at the next run, without following links.
+
+**Measured in batch 1** (same tools as §3):
+
+| # | Fact |
+|---|---|
+| B1 | With `LANG` empty a non-ASCII name cannot be created (Java 8 and 21); before the rule of §8 the step failed at the rename with nothing to say why |
+| B2 | GNU tar stores a file named twice on the command line as a **hard link** to the first, not as a duplicate; a true duplicate needs `--hard-dereference`. Both are fixtures |
+| B3 | `TarStreamReader` itself refuses a truncated member; a size check written in `ObjectUnpack` was dead code (a mutation survived) and was removed |
+| B4 | The legacy script keeps a trailing blank of `original_object_name` and drops a leading one (`Import-Csv`) |
+
+**Fixtures.** 44 packages. 21 straight from the producers: `ObjectPack` (plain, label, gzip, label +
+gzip, `,`, 137 objects) and the legacy script under `pwsh` with GNU tar and bsdtar (Filename, marker,
+Order, multi-line value, 137 objects, and nine `Order` runs whose CSV carries the names under
+test: duplicate, case-only, `sub/x`, `..`, `./a`, empty, Windows-invalid, trailing blank, no name
+column). 23 `t_*` rebuilt from a real package's own members with GNU tar, `md5sum`, `bzip2` and
+Python `zipfile`. One audit file is hand-written, in the Windows PowerShell 5.1 shape (§10.6).
+
+**Suite.** 638 assertions under a UTF-8 locale; 179 under an ASCII one, where the packages with
+ASCII names are restored and round-tripped and the others are asserted to be refused for the
+encoding; 7 more that only a non-root user can observe (read-only output folder, `replace` over a
+folder that cannot be emptied, unreadable archive). Green in all eight combinations of Temurin
+1.8.0_432 / JDK 21.0.10, `LANG=C.UTF-8` / empty, root / uid 65534.
+
+The acceptance criterion — package → `objunpack` → `ObjectPack` → `objunpack` — holds on ten
+packages of both producers: objects byte-identical, header and every metadata row equal, ids
+included, audit equal in count, target, date and id → mime, version the new one; for `objpack`'s
+own packages the object names are equal apart from the base.
+
+**Mutations: 56, on copies, every anchor checked to replace exactly once.** 55 caught. One is
+equivalent: removing `^` from the archive-name pattern changes nothing because `Matcher.matches`
+anchors anyway. On the way, three survived a first run and were opened, not filed: the dead size
+check (B3, removed); an empty original name had no fixture — the refusal came from `EntryName`
+with a different message — and now has one from the real script; the commit-time `EXISTS` check
+had no test, and now has one that makes the folder appear during the run. One mutation
+(`replace` ignoring a failed delete) is caught only as a non-root user.
+
+**Not verified:** anything on Windows; Windows PowerShell 5.1; a legacy package made by the real
+script file on Windows; `mvn clean package`; the step inside the application (it is not wired).
+

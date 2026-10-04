@@ -127,6 +127,346 @@ public final class AuditJson {
         }
     }
 
+    // ---------------------------------------------------------------- reading (objunpack)
+
+    /** One item of {@code submission_object_files}, as read. A key the item lacks is null. */
+    public static final class FileItem {
+        public final String fileName;
+        public final String mimeType;
+        /** As written: a JSON string's content, or a JSON integer's digits. */
+        public final String objectId;
+
+        FileItem(String fileName, String mimeType, String objectId) {
+            this.fileName = fileName;
+            this.mimeType = mimeType;
+            this.objectId = objectId;
+        }
+    }
+
+    /** An audit file as read by {@link #read}. A key the file lacks is null; nothing is defaulted. */
+    public static final class Document {
+        public String transmissionDate;
+        public String sequenceNumber;
+        public String versionNumber;
+        public Long recordCount;
+        public String targetDestination;
+        public String metadataFileName;
+        /** Null when the file has no {@code submission_object_files} array. */
+        public List<FileItem> files;
+    }
+
+    /** Larger than any audit file a 100 000-object submission can have; a guard, not a format rule. */
+    static final long MAX_AUDIT_BYTES = 256L * 1024 * 1024;
+
+    /**
+     * Reads an audit file written by ANY producer.
+     *
+     * <p>{@link #validate} is a self-check of what {@link #write} has just produced and relies on
+     * that layout: it pairs {@code file_name} and {@code object_id} by their position in the text.
+     * This is a JSON parser instead, because the other producer of these files is PowerShell's
+     * {@code ConvertTo-Json}, whose indentation differs between versions, whose item keys come out
+     * of an unordered hashtable in any order (measured), and which in Windows PowerShell 5.1
+     * escapes {@code < > & '} as {@code \\uXXXX}. Each item is therefore read by key.
+     *
+     * <p>Types follow section 3.1.1 loosely on purpose, since the specification contradicts itself
+     * on them (its section 6.5): {@code object_id}, {@code sequence_number}, {@code version_number}
+     * and {@code transmission_date} are accepted as a string or as an integer, and returned as
+     * text. Anything else - a fraction, an object where a scalar is expected - is refused.
+     *
+     * @throws ObjPackException naming what is wrong and where
+     */
+    public static Document read(File auditFile) throws IOException {
+        return read(auditFile, auditFile.getName());
+    }
+
+    /**
+     * As {@link #read(File)}, naming the file as {@code label} in messages: objunpack reads the
+     * audit from a staging file whose own name says nothing.
+     */
+    public static Document read(File auditFile, String label) throws IOException {
+        if (auditFile.length() > MAX_AUDIT_BYTES) {
+            throw new ObjPackException("the audit file is " + auditFile.length() + " bytes, over the "
+                    + MAX_AUDIT_BYTES + " this reader accepts: " + label);
+        }
+        byte[] bytes = readAll(auditFile);
+        int skip = bytes.length >= 3 && (bytes[0] & 0xFF) == 0xEF && (bytes[1] & 0xFF) == 0xBB
+                && (bytes[2] & 0xFF) == 0xBF ? 3 : 0;
+        String text;
+        try {
+            text = Charset.forName("UTF-8").newDecoder()
+                    .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(bytes, skip, bytes.length - skip)).toString();
+        } catch (java.nio.charset.CharacterCodingException e) {
+            throw new ObjPackException("the audit file is not valid UTF-8: " + label, e);
+        }
+        Object root;
+        try {
+            root = new Json(text).document();
+        } catch (IllegalArgumentException e) {
+            throw new ObjPackException("the audit file is not valid JSON (" + e.getMessage() + "): "
+                    + label);
+        }
+        if (!(root instanceof java.util.Map)) {
+            throw new ObjPackException("the audit file is not a JSON object: " + label);
+        }
+        java.util.Map<?, ?> m = (java.util.Map<?, ?>) root;
+        Document d = new Document();
+        d.transmissionDate = scalar(m, "transmission_date", label);
+        d.sequenceNumber = scalar(m, "sequence_number", label);
+        d.versionNumber = scalar(m, "version_number", label);
+        String rc = scalar(m, "record_count", label);
+        if (rc != null) {
+            try {
+                d.recordCount = Long.valueOf(rc.trim());
+            } catch (NumberFormatException e) {
+                throw new ObjPackException("the audit file's \"record_count\" is not an integer ('" + rc + "'): "
+                        + label);
+            }
+        }
+        d.targetDestination = scalar(m, "TargetDestination", label);
+        d.metadataFileName = scalar(m, "metadata_file_name", label);
+        Object files = m.get("submission_object_files");
+        if (files != null && files != Json.NULL) {
+            if (!(files instanceof List)) {
+                throw new ObjPackException("the audit file's \"submission_object_files\" is not an array: "
+                        + label);
+            }
+            d.files = new ArrayList<FileItem>();
+            int i = 0;
+            for (Object o : (List<?>) files) {
+                i++;
+                if (!(o instanceof java.util.Map)) {
+                    throw new ObjPackException("item " + i + " of \"submission_object_files\" is not an object: "
+                            + label);
+                }
+                java.util.Map<?, ?> it = (java.util.Map<?, ?>) o;
+                d.files.add(new FileItem(scalar(it, "file_name", label), scalar(it, "mime_type", label),
+                        scalar(it, "object_id", label)));
+            }
+        }
+        return d;
+    }
+
+    /** A string's content or an integer's digits; null when absent or JSON null. */
+    private static String scalar(java.util.Map<?, ?> m, String key, String label) {
+        Object v = m.get(key);
+        if (v == null || v == Json.NULL) {
+            return null;
+        }
+        if (v instanceof String) {
+            return (String) v;
+        }
+        if (v instanceof Json.Num) {
+            String t = ((Json.Num) v).text;
+            if (!t.matches("-?[0-9]+")) {
+                throw new ObjPackException("the audit file's \"" + key + "\" is a number but not an integer ("
+                        + t + "): " + label);
+            }
+            return t;
+        }
+        throw new ObjPackException("the audit file's \"" + key + "\" is neither a string nor a number: "
+                + label);
+    }
+
+    /**
+     * A strict JSON reader (RFC 8259), JDK only. Objects become insertion-ordered maps and refuse a
+     * repeated key - "which of two file_name values is the object" must never be answered by
+     * position. Numbers keep their text. Errors carry the character offset.
+     */
+    static final class Json {
+        static final Object NULL = new Object();
+
+        static final class Num {
+            final String text;
+            Num(String text) { this.text = text; }
+        }
+
+        private static final int MAX_DEPTH = 32;
+        private final String s;
+        private int i;
+
+        Json(String s) {
+            this.s = s;
+        }
+
+        Object document() {
+            ws();
+            Object v = value(0);
+            ws();
+            if (i != s.length()) {
+                throw err("content after the end of the document");
+            }
+            return v;
+        }
+
+        private Object value(int depth) {
+            if (depth > MAX_DEPTH) {
+                throw err("nested deeper than " + MAX_DEPTH);
+            }
+            if (i >= s.length()) {
+                throw err("unexpected end");
+            }
+            char c = s.charAt(i);
+            if (c == '{') {
+                return object(depth);
+            }
+            if (c == '[') {
+                return array(depth);
+            }
+            if (c == '"') {
+                return string();
+            }
+            if (c == '-' || (c >= '0' && c <= '9')) {
+                return number();
+            }
+            if (s.startsWith("true", i)) { i += 4; return Boolean.TRUE; }
+            if (s.startsWith("false", i)) { i += 5; return Boolean.FALSE; }
+            if (s.startsWith("null", i)) { i += 4; return NULL; }
+            throw err("unexpected character '" + c + "'");
+        }
+
+        private Object object(int depth) {
+            java.util.Map<String, Object> m = new java.util.LinkedHashMap<String, Object>();
+            i++;
+            ws();
+            if (peek('}')) { i++; return m; }
+            while (true) {
+                ws();
+                if (!peek('"')) {
+                    throw err("expected a key");
+                }
+                String k = string();
+                ws();
+                if (!peek(':')) {
+                    throw err("expected ':' after the key \"" + k + "\"");
+                }
+                i++;
+                ws();
+                Object v = value(depth + 1);
+                if (m.containsKey(k)) {
+                    throw err("the key \"" + k + "\" appears twice in one object");
+                }
+                m.put(k, v);
+                ws();
+                if (peek(',')) { i++; continue; }
+                if (peek('}')) { i++; return m; }
+                throw err("expected ',' or '}'");
+            }
+        }
+
+        private Object array(int depth) {
+            List<Object> l = new ArrayList<Object>();
+            i++;
+            ws();
+            if (peek(']')) { i++; return l; }
+            while (true) {
+                ws();
+                l.add(value(depth + 1));
+                ws();
+                if (peek(',')) { i++; continue; }
+                if (peek(']')) { i++; return l; }
+                throw err("expected ',' or ']'");
+            }
+        }
+
+        private String string() {
+            StringBuilder sb = new StringBuilder();
+            i++;
+            while (true) {
+                if (i >= s.length()) {
+                    throw err("unterminated string");
+                }
+                char c = s.charAt(i++);
+                if (c == '"') {
+                    return sb.toString();
+                }
+                if (c < 0x20) {
+                    throw err("raw control character in a string");
+                }
+                if (c != '\\') {
+                    sb.append(c);
+                    continue;
+                }
+                if (i >= s.length()) {
+                    throw err("unterminated escape");
+                }
+                char e = s.charAt(i++);
+                switch (e) {
+                    case '"': sb.append('"'); break;
+                    case '\\': sb.append('\\'); break;
+                    case '/': sb.append('/'); break;
+                    case 'b': sb.append('\b'); break;
+                    case 'f': sb.append('\f'); break;
+                    case 'n': sb.append('\n'); break;
+                    case 'r': sb.append('\r'); break;
+                    case 't': sb.append('\t'); break;
+                    case 'u':
+                        if (i + 4 > s.length()) {
+                            throw err("short \\u escape");
+                        }
+                        int cp = 0;
+                        for (int k = 0; k < 4; k++) {
+                            int d = Character.digit(s.charAt(i + k), 16);
+                            if (d < 0) {
+                                throw err("bad \\u escape");
+                            }
+                            cp = cp * 16 + d;
+                        }
+                        i += 4;
+                        sb.append((char) cp);
+                        break;
+                    default:
+                        throw err("unknown escape \\" + e);
+                }
+            }
+        }
+
+        private Num number() {
+            int start = i;
+            if (peek('-')) i++;
+            if (peek('0')) {
+                i++;
+            } else if (i < s.length() && s.charAt(i) >= '1' && s.charAt(i) <= '9') {
+                digits();
+            } else {
+                throw err("bad number");
+            }
+            if (peek('.')) {
+                i++;
+                if (digits() == 0) throw err("bad number");
+            }
+            if (peek('e') || peek('E')) {
+                i++;
+                if (peek('+') || peek('-')) i++;
+                if (digits() == 0) throw err("bad number");
+            }
+            return new Num(s.substring(start, i));
+        }
+
+        private int digits() {
+            int n = 0;
+            while (i < s.length() && s.charAt(i) >= '0' && s.charAt(i) <= '9') { i++; n++; }
+            return n;
+        }
+
+        private boolean peek(char c) {
+            return i < s.length() && s.charAt(i) == c;
+        }
+
+        private void ws() {
+            while (i < s.length()) {
+                char c = s.charAt(i);
+                if (c == ' ' || c == '\t' || c == '\n' || c == '\r') i++;
+                else break;
+            }
+        }
+
+        private IllegalArgumentException err(String what) {
+            return new IllegalArgumentException(what + " at character " + i);
+        }
+    }
+
     // ---------------------------------------------------------------- tiny reader
 
     private static long number(String s, String key, File f) {

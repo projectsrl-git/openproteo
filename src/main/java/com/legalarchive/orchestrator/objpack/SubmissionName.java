@@ -148,6 +148,71 @@ public final class SubmissionName {
         return (dot <= 0 || dot == leaf.length() - 1) ? "" : leaf.substring(dot);
     }
 
+    // ---------------------------------------------------------------- parsing (objunpack)
+
+    /** What the name of a delivered archive says about its submission. */
+    public static final class Parsed {
+        /** The submission, with sequence and version as numbers. */
+        public final SubmissionName name;
+        /**
+         * The base exactly as the file spells it. It differs from {@code name.base()} only when the
+         * version or sequence is not padded to three digits ({@code V1}), which section 3.5 of the
+         * specification writes in its own examples; the sidecar and the members follow this spelling.
+         */
+        public final String baseAsWritten;
+        /** {@code none}, {@code gzip}, {@code bzip2} or {@code xz}, from the suffix alone. */
+        public final String compression;
+
+        Parsed(SubmissionName name, String baseAsWritten, String compression) {
+            this.name = name;
+            this.baseAsWritten = baseAsWritten;
+            this.compression = compression;
+        }
+
+        /** True when the file spells the base the way {@link SubmissionName} would build it. */
+        public boolean canonical() {
+            return name.base().equals(baseAsWritten);
+        }
+    }
+
+    private static final java.util.regex.Pattern ARCHIVE = java.util.regex.Pattern.compile(
+            "^(tf[0-9]{7})[.]([0-9]{8})[.]S([0-9]{1,3})[.]V([0-9]{1,3})[.]tar([.]gz|[.]bz2|[.]xz)?$");
+
+    /**
+     * Reads the leaf name of a delivered archive: {@code tf0000001.20250101.S001.V001.tar} or the
+     * same with {@code .tar.gz}, {@code .tar.bz2}, {@code .tar.xz} (section 3.5).
+     *
+     * <p>The inverse of {@link #archive(String)}, and checked against it: the parts are handed to
+     * the constructor, so a date that is not a date or a sequence of 0 is refused by the same code
+     * that refuses them when a name is built, and for a padded name the result must rebuild the
+     * input exactly. {@code V1} and {@code S1} are accepted (section 3.5 writes them) and reported
+     * through {@link Parsed#canonical()}. Letter case is significant: the specification's names are
+     * lower-case {@code tf}, upper-case {@code S} and {@code V}.
+     *
+     * @throws ObjPackException when the name is not a submission archive name
+     */
+    public static Parsed parse(String archiveLeafName) {
+        String n = archiveLeafName == null ? "" : archiveLeafName;
+        java.util.regex.Matcher m = ARCHIVE.matcher(n);
+        if (!m.matches()) {
+            throw new ObjPackException("'" + n + "' is not a submission archive name: expected"
+                    + " <tf#>.<yyyyMMdd>.S<seq>.V<ver>.tar or .tar.gz, e.g. tf0000001.20250101.S001.V001.tar");
+        }
+        SubmissionName name = new SubmissionName(m.group(1), m.group(2),
+                Integer.parseInt(m.group(3)), Integer.parseInt(m.group(4)));
+        String suffix = m.group(5);
+        String compression = suffix == null ? "none"
+                : ".gz".equals(suffix) ? "gzip" : ".bz2".equals(suffix) ? "bzip2" : "xz";
+        String baseAsWritten = n.substring(0, n.length() - 4 - (suffix == null ? 0 : suffix.length()));
+        Parsed p = new Parsed(name, baseAsWritten, compression);
+        if (p.canonical() && !name.archive(compression).equals(n)) {
+            // Cannot happen while archive() and the pattern agree; if one of them changes, this is
+            // where the disagreement shows instead of in a package that is silently misread.
+            throw new ObjPackException("'" + n + "' does not rebuild to itself: " + name.archive(compression));
+        }
+        return p;
+    }
+
     public String tfId() { return tfId; }
     public String transmissionDate() { return transmissionDate; }
     public int sequenceNr() { return sequenceNr; }
