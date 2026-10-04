@@ -95,7 +95,7 @@
         if (!t) return '';
         var v;
         if (t.mode === 'SESSION') v = chip('SUCCESS', 'whole process tree');
-        else if (t.mode === 'DESCENDANTS') v = chip('SKIPPED', 'partial');
+        else if (t.mode === 'DESCENDANTS' || t.mode === 'TASKKILL') v = chip('SKIPPED', 'partial');
         else v = chip('SKIPPED', 'interpreter only');
         return '<h2>Stopping a step</h2><p class="page-sub">What a timeout or Stop can reach when an external step '
             + '(PowerShell, cmd, jar, bash) has started other programs.</p><div class="panel"><table id="platTree">'

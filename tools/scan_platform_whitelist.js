@@ -25,7 +25,7 @@ const ENV_VARIABLES = ['PATH', 'SystemRoot'];
 const SPRING_PROPERTIES = ['logging.file.name', 'logging.file.path'];
 const CONFIG_GETTERS = ['getWorkflowsDir', 'getScriptsDir', 'getSharedDir', 'getDefaultBaseDir',
   'getDatasourcesFile', 'getFtpTargetsFile', 'getMaskPoolsDir', 'getPowershellExe', 'getCmdExe', 'getJavaExe',
-  'getBashExe'];
+  'getBashExe', 'isWindowsTreeKill'];
 // Never, in either file: the whole property set, the whole environment, and anything that
 // creates a directory or writes content.
 const FORBIDDEN = ['getProperties(', 'getenv()', 'getMaskingSecret', 'getGlobalVars(',

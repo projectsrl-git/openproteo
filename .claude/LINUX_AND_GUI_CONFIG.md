@@ -895,3 +895,56 @@ needs anyway, minus the upload page, so no new function reachable from the GUI).
 file-only key and is therefore incomplete by checklist 10 until batch 4, like `bash-exe`.
 **Not started: it is not on the list the author gave (L1, L2, L3, W).** It is recorded here so that
 the decision is his.
+
+### 9.6 W delivered 2026-10-04 - Windows process-tree kill, blind, born off
+
+**Not run on Windows. Off unless `orchestrator.windows-tree-kill=true`.** With the switch off -
+the default - a Windows instance does exactly what it did: the suite asserts that nothing
+Windows-specific is even called.
+
+| | |
+|---|---|
+| Switch | `orchestrator.windows-tree-kill`, default `false`. File-only (checklist 10: incomplete, in the debt list). Applies from the next step: it is read at each launch and each kill |
+| Java 9+ | `Process.pid()`, then `taskkill /PID <pid> /T /F` |
+| Java 8 | the pid is not available (a HANDLE). The step is FOUND: one PowerShell query for the children of this JVM (`Get-CimInstance Win32_Process -Filter 'ParentProcessId=<jvm pid>'`), then the child whose creation time lies within two seconds of the launch AND whose command line contains the step's longest argument (the Base64 of a PowerShell step, the script path of a cmd or jar step) |
+| The one rule | exactly one such child, or nothing is killed beyond the interpreter. Not found, or two steps that cannot be told apart: `interpreter only`, with the reason in the step log |
+| Never | the JVM itself, a pid of 4 or less, anything whose parent is not this JVM |
+| Reach | what `taskkill /T` reaches: descendants by parent link. A program whose parent has already ended is missed - the "partial" mode, shown as such on the Platform page |
+| Class | `engine/WindowsTreeKill`: the decision is pure and tested; the two commands go through one replaceable runner |
+
+**What was run, on Linux (Java 8 and 21):** parsing of the query's output; the choice and every
+refusal; that an ambiguous or missing match issues NO `taskkill`; that a failing query does not
+throw and does not kill; the wiring into `ProcessTree` under an injected `os.name`, switch off and
+on, with a real process ended by `destroyForcibly` as always; that a Linux host ignores the switch.
+And **the query's own PowerShell expression, executed by a real PowerShell 7.4** on an object with
+the same four properties, in a time zone that is not UTC: it yields a row the class parses, with
+the creation time in epoch milliseconds - the mutation that drops the UTC conversion is caught
+only because of that time zone.
+
+**What was NOT run, and cannot be here:** `Get-CimInstance` itself; `taskkill`; Windows PowerShell
+5.1 (the expression ran on 7.4); the real command line Windows records for a process Java started
+(the match assumes the argument appears in it unaltered: true for Base64 and for a path, even
+quoted; an argument containing a double quote would not match, and then nothing is killed). The
+measurement kit (`tools/windows-proctree-kit`) answers exactly these on a Windows machine.
+
+### 9.7 For review: every decision taken without the author (L1, L2, L3, W)
+
+One rule governed all of them: nothing changes what an existing Windows feed produces.
+
+| # | Decision | Where argued | To undo |
+|---|---|---|---|
+| 1 | An absent FTPS trust mode still means `WINDOWS` on every host | §9.4 | change `TrustMode.parse` and `FtpsTarget` |
+| 2 | A new FTPS target on Linux is proposed `JVM`, not `FILE` | §9.4 | `TrustAdvice.suggested` |
+| 3 | `WINDOWS` trust stays selectable on Linux, with a warning | §9.4 | disable the option in `ftptargets.html` |
+| 4 | Processed inputs are never renamed over an existing file, on any host | `LINUX_AUDIT.md` F1 | `HostFiles.renameNoReplace` |
+| 5 | Glob matching stays the host's; the log says so and counts what case left behind | F2 | - |
+| 6 | Files are sorted off Windows only; Windows enumeration untouched | F3 | `HostFiles.inHostOrder` |
+| 7 | The `tiffcompress` report keeps the host's order | F4 | - |
+| 8 | A backslash in a path parameter is warned about, never rewritten | F5 | - |
+| 9 | Recursive deletes do not follow links | F6 | - |
+| 10 | Windows tree kill ships switched off, behind a file-only key | §9.6 | set the key |
+| 11 | JDBC drivers on the standalone: NOT done, proposed as L4 | §9.5 | - |
+
+**What the author needs to run on Windows before trusting any of it** is collected in the session
+notes of batch 2, L2, L3 and W; in one line: build, run an existing feed end to end and compare,
+Stop a fan-out, open `/platform` and the FTPS targets page, run the measurement kit.

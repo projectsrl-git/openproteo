@@ -52,7 +52,16 @@ import com.legalarchive.orchestrator.platform.PlatformProbe;
  */
 public final class ProcessTree {
 
-    public enum Mode { SESSION, DESCENDANTS, NONE }
+    public enum Mode { SESSION, DESCENDANTS, TASKKILL, NONE }
+
+    /**
+     * {@code orchestrator.windows-tree-kill}. OFF unless set: the Windows tree kill was written
+     * without a Windows machine to run it on (see {@link WindowsTreeKill}). Read at each launch
+     * and each kill, so a change applies from the next step.
+     */
+    private static volatile boolean windowsTreeKill = false;
+
+    public static void setWindowsTreeKill(boolean on) { windowsTreeKill = on; }
 
     /** One started step. */
     public static final class Handle {
@@ -61,6 +70,9 @@ public final class ProcessTree {
         public final long pid;
         /** True when the step was launched under setsid. */
         public final boolean session;
+        /** For the Windows tree kill: when the process was started, and the argument to know it by. */
+        volatile long startedBefore, startedAfter;
+        volatile String token = "";
         /** What the last {@link ProcessTree#kill} did, for the step log; null if never killed. */
         public volatile String killReport;
         /** Set the moment a kill begins, before any signal: whoever sees the process die can wait for the report. */
@@ -120,7 +132,7 @@ public final class ProcessTree {
         String why;
         if (windows) {
             m = Mode.NONE;
-            why = "Windows: the process id of a step is not available to Java 8";
+            why = "Windows: the process id of a step is not available to Java 8, and orchestrator.windows-tree-kill is off";
         } else if (!Files.isReadable(proc.resolve("self").resolve("stat"))) {
             m = Mode.NONE;
             why = "no " + proc + " on this host";
@@ -143,8 +155,12 @@ public final class ProcessTree {
         this.setsid = found;
     }
 
-    public Mode mode() { return mode; }
-    public String reason() { return reason; }
+    public Mode mode() { return windows && windowsTreeKill ? Mode.TASKKILL : mode; }
+    public String reason() {
+        return windows && windowsTreeKill
+                ? "Windows: taskkill /T (experimental, orchestrator.windows-tree-kill=true); a program whose parent has already ended is not reached"
+                : reason;
+    }
     public boolean windows() { return windows; }
 
     // ------------------------------------------------------------------ launch
@@ -166,8 +182,15 @@ public final class ProcessTree {
         pb.redirectErrorStream(false);
         if (workingDir != null && workingDir.isDirectory()) pb.directory(workingDir);
         if (extraEnv != null) pb.environment().putAll(extraEnv);
+        long before = System.currentTimeMillis();
         Process p = pb.start();
-        return new Handle(p, mode == Mode.NONE ? -1L : pidOf(p), session);
+        long after = System.currentTimeMillis();
+        boolean wantPid = mode != Mode.NONE || (windows && windowsTreeKill);
+        Handle h = new Handle(p, wantPid ? pidOf(p) : -1L, session);
+        h.startedBefore = before;
+        h.startedAfter = after;
+        h.token = WindowsTreeKill.token(command);
+        return h;
     }
 
     /** The pid: {@code Process.pid()} where it exists (Java 9+), else the private field of Java 8's UNIXProcess. */
@@ -210,6 +233,9 @@ public final class ProcessTree {
     }
 
     private String killTree(Handle h) throws Exception {
+        if (windows && windowsTreeKill) {
+            return windowsKiller().kill(h.pid, h.startedBefore, h.startedAfter, h.token);
+        }
         if (mode == Mode.NONE) return "interpreter only - " + reason;
         if (h.pid <= 1) return "interpreter only - the process id of the step could not be read";
         long self = selfPid();
@@ -339,8 +365,18 @@ public final class ProcessTree {
         if (!k.waitFor(5, TimeUnit.SECONDS)) k.destroyForcibly();
     }
 
+    private volatile WindowsTreeKill windowsKiller;
+    /** For tests: the Windows side with a fake command runner. */
+    void setWindowsKiller(WindowsTreeKill k) { this.windowsKiller = k; }
+
+    private WindowsTreeKill windowsKiller() {
+        WindowsTreeKill k = windowsKiller;
+        if (k == null) windowsKiller = k = WindowsTreeKill.forThisJvm("powershell.exe");
+        return k;
+    }
+
     /** One line for the Platform page. */
     public String describe() {
-        return mode.name().toLowerCase(Locale.ROOT) + " - " + reason;
+        return mode().name().toLowerCase(Locale.ROOT) + " - " + reason();
     }
 }

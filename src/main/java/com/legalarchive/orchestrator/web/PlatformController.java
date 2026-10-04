@@ -78,6 +78,7 @@ public class PlatformController {
 
             Map<String, Object> out = probe.report(paths, interpreters, props.getDefaultBaseDir(), refreshProbe);
             // What a timeout or a Stop can reach on this host: the whole tree, part of it, or the interpreter only.
+            com.legalarchive.orchestrator.engine.ProcessTree.setWindowsTreeKill(props.isWindowsTreeKill());
             com.legalarchive.orchestrator.engine.ProcessTree tree = com.legalarchive.orchestrator.engine.ProcessTree.host();
             Map<String, Object> pt = new LinkedHashMap<String, Object>();
             pt.put("mode", tree.mode().name());

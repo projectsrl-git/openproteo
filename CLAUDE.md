@@ -192,7 +192,9 @@ Questa sezione descrive il debito, non lo nasconde.
   la classe), le due chiavi `openproteo.logreport.*` lette con `@Value`
   (`window-days`, `export-enabled`), `logging.*`, gli interpreti
   (`powershell-exe`, `cmd-exe`, `java-exe`, e dal 2026-10-04 `bash-exe`,
-  **nata solo-su-file** e dichiarata tale nella sua consegna), i file di truststore e certificato
+  **nata solo-su-file** e dichiarata tale nella sua consegna),
+  `windows-tree-kill` (2026-10-04, anch'essa nata solo-su-file: sperimentale,
+  spenta di default), i file di truststore e certificato
   dei target FTPS (in GUI si scrive il path, il file va messo a mano sulla
   macchina), i limiti di upload `spring.servlet.multipart.*`, e i driver JDBC
   (`CATALINA_HOME/lib` piu' riavvio).

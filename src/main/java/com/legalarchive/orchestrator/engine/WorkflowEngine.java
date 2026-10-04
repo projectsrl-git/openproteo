@@ -489,6 +489,7 @@ public class WorkflowEngine {
         }
         if (c != null) {
             // Every live process of the run, each with what it started - not only the last one.
+            ProcessTree.setWindowsTreeKill(props.isWindowsTreeKill());
             ProcessTree tree = ProcessTree.host();
             for (ProcessTree.Handle h : c.live) tree.kill(h);
         }
@@ -1046,6 +1047,7 @@ public class WorkflowEngine {
             Runnable onProgress = attachChecks ? new Runnable() { public void run() { store.save(flayout, frun); } } : null;
             return internalSteps.run(internalKind, step, rp, varsSnapshot, logFile, controls.get(run.runId), se, onProgress);
         }
+        ProcessTree.setWindowsTreeKill(props.isWindowsTreeKill());
         StepExecutor ps = new StepExecutor(props.getPowershellExe(), props.getJavaExe(), props.getCmdExe(), props.getBashExe());
         return ps.execute(extKind, scriptPath, rp, logFile, timeout, layout.stepDirs.get(step.id).toFile(), controls.get(run.runId));
     }

@@ -292,6 +292,8 @@ When a step exceeds its timeout, or an operator presses **Stop**, the orchestrat
 - **On Linux** the step is killed together with everything it started: programs it launched, programs those launched, and background jobs whose parent script has already ended. The step log ends with a line beginning `!!! process tree:` that says how many processes were killed.
 - **On Windows** only the interpreter is killed, as before. A program the script started keeps running until it ends by itself. The step log says `!!! process tree: interpreter only`.
 
+**An experimental option for Windows.** Setting `orchestrator.windows-tree-kill=true` makes a Windows server also kill what the step started, with `taskkill /T`. It is off unless set, and it must be said plainly why: it was written without a Windows machine to run it on, and has been exercised only on its decisions, not on Windows itself. It is built so that it cannot kill the wrong program: the step is looked for among the server's own child processes by the moment it was started and by its command line, and if it is not found, or two running steps cannot be told apart, only the interpreter is killed, as before, and the step log says which of the two happened. It reaches the programs still attached to the step; one whose parent has already ended is not found. Try it on a test instance first, with a step that starts a long-running program and is then stopped, and read the `!!! process tree:` line.
+
 One thing escapes even on Linux: a program that deliberately detaches itself completely from the script that started it (a daemon). Such a program is left running.
 
 A script that starts a background program and then ends normally is not touched: nothing is killed when a step ends by itself.
@@ -685,7 +687,7 @@ The page states which search it used. On Windows a name without an extension get
 
 ### Stopping a step
 
-What a timeout or Stop can reach when an external step has started other programs. `whole process tree` means the step and everything it started. `partial` means programs still attached to the step are killed, but a background job whose parent has already ended is not; the reason is shown, usually that `setsid` is not installed. `interpreter only` means the step's own interpreter is killed and what it started carries on: this is the case on Windows.
+What a timeout or Stop can reach when an external step has started other programs. `whole process tree` means the step and everything it started. `partial` means programs still attached to the step are killed, but a background job whose parent has already ended is not; the reason is shown, usually that `setsid` is not installed. `interpreter only` means the step's own interpreter is killed and what it started carries on: this is the case on Windows, unless the experimental `orchestrator.windows-tree-kill` option is on, in which case Windows shows `partial`.
 
 ### Windows trust store
 

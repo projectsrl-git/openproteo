@@ -1,43 +1,36 @@
-Linux: the audit's fixes - rename, order, glob case, links (L3)
+Windows process-tree kill: experimental, off by default (W)
 
-Step L3: section 5 of .claude/LINUX_AUDIT.md. No runtime parameter.
-Under Windows rules every changed function returns what it returned.
+Step W. NOT RUN ON WINDOWS. Off unless
+orchestrator.windows-tree-kill=true; with it off a Windows instance
+does exactly what it did, and the suite asserts that nothing
+Windows-specific is called.
 
-platform/HostFiles holds four JDK operations whose result changes with
-the host without any error:
+engine/WindowsTreeKill: on timeout and Stop, kill what the step started
+with taskkill /T. Java 8 holds a HANDLE, not a pid, so the step is
+found among the JVM's own children (one PowerShell CIM query) by the
+moment it was started and by its command line. Exactly one candidate or
+nothing: not found, or two steps that cannot be told apart, and only
+the interpreter is killed, as before, with the reason in the step log.
+Never the JVM, never a system pid. On Java 9+ Process.pid() is used.
 
-- A processed input is never renamed over an older one. File.renameTo
-  refuses an existing target on Windows and REPLACES it on Linux; the
-  .done of an earlier delivery was lost silently. Now refused on both
-  (elarxml, json2csv, ftpsend, elar split).
-- filecopy / safecopy / encoding batch take files in name order off
-  Windows, where enumeration is in hash order. On Windows the
-  enumeration is not touched.
-- filecopy / safecopy say in the log when the host matches file names
-  case-sensitively, and how many files a pattern left behind for case
-  alone ("*.csv" does not take DATA.CSV on Linux, exit 0).
-- RunStore and WorkflowPorter delete recursively without following
-  symbolic links.
+ProcessTree gains a TASKKILL mode, live only on Windows with the switch
+on; the Platform page shows it as "partial". USAGE.md describes the
+option and says plainly that it has not been run on Windows.
 
-Every step logs a WARNING for a parameter that is a Linux path joined
-with a backslash; no value is changed.
+INCOMPLETE by checklist 10: orchestrator.windows-tree-kill is
+file-only; added to the debt list in CLAUDE.md.
 
-USAGE.md: "Moving a workflow from Windows to Linux". CLAUDE.md: two
-rules, in their sections. README.md not touched.
+Spec 9.7 lists every decision taken without the author in L1, L2, L3
+and W, for review. README.md not touched.
 
-Found and NOT done: the standalone artifact cannot be given a JDBC
-driver JAR. Proposed as L4 in the spec, 9.5; the decision is the
-author's.
-
-Verified on Linux (sandbox; Java 1.8.0_432 and JDK 21.0.12, root and
-non-root, ext4 and tmpfs): 41 assertions on the real HostFiles,
-ElarRun.renameDone and Json2CsvRun.renameProcessed, 18 mutations; the
-filecopy / safecopy / encoding bodies lifted from InternalSteps and run
-beside the pre-patch bodies, 21; differential compile of the classes
-that cannot be built here - it found a missing import; USAGE.md through
-docs.html render(), 21 + 143 earlier; git apply --check on a second
-clean clone.
+Verified on Linux (sandbox; Java 1.8.0_432 and JDK 21.0.12, PowerShell
+7.4.6): 45 assertions on the decision, every refusal, the wiring under
+an injected os.name, and the query's PowerShell expression executed by
+a real PowerShell in a non-UTC time zone; 20 mutations; the batch 2
+executor suite (126) and the controller suite (22) re-run; Platform
+page 90; guide suites; differential compile identical; git apply
+--check on a second clean clone.
 Verified on Windows: nothing.
-Not verified on either: mvn clean package; the call sites inside
-InternalSteps.run, RunStore and WorkflowPorter beyond the differential
-compile; that NTFS order equals the sort - hence no sort on Windows.
+Not verified on either: Get-CimInstance, taskkill, Windows PowerShell
+5.1, the command line Windows records for a Java-started process; mvn
+clean package; Spring binding of the new property.

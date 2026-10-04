@@ -29,6 +29,13 @@ public class AppProperties {
      */
     private String powershellExe = defaultPowershellExe(System.getProperty("os.name"));
 
+    /**
+     * Windows only, and OFF by default: on timeout and Stop, kill what a step started as well as
+     * its interpreter (taskkill /T). Experimental - written without a Windows machine to run it
+     * on. See engine/WindowsTreeKill.
+     */
+    private boolean windowsTreeKill = false;
+
     /** bash, for .sh steps. Always invoked as an interpreter, never by executing the script file. */
     private String bashExe = "/bin/bash";
 
@@ -110,6 +117,8 @@ public class AppProperties {
     public void setDefaultBaseDir(String v) { this.defaultBaseDir = v; }
     public String getPowershellExe() { return powershellExe; }
     public void setPowershellExe(String v) { this.powershellExe = v; }
+    public boolean isWindowsTreeKill() { return windowsTreeKill; }
+    public void setWindowsTreeKill(boolean v) { this.windowsTreeKill = v; }
     public String getBashExe() { return bashExe; }
     public void setBashExe(String v) { this.bashExe = v; }
     public String getJavaExe() { return javaExe; }
