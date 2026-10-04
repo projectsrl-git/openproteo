@@ -11,12 +11,17 @@ modo programmato gli script PowerShell e gli step built-in di preparazione e
 spedizione dei feed Legal Archive in un ambiente corporate UBS (Credit Suisse →
 UBS decommissioning).
 
-Pacchettizzata come **WAR per un Tomcat esterno**, senza embedded server.
+~~Pacchettizzata come **WAR per un Tomcat esterno**, senza embedded server.~~
+Corretto 2026-10-04 (falso dal 2026-08-03): la stessa build produce **due
+artefatti**. `openproteo.war`, per un **Tomcat esterno**; e
+`openproteo-standalone.war`, con **Tomcat embedded**, che si avvia con
+`java -jar`. Le regole di questo file valgono per entrambi.
 
 ## Stack e regole irrinunciabili
 
 * **Java 8** — niente API ≥ 9 nemmeno per zucchero sintattico.
-* **Spring Boot 2.7**, Thymeleaf, Maven, Tomcat 8.5/9 esterno.
+* **Spring Boot 2.7**, Thymeleaf, Maven, Tomcat 8.5/9 esterno, oppure embedded
+  nell'artefatto standalone (aggiunto 2026-10-04).
 * **Zero CDN, zero dipendenze a runtime di rete**: ogni risorsa è bundled
   (font, JS, CSS, pool di masking) o vive in path locali ~~configurati nella
   `application.properties` esterna~~ configurati **dalla GUI** (emendato
@@ -3819,3 +3824,35 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   cannot take effect must say so. No code in this commit.
 * Note in `.claude/2026-10-04-linux-gui-batch0-answers.md`; spec `.claude/LINUX_AND_GUI_CONFIG.md`
   §4 and §6 updated, the superseded lines struck through.
+
+## Platform diagnostics panel — Batch 1 (spec only); the packaging claim corrected
+* Spec in `.claude/LINUX_AND_GUI_CONFIG.md` §7. **No code in this commit.** A read-only `/platform`
+  page over `GET /api/platform`: OS and JVM identity, `user.dir` beside the resolved absolute paths
+  with exists / kind / writable, SunMSCAPI presence, each configured interpreter resolved WITHOUT
+  being executed, and a case-sensitivity probe of `defaultBaseDir`. No new parameter, no dependency,
+  no executor touched. Five Gate 1 questions (§7.12) block the code.
+* **The whitelist is a table with a reason per field, and a list of what is excluded BY NAME** -
+  `user.name`, `PATH`'s value, the class path, whether the masking secret is set, any count read
+  from a configuration JSON - so an absence is a decision. Enforced by a scan of the package, not by
+  care.
+* **"Harmless" was not argued, because for `os.name` and `java.version` it is not true.** The
+  argument is comparative: an unauthenticated caller can already upload and run a script, and read
+  absolute directories from the file-list endpoints. It expires with batch 3, and the spec says so.
+  No kill switch: it would be a new file-only key, which checklist 10 forbids.
+* **Three things the request did not spell out and the spec decides**: the case probe is CACHED
+  (a public GET that writes a file on every call is a write anyone can drive; at most one probe per
+  60 s); an EMPTY path is `not set`, never resolved (`Paths.get("")` is `user.dir`, so an unset
+  `maskPoolsDir` would show as an existing writable directory); a RELATIVE interpreter path with a
+  separator is `UNDETERMINED`, because each step has its own working directory and the OSes
+  resolve it differently.
+* **Read from the jdk8u source, not run**: `Files.isWritable` on Windows asks for the effective
+  `FILE_WRITE_DATA` right and checks the volume; `File.canWrite()` only reads the read-only
+  attribute, meaningless for a directory. On Linux root passes every `access(2)` check and the
+  sandbox IS root - the verification runs as a non-root user.
+* **`System.lineSeparator()` read, as promised**: `ApiController:1689` is display text; `:1488-1493`
+  puts host line endings inside the log block of `audit_report.md`. Recommended to stay - changing
+  it alters the bytes of every report on the Windows box for no visible gain. Gate question 5.
+* **«Cos'è OpenProteo» said "senza embedded server"**, false since the standalone artifact of
+  2026-08-03; corrected (struck through), and the Spring Boot line of the stack list with it.
+  `X-User` before `getRemoteUser()`: confirmed as batch 3's decision, not touched before.
+* Note in `.claude/2026-10-04-platform-panel-batch1-spec.md`.

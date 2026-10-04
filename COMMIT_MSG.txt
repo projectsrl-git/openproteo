@@ -1,37 +1,42 @@
-CLAUDE.md: "equivalente", not "identico"; the four answers applied
+Platform diagnostics panel: batch 1 spec; packaging claim corrected
 
-Follow-up to eee2d8c (batch 0 of the Linux / GUI-configuration
-programme). Documentation only: no Java, template, JS, pom.xml,
-USAGE.md or README.md change, and no new runtime parameter.
+Spec only, no code. Documentation: no Java, template, JS, pom.xml,
+README.md change; USAGE.md waits for the page it would describe; no
+new runtime parameter.
 
-1. The Linux rule said "funzionare in modo identico". Wrong word, by
-   its author's account: it is now "equivalente", respecting the context
-   and the specifics of the host OS - OpenProteo adapts to its host.
-   Corrected where it was written, the old word struck through. unarchive
-   following the detected OS (batch L1) is the rule working, not an
-   exception. One clause is mine and not dictated: where the host
-   differs the behaviour follows it AND the run says which rules it
-   used.
-2. Linux rule vs conservative defaults is now written beside both
-   rules, as the 2026-09-30 principle asks: a saved value is never
-   rewritten to make it portable; platform-sensitive defaults are for
-   new instances and new objects only.
-3. "Checklist pre-commit" gains 9 (Linux / Windows / neither, on three
-   separate lines, JDK named) and 10 (no new file-only runtime
-   parameter, or the delivery calls itself incomplete).
-4. server.port: settable from the GUI, effective from the next start
-   of the application. Conservative, for now; server.port only, the
-   rest of server.* stays out of scope. Recorded in "Configurazione
-   esterna"; how, and what the GUI shows under the external Tomcat
-   where the key has no effect, is left to the settings batch spec.
+.claude/LINUX_AND_GUI_CONFIG.md section 7: a read-only /platform page
+over GET /api/platform - OS and JVM identity, user.dir beside the
+resolved absolute paths (exists, kind, writable), SunMSCAPI presence,
+each configured interpreter resolved without being executed, and a
+case-sensitivity probe of defaultBaseDir. Public until batch 3.
 
-.claude/LINUX_AND_GUI_CONFIG.md updated in step: answered points and
-superseded lines struck through, not deleted.
+Whitelist as a table with a reason per field, plus what is excluded by
+name (user.name, PATH's value, the class path, whether the masking
+secret is set, any count read from a configuration JSON). The
+disclosure argument is comparative and says when it expires (batch 3);
+"harmless" is not claimed for os.name and java.version. No kill
+switch: it would be a new file-only key.
 
-Verified on Linux (sandbox; nothing compiled, no JDK involved):
-origin/main = eee2d8c before generating, fresh clone; every edit anchor
-matched exactly once; the patch touches only CLAUDE.md and two .claude
-files; git apply --check on a second clean clone; no CR in CLAUDE.md;
-the checklist is one numbered list, 1 to 10.
-Verified on Windows: nothing - nothing here is platform-dependent.
-Not verified on either: how the struck-through text renders.
+Decided beyond the request: the case probe is cached, at most one per
+60 s, because a public GET must not write on every call; an empty path
+is "not set", never resolved (Paths.get("") is user.dir); a relative
+interpreter path with a separator is UNDETERMINED. Seven intersections
+written by name. Five Gate 1 questions block the code.
+
+System.lineSeparator() in ApiController read: :1689 display only;
+:1488-1493 puts host line endings in the audit report's log block.
+Recommended to stay; Gate question 5.
+
+CLAUDE.md "Cos'e' OpenProteo" said "senza embedded server", false
+since the standalone artifact: corrected, struck through, and the
+Spring Boot line aligned. X-User before getRemoteUser(): confirmed as
+batch 3's decision.
+
+Verified on Linux (sandbox; nothing compiled): origin/main = aaaf68f
+before generating, fresh clone; every cited file:line read at that
+commit; every edit anchor matched once; patch touches only CLAUDE.md
+and two .claude files; git apply --check on a second clean clone.
+Verified on Windows: nothing.
+Not verified on either: the Windows executable search order (from
+CreateProcess documentation) and Files.isWritable on Windows (read
+from the jdk8u source) - both stated as such in the spec.
