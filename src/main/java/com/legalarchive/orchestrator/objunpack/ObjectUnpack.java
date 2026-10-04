@@ -57,6 +57,10 @@ import java.util.function.Consumer;
  * then are the objects renamed and the result committed. Nothing appears under a final name until
  * every check has passed.
  *
+ * <p><b>Read-only towards everything it did not create.</b> The archive and its {@code .md5} are
+ * opened for reading and never renamed, moved or deleted; an output that already exists is never
+ * replaced. The only things this class deletes are its own staging folders.
+ *
  * <p>Nothing here is a second implementation: format detection, gzip, the tar reader, name
  * validation, collision keys and the size limits are {@code unarchive}'s; the checksum and the
  * name grammar are {@code objpack}'s; the CSV reader is {@code rename}'s.
@@ -69,7 +73,6 @@ public final class ObjectUnpack {
     public File outputDir;
     public String md5Check = "require";          // require | ifPresent | off
     public String onInconsistency = "fail";      // fail | warn
-    public String onExisting = "fail";           // fail | replace
     public String metadataDelimiter = "auto";    // auto | one character
     /** Objects, not members: a package also holds audit, metadata and control (spec, U5). */
     public int maxObjects = 100000;
@@ -142,7 +145,6 @@ public final class ObjectUnpack {
     public void run() throws IOException {
         String md5Mode = oneOf("md5Check", md5Check, "require", "ifpresent", "off");
         String incMode = oneOf("onInconsistency", onInconsistency, "fail", "warn");
-        String existMode = oneOf("onExisting", onExisting, "fail", "replace");
         rules = HostRules.detect(hostOs);
         if (rules == null) {
             throw new ObjUnpackException(Reason.CONFIGURATION, "this host is neither Windows nor Linux (os.name='"
@@ -186,9 +188,7 @@ public final class ObjectUnpack {
         objectsDir = new File(outputDir, "objects");
         packageDir = new File(outputDir, "package");
         sweepLeftovers();
-        if ("fail".equals(existMode)) {
-            refuseExisting();
-        }
+        refuseExisting();
 
         checkMd5(parsed, md5Mode);
 
@@ -210,7 +210,7 @@ public final class ObjectUnpack {
                 }
             }
             arrange(staging, members, objects);
-            commit(staging, existMode);
+            commit(staging);
             objectCount = objects.size();
             say("restored " + objectCount + " object(s) to " + objectsDir.getPath() + "; metadata: "
                     + metadataCsv.getName() + " (" + metadataRows + " row(s), delimiter '" + metadataDelimiterUsed + "')");
@@ -275,8 +275,9 @@ public final class ObjectUnpack {
     private void refuseExisting() throws IOException {
         for (File d : new File[] { objectsDir, packageDir }) {
             if (Files.exists(d.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
-                throw new ObjUnpackException(Reason.EXISTS, d.getAbsolutePath() + " already exists. Point outputDir"
-                        + " at an empty folder, or set onExisting=replace to delete it once the new content is complete");
+                throw new ObjUnpackException(Reason.EXISTS, d.getAbsolutePath() + " already exists, and this step"
+                        + " never replaces or deletes what it finds. Point outputDir at a folder without objects/ and"
+                        + " package/ (the step's own directory is new at every run)");
             }
         }
     }
@@ -737,20 +738,18 @@ public final class ObjectUnpack {
         }
     }
 
-    private void commit(File staging, String existMode) throws IOException {
+    /**
+     * Moves the two folders into place. Nothing that exists is ever replaced or deleted (the
+     * author's decision, 2026-10-04): a target that is there - from an earlier run, or one that
+     * appeared while this one ran - refuses the step and is left exactly as it was.
+     */
+    private void commit(File staging) throws IOException {
         stopIfAborted();
         File[][] moves = { { new File(staging, "objects"), objectsDir }, { new File(staging, "package"), packageDir } };
         for (File[] mv : moves) {
             if (Files.exists(mv[1].toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
-                if (!"replace".equals(existMode)) {
-                    throw new ObjUnpackException(Reason.EXISTS, mv[1].getAbsolutePath() + " appeared while the step ran");
-                }
-                int left = HostFiles.deleteTreeNoFollow(mv[1].toPath());
-                if (left > 0) {
-                    throw new ObjUnpackException(Reason.COMMIT, "onExisting=replace could not remove " + left
-                            + " entr" + (left == 1 ? "y" : "ies") + " under " + mv[1].getAbsolutePath());
-                }
-                say("onExisting=replace: removed the previous " + mv[1].getName() + "/");
+                throw new ObjUnpackException(Reason.EXISTS, mv[1].getAbsolutePath() + " appeared while the step ran;"
+                        + " it is left as it is and nothing was restored");
             }
         }
         for (int k = 0; k < moves.length; k++) {

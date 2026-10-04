@@ -1027,7 +1027,7 @@ public class WorkflowEngine {
     private static String internalKind(String exec) {
         if (exec == null) return null;
         String e = exec.trim().toLowerCase();
-        if (e.equals("sql") || e.equals("ifscopy") || e.equals("filecopy") || e.equals("setvar") || e.equals("validate") || e.equals("csvreplace") || e.equals("encoding") || e.equals("anonymize") || e.equals("mask") || e.equals("split") || e.equals("safecopy") || e.equals("dequote") || e.equals("csvsql") || e.equals("xlsx2csv") || e.equals("diff") || e.equals("sqlreport") || e.equals("elarxml") || e.equals("elarcheck") || e.equals("json2csv") || e.equals("tiffcompress") || e.equals("ftpsend") || e.equals("objpack") || e.equals("filerename") || e.equals("unarchive")) return e;
+        if (e.equals("sql") || e.equals("ifscopy") || e.equals("filecopy") || e.equals("setvar") || e.equals("validate") || e.equals("csvreplace") || e.equals("encoding") || e.equals("anonymize") || e.equals("mask") || e.equals("split") || e.equals("safecopy") || e.equals("dequote") || e.equals("csvsql") || e.equals("xlsx2csv") || e.equals("diff") || e.equals("sqlreport") || e.equals("elarxml") || e.equals("elarcheck") || e.equals("json2csv") || e.equals("tiffcompress") || e.equals("ftpsend") || e.equals("objpack") || e.equals("filerename") || e.equals("unarchive") || e.equals("objunpack")) return e;
         return null;
     }
 

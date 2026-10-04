@@ -136,6 +136,7 @@ OpenProteo deliberately **ships no database driver**. Bundling one per vendor wo
 - **objpack** — build a Transarch **object submission**: renamed objects, metadata CSV, audit JSON, control file, `.tar` and `.md5`, from a source metadata CSV and a directory of objects. One CSV row per object. Objects are streamed into the archive from where they already are, so no temporary copy is made. See The objpack step below.
 - **filerename** — rename the files of a directory according to a CSV mapping: the name on disk is built from a template and an id, the new name is a column. The whole mapping is checked before the first rename, and a collision stops the step with nothing renamed. The executor form of `Rename-FilesFromCsvMap.ps1`. See The filerename step below.
 - **unarchive** — extract the archives of a directory (zip, tar, tar.gz/tgz, gz), each into its own folder. The format comes from the file's content, not its name; entries that would leave their folder, collide on Windows or are links are refused; limits stop archive bombs; nothing incomplete appears under a final name. See The unarchive step below.
+- **objunpack** — the inverse of **objpack**: take one Transarch object package (`.tar` or `.tar.gz`, with its `.md5`) and give back its objects under their original names and its metadata CSV, ready to be rebuilt and resent. The original names come from the package's own audit and metadata files, never from a naming pattern. For now it is written in the XML: the designer panel comes in a later delivery. See "The objunpack step".
 - **split** — split an **existing file** into parts by rows and/or MB, using the same logic
   as the SQL export. Use it to run a LOOP only over the final steps, after validation and
   anonymization (see Splitting and Loops).
@@ -1549,3 +1550,73 @@ Required: `sourceDir`. A parameter left empty means its default (the designer sh
 ### What it does not do yet
 
 No extraction of everything into one folder (one folder per archive only).
+
+## The objunpack step
+
+`objunpack` is the inverse of `objpack`. It takes **one** Transarch object package — `<base>.tar` or `<base>.tar.gz`, with `<base>.md5` beside it — and gives back the objects under their original names and the package's metadata CSV, byte for byte. It exists so a submission can be corrected and resent: its output is what `csvsql`, `dequote`, `validate` and `objpack` need as input.
+
+**It has no designer panel yet.** The step is written in the workflow XML; the panel and a ready-made workflow template come in later deliveries. Until then, a workflow containing it can be opened in the designer, but the Executor field of that step shows the first entry of the list, because the list does not know `objunpack` yet: leave that field alone, or the step becomes another executor when the workflow is saved.
+
+```xml
+<step id="OBJUNPACK" name="Unpack the package" exec="objunpack">
+    <param name="archive" value="${landingIn}/*.tar"/>
+</step>
+```
+
+### How the original names are found
+
+Not from the names inside the package. A member is called `tf0005754.20261004.S001.V001.SECTSC2028300108d_pdf.OID3.pdf` by one producer and `tf0005754.20261004.S001.V001.OID000003.2` by another, and neither says what the file was called. The package says it in two of its own files: the audit file lists each member with its `object_id`, and the metadata CSV gives each `object_id` its `original_object_name`. The step joins the two. This works for packages built by `objpack` (with or without a name label, compressed or not) and by the older PowerShell script.
+
+### What you get
+
+- `objects/` in the output folder: one file per object, under its original name, with the modification time stored in the package.
+- `package/` in the output folder: the package's audit file, metadata CSV and control file, exactly as they were inside the archive.
+- The submission's identity as variables, so the next steps can decide what to send: `${tfId}`, `${transmissionDate}`, `${sequenceNr}`, `${versionNr}`, `${nextVersionNr}` (the version plus one — a corrected resend keeps the date and the sequence and takes the next version), `${submissionBaseName}`, `${targetDestination}`.
+- Where things are: `${objectsDir}`, `${metadataCsv}`, `${metadataDelimiter}` (the delimiter the package's metadata uses — pass it to `objpack` as `outDelimiter`, whose own default is `;`, or the rebuilt package changes delimiter), `${compression}` (`none` or `gzip`).
+- What was checked: `${objectCount}`, `${metadataRows}`, `${md5}`, `${md5Checked}`, `${inconsistencies}`, `${warnings}`, `${hostRules}`.
+
+To rebuild the package, point `objpack` at `${OBJUNPACK.objectsDir}` and at the metadata CSV, and leave its pairing by name. The `object_id` column already in the metadata is set aside by `objpack`, which numbers the rows again.
+
+### It never changes what it finds
+
+The archive and its `.md5` are only read: never renamed, moved or deleted. And nothing that already exists is replaced: if the output folder already holds `objects/` or `package/` — even empty — the step stops before reading the archive and leaves them as they are. The step's own directory is new at every run, so this only matters when `outputDir` points somewhere fixed. Nothing appears under `objects/` or `package/` until the whole package has been read and checked; a refused, failed or stopped run leaves nothing behind.
+
+### What stops the step
+
+Always, because the objects could not be restored without guessing:
+
+- the archive's file name is not a submission name (`tf0000001.20250101.S001.V001.tar`): the identity is read from it;
+- the checksum is missing or does not match (see `md5Check`);
+- no audit file, or more than one; a member the audit lists is not in the archive, or is listed twice; an `object_id` used twice; an object with no row in the metadata;
+- the metadata has no `object_id` or no `original_object_name` column, or is not valid UTF-8;
+- an original name that is empty, is a path (`sub/x.pdf`), or cannot be a file name on this server;
+- **two objects with the same original name.** They would be restored to one file. The message lists every such name with its `object_id` values. They are not renamed: a renamed file would no longer be the one its metadata row names;
+- a member that is a link, a folder, or has a path in its name; an archive that is bzip2, xz or a zip.
+
+By default also when the package does not conform, each case named in the log: the record count, the audit and the metadata disagree; a member the audit does not list; a control file that is missing or not empty; a date, sequence or version in the audit that differs from the archive's name; a `mime_type` that differs between audit and metadata. Since the package being unpacked is often one that was rejected, `onInconsistency=warn` restores it anyway, logs each case and counts them in `${inconsistencies}`. A member the audit does not list is then left in `package/`, never in `objects/`.
+
+### Windows and Linux servers
+
+File-name rules follow the server, and the first log line and `${hostRules}` say which were used. On Windows a name with `:`, `< > " | ? *`, a reserved device name or a trailing dot is refused, and two names that differ only in upper and lower case are one file and are refused; on Linux all of these are legal names and are restored. On a Linux server started without a UTF-8 locale, a name with accented letters cannot be created at all: the step refuses it and says which encoding is in use — start the service with a UTF-8 locale (`LANG=C.UTF-8`); the Platform page shows the encoding.
+
+### Parameters
+
+Required: `archive`. Each applies from the next run of the step.
+
+- `archive` — the package: a path, or a path whose file name has `*` or `?` and matches **exactly one** file (matched case-sensitively on every server). None or several stop the step, which lists them.
+- `outputDir` — default the step directory.
+- `md5Check` — default `require`: the `.md5` beside the archive must exist and match, and it is checked before anything is read from the archive. `ifPresent` checks it when it is there and warns when it is not; `off` does not read it.
+- `onInconsistency` — default `fail`; `warn` restores a package that does not conform (see above).
+- `metadataDelimiter` — default `auto`: the character after the `object_id` header. Otherwise one character, or the word `tab`.
+- `maxObjects` — default 100000. Objects, not files: the audit, metadata and control files are not counted.
+- `maxObjectMb` — default 2048.
+- `maxArchiveMb` — default 20480.
+- `maxRatio` — default 200, for a `.tar.gz`.
+- `maxPathLength` — default `auto`: 259 characters on a Windows server, 4096 bytes on Linux.
+- `preserveMtime` — default `true`.
+
+### What cannot be recovered
+
+Rows that were discarded when the package was built are not in it. The folders the objects came from are not recorded: objects come back in one flat folder. The metadata is the packaged one, not the file the package was built from: columns may have been reordered and renamed, and an `object_id` column added. For a package built by the older script in `Order` mode the names are the ones its CSV declared, whatever the files were called. A metadata value containing a line break is restored as it is, and `objpack` will refuse that CSV until `csvsql` has normalised it (*line breaks inside values*).
+
+Not run on Windows yet.

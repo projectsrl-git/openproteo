@@ -1,38 +1,34 @@
-objunpack: the core classes, unwired (batch 1)
+objunpack: registered as a step; never modifies what it finds (batch 2)
 
-A Transarch object package back to its objects under their original
-names and its metadata CSV byte for byte. Plain classes: no executor
-name, no dispatch, no panel yet, so nothing an existing workflow does
-can change.
+exec="objunpack" is accepted by the parser, treated as internal by the
+engine and dispatched to InternalSteps.runObjUnpack: eleven step
+parameters in, eighteen variables out. Exit 0, 2 for every refusal,
+-997 on Stop, 1 for an I/O failure; a code is set on every path.
 
-- objunpack/ObjectUnpack: checksum, one pass into a staging folder,
-  the join audit.json x metadata.csv, the package checks, rename,
-  commit. Extraction, name rules and limits are unarchive's; checksum
-  and name grammar are objpack's; the CSV reader is filerename's.
-- SubmissionName.parse: the inverse of archive(). Added, nothing
-  existing changed.
-- AuditJson.read: a strict JSON reader that takes each item by key, so
-  PowerShell's formatting and key order do not matter. write and
-  validate, which objpack uses, are untouched.
-- EntryName.printable made public (one word).
+The step is written in the workflow XML for now. The designer panel is
+the next batch; until then the designer shows the first executor of
+its list for such a step - USAGE.md says not to touch that field.
 
-Gate 0: G2 answered - names may repeat - so the refusal reports every
-clash. G1 and G3-G8 follow the spec's recommendations, to be confirmed.
+By the author's decision the step never changes anything it did not
+create. onExisting=replace is removed: an existing objects/ or
+package/, even empty, refuses the step before the archive is read. The
+archive and its .md5 are only read - never renamed, moved or deleted.
 
-Found by measuring: under an ASCII locale an accented file name cannot
-be created (Java 8 and 21); it is now refused naming the encoding and
-the remedy. The spec is corrected where the code proved it wrong, with
-the old text struck through; section 13 is the as-built.
+USAGE.md: "The objunpack step". No file-only key (checklist 10): all
+parameters are step params, applied at the next run. README.md and
+CLAUDE.md not touched.
 
 Verified on Linux (sandbox; Temurin 1.8.0_432 and JDK 21.0.10 both
-run, Java 8 javac; root and uid 65534; LANG=C.UTF-8 and empty): suite
-green in all eight combinations, 638 assertions under UTF-8 and 179
-under ASCII, plus 7 only a non-root user can observe; 44 packages, 21
-from the real ObjectPack and the legacy script under pwsh, 23 rebuilt
-from real members with GNU tar; round trip on ten packages of both
-producers; 56 mutations on copies, 55 caught, 1 equivalent; git apply
---check on a second clean clone.
-Verified on Windows: nothing. Windows name rules ran on Linux with the
-host named: the logic, not the platform.
-Not verified on either: mvn clean package; Windows PowerShell 5.1; a
-legacy package made on Windows; size and timing at 100 000 objects.
+run, Java 8 javac; root and uid 65534; LANG=C.UTF-8 and empty): the
+real body of runObjUnpack lifted by position and run on packages made
+by the real producers, 85 assertions, eight combinations, exit code
+never -1; 22 mutations of it, all caught; core suite 639 assertions,
+eight combinations; 56 core mutations, 55 caught, 1 equivalent;
+differential compile of InternalSteps, WorkflowEngine and
+WorkflowXmlParser identical before and after, with a positive control;
+USAGE.md compared with the method and rendered by docs.html's
+render(); git apply --check on a second clean clone.
+Verified on Windows: nothing.
+Not verified on either: that a workflow with the step parses and
+reaches the method - read and differentially compiled, never run; mvn
+clean package; the docs page in a browser; a large package.

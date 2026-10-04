@@ -126,6 +126,8 @@ public class InternalSteps {
                 runFileRename(resolvedParams, vars, res, line, control);
             } else if ("unarchive".equals(kind)) {
                 runUnarchive(resolvedParams, vars, res, line, control);
+            } else if ("objunpack".equals(kind)) {
+                runObjUnpack(resolvedParams, vars, res, line, control);
             } else {
                 line.accept("unknown internal step kind: " + kind);
                 res.exitCode = -996;
@@ -478,6 +480,110 @@ public class InternalSteps {
             res.lastLines = failure;
         } else if (code == -997) {
             res.lastLines = "stopped by user after " + u.archivesExtracted + " archive(s)";
+        }
+        res.exitCode = code;
+    }
+
+    // -------------------------------------------------------------- objunpack
+    /**
+     * Unpacks one Transarch object package into its objects, under their original names, and its
+     * metadata CSV - spec {@code .claude/OBJECT_UNPACK_EXECUTOR.md}. Everything is in
+     * {@code objunpack.ObjectUnpack}; this method translates parameters in and variables out, and
+     * sets an explicit exit code on EVERY path ({@code Result.exitCode} starts at -1).
+     * Codes: 0 done; 2 refused (configuration or package, the message names the rule); -997 Stop;
+     * 1 an unexpected failure.
+     */
+    private void runObjUnpack(Map<String, String> params, Map<String, String> vars, StepExecutor.Result res,
+                              java.util.function.Consumer<String> line, final RunControl control) {
+        com.legalarchive.orchestrator.objunpack.ObjectUnpack u = new com.legalarchive.orchestrator.objunpack.ObjectUnpack();
+        String arc = pv(params, vars, "archive");
+        if (arc == null) { line.accept("objunpack: archive (the package's .tar or .tar.gz) is required"); res.exitCode = 2; res.lastLines = "archive is required"; return; }
+        u.archive = rebaseRel(arc, vars);
+        String out = pv(params, vars, "outputDir");
+        if (out == null) out = blankToNull(vars.get("stepDir"));
+        if (out == null) { line.accept("objunpack: outputDir is required when the step has no step directory"); res.exitCode = 2; res.lastLines = "outputDir is required"; return; }
+        u.outputDir = new java.io.File(rebaseRel(out, vars));
+
+        String v;
+        if ((v = pv(params, vars, "md5Check")) != null) u.md5Check = v;
+        if ((v = pv(params, vars, "onInconsistency")) != null) u.onInconsistency = v;
+        // The delimiter is read UNTRIMMED: a tab is a legitimate one and trimming would erase it.
+        String rawDelim = params.get("metadataDelimiter");
+        if (rawDelim != null) rawDelim = VarResolver.resolve(rawDelim, vars);
+        if (rawDelim != null && !rawDelim.isEmpty()) u.metadataDelimiter = rawDelim;
+        u.preserveMtime = yes(pv(params, vars, "preserveMtime"), true);
+
+        // Numbers are refused when malformed, never defaulted (the unarchive rule).
+        String[] nums = { "maxObjects", "maxObjectMb", "maxArchiveMb", "maxRatio", "maxPathLength" };
+        for (String k : nums) {
+            String raw = pv(params, vars, k);
+            if (raw == null) continue;
+            if ("maxPathLength".equals(k) && "auto".equalsIgnoreCase(raw)) continue;
+            long n;
+            try { n = Long.parseLong(raw); }
+            catch (NumberFormatException e) { n = -1; }
+            long top = "maxObjects".equals(k) || "maxPathLength".equals(k) ? Integer.MAX_VALUE - 3 : Long.MAX_VALUE / (1024L * 1024L);
+            if (n < 1 || n > top) {
+                String msg = k + " must be a whole number from 1 to " + top + ("maxPathLength".equals(k) ? ", or auto" : "") + "; got '" + raw + "'";
+                line.accept("objunpack: " + msg); res.exitCode = 2; res.lastLines = msg; return;
+            }
+            if ("maxObjects".equals(k)) u.maxObjects = (int) n;
+            else if ("maxObjectMb".equals(k)) u.maxObjectBytes = n * 1024L * 1024L;
+            else if ("maxArchiveMb".equals(k)) u.maxArchiveBytes = n * 1024L * 1024L;
+            else if ("maxRatio".equals(k)) u.maxRatio = n;
+            else u.maxPathLength = (int) n;
+        }
+
+        String runId = blankToNull(vars.get("runId"));
+        u.runId = (runId != null ? runId.replaceAll("[^A-Za-z0-9_-]", "_") + "-" : "") + System.currentTimeMillis();
+        u.progress = line;
+        u.aborted = new java.util.function.BooleanSupplier() {
+            public boolean getAsBoolean() { return control != null && control.aborted; }
+        };
+        int code;
+        String failure = null;
+        try {
+            u.run();
+            code = 0;
+        } catch (com.legalarchive.orchestrator.objunpack.ObjUnpackException e) {
+            code = e.reason() == com.legalarchive.orchestrator.objunpack.ObjUnpackException.Reason.STOPPED ? -997 : 2;
+            failure = e.getMessage();
+        } catch (com.legalarchive.orchestrator.unarchive.UnarchiveException e) {
+            code = 2;
+            failure = e.getMessage();
+        } catch (java.io.IOException e) {
+            code = 1;
+            failure = "I/O failure: " + e;
+        } catch (RuntimeException e) {
+            // objpack's refusals are RuntimeExceptions, but ObjectUnpack wraps the two it can meet
+            // (the archive's name, the audit file); anything arriving here is a defect, not a refusal.
+            code = 1;
+            failure = "unexpected failure: " + e;
+        }
+        boolean done = code == 0;
+        // The identity is read from the archive's name before anything else, so it is published
+        // even when the package is then refused; the paths only when they exist.
+        res.outVars.put("tfId", u.tfId == null ? "" : u.tfId);
+        res.outVars.put("transmissionDate", u.transmissionDate == null ? "" : u.transmissionDate);
+        res.outVars.put("sequenceNr", u.tfId == null ? "" : String.valueOf(u.sequenceNr));
+        res.outVars.put("versionNr", u.tfId == null ? "" : String.valueOf(u.versionNr));
+        res.outVars.put("nextVersionNr", u.nextVersionNr);
+        res.outVars.put("submissionBaseName", u.submissionBaseName == null ? "" : u.submissionBaseName);
+        res.outVars.put("targetDestination", u.targetDestination == null ? "" : u.targetDestination);
+        res.outVars.put("objectCount", String.valueOf(u.objectCount));
+        res.outVars.put("metadataRows", String.valueOf(u.metadataRows));
+        res.outVars.put("metadataCsv", done ? u.metadataCsv.getPath() : "");
+        res.outVars.put("metadataDelimiter", u.metadataDelimiterUsed);
+        res.outVars.put("objectsDir", done ? u.objectsDir.getPath() : "");
+        res.outVars.put("compression", u.compression);
+        res.outVars.put("md5", u.md5);
+        res.outVars.put("md5Checked", String.valueOf(u.md5Checked));
+        res.outVars.put("inconsistencies", String.valueOf(u.inconsistencies.size()));
+        res.outVars.put("warnings", String.valueOf(u.warnings.size()));
+        res.outVars.put("hostRules", u.hostRules);
+        if (failure != null) {
+            line.accept("objunpack: " + failure);
+            res.lastLines = failure;
         }
         res.exitCode = code;
     }
