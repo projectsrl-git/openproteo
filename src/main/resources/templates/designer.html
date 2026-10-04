@@ -455,6 +455,7 @@
         }
         if (f === 'exec' && v === 'filerename') frSeed(wf.nodes[i]);
         if (f === 'exec' && v === 'unarchive') uaSeed(wf.nodes[i]);
+        if (f === 'exec' && v === 'objunpack') ouSeed(wf.nodes[i]);
         updNode(i, f, v); renderNodes();
     }
     // filerename: the executor form of Rename-FilesFromCsvMap.ps1. Every parameter the script has is a
@@ -483,6 +484,16 @@
     function uaSeed(n) {
         n.params = n.params || [];
         UA_DEFAULTS.forEach(function (d) { if (nodeParam(n, d[0]) === '') n.params.push({ name: d[0], value: d[1] }); });
+    }
+    // objunpack: the same rule - choosing the executor writes every default into the step. archive
+    // has no default and outputDir defaults to the step directory, so neither is seeded.
+    var OU_DEFAULTS = [ ['md5Check', 'require'], ['onInconsistency', 'fail'], ['metadataDelimiter', 'auto'],
+        ['maxObjects', '100000'], ['maxObjectMb', '2048'], ['maxArchiveMb', '20480'], ['maxRatio', '200'],
+        ['maxPathLength', 'auto'], ['preserveMtime', 'true'] ];
+    function ouDefault(name) { for (var k = 0; k < OU_DEFAULTS.length; k++) if (OU_DEFAULTS[k][0] === name) return OU_DEFAULTS[k][1]; return ''; }
+    function ouSeed(n) {
+        n.params = n.params || [];
+        OU_DEFAULTS.forEach(function (d) { if (nodeParam(n, d[0]) === '') n.params.push({ name: d[0], value: d[1] }); });
     }
     /** The executor's yes(): yes/true/1/on, case-insensitive. Blank is false. */
     function uaYes(v) { var s = String(v || '').trim().toLowerCase(); return s === 'yes' || s === 'true' || s === '1' || s === 'on'; }
@@ -1075,6 +1086,7 @@
                     '<option value="objpack"' + (ex === 'objpack' ? ' selected' : '') + '>objpack (build a Transarch object submission: tar + md5)</option>' +
                     '<option value="filerename"' + (ex === 'filerename' ? ' selected' : '') + '>filerename (rename the files of a directory from a CSV mapping)</option>' +
                     '<option value="unarchive"' + (ex === 'unarchive' ? ' selected' : '') + '>unarchive (extract zip, tar, tar.gz and gz archives)</option>' +
+                    '<option value="objunpack"' + (ex === 'objunpack' ? ' selected' : '') + '>objunpack (Transarch object package back to objects + metadata)</option>' +
                     '</select></div>';
                 h += '<div class="field wide"><label>Script / executable (relative to scripts dir or absolute)' + (isExternal(ex) ? ' *' : '') + '</label>' +
                     '<input value="' + attresc(n.script) + '" placeholder="' + (isExternal(ex) ? 'Prepare-Feed.ps1 | tool.bat | app.jar | prepare.sh' : '(not used for this executor)') + '" oninput="updNode(' + i + ',\'script\',this.value)"' + (isExternal(ex) ? '' : ' disabled') + '></div>' +
@@ -2079,6 +2091,47 @@
                         '<option value="true"' + (uaYes(nodeParam(n, 'failOnEmpty')) ? ' selected' : '') + '>fail the step</option></select></div></div>';
                     h += '</div>';
                     h += '<div class="dim small" style="margin-top:4px">Name rules follow the server the step runs on: on Windows, names Windows cannot hold (a colon, CON or NUL, a trailing dot, two names differing only in case) are refused; on Linux they are extracted as GNU tar extracts them. ${hostRules} says which rules a run used. On Linux, links and permissions are restored as GNU tar and unzip restore them, links only inside the archive\'s folder; on Windows links are refused. On both, entries that would leave their folder are refused. Nothing incomplete appears under a final name. Outputs: ${archivesExtracted}, ${entriesExtracted}, ${extractDirs}, ${manifestFile} and more \u2014 see the guide.</div>';
+                } else if (ex === 'objunpack') {
+                    var ouMd5 = String(nodeParam(n, 'md5Check') || 'require').toLowerCase();
+                    var ouInc = String(nodeParam(n, 'onInconsistency') || 'fail').toLowerCase();
+                    var ouOut = String(nodeParam(n, 'outputDir') || '').trim();
+
+                    h += '<div class="sub"><div class="sub-h">Package</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Archive *</label><input class="sugin" list="pathsug" value="' + attresc(nodeParam(n, 'archive')) + '" placeholder="${landingIn}/*.tar" title="The package: a .tar or .tar.gz named like tf0000001.20250101.S001.V001.tar. A path, or a path whose file name has * or ? and matches exactly one file (case-sensitive on every server). A relative path is resolved against ${feedDir}." oninput="setNodeParam(' + i + ',\'archive\',this.value)"></div>' +
+                        '<div class="field wide"><label>Checksum (.md5 beside the archive)</label><select onchange="setNodeParam(' + i + ',\'md5Check\',this.value); renderNodes()" title="Checked before anything is read from the archive.">' +
+                        '<option value="require"' + (ouMd5 === 'require' ? ' selected' : '') + '>require \u2014 must exist and match</option>' +
+                        '<option value="ifPresent"' + (ouMd5 === 'ifpresent' ? ' selected' : '') + '>if present \u2014 warn when it is missing</option>' +
+                        '<option value="off"' + (ouMd5 === 'off' ? ' selected' : '') + '>off \u2014 do not read it</option></select></div></div>';
+                    if (ouMd5 === 'off') h += '<div class="dim small" style="color:#b9770e">The archive is unpacked without being verified: a file damaged in transfer is not noticed here.</div>';
+                    h += '<div class="dim small">The archive and its .md5 are only read: never renamed, moved or deleted.</div>';
+                    h += '</div>';
+
+                    h += '<div class="sub"><div class="sub-h">Output</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Output directory</label><input class="sugin" list="pathsug" value="' + attresc(ouOut) + '" placeholder="(the step directory)" title="Empty = the step directory, which is new at every run. It receives objects/ and package/. If either already exists there, even empty, the step stops: nothing is ever replaced." oninput="setNodeParam(' + i + ',\'outputDir\',this.value); renderNodes()"></div>' +
+                        '<div class="field"><label>Modification times</label><select onchange="setNodeParam(' + i + ',\'preserveMtime\',this.value)">' +
+                        '<option value="true"' + (uaYesOrBlank(nodeParam(n, 'preserveMtime')) ? ' selected' : '') + '>from the package</option>' +
+                        '<option value="false"' + (!uaYesOrBlank(nodeParam(n, 'preserveMtime')) ? ' selected' : '') + '>time of unpacking</option></select></div></div>';
+                    h += '<div class="dim small">Objects, under their original names: <code>' + esc(ouOut || '(step directory)') + '/objects/</code> \u2014 audit, metadata and control as they were: <code>' + esc(ouOut || '(step directory)') + '/package/</code></div>';
+                    if (ouOut) h += '<div class="dim small" style="color:#b9770e">A fixed output directory makes a second run stop until objects/ and package/ are removed by hand: the step never replaces them.</div>';
+                    h += '</div>';
+
+                    h += '<div class="sub"><div class="sub-h">Checks and limits</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Package that does not conform</label><select onchange="setNodeParam(' + i + ',\'onInconsistency\',this.value); renderNodes()" title="Counts that disagree, a member the audit does not list, a control file that is not empty, a date or version that differs from the archive name, a mime type that differs between audit and metadata.">' +
+                        '<option value="fail"' + (ouInc === 'fail' ? ' selected' : '') + '>fail \u2014 restore nothing</option>' +
+                        '<option value="warn"' + (ouInc === 'warn' ? ' selected' : '') + '>warn \u2014 log each case and restore</option></select></div>' +
+                        '<div class="field"><label>Metadata delimiter</label><input value="' + attresc(nodeParam(n, 'metadataDelimiter')) + '" placeholder="' + ouDefault('metadataDelimiter') + '" title="auto = the character after the object_id header. Otherwise one character, or the word tab." oninput="setNodeParam(' + i + ',\'metadataDelimiter\',this.value)"></div></div>';
+                    if (ouInc === 'warn') h += '<div class="dim small" style="color:#b9770e">Each case is logged and counted in <b>${inconsistencies}</b>; a member the audit does not list is left in package/, never in objects/. What would make the restore a guess still stops the step: a missing object, a duplicated id or name, a name that is not a file name.</div>';
+                    h += '<div class="form-row">' +
+                        '<div class="field"><label>Max objects</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxObjects')) + '" placeholder="' + ouDefault('maxObjects') + '" title="Objects, not files: the audit, metadata and control files are not counted." oninput="setNodeParam(' + i + ',\'maxObjects\',this.value)"></div>' +
+                        '<div class="field"><label>Max MB per object</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxObjectMb')) + '" placeholder="' + ouDefault('maxObjectMb') + '" oninput="setNodeParam(' + i + ',\'maxObjectMb\',this.value)"></div>' +
+                        '<div class="field"><label>Max MB per package</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxArchiveMb')) + '" placeholder="' + ouDefault('maxArchiveMb') + '" oninput="setNodeParam(' + i + ',\'maxArchiveMb\',this.value)"></div>' +
+                        '<div class="field"><label>Max ratio</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'maxRatio')) + '" placeholder="' + ouDefault('maxRatio') + '" title="For a .tar.gz: how much the content may expand against the compressed file, checked once 10 MB are written." oninput="setNodeParam(' + i + ',\'maxRatio\',this.value)"></div>' +
+                        '<div class="field"><label>Max path length</label><input value="' + attresc(nodeParam(n, 'maxPathLength')) + '" placeholder="' + ouDefault('maxPathLength') + '" title="Of a restored file, absolute. auto = the server\'s limit: 259 characters on Windows, 4096 bytes on Linux." oninput="setNodeParam(' + i + ',\'maxPathLength\',this.value)"></div></div>';
+                    h += '</div>';
+                    h += '<div class="dim small" style="margin-top:4px">Original names come from the package\'s own audit and metadata files, never from a naming pattern. Two objects with the same original name stop the step, which lists them. Name rules follow the server (<b>${hostRules}</b>). Every setting applies from the next run of the step. For the steps that follow: <b>${objectsDir}</b>, <b>${metadataCsv}</b>, <b>${metadataDelimiter}</b>, <b>${compression}</b>; the submission: <b>${tfId}</b>, <b>${transmissionDate}</b>, <b>${sequenceNr}</b>, <b>${versionNr}</b>, <b>${nextVersionNr}</b>, <b>${submissionBaseName}</b>, <b>${targetDestination}</b>; the run: <b>${objectCount}</b>, <b>${metadataRows}</b>, <b>${md5}</b>, <b>${md5Checked}</b>, <b>${inconsistencies}</b>, <b>${warnings}</b>.</div>';
                 } else if (ex === 'encoding') {
                     var encFrom = nodeParam(n, 'from');
                     var charsets = ['', 'windows-1252', 'ISO-8859-1', 'ISO-8859-15', 'UTF-8', 'UTF-16', 'UTF-16LE', 'UTF-16BE', 'IBM500', 'Cp1140'];
@@ -2404,6 +2457,21 @@
                     if (!String(nodeParam(n, 'targetDestination') || '').trim()) errs.push(label + ' (' + n.id + '): objpack needs targetDestination for a TAR-packaged submission');
                     if (!String(nodeParam(n, 'metadataCsv') || '').trim()) errs.push(label + ' (' + n.id + '): objpack needs metadataCsv');
                     if (!String(nodeParam(n, 'objectsDir') || '').trim()) errs.push(label + ' (' + n.id + '): objpack needs objectsDir');
+                }
+                if (ex === 'objunpack') {
+                    if (!String(nodeParam(n, 'archive') || '').trim()) errs.push(label + ' (' + n.id + '): objunpack needs the package to unpack (archive)');
+                    ['maxObjects', 'maxObjectMb', 'maxArchiveMb', 'maxRatio', 'maxPathLength'].forEach(function (k) {
+                        var v = String(nodeParam(n, k) || '').trim();
+                        if (k === 'maxPathLength' && v.toLowerCase() === 'auto') return;
+                        if (v && v.indexOf('${') < 0 && !/^[1-9][0-9]*$/.test(v)) errs.push(label + ' (' + n.id + '): ' + k + ' must be a whole number above 0' + (k === 'maxPathLength' ? ', or auto' : ''));
+                    });
+                    var ouM = String(nodeParam(n, 'md5Check') || '').trim().toLowerCase();
+                    if (ouM && ouM.indexOf('${') < 0 && ['require', 'ifpresent', 'off'].indexOf(ouM) < 0) errs.push(label + ' (' + n.id + '): md5Check must be require, ifPresent or off');
+                    var ouI = String(nodeParam(n, 'onInconsistency') || '').trim().toLowerCase();
+                    if (ouI && ouI.indexOf('${') < 0 && ['fail', 'warn'].indexOf(ouI) < 0) errs.push(label + ' (' + n.id + '): onInconsistency must be fail or warn');
+                    var ouD = String(nodeParam(n, 'metadataDelimiter') || '');
+                    var ouDt = ouD.trim().toLowerCase();
+                    if (ouD && ouD.indexOf('${') < 0 && ouDt !== 'auto' && ouDt !== 'tab' && ouD.length !== 1 && ouD.trim().length !== 1) errs.push(label + ' (' + n.id + '): metadataDelimiter must be auto, tab or one character');
                 }
                 if (ex === 'unarchive') {
                     if (!String(nodeParam(n, 'sourceDir') || '').trim()) errs.push(label + ' (' + n.id + '): unarchive needs the directory holding the archives (sourceDir)');

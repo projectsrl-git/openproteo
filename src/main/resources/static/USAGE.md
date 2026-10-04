@@ -136,7 +136,7 @@ OpenProteo deliberately **ships no database driver**. Bundling one per vendor wo
 - **objpack** — build a Transarch **object submission**: renamed objects, metadata CSV, audit JSON, control file, `.tar` and `.md5`, from a source metadata CSV and a directory of objects. One CSV row per object. Objects are streamed into the archive from where they already are, so no temporary copy is made. See The objpack step below.
 - **filerename** — rename the files of a directory according to a CSV mapping: the name on disk is built from a template and an id, the new name is a column. The whole mapping is checked before the first rename, and a collision stops the step with nothing renamed. The executor form of `Rename-FilesFromCsvMap.ps1`. See The filerename step below.
 - **unarchive** — extract the archives of a directory (zip, tar, tar.gz/tgz, gz), each into its own folder. The format comes from the file's content, not its name; entries that would leave their folder, collide on Windows or are links are refused; limits stop archive bombs; nothing incomplete appears under a final name. See The unarchive step below.
-- **objunpack** — the inverse of **objpack**: take one Transarch object package (`.tar` or `.tar.gz`, with its `.md5`) and give back its objects under their original names and its metadata CSV, ready to be rebuilt and resent. The original names come from the package's own audit and metadata files, never from a naming pattern. For now it is written in the XML: the designer panel comes in a later delivery. See "The objunpack step".
+- **objunpack** — the inverse of **objpack**: take one Transarch object package (`.tar` or `.tar.gz`, with its `.md5`) and give back its objects under their original names and its metadata CSV, ready to be rebuilt and resent. The original names come from the package's own audit and metadata files, never from a naming pattern. See "The objunpack step".
 - **split** — split an **existing file** into parts by rows and/or MB, using the same logic
   as the SQL export. Use it to run a LOOP only over the final steps, after validation and
   anonymization (see Splitting and Loops).
@@ -1555,7 +1555,7 @@ No extraction of everything into one folder (one folder per archive only).
 
 `objunpack` is the inverse of `objpack`. It takes **one** Transarch object package — `<base>.tar` or `<base>.tar.gz`, with `<base>.md5` beside it — and gives back the objects under their original names and the package's metadata CSV, byte for byte. It exists so a submission can be corrected and resent: its output is what `csvsql`, `dequote`, `validate` and `objpack` need as input.
 
-**It has no designer panel yet.** The step is written in the workflow XML; the panel and a ready-made workflow template come in later deliveries. Until then, a workflow containing it can be opened in the designer, but the Executor field of that step shows the first entry of the list, because the list does not know `objunpack` yet: leave that field alone, or the step becomes another executor when the workflow is saved.
+In the designer, choose **objunpack** as the executor: the panel has three sections — Package, Output, Checks and limits — and choosing the executor writes every default into the step, so the saved XML states each value the run will use. Every setting applies from the next run of the step. A workflow template with the whole rebuild chain comes in a later delivery.
 
 ```xml
 <step id="OBJUNPACK" name="Unpack the package" exec="objunpack">

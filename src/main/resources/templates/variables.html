@@ -294,6 +294,9 @@
         failOnEmpty: [ ['false','no (default)'], ['true','yes — fail when nothing is found']],
         checkFreeDisk: [ ['true','yes (default)'], ['false','no']],
         nested: [ ['none','leave them as files (default)'], ['extract','extract archives inside archives, in place']],
+        // objunpack. preserveMtime is shared with unarchive: same meaning, same default.
+        md5Check: [ ['require','require — the .md5 must exist and match (default)'], ['ifPresent','if present — warn when it is missing'], ['off','off — do not read it']],
+        onInconsistency: [ ['fail','fail — restore nothing (default)'], ['warn','warn — log each case and restore']],
         'match.*.type': [ ['text','text'], ['numeric','numeric'] ],
         'match.*.agg': [ ['value','value'], ['sum','sum (numeric)'], ['count','count'], ['count_distinct','distinct count'] ],
         unmappedColumnPolicy: [ ['fail','fail (require every column classified)'], ['redact','redact'], ['passthrough','passthrough']]

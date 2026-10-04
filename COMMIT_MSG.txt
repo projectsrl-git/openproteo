@@ -1,34 +1,28 @@
-objunpack: registered as a step; never modifies what it finds (batch 2)
+objunpack: designer panel (batch 3)
 
-exec="objunpack" is accepted by the parser, treated as internal by the
-engine and dispatched to InternalSteps.runObjUnpack: eleven step
-parameters in, eighteen variables out. Exit 0, 2 for every refusal,
--997 on Stop, 1 for an I/O failure; a code is set on every path.
+objunpack can be chosen and configured in the designer: Package,
+Output, Checks and limits - eleven fields, one per parameter the
+executor reads. Choosing the executor writes the nine defaults into
+the step; archive has none and the output directory defaults to the
+step's own. clientValidate checks the archive, the five numbers, the
+two option lists and the delimiter. The Variables page offers md5Check
+and onInconsistency; preserveMtime is shared with unarchive.
 
-The step is written in the workflow XML for now. The designer panel is
-the next batch; until then the designer shows the first executor of
-its list for such a step - USAGE.md says not to touch that field.
+No Java. No new runtime parameter: the eleven of batch 2 are now all
+settable from the GUI and apply at the next run (checklist 10). A step
+written by hand before this batch is not rewritten when opened.
 
-By the author's decision the step never changes anything it did not
-create. onExisting=replace is removed: an existing objects/ or
-package/, even empty, refuses the step before the archive is read. The
-archive and its .md5 are only read - never renamed, moved or deleted.
-
-USAGE.md: "The objunpack step". No file-only key (checklist 10): all
-parameters are step params, applied at the next run. README.md and
+USAGE.md: the objunpack section describes the panel. README.md and
 CLAUDE.md not touched.
 
-Verified on Linux (sandbox; Temurin 1.8.0_432 and JDK 21.0.10 both
-run, Java 8 javac; root and uid 65534; LANG=C.UTF-8 and empty): the
-real body of runObjUnpack lifted by position and run on packages made
-by the real producers, 85 assertions, eight combinations, exit code
-never -1; 22 mutations of it, all caught; core suite 639 assertions,
-eight combinations; 56 core mutations, 55 caught, 1 equivalent;
-differential compile of InternalSteps, WorkflowEngine and
-WorkflowXmlParser identical before and after, with a positive control;
-USAGE.md compared with the method and rendered by docs.html's
-render(); git apply --check on a second clean clone.
+Verified on Linux (sandbox; node 22, jsdom): the real designer.html
+driven through its own controls, 128 assertions; parameters written by
+the panel equal those read by runObjUnpack, eleven each, compared
+mechanically with a positive control; 28 mutations on copies, 26
+caught, 2 equivalent; node --check on the inline scripts with a
+control; zero literal \n \r \t and zero [[ [( in the 71 added template
+lines, with a control; USAGE.md through docs.html's render(); git
+apply --check on a second clean clone.
 Verified on Windows: nothing.
-Not verified on either: that a workflow with the step parses and
-reaches the method - read and differentially compiled, never run; mvn
-clean package; the docs page in a browser; a large package.
+Not verified on either: a real browser, the UBS one in particular;
+Thymeleaf rendering; the Variables page; mvn clean package.
