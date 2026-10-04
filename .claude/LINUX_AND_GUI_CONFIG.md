@@ -832,3 +832,17 @@ for `.ps1` feeds, `pwsh` installed; and FTPS targets - a NEW target still defaul
 «Configurabilità integrale da GUI» stays in the contract and stays unmet: batches 4 and 5 are what
 closes its debt and they now come last. Until then a Linux instance is configured by file, and
 checklist item 10 keeps doing its job - a delivery that adds a file-only key says so.
+
+### 9.3 Working without feedback (from 2026-10-04)
+
+The author cannot test or answer until L1, L2, L3 and W are delivered; colleagues will then deploy.
+So for those steps there are no gates: each decision is the conservative one, is argued in the
+step's own document, and is listed for review at the end. Two consequences fixed here:
+
+- **Nothing in L2, L3 or W may change what an existing Windows feed produces.** Where a fix cannot
+  be shown neutral on Windows it is applied to non-Windows hosts only, and says so.
+- **W is written blind** and is therefore born switched off (§8.7 said a wrong kill is worse than
+  none). How it is switched on is W's own decision to document.
+
+**L1 delivered 2026-10-04:** `.claude/LINUX_AUDIT.md`. Eight findings; the code base is otherwise
+clean of platform assumptions in the places an audit can see. L3 is its §5.

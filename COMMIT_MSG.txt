@@ -1,38 +1,37 @@
-CLAUDE.md is the contract again; history moved to .claude/HISTORY.md
+Linux audit of the internal executors: report (L1)
 
-Documentation only. No Java, template, JS, pom.xml, USAGE.md or
-README.md change; no runtime parameter.
+No product code changed. No Java, template, JS, pom.xml, USAGE.md,
+README.md or CLAUDE.md change; no runtime parameter.
 
-The 3472 lines of delivery entries at the end of CLAUDE.md are moved,
-verbatim and in order, to .claude/HISTORY.md, a closed archive.
-CLAUDE.md goes from 3962 lines to 578: it is read in full at the start
-of every session, and it had become 12% contract.
+.claude/LINUX_AUDIT.md: all Java sources scanned for the constructs
+through which a platform leaks into behaviour, every hit read, each
+suspected difference measured on a real Java 8 runtime.
 
-A delivery no longer appends to CLAUDE.md. What it did and learned goes
-in its note; a lesson that must bind future work becomes a rule in the
-section it belongs to. Two chats in parallel no longer collide on the
-last line of the same file.
+Clean: no default-charset read or write of file content; every output
+file has a fixed line ending; no AWT, fonts, file locks; temp files
+beside their target; the audit hash independent of the line ending.
 
-Contract amended where it had fallen behind:
-- "Verifica prima della consegna": run the real class with Spring
-  stubbed, not an extract; a real Java 8 runtime and PowerShell for
-  Linux can be fetched into the sandbox; the sandbox is root and has no
-  locale; a test about processes or locales is itself a process.
-- External runners have their own registration path, now beside the
-  8-location rule for internal executors.
+Findings that change what a feed does on Linux:
+- File.renameTo replaces an existing <name>.done on Linux and refuses
+  on Windows (elarxml, json2csv, ftpsend, elar split).
+- "*.csv" matches DATA.CSV on Windows and not on Linux, exit 0
+  (filecopy, safecopy).
+- ${matchedFiles} is in name order on NTFS and hash order on Linux, and
+  a forEach iterates it (filecopy, safecopy, encoding batch).
+Plus: backslash in a path parameter, two recursive deletes that follow
+links, tiffcompress report order, the FTPS trust default.
 
-Programme order changed by the author (spec section 9): Linux first,
-authentication and everything that needs it last. The author's run of
-the standalone war on Linux (file copy + csvsql) is recorded for what
-was reported.
+The author cannot answer before the fixes: each decision is in the
+report, section 5, under one rule - nothing changes what an existing
+Windows feed produces.
 
-APPLY BEFORE any other patch in flight: one that appends to the end of
-CLAUDE.md no longer applies after this.
+tools/scan_platform_assumptions.py: the scanner used.
 
-Verified on Linux (sandbox; nothing compiled): origin/main = 51d173f
-before generating, fresh clone; the moved block is byte-identical
-(SHA-256 compared); no reference in the contract points at a heading
-that moved; git apply --check on a second clean clone.
-Verified on Windows: nothing; nothing here is platform-dependent.
-Not verified on either: that every fact the contract states is still
-true of the code - text was moved and amended, not audited.
+Verified on Linux (sandbox; Java 1.8.0_432): scanner over the whole
+tree; the three measurements on ext4 and tmpfs; eleven packages
+compiled with the Java 8 javac; cited lines read at 34ad944; git apply
+--check on a second clean clone.
+Verified on Windows: nothing. Three statements about Windows are
+marked in the report as read, not run.
+Not verified on either: the executors hosted in InternalSteps were
+read, not run.
