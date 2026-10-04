@@ -18,13 +18,33 @@ Pacchettizzata come **WAR per un Tomcat esterno**, senza embedded server.
 * **Java 8** — niente API ≥ 9 nemmeno per zucchero sintattico.
 * **Spring Boot 2.7**, Thymeleaf, Maven, Tomcat 8.5/9 esterno.
 * **Zero CDN, zero dipendenze a runtime di rete**: ogni risorsa è bundled
-  (font, JS, CSS, pool di masking) o vive in path locali configurati nella
-  `application.properties` esterna.
+  (font, JS, CSS, pool di masking) o vive in path locali ~~configurati nella
+  `application.properties` esterna~~ configurati **dalla GUI** (emendato
+  2026-10-04 dalla regola «Configurabilità integrale da GUI» qui sotto; fino a
+  quando quella regola non è soddisfatta vale lo stato di transizione scritto in
+  «Configurazione esterna»).
 * **Niente database server**: lo stato vive su **file** (JSON / JSONL pretty,
   audit hash-chained, run logs).
 * **ARX non disponibile**: la dipendenza ARX NON è nel `pom.xml`. Lo step
   `anonymize` è un placeholder (Batch 2a free-text funziona, Batch 2b
   k-anonymity rinviato). Lo step **`mask`** è l'executor attivo per il masking.
+* **Compatibilità Linux obbligatoria.** L'applicazione e ogni executor interno
+  devono funzionare in modo identico su Windows e su Linux. Nessun path,
+  separatore, encoding, fine riga, interprete o trust store può essere assunto
+  dalla piattaforma: o è neutro, o è rilevato a runtime, o è configurabile. I
+  runner esterni (powershell, cmd, bash) sono per natura legati a un interprete:
+  per loro la regola è che la disponibilità è rilevata e mostrata in GUI, mai
+  scoperta al primo run fallito. Ogni consegna dichiara separatamente cosa è stato
+  verificato su Linux e cosa su Windows.
+* **Configurabilità integrale da GUI.** Ogni parametro di runtime deve essere
+  impostabile dalla GUI, senza shell e senza modificare file sulla macchina:
+  proprietà orchestrator.*, livelli di log, datasource, driver JDBC, target FTPS,
+  truststore e certificati, pool di masking, script, interpreti. Fuori scope, e
+  dichiarato tale: installazione e aggiornamento dell'artefatto, parametri della
+  JVM (-Xmx, JAVA_HOME), configurazione del container (connector Tomcat). Ogni
+  parametro dichiara se si applica subito, al run successivo o al riavvio, e la
+  GUI lo mostra. Una feature che introduce un parametro configurabile solo da file
+  non è completa.
 
 ### Vincoli ambientali con effetti silenziosi
 
@@ -97,8 +117,56 @@ Pacchettizzata come **WAR per un Tomcat esterno**, senza embedded server.
 
 ## Configurazione esterna
 
-`application.properties` esterno sotto `CATALINA_HOME/config/`, attivato via
-`-Dspring.config.additional-location=file:...`. Chiavi principali:
+**Emendato 2026-10-04** dalla regola «Configurabilità integrale da GUI» (sezione
+«Stack e regole irrinunciabili»). Il testo precedente e' barrato, non cancellato:
+
+~~`application.properties` esterno sotto `CATALINA_HOME/config/`, attivato via
+`-Dspring.config.additional-location=file:...`. Chiavi principali:~~
+
+**Regola.** La sede della configurazione di runtime e' la GUI. Il file
+`application.properties` (default bundled, piu' l'eventuale file esterno) resta
+come strato di base e come fallback: e' legittimo per il provisioning, non puo'
+essere l'unico modo di impostare un parametro. I valori salvati dalla GUI vivono
+in un file di override gestito dall'applicazione, con precedenza su
+`application.properties`; posizione del file e modo in cui l'applicazione lo
+trova al bootstrap si decidono nella spec del batch "settings da GUI", non qui.
+
+**Stato a `712db45` (verificato sul codice): la regola NON e' ancora soddisfatta.**
+Questa sezione descrive il debito, non lo nasconde.
+
+* Gia' in GUI: datasource, target FTPS, variabili globali su file, pool di
+  masking (**solo se** `orchestrator.mask-pools-dir` e' impostata, e quella
+  chiave oggi e' solo su file), file condivisi, workflow, variabili, upload di
+  script.
+* Solo su file, quindi **debito dichiarato**: tutte le chiavi `orchestrator.*`
+  di `config/AppProperties` (elenco sotto, non esaustivo: la lista autorevole e'
+  la classe), le due chiavi `openproteo.logreport.*` lette con `@Value`
+  (`window-days`, `export-enabled`), `logging.*`, gli interpreti
+  (`powershell-exe`, `cmd-exe`, `java-exe`), i file di truststore e certificato
+  dei target FTPS (in GUI si scrive il path, il file va messo a mano sulla
+  macchina), i limiti di upload `spring.servlet.multipart.*`, e i driver JDBC
+  (`CATALINA_HOME/lib` piu' riavvio).
+* Fuori scope per regola: parametri della JVM e configurazione del container.
+  **Caso aperto, non deciso qui**: `server.*` e' configurazione del container
+  sotto il Tomcat esterno (dove e' ignorata), ma nell'artefatto standalone il
+  Tomcat embedded non ha altro posto da cui prendere la porta. Lo decide per
+  nome la spec del batch "settings da GUI".
+
+**Caso di intersezione, deciso per nome.** La regola dice che «una feature che
+introduce un parametro configurabile solo da file non è completa»; le chiavi
+qui sopra sono configurabili solo da file. Sul debito **esistente** vince lo
+stato: quelle feature restano in produzione come sono e il debito si chiude con
+i batch "settings da GUI" e "driver JDBC da GUI", non rendendole retroattivamente
+incomplete. Su ogni chiave **nuova** vince la regola, da questo commit: una
+consegna che aggiunge una chiave leggibile solo da file la dichiara incompleta
+nel `COMMIT_MSG.txt` e la aggiunge all'elenco del debito qui sopra. Esempio: un
+executor nuovo che ha bisogno di una directory temporanea di istanza non puo'
+uscire "completo" con la sola `orchestrator.x-tmp-dir`; un parametro di step
+(`<param>`, impostabile dal designer) invece soddisfa gia' la regola.
+
+Finche' il debito non e' chiuso, il file esterno si attiva come prima: sotto
+`CATALINA_HOME/config/`, via `-Dspring.config.additional-location=file:...`.
+Chiavi principali:
 
 ```
 orchestrator.workflows-dir=        # dove vivono i SAMPLE-*.xml e i workflow reali
@@ -3652,3 +3720,51 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   L1 check had the same flaw.
 * Nested suite 30, all earlier suites green, wiring 101, panel 130, guide 52; 22 mutations caught.
   Note in `.claude/2026-10-04-unarchive-R-nested.md`.
+
+## Contract amendment: Linux compatibility and GUI-only configuration (Batch 0, docs only)
+* Two rules added to «Stack e regole irrinunciabili», text as dictated: **Compatibilità Linux
+  obbligatoria** and **Configurabilità integrale da GUI**. The Zero CDN line and «Configurazione
+  esterna» are aligned, old wording struck through. **No code, no template, no USAGE.md change**:
+  no behaviour changed, and USAGE.md describes the product as it runs — today configuration IS
+  file-only, and saying otherwise there would be a lie until the settings batch ships.
+* **The rules are a target the code does not meet yet, and «Configurazione esterna» says so
+  instead of implying compliance**: it lists what is already in the GUI and what is file-only
+  debt, as read from the code at `712db45`.
+* **Intersections decided by name** (the 2026-09-30 principle). (1) New GUI rule vs existing
+  file-only keys: existing debt stays in production and is closed by the settings and JDBC-driver
+  batches; any NEW file-only key is declared incomplete in its own delivery. Written in
+  «Configurazione esterna». (2) Linux rule vs conservative defaults: **conservative defaults win
+  on anything already saved** — a stored value is never rewritten to make it portable; a
+  platform-sensitive default applies to new instances and new objects only. Example: an FTPS
+  target saved with `trustMode=WINDOWS` loads, saves and runs as WINDOWS on any host; only a NEW
+  target is proposed a mode by platform. This one is recorded HERE and in the spec, **not beside
+  the two rules**, because the rule text was dictated verbatim — promoting it next to «Default
+  conservativi» is an open point for the author. (3) "Verified on Linux" in a delivery means the
+  sandbox: a newer JDK compiling with `--release 8`, not a Java 8 runtime. The JDK is named each
+  time; `ofPattern("DD")` already showed the two can differ.
+* **(4) «Funzionare in modo identico» vs `unarchive`, which since batch L1 does NOT.** By the
+  author's Gate 0 the step follows the detected OS (`HostRules`, `UnarchiveRun:100` reads
+  `os.name`): the same workflow extracts different files on a Windows box and on a Linux one. On
+  that case **the Gate 0 decision stands**, read as the rule's own second branch («rilevato a
+  runtime»): the difference exists because the two FILE SYSTEMS differ, and the run announces it
+  (first log line, `${hostRules}`, USAGE.md). The opposite case stays neutral: json2csv's
+  `FileMask` is case-sensitive on every host, because nothing in the host requires a selection
+  rule to differ. Test applied: a behaviour may follow the host only where the host itself
+  differs AND the run says which rules it used. **This reading is mine, not dictated** - it is the
+  first open point of the spec, because «identico» taken literally would make L1 a violation.
+* **The stated context was re-verified on the code - twice, because `main` moved eight commits
+  while this batch waited - and one stated fact stopped being true in between**: "no `os.name` in
+  the code" held at `a4f02c8` and does not at `712db45` (unarchive L1, above). Everything else is
+  confirmed at the cited lines, and none of the cited files changed. **Four things were found
+  beyond the stated context**:
+  `FtpsTarget.setTrustMode(null)` (line 114) is a FOURTH place that defaults to WINDOWS, besides
+  the field initialiser, `TrustMode.parse` and the two lines of `ftptargets.html`;
+  `ApiController.user()` reads an **`X-User` request header before `getRemoteUser()`**, so the
+  audit identity is client-supplied today; two runtime keys live OUTSIDE `orchestrator.*`
+  (`openproteo.logreport.window-days`, `openproteo.logreport.export-enabled`, via `@Value`), so a
+  settings page built from `AppProperties` alone would miss them; and `ftptargets.html:56`
+  carries a second Windows-path placeholder next to the one at line 73. None is changed here.
+* Open for the settings batch, not decided now: whether `server.port` is "container
+  configuration" (out of scope by the rule) in the STANDALONE artifact too, where the embedded
+  Tomcat has no other place to take it from. Spec and baseline in `.claude/LINUX_AND_GUI_CONFIG.md`,
+  note in `.claude/2026-10-04-linux-gui-batch0-contract.md`.
