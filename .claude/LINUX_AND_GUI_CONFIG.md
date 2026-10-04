@@ -467,9 +467,12 @@ missing on that instance, the probe there answers `NOT_DETERMINED` - **the `CASE
 has still not run on a real file system.** One cosmetic defect seen: the Setting column wraps
 (`orchestrator.workflows-` / `dir`); fixed with the batch 2 code.
 
-## 8. Batch 2 — `bash` runner, process-tree kill, platform-sensitive PowerShell (SPEC ONLY)
+## 8. Batch 2 — `bash` runner, process-tree kill, platform-sensitive PowerShell — DELIVERED (Linux)
 
-Written 2026-10-04 on base `12cfc3a`. Code follows only after the author answers §8.14.
+Written 2026-10-04 on base `12cfc3a`. ~~Code follows only after the author answers §8.14.~~ Gate 2
+answered the same day; code delivered on base `5d7593d`. What the implementation decided beyond
+this text is in §8.15, not edited in place. **Windows tree kill is NOT delivered** - §8.7 said it
+would not be; the measurement kit is in `tools/windows-proctree-kit/`.
 
 ### 8.1 Scope
 
@@ -721,3 +724,59 @@ same log), fan-out Stop, the default staying `powershell.exe`, and the measureme
    file-name encoding row red when it is not UTF-8?
 8. **Remove `orchestrator.powershell-exe=powershell.exe` from the bundled `application.properties`**
    (§8.9)? Without it no platform-sensitive default is possible.
+
+**Answered 2026-10-04.** 1-5, 7, 8: yes, as recommended. 6: "readable text, and where it is CLIXML
+apply `-OutputFormat Text`". Read as: a failing `.ps1` logs readable text on Windows today, so
+Windows is left exactly as it is; outside Windows, where M3 measured CLIXML, the option is applied
+together with `TERM=dumb`. Not covered, and said: `pwsh.exe` configured on WINDOWS may log CLIXML
+too - nobody has looked, and the rule keys on the host, not on which PowerShell it is.
+
+### 8.15 Delivered — what the implementation decided beyond §8.1-8.13
+
+1. **`setsid` is used only when the program can be found.** Under `setsid` a missing interpreter no
+   longer failed as the JVM's "Cannot run program ..." but as exit 127 from `setsid`, a different
+   failure for the three existing runners. The launcher now asks the Platform page's own search
+   first and wraps only what it can find (or cannot judge: a relative path).
+2. **The step waits for a Stop to finish reporting.** Stop kills from another thread; the step saw
+   its process die and closed its log before the kill had written what it reached. The handle now
+   carries a flag set BEFORE the first signal and a latch released after the report.
+3. **`SIGSTOP` before the kill is proven necessary by a test, not assumed.** The mutation removing
+   it was green. A script that forks without pause (`while :; do sleep N & done`) leaves survivors
+   without it and none with it, on three consecutive runs.
+4. **A Stop that arrives just before a process joins the live set is honoured**: the step checks
+   `aborted` right after registering and kills what it has just started.
+5. **A refusal is written to the step log AND thrown** (`!!! NOT STARTED - ...`). Thrown, because
+   that is how a missing interpreter already ends a step: no retry, the message on the step.
+6. **The bootstrap guards its own interpreter** (`$BASH_VERSION`), turning M15's meaningless
+   `exec: : Permission denied` into "orchestrator.bash-exe is not bash", exit 126.
+7. **The explicit `exec` in the bootstrap is redundant on bash 5.2 - measured** - which replaces
+   itself with the last command of `-c` anyway. It stays for older bash, where it is the only thing
+   keeping the parameter values off a long-lived command line. The mutation removing it is
+   therefore equivalent HERE, and is recorded as such.
+8. **Pid reuse** is decided by a function of two snapshots (`confirmed`), so that the rule has a
+   test: a pid whose start time changed between the scans is left alone and, if it had been
+   stopped, is resumed.
+9. **Platform page**: a `bash` row; "Stopping a step" with `whole process tree` / `partial` /
+   `interpreter only` and the reason; a red `not UTF-8` verdict on the file-name encoding outside
+   Windows; the Setting column no longer wraps.
+10. **`orchestrator.bash-exe` is born file-only** (§8.11.6): added to the debt list in `CLAUDE.md`
+    «Configurazione esterna». On that point this delivery is incomplete by the contract's own
+    definition, until batch 4.
+
+**Three traps the test harness fell into, kept because each is the product's own subject:**
+
+- Python sets `LC_CTYPE=C.UTF-8` for its children. The first seventeen mutation runs therefore ran
+  WITH a UTF-8 locale while claiming none, which hid the mutation on unencodable arguments.
+- The check "no parameter value on any command line" counted the test's own shell, whose command
+  line contained the probe word. It now has a positive control run from Java.
+- `pkill -f 'sleep 330'` killed the shell that typed it.
+
+**Not exercised, and said plainly:**
+
+- **Anything on Windows.** That PowerShell, CMD and JAR commands are unchanged there is shown by
+  comparing `buildCommand` with the pre-patch class under an injected `os.name` - the logic, not
+  the platform. Fan-out Stop on Windows is the same Java code but has not run there.
+- **`CASE_INSENSITIVE`**, still (batch 1).
+- **bash older than 5.2**, `setsid` from anything but util-linux, a `noexec` mount other than tmpfs.
+- **`mvn clean package`**, Spring wiring of the changed constructor call, a browser.
+- **The measurement kit** itself: compiled with Java 8, its non-Windows exit run, nothing else.

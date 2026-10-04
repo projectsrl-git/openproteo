@@ -8,7 +8,7 @@
  *                 download?path=, alias-suggest?file=
  *
  * Upload classifies each batch as "document" (txt/md/json/...) or "executable step"
- * (ps1/jar/bat/cmd). Executables require a UNIQUE alias used as ${alias} to reference
+ * (ps1/jar/bat/cmd/sh). Executables require a UNIQUE alias used as ${alias} to reference
  * the script from a step; the alias is auto-proposed from the file name and validated
  * server-side. No literal newline escapes in source (UBS proxy safe).
  */
@@ -17,7 +17,7 @@ function mountFilesPanel(container, apiBase, ctx, onChange, opts) {
     'use strict';
     function esc(s) { var d = document.createElement('div'); d.textContent = (s == null ? '' : String(s)); return d.innerHTML; }
     function viewable(path) {
-        return /\.(csv|tsv|txt|md|log|json|xml|properties|ps1|bat|cmd|sql|ya?ml|ini|conf|csv)$/i.test(path);
+        return /\.(csv|tsv|txt|md|log|json|xml|properties|ps1|bat|cmd|sh|sql|ya?ml|ini|conf|csv)$/i.test(path);
     }
     function fmt(n) {
         if (n < 1024) return n + ' B';
@@ -33,7 +33,7 @@ function mountFilesPanel(container, apiBase, ctx, onChange, opts) {
         '<div class="form-row" style="margin-top:10px">' +
         '<div class="field"><label>File type</label><select data-kind>' +
         '<option value="document">document (txt, md, json, …)</option>' +
-        '<option value="script">executable step (ps1, jar, bat, cmd)</option>' +
+        '<option value="script">executable step (ps1, jar, bat, cmd, sh)</option>' +
         '</select></div>' +
         '<div class="field wide" data-aliaswrap style="display:none"><label>Alias (variable name, unique) — use as ${alias} in a step</label>' +
         '<input data-alias placeholder="my_script"></div>' +

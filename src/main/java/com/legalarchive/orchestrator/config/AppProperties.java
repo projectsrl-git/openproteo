@@ -22,8 +22,21 @@ public class AppProperties {
     /** Base directory di default per i feed, usata se il workflow non specifica baseDir. */
     private String defaultBaseDir = "./feeds";
 
-    /** Eseguibile PowerShell. Su server Windows: powershell.exe (o pwsh.exe per PS7). */
-    private String powershellExe = "powershell.exe";
+    /**
+     * PowerShell executable. NOT set in the bundled application.properties, so that when nobody
+     * configures it the default can follow the host: powershell.exe on Windows, pwsh elsewhere
+     * (powershell.exe cannot start on Linux). An explicit value always wins and is never changed.
+     */
+    private String powershellExe = defaultPowershellExe(System.getProperty("os.name"));
+
+    /** bash, for .sh steps. Always invoked as an interpreter, never by executing the script file. */
+    private String bashExe = "/bin/bash";
+
+    /** The host's PowerShell when none is configured. Same Windows test as the Platform page. */
+    public static String defaultPowershellExe(String osName) {
+        boolean windows = osName != null && osName.trim().toLowerCase(java.util.Locale.ROOT).startsWith("windows");
+        return windows ? "powershell.exe" : "pwsh";
+    }
 
     /** Eseguibile Java per gli step .jar (deve essere nel PATH o path assoluto). */
     private String javaExe = "java";
@@ -97,6 +110,8 @@ public class AppProperties {
     public void setDefaultBaseDir(String v) { this.defaultBaseDir = v; }
     public String getPowershellExe() { return powershellExe; }
     public void setPowershellExe(String v) { this.powershellExe = v; }
+    public String getBashExe() { return bashExe; }
+    public void setBashExe(String v) { this.bashExe = v; }
     public String getJavaExe() { return javaExe; }
     public void setJavaExe(String v) { this.javaExe = v; }
     public String getCmdExe() { return cmdExe; }

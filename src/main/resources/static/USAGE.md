@@ -252,6 +252,52 @@ the file is emitted (empty if absent). The shared-strings table is read in memor
 extracts. `.xls` (the old BIFF format), merged-header flattening and formula evaluation are
 out of scope for this batch.
 
+### External scripts: PowerShell, cmd, jar and bash
+
+An external step runs a file of yours through an interpreter. Which one is decided by the file's extension, or by the **Executor** field when you set it: `.ps1` runs with PowerShell, `.bat` and `.cmd` with cmd, `.jar` with `java -jar`, `.sh` with bash.
+
+The four receive the step's parameters in different ways, and a script must be written for the way its runner uses:
+
+- **PowerShell** — by name. A parameter called `InputFile` arrives as `-InputFile 'value'`, so the script declares `param([string]$InputFile)`. The order of the parameters does not matter.
+- **cmd** and **jar** — by position. The values arrive as `%1`, `%2`, ... (or `args[0]`, `args[1]`, ...) in the order they are listed in the step; the names are only labels. Reordering the parameters in the designer changes what the script receives.
+- **bash** — by name, as environment variables. A parameter called `inputFile` arrives as `$OP_inputFile`. The order does not matter, and nothing arrives as `$1`.
+
+**bash parameter names.** The variable is `OP_` followed by the parameter name, with every character that is not a letter, a digit or an underscore replaced by an underscore: `inputFile` becomes `$OP_inputFile`, `dir.STEP` becomes `$OP_dir_STEP`. The prefix is there so that a parameter called `PATH` cannot change where the shell finds its commands. Two parameters that would become the same variable (`a.b` and `a_b`) stop the step before it starts, naming both.
+
+```
+#!/bin/bash
+# step parameters: inputFile, outDir
+wc -l < "$OP_inputFile" > "$OP_outDir/rows.txt"
+echo "##VAR rowCount=$(cat "$OP_outDir/rows.txt")"
+```
+
+A value reaches the script exactly as written in the step, after `${variables}` are resolved: quotes, `$`, backticks, line breaks and accented letters are not interpreted and not altered. Always quote the variable in the script (`"$OP_inputFile"`), as with any shell variable.
+
+**A bash script is always run through the interpreter**, never started as a program. So it needs no execute permission, and it runs even when the scripts directory is on a disk mounted `noexec`. The interpreter is `orchestrator.bash-exe`, `/bin/bash` unless configured, and it must really be bash: with another shell the step ends with exit code 126 and a line saying so.
+
+**A bash step can be refused before it starts.** The step fails, nothing is run, and the reason is the first line of the step log, beginning with `!!! NOT STARTED`:
+
+- the script has Windows (CRLF) line endings — the message gives the first line where one occurs. bash needs LF endings; a script edited on Windows must be saved with LF before it is uploaded. It is not converted for you, so that what runs is always the file you see in the scripts directory.
+- two parameters map to the same variable, or a parameter has no name.
+- the parameters together are larger than about 120 KB. Pass large data in a file and give the script its path.
+
+**PowerShell on a Linux server.** When `orchestrator.powershell-exe` is not configured, the server uses `powershell.exe` on Windows and `pwsh` elsewhere. Scripts receive their parameters in the same way on both. A value you configured yourself is never changed.
+
+**cmd and jar on a Linux server.** If the server was started without a UTF-8 locale, a parameter containing an accented letter cannot be passed to a program intact. The step is refused before it starts, naming the parameter, instead of handing the program a `?`. The Platform page shows whether the server has this problem. PowerShell and bash steps are not affected.
+
+### What a timeout and Stop reach
+
+When a step exceeds its timeout, or an operator presses **Stop**, the orchestrator kills the step. What that includes depends on the server, and the Platform page says which case applies:
+
+- **On Linux** the step is killed together with everything it started: programs it launched, programs those launched, and background jobs whose parent script has already ended. The step log ends with a line beginning `!!! process tree:` that says how many processes were killed.
+- **On Windows** only the interpreter is killed, as before. A program the script started keeps running until it ends by itself. The step log says `!!! process tree: interpreter only`.
+
+One thing escapes even on Linux: a program that deliberately detaches itself completely from the script that started it (a daemon). Such a program is left running.
+
+A script that starts a background program and then ends normally is not touched: nothing is killed when a step ends by itself.
+
+**Stop on a parallel step stops every item.** A step that runs once per item of a list, several at a time, used to lose all but one of its running scripts on Stop: the others carried on to their end. Stop now reaches all of them.
+
 ## Copying the files listed in a CSV (ifscopy, filecopy, safecopy)
 
 The **Files to copy** dropdown on an `ifscopy`, `filecopy` or `safecopy` step chooses between two shapes. **directory + pattern** is what each executor has always done — list a directory and copy what matches the wildcard — and it is what a step with nothing set still does, unchanged. **The ones listed in a CSV column** copies exactly the files named in one column of a CSV, typically the output of an earlier step in the same workflow: an extraction produces a list of document paths, and the step fetches those and nothing else. An unrecognised value fails the step instead of falling back, because a typo answered by a directory copy with no pattern set is a copy of everything.
@@ -593,6 +639,8 @@ Two encodings are shown, and they answer different questions. The default charse
 
 On a Linux server started as a service without a locale, the file-name encoding is often `ANSI_X3.4-1968`, which is plain ASCII. Every file whose name contains an accented letter then fails, with an error that does not mention encodings at all. If you see that value, give the service a UTF-8 locale (for example `LANG=C.UTF-8`) and restart it.
 
+On a server that is not Windows the row carries a verdict: `UTF-8`, or `not UTF-8` in red. The same encoding is used to hand parameters to cmd and jar steps, which is why those steps are refused when a parameter has an accented letter and the verdict is red.
+
 ### Paths
 
 One row for each directory and file the instance is configured with: the workflows, scripts, shared and feed base directories, the datasources and FTPS targets files, the mask pools directory, the global variables file actually in use, the directory of the application log, and the Java temporary directory, where a workflow import is staged.
@@ -610,7 +658,7 @@ Each row shows the value as configured, the absolute path it resolves to, whethe
 
 ### Interpreters
 
-One row for each interpreter the external executors use: PowerShell, cmd and Java. Each is looked for **without being started**.
+One row for each interpreter the external executors use: PowerShell, cmd, Java and bash. Each is looked for **without being started**.
 
 - `found` — a file is there; the resolved path is shown. It does not mean the interpreter works: a damaged installation is still found. No version is shown, because showing one would mean running it.
 - `not found` — steps that use this executor fail on this server. This is expected for `cmd.exe` on Linux, and for `powershell.exe` unless PowerShell is installed there under that name.
@@ -618,6 +666,10 @@ One row for each interpreter the external executors use: PowerShell, cmd and Jav
 - `not configured` — the setting is empty.
 
 The page states which search it used. On Windows a name without an extension gets `.exe`, and the search goes through the Java directory, the working directory, the Windows system directories and then `PATH`. Elsewhere only the directories of `PATH` are searched, and the file must be executable.
+
+### Stopping a step
+
+What a timeout or Stop can reach when an external step has started other programs. `whole process tree` means the step and everything it started. `partial` means programs still attached to the step are killed, but a background job whose parent has already ended is not; the reason is shown, usually that `setsid` is not installed. `interpreter only` means the step's own interpreter is killed and what it started carries on: this is the case on Windows.
 
 ### Windows trust store
 

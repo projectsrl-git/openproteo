@@ -487,8 +487,10 @@ public class WorkflowEngine {
             t.setDaemon(true);
             t.start();
         }
-        if (c != null && c.process != null) {
-            c.process.destroyForcibly();
+        if (c != null) {
+            // Every live process of the run, each with what it started - not only the last one.
+            ProcessTree tree = ProcessTree.host();
+            for (ProcessTree.Handle h : c.live) tree.kill(h);
         }
         // Last resort: if the operator presses Stop again and the run is still active (a worker thread
         // genuinely stuck, e.g. a blocked native/IO call that ignores cancel+close), finalise it ABORTED
@@ -1044,7 +1046,7 @@ public class WorkflowEngine {
             Runnable onProgress = attachChecks ? new Runnable() { public void run() { store.save(flayout, frun); } } : null;
             return internalSteps.run(internalKind, step, rp, varsSnapshot, logFile, controls.get(run.runId), se, onProgress);
         }
-        StepExecutor ps = new StepExecutor(props.getPowershellExe(), props.getJavaExe(), props.getCmdExe());
+        StepExecutor ps = new StepExecutor(props.getPowershellExe(), props.getJavaExe(), props.getCmdExe(), props.getBashExe());
         return ps.execute(extKind, scriptPath, rp, logFile, timeout, layout.stepDirs.get(step.id).toFile(), controls.get(run.runId));
     }
 

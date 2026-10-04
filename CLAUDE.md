@@ -154,7 +154,8 @@ Questa sezione descrive il debito, non lo nasconde.
   di `config/AppProperties` (elenco sotto, non esaustivo: la lista autorevole e'
   la classe), le due chiavi `openproteo.logreport.*` lette con `@Value`
   (`window-days`, `export-enabled`), `logging.*`, gli interpreti
-  (`powershell-exe`, `cmd-exe`, `java-exe`), i file di truststore e certificato
+  (`powershell-exe`, `cmd-exe`, `java-exe`, e dal 2026-10-04 `bash-exe`,
+  **nata solo-su-file** e dichiarata tale nella sua consegna), i file di truststore e certificato
   dei target FTPS (in GUI si scrive il path, il file va messo a mano sulla
   macchina), i limiti di upload `spring.servlet.multipart.*`, e i driver JDBC
   (`CATALINA_HOME/lib` piu' riavvio).
@@ -3922,3 +3923,40 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   Not shown: interpreters, trust store, the case probe - and with `./feeds` missing the
   `CASE_INSENSITIVE` branch has still not run. Note in
   `.claude/2026-10-04-bash-runner-batch2-spec.md`.
+
+## bash runner, process-tree kill, PowerShell on Linux — Batch 2 delivered (Linux; Windows tree kill is not)
+* Gate 2 answered. `exec="bash"` / `.sh`, `orchestrator.bash-exe` (default `/bin/bash`);
+  `engine/ProcessTree` launches every external step and kills its whole tree on timeout and Stop
+  where the host allows; `RunControl.live` replaces the single process slot. Spec §8.15 lists what
+  the implementation decided. **`orchestrator.bash-exe` is file-only until batch 4: on that point
+  this delivery is incomplete by checklist 10, and the key is in the debt list.**
+* **Verified on a real Java 8 runtime, not `--release 8`**: Temurin 1.8.0_432 and JDK 21, as root
+  and as a non-root user, with and without a UTF-8 locale, the REAL `StepExecutor`, `ProcessTree`,
+  `RunControl`, `AppProperties`, `WorkflowXmlParser`. 126 assertions in each combination.
+* **Existing runners: the command is compared with the pre-patch class, not asserted from memory.**
+  The old `StepExecutor` is compiled from `HEAD` into its own class loader and `buildCommand` is
+  called on both: under Windows rules PowerShell, CMD and JAR are identical; outside Windows only
+  PowerShell differs, by `-OutputFormat Text`.
+* **Two existing behaviours change, by decision.** Timeout and Stop kill the tree instead of the
+  interpreter - non-Windows only. Stop on a fan-out stops EVERY item - on every platform, Windows
+  included, where it has not been run.
+* **`setsid` changed how a missing interpreter fails** (exit 127 from `setsid` instead of the JVM's
+  "Cannot run program"), for the three EXISTING runners. Found by the suite, not by reading. The
+  launcher now wraps only a program it can find.
+* **A mutation that stays green is a missing test until proven equivalent - twice here.** Removing
+  `SIGSTOP` was green: a fork-storm script now proves it necessary (survivors without, none with,
+  three runs). Removing `exec` from the bootstrap was green and IS equivalent: bash 5.2 replaces
+  itself with the last command of `-c`, measured from Java with a positive control.
+* **The harness lied three times, each time about the very thing under test**: Python hands its
+  children `LC_CTYPE=C.UTF-8`, so seventeen "no locale" mutation runs had one; the command-line
+  leak check counted the shell that launched it; `pkill -f` matched its own command line. A test
+  about locales, command lines or process trees is itself a process with a locale, a command line
+  and a tree.
+* **Windows tree kill is NOT delivered.** Java 8 holds a HANDLE there. `tools/windows-proctree-kit/`
+  is a measurement kit, **written blind** - compiled with Java 8, its non-Windows exit run, no
+  Windows step ever executed. The Platform page says `interpreter only` on Windows, and the step
+  log says the same on every kill.
+* `USAGE.md`: «External scripts: PowerShell, cmd, jar and bash», «What a timeout and Stop reach»,
+  and the Platform section. The two new sections were first inserted where they SWALLOWED the
+  paragraphs that followed (a heading owns everything up to the next one); the render test caught
+  it. Note in `.claude/2026-10-04-bash-runner-batch2-code.md`.

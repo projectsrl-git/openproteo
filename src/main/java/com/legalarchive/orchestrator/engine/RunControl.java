@@ -7,7 +7,15 @@ package com.legalarchive.orchestrator.engine;
  */
 public class RunControl {
     public volatile boolean aborted = false;
+    /** The most recently started process. Kept for compatibility; Stop does NOT rely on it. */
     public volatile Process process;
+    /**
+     * EVERY process this run has alive. A fan-out step runs several at once on the same control:
+     * the single field above was overwritten by each, so Stop reached only the last one started
+     * and the others ran to their end. Stop kills this whole set.
+     */
+    public final java.util.Set<ProcessTree.Handle> live =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<ProcessTree.Handle, Boolean>());
     /** Currently executing JDBC statement (csvsql), so an operator Stop can cancel a long query. */
     public volatile java.sql.Statement statement;
     /**

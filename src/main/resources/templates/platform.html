@@ -48,7 +48,7 @@
         maskPoolsDir: 'orchestrator.mask-pools-dir', globalVarsFile: 'global variables file (effective)',
         logDir: 'application log directory', tmpDir: 'java.io.tmpdir (import staging)'
     };
-    var EXE_LABELS = { powershell: 'orchestrator.powershell-exe', cmd: 'orchestrator.cmd-exe', java: 'orchestrator.java-exe' };
+    var EXE_LABELS = { powershell: 'orchestrator.powershell-exe', cmd: 'orchestrator.cmd-exe', java: 'orchestrator.java-exe', bash: 'orchestrator.bash-exe' };
 
     /* One verdict per path row. The order of the tests is the order a person would ask the questions in. */
     function pathVerdict(r) {
@@ -82,6 +82,26 @@
         return '<tr><td class="dim" style="width:260px">' + esc(label) + '</td><td>' + value + '</td></tr>';
     }
 
+    /* Outside Windows the file-name encoding is also what program arguments are encoded with. If it
+       is not UTF-8, a non-ASCII file name or parameter cannot be handed to the system. */
+    function jnuVerdict(s) {
+        if (s.interpreterRules === 'windows') return '';
+        if (/^utf-?8$/i.test(String(s.jnuEncoding || ''))) return ' ' + chip('SUCCESS', 'UTF-8');
+        return ' ' + chip('FAILED', 'not UTF-8') + ' <span class="dim" id="platJnuWhy">A file whose name has an accented letter cannot be opened, '
+            + 'and a cmd or jar step is refused when a parameter has one. Start the server with a UTF-8 locale, for example LANG=C.UTF-8.</span>';
+    }
+
+    function renderTree(t) {
+        if (!t) return '';
+        var v;
+        if (t.mode === 'SESSION') v = chip('SUCCESS', 'whole process tree');
+        else if (t.mode === 'DESCENDANTS') v = chip('SKIPPED', 'partial');
+        else v = chip('SKIPPED', 'interpreter only');
+        return '<h2>Stopping a step</h2><p class="page-sub">What a timeout or Stop can reach when an external step '
+            + '(PowerShell, cmd, jar, bash) has started other programs.</p><div class="panel"><table id="platTree">'
+            + kv('On timeout and Stop', v + ' <span class="dim">' + esc(t.reason) + '</span>') + '</table></div>';
+    }
+
     function renderSystem(s) {
         var h = '<h2>Host and Java runtime</h2><div class="panel"><table id="platSystem">';
         if (s.error) return h + kv('error', esc(s.error)) + '</table></div>';
@@ -90,7 +110,7 @@
         h += kv('Java version', mono(s.javaVersion));
         h += kv('Java vendor', mono(s.javaVendor));
         h += kv('Default charset (file.encoding)', mono(s.fileEncoding) + ' <span class="dim">effective: ' + esc(s.defaultCharset) + '</span>');
-        h += kv('File-name encoding (sun.jnu.encoding)', mono(s.jnuEncoding));
+        h += kv('File-name encoding (sun.jnu.encoding)', mono(s.jnuEncoding) + jnuVerdict(s));
         h += kv('Working directory (user.dir)', mono(s.userDir));
         return h + '</table></div>';
     }
@@ -101,7 +121,7 @@
             + '<th>Resolved</th><th>Exists</th><th>Writable</th><th>Verdict</th></tr>';
         for (var i = 0; i < rows.length; i++) {
             var r = rows[i];
-            h += '<tr data-key="' + esc(r.key) + '"><td>' + esc(PATH_LABELS[r.key] || r.key) + '<div class="dim">' + esc(r.expected || '') + '</div></td>'
+            h += '<tr data-key="' + esc(r.key) + '"><td style="white-space:nowrap">' + esc(PATH_LABELS[r.key] || r.key) + '<div class="dim">' + esc(r.expected || '') + '</div></td>'
                 + '<td class="mono">' + esc(r.configured) + '</td>'
                 + '<td class="mono">' + esc(r.absolute || '') + '</td>'
                 + '<td>' + yesno(r.exists) + '</td>'
@@ -120,7 +140,7 @@
             + '<div class="panel"><table id="platExes"><tr><th>Setting</th><th>Configured</th><th>Resolved</th><th>How</th><th>Verdict</th></tr>';
         for (var i = 0; i < rows.length; i++) {
             var x = rows[i];
-            h += '<tr data-key="' + esc(x.key) + '"><td>' + esc(EXE_LABELS[x.key] || x.key) + '</td>'
+            h += '<tr data-key="' + esc(x.key) + '"><td style="white-space:nowrap">' + esc(EXE_LABELS[x.key] || x.key) + '</td>'
                 + '<td class="mono">' + esc(x.configured) + '</td>'
                 + '<td class="mono">' + esc(x.resolved) + '</td>'
                 + '<td class="dim">' + esc(x.how) + '</td>'
@@ -161,7 +181,7 @@
         msg.innerHTML = '&nbsp;';
         var s = d.system || {};
         box.innerHTML = renderSystem(s) + renderPaths(d.paths || [], s.userDir) + renderExes(d.interpreters || [], s.interpreterRules)
-            + renderTrust(d.sunMscapi) + renderCase(d.caseSensitivity || {});
+            + renderTree(d.processTree) + renderTrust(d.sunMscapi) + renderCase(d.caseSensitivity || {});
     }
 
     function load(method, path) {

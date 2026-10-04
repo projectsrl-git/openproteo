@@ -1,40 +1,46 @@
-bash runner, process-tree kill, pwsh on Linux: batch 2 spec
+bash runner; kill the process tree on timeout and Stop (batch 2)
 
-Spec only, no code. No Java, template, JS, pom.xml, README.md change;
-USAGE.md goes with the code; no new runtime parameter in this commit.
+Batch 2 of the Linux / GUI-configuration programme, Gate 2 answered.
 
-.claude/LINUX_AND_GUI_CONFIG.md section 8, written on fifteen
-measurements (8.2) taken with a real Java 8 runtime (Temurin 1.8.0_432)
-and JDK 21, PowerShell 7.4.6 for Linux, and the real StepExecutor and
-RunControl compiled by the Java 8 javac:
+New external runner: exec="bash" or a .sh script, run through
+orchestrator.bash-exe (default /bin/bash), never as a file. Parameters
+arrive as OP_<name> environment variables, built by an all-ASCII
+"bash -c" bootstrap ending in exec - a JVM without a UTF-8 locale turns
+a non-ASCII argument or environment value into "?". Refused before
+launch, reason in the step log: name collision, nameless parameter,
+over 120 KiB, NUL, CRLF line endings.
 
-- destroyForcibly() leaves every child of a bash script alive, the
-  foreground one included, and execute() returns 5 s late. Launching
-  under setsid and killing the session plus the descendants leaves
-  none. What still escapes is measured and declared.
-- Stop does not stop a fan-out today, on any platform: RunControl holds
-  one process per run and concurrent items overwrite it. Three items,
-  Stop: one dies, two run to the end. Fix proposed in this batch.
-- A non-ASCII parameter passed by ProcessBuilder becomes "???" when the
-  service has no UTF-8 locale, as argument and as environment variable.
-  So bash receives its parameters as OP_<name> variables built by an
-  all-ASCII bootstrap, as PowerShell receives base64.
-- The PowerShell bootstrap works unchanged under pwsh on Linux; its
-  error stream does not (CLIXML and ANSI escapes) without
-  -OutputFormat Text and TERM=dumb.
-- The bundled application.properties sets powershell-exe, so no
-  platform default can apply until that line is removed.
-- Windows tree kill is not solved: Java 8 holds a HANDLE, not a pid.
-  The code delivery will include a measurement kit to run there.
+engine/ProcessTree: on a non-Windows host every external step is
+started under setsid and, on timeout or Stop, killed by session and
+descent after being stopped. Degraded modes are logged and shown on
+the Platform page. destroyForcibly() alone left every child alive.
 
-Six intersections decided by name; eight Gate 2 questions block the
-code. Section 7.13 records what the author's Windows screenshot of
-/platform verifies and what it does not.
+Stop on a fan-out step stops every item: RunControl held one process
+per run and concurrent items overwrote it. Changes behaviour on every
+platform.
 
-Verified on Linux (sandbox; Java 1.8.0_432 and JDK 21.0.12, bash 5.2,
-pwsh 7.4.6): every row of 8.2 by running it; every cited file:line read
-at 12cfc3a; patch touches only CLAUDE.md and two .claude files;
-git apply --check on a second clean clone.
-Verified on Windows: nothing by me; by the author, what 7.13 records.
-Not verified on either: Windows process trees; whether a failing .ps1
-logs CLIXML under Windows PowerShell 5.1 (Gate question 6).
+PowerShell: unset, the executable follows the host (powershell.exe on
+Windows, pwsh elsewhere); the bundled application.properties no longer
+sets it. Outside Windows: -OutputFormat Text and TERM=dumb. On Windows
+the command is identical to before - compared with the pre-patch class.
+
+CMD/JAR outside Windows: a parameter the JVM cannot encode is refused.
+
+Platform page: bash row, "Stopping a step", encoding verdict.
+USAGE.md updated. README.md not touched.
+
+INCOMPLETE by checklist 10: orchestrator.bash-exe is file-only until
+the settings batch; added to the debt list in CLAUDE.md.
+NOT DELIVERED: process-tree kill on Windows (Java 8 has a HANDLE, not a
+pid). tools/windows-proctree-kit measures it; written blind.
+
+Verified on Linux (sandbox; Java 1.8.0_432 runtime and JDK 21.0.12,
+bash 5.2, pwsh 7.4.6; root and non-root; LANG unset and C.UTF-8): 126
+assertions on the real StepExecutor/ProcessTree/RunControl in four
+combinations; controller 22; designer 19 + its XML through the real
+parser; Platform page 87; USAGE.md through docs.html render() 122;
+mutations 40 + 28 + 7 + 12, two equivalent and argued; git apply
+--check on a second clean clone.
+Verified on Windows: nothing. Checklist in the session note.
+Not verified on either: mvn clean package; Spring wiring; a browser;
+WorkflowEngine as a whole; the kit on Windows.

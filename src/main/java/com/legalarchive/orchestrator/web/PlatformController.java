@@ -74,8 +74,16 @@ public class PlatformController {
             interpreters.put("powershell", props.getPowershellExe());
             interpreters.put("cmd", props.getCmdExe());
             interpreters.put("java", props.getJavaExe());
+            interpreters.put("bash", props.getBashExe());
 
-            return probe.report(paths, interpreters, props.getDefaultBaseDir(), refreshProbe);
+            Map<String, Object> out = probe.report(paths, interpreters, props.getDefaultBaseDir(), refreshProbe);
+            // What a timeout or a Stop can reach on this host: the whole tree, part of it, or the interpreter only.
+            com.legalarchive.orchestrator.engine.ProcessTree tree = com.legalarchive.orchestrator.engine.ProcessTree.host();
+            Map<String, Object> pt = new LinkedHashMap<String, Object>();
+            pt.put("mode", tree.mode().name());
+            pt.put("reason", tree.reason());
+            out.put("processTree", pt);
+            return out;
         } catch (RuntimeException e) {
             Map<String, Object> out = new LinkedHashMap<String, Object>();
             out.put("ok", Boolean.FALSE);
