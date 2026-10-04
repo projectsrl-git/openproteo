@@ -1,28 +1,34 @@
-objunpack: designer panel (batch 3)
+objunpack: workflow template for unpack, rebuild, resend (batch 4)
 
-objunpack can be chosen and configured in the designer: Package,
-Output, Checks and limits - eleven fields, one per parameter the
-executor reads. Choosing the executor writes the nine defaults into
-the step; archive has none and the output directory defaults to the
-step's own. clientValidate checks the archive, the five numbers, the
-two option lists and the delimiter. The Variables page offers md5Check
-and onInconsistency; preserveMtime is shared with unarchive.
+workflows/_TEMPLATE-objunpack-resend.xml: objunpack, csvsql, dequote,
+validate, objpack, ftpsend on hold. As it stands a corrective resend:
+feed id, transmission date and sequence of the package, version + 1,
+the package's own target destination and metadata delimiter. Not in
+the WAR, like every sample.
 
-No Java. No new runtime parameter: the eleven of batch 2 are now all
-settable from the GUI and apply at the next run (checklist 10). A step
-written by hand before this batch is not rewritten when opened.
+No Java. USAGE.md describes the template, the four things to set
+before the first run, and what the middle steps do to the metadata.
 
-USAGE.md: the objunpack section describes the panel. README.md and
-CLAUDE.md not touched.
+Measured, and written into the spec (section 16):
+- csvsql, dequote and validate use their delimiter attribute
+  unresolved, so it cannot follow the package's: the template writes a
+  comma in the three and says to set them. Resolving the attribute is
+  proposed, not done - three production executors.
+- dequote keeps a value that contains the delimiter whole, wrapped in
+  quotes; it removes a quote inside a value, the one place where the
+  rebuilt rows differ from the package's.
+- a value with a line break needs embeddedNewlines=space.
+- objpack publishes some of the same short variable names; the
+  template uses ${OBJUNPACK.x} throughout.
 
-Verified on Linux (sandbox; node 22, jsdom): the real designer.html
-driven through its own controls, 128 assertions; parameters written by
-the panel equal those read by runObjUnpack, eleven each, compared
-mechanically with a positive control; 28 mutations on copies, 26
-caught, 2 equivalent; node --check on the inline scripts with a
-control; zero literal \n \r \t and zero [[ [( in the 71 added template
-lines, with a control; USAGE.md through docs.html's render(); git
-apply --check on a second clean clone.
+Verified on Linux (sandbox; Temurin 1.8.0_432, H2 2.1.214, node 22):
+the template through the real WorkflowXmlParser with a refused
+control; its parameters and variables against the executors,
+mechanically; H2 with csvsql's CSVREAD statement on the metadata of 12
+packages; the real runDequote body, lifted, on 10 packages, then the
+real ObjectPack and objunpack again - 10 of 10 rebuilt, objects
+byte-identical; USAGE.md through render(); the three suites re-run
+from a second clean clone after git apply --check.
 Verified on Windows: nothing.
-Not verified on either: a real browser, the UBS one in particular;
-Thymeleaf rendering; the Variables page; mvn clean package.
+Not verified on either: csvsql itself, validate, ftpsend; the template
+in the designer or in a run; mvn clean package.

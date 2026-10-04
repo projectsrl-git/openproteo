@@ -1555,7 +1555,7 @@ No extraction of everything into one folder (one folder per archive only).
 
 `objunpack` is the inverse of `objpack`. It takes **one** Transarch object package — `<base>.tar` or `<base>.tar.gz`, with `<base>.md5` beside it — and gives back the objects under their original names and the package's metadata CSV, byte for byte. It exists so a submission can be corrected and resent: its output is what `csvsql`, `dequote`, `validate` and `objpack` need as input.
 
-In the designer, choose **objunpack** as the executor: the panel has three sections — Package, Output, Checks and limits — and choosing the executor writes every default into the step, so the saved XML states each value the run will use. Every setting applies from the next run of the step. A workflow template with the whole rebuild chain comes in a later delivery.
+In the designer, choose **objunpack** as the executor: the panel has three sections — Package, Output, Checks and limits — and choosing the executor writes every default into the step, so the saved XML states each value the run will use. Every setting applies from the next run of the step. A workflow template with the whole rebuild chain is described below.
 
 ```xml
 <step id="OBJUNPACK" name="Unpack the package" exec="objunpack">
@@ -1575,7 +1575,24 @@ Not from the names inside the package. A member is called `tf0005754.20261004.S0
 - Where things are: `${objectsDir}`, `${metadataCsv}`, `${metadataDelimiter}` (the delimiter the package's metadata uses — pass it to `objpack` as `outDelimiter`, whose own default is `;`, or the rebuilt package changes delimiter), `${compression}` (`none` or `gzip`).
 - What was checked: `${objectCount}`, `${metadataRows}`, `${md5}`, `${md5Checked}`, `${inconsistencies}`, `${warnings}`, `${hostRules}`.
 
+In the steps that follow, write these with the step's id in front — `${OBJUNPACK.tfId}`, `${OBJUNPACK.md5}`. Every step also publishes its variables without the prefix, and `objpack` publishes several with the same names (`objectCount`, `md5`, `metadataRows`, `submissionBaseName`, `warnings`): after it has run, the short name is `objpack`'s.
+
 To rebuild the package, point `objpack` at `${OBJUNPACK.objectsDir}` and at the metadata CSV, and leave its pairing by name. The `object_id` column already in the metadata is set aside by `objpack`, which numbers the rows again.
+
+### The ready-made workflow: unpack, rebuild, resend
+
+`workflows/_TEMPLATE-objunpack-resend.xml` holds the whole chain: **objunpack**, **csvsql** (`SELECT {{columns}} FROM SOURCE`, from the feed's dataschema), **dequote**, **validate**, **objpack**, **ftpsend** (on hold, so nothing leaves without an approval). Like every sample it is not inside the application: copy it into the workflows directory, or use it as the template of a bulk creation.
+
+As it stands it is a **corrective resend**: `objpack` takes the feed id, the transmission date and the sequence from the package and `${OBJUNPACK.nextVersionNr}` as the version, sends to the destination written in the package's audit file, and writes the metadata with the package's own delimiter. For a new submission, set `tfId`, `transmissionDate`, `sequenceNr` and `versionNr` on the OBJ PACK step yourself.
+
+Four things to set before the first run:
+
+- `packageArchive` — where the package is; the default is `${landingIn}/*.tar`.
+- `dataschema.json` in the feed folder: `csvsql` and `validate` read it.
+- **The delimiter of the three middle steps.** The Delimiter field of `csvsql`, `dequote` and `validate` is used as it is written: a variable is not resolved there, so it cannot follow `${OBJUNPACK.metadataDelimiter}`. The template has a comma. Set all three to the delimiter the package uses — the Unpack step shows it as `metadataDelimiter`. With a different one, a value that contains it gets wrapped in quotes on the way.
+- `ftpsTarget` — the id of the FTPS target.
+
+What the middle steps do to the metadata, measured on packages from both producers: a value wrapped in quotes because it contains the delimiter is kept whole; a quote **inside** a value is removed by `dequote` (`said "ok"` becomes `said ok`) — that is its purpose, and it is the one place where the rebuilt rows differ from the package's; a value with a line break splits the record unless `dequote` is given `embeddedNewlines=space` (or `csvsql` its *line breaks inside values* option), and `objpack` refuses a split record. If the package's audit has no `TargetDestination` (the older script writes it empty when not given), `objpack` stops and asks for one: set it on that step. A name label (`map.nameLabel`) is not in the template: add it on OBJ PACK if the feed uses one.
 
 ### It never changes what it finds
 
