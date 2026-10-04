@@ -1,34 +1,29 @@
-objunpack: workflow template for unpack, rebuild, resend (batch 4)
+objunpack: say what it is doing while it runs
 
-workflows/_TEMPLATE-objunpack-resend.xml: objunpack, csvsql, dequote,
-validate, objpack, ftpsend on hold. As it stands a corrective resend:
-feed id, transmission date and sequence of the package, version + 1,
-the package's own target destination and metadata delimiter. Not in
-the WAR, like every sample.
+On the first real run (Windows, a 293 MB package) the live console
+showed "checksum verified" and then nothing for minutes: the step
+logged nothing between the checksum and the end of the extraction, so
+working and hung looked the same.
 
-No Java. USAGE.md describes the template, the four things to set
-before the first run, and what the middle steps do to the metadata.
+Now each phase logs a line when it starts, and the two long ones log a
+heartbeat every 5 seconds: members read with megabytes and percentage
+of the archive file (also from inside one large member), then files
+named. Nothing else changes - same output, variables and exit codes,
+no parameter.
 
-Measured, and written into the spec (section 16):
-- csvsql, dequote and validate use their delimiter attribute
-  unresolved, so it cannot follow the package's: the template writes a
-  comma in the three and says to set them. Resolving the attribute is
-  proposed, not done - three production executors.
-- dequote keeps a value that contains the delimiter whole, wrapped in
-  quotes; it removes a quote inside a value, the one place where the
-  rebuilt rows differ from the package's.
-- a value with a line break needs embeddedNewlines=space.
-- objpack publishes some of the same short variable names; the
-  template uses ${OBJUNPACK.x} throughout.
+objpack had this defect and this fix on 2026-09-29; it was not carried
+into the new executor and no test asserted it. Now one does.
 
-Verified on Linux (sandbox; Temurin 1.8.0_432, H2 2.1.214, node 22):
-the template through the real WorkflowXmlParser with a refused
-control; its parameters and variables against the executors,
-mechanically; H2 with csvsql's CSVREAD statement on the metadata of 12
-packages; the real runDequote body, lifted, on 10 packages, then the
-real ObjectPack and objunpack again - 10 of 10 rebuilt, objects
-byte-identical; USAGE.md through render(); the three suites re-run
-from a second clean clone after git apply --check.
-Verified on Windows: nothing.
-Not verified on either: csvsql itself, validate, ftpsend; the template
-in the designer or in a run; mvn clean package.
+USAGE.md: "While it runs", including why many small objects are slow
+by their number. README.md and CLAUDE.md not touched.
+
+Verified on Linux (sandbox; Temurin 1.8.0_432 and JDK 21.0.10 both
+run; root and uid 65534; LANG=C.UTF-8 and empty): core suite in the
+eight combinations, 656 assertions, 17 new; 9 mutations of the new
+code, all caught; executor and panel suites re-run; 20 000 objects in
+a 301 MB tar unpacked in under 5 s, so nothing grows faster than the
+object count; git apply --check on a second clean clone.
+Verified on Windows: nothing by me; the author's run there found the
+defect and shows the step starts and verifies the checksum.
+Not verified on either: how long the author's package takes on his
+host; mvn clean package.

@@ -95,6 +95,13 @@ public final class ObjectUnpack {
     /** Names the staging folder; unique per run. */
     public String runId = Long.toHexString(System.nanoTime());
     public Consumer<String> progress;
+    /**
+     * Minimum gap between two heartbeat lines inside a long loop; phase lines are always written.
+     * Without a heartbeat a package of many small objects on a slow volume looked like a step that
+     * had hung: nothing was logged between the checksum and the end of the extraction (found on
+     * the first real run, 2026-10-04).
+     */
+    public long progressIntervalMillis = 5000;
     public BooleanSupplier aborted = new BooleanSupplier() {
         @Override public boolean getAsBoolean() { return false; }
     };
@@ -141,6 +148,21 @@ public final class ObjectUnpack {
     }
 
     private HostRules rules;
+    private long lastBeat;
+
+    /** A heartbeat line, at most one per {@link #progressIntervalMillis}. The message is built only when due. */
+    private boolean beatDue() {
+        long now = System.nanoTime();
+        if (now - lastBeat < progressIntervalMillis * 1000000L) {
+            return false;
+        }
+        lastBeat = now;
+        return true;
+    }
+
+    private static String mb(long bytes) {
+        return String.format(Locale.ROOT, "%.1f MB", Double.valueOf(bytes / 1048576.0));
+    }
 
     public void run() throws IOException {
         String md5Mode = oneOf("md5Check", md5Check, "require", "ifpresent", "off");
@@ -353,7 +375,14 @@ public final class ObjectUnpack {
         NameIndex index = new NameIndex(rules);
         Budget budget = new Budget((long) maxObjects + 3, maxObjectBytes, maxArchiveBytes, maxRatio);
         long t0 = System.nanoTime();
-        InputStream raw = new BufferedInputStream(new FileInputStream(archiveFile), COPY_BUFFER);
+        long total = archiveFile.length();
+        say("reading the archive into a working folder under " + outputDir.getPath()
+                + " (each member is written once, then named)");
+        lastBeat = System.nanoTime();
+        // Counts the bytes of the archive FILE consumed, compressed or not, so the heartbeat can say
+        // how far through the file the reader is. It is not the gzip counter of the ratio limit.
+        GzipSupport.Counting position = new GzipSupport.Counting(new FileInputStream(archiveFile));
+        InputStream raw = new BufferedInputStream(position, COPY_BUFFER);
         try {
             InputStream tarIn = raw;
             GzipSupport.Counting counter = null;
@@ -401,12 +430,21 @@ public final class ObjectUnpack {
                         if (sinceCheck >= ABORT_CHECK_BYTES) {
                             sinceCheck = 0;
                             stopIfAborted();
+                            if (beatDue()) {
+                                say("reading: member " + (members.size() + 1) + " (" + mb(m.size) + " so far), "
+                                        + mb(position.count()) + " of " + mb(total) + " of the archive");
+                            }
                         }
                     }
                 } finally {
                     out.close();
                 }
                 members.add(m);
+                if (beatDue()) {
+                    say("reading: " + members.size() + " member(s), " + mb(position.count()) + " of " + mb(total)
+                            + " of the archive (" + (total > 0 ? Math.min(100, position.count() * 100 / total) : 100) + "%), "
+                            + secs(t0));
+                }
             }
             if (reader.endMarkerMissing()) {
                 warn("the tar has no end-of-archive marker; every member was read to its declared size");
@@ -438,6 +476,7 @@ public final class ObjectUnpack {
                     + "; exactly one is needed to know which member is which object");
         }
         Member auditM = audits.get(0);
+        say("reading " + auditM.name + " (" + mb(auditM.size) + ")");
         AuditJson.Document doc;
         try {
             doc = AuditJson.read(auditM.staged, auditM.name);
@@ -465,6 +504,7 @@ public final class ObjectUnpack {
             throw new ObjUnpackException(Reason.METADATA, metaM.name + " is " + metaM.size + " bytes, over the "
                     + MAX_METADATA_BYTES + " this step reads into memory");
         }
+        say("the audit lists " + doc.files.size() + " object(s); reading " + metaM.name + " (" + mb(metaM.size) + ")");
         String text = decodeUtf8(Files.readAllBytes(metaM.staged.toPath()), metaM.name);
         char delim = delimiterOf(text, metaM.name);
         metadataDelimiterUsed = String.valueOf(delim);
@@ -487,6 +527,7 @@ public final class ObjectUnpack {
                     + " require the column). Header: " + sample(table.header, 8));
         }
         metadataRows = table.rows.size();
+        say("the metadata has " + metadataRows + " row(s), delimiter '" + delim + "'; matching every object to its row and checking the names");
         Map<String, Integer> rowOfId = new HashMap<String, Integer>();
         int rowsWithoutId = 0;
         for (int i = 0; i < table.rows.size(); i++) {
@@ -719,8 +760,16 @@ public final class ObjectUnpack {
         }
         int maxPath = maxPathLength > 0 ? maxPathLength : rules.defaultMaxPath();
         String packageBase = packageDir.getAbsolutePath();
+        say("the package is coherent; giving " + objects.size() + " object(s) their original names");
+        long t0 = System.nanoTime();
+        lastBeat = t0;
+        int done = 0;
         for (Member m : members) {
             stopIfAborted();
+            if (done > 0 && beatDue()) {
+                say("naming: " + done + " of " + members.size() + " file(s), " + secs(t0));
+            }
+            done++;
             File to;
             if (m.restoreAs != null) {
                 to = new File(so, m.restoreAs);
@@ -745,6 +794,7 @@ public final class ObjectUnpack {
      */
     private void commit(File staging) throws IOException {
         stopIfAborted();
+        say("moving objects/ and package/ into " + outputDir.getPath());
         File[][] moves = { { new File(staging, "objects"), objectsDir }, { new File(staging, "package"), packageDir } };
         for (File[] mv : moves) {
             if (Files.exists(mv[1].toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {

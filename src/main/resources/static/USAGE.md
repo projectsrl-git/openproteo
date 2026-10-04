@@ -1594,6 +1594,10 @@ Four things to set before the first run:
 
 What the middle steps do to the metadata, measured on packages from both producers: a value wrapped in quotes because it contains the delimiter is kept whole; a quote **inside** a value is removed by `dequote` (`said "ok"` becomes `said ok`) — that is its purpose, and it is the one place where the rebuilt rows differ from the package's; a value with a line break splits the record unless `dequote` is given `embeddedNewlines=space` (or `csvsql` its *line breaks inside values* option), and `objpack` refuses a split record. If the package's audit has no `TargetDestination` (the older script writes it empty when not given), `objpack` stops and asks for one: set it on that step. A name label (`map.nameLabel`) is not in the template: add it on OBJ PACK if the feed uses one.
 
+### While it runs
+
+The live console shows each phase as it starts — reading the archive, reading the audit and the metadata, checking, giving the objects their names, moving the result into place — and, inside the two long ones, a line every five seconds: how many members have been read and how much of the archive file, then how many files have been named. A package of many small objects is slow in proportion to their **number**, not to its size: every object is one file to create and one to rename, and on a network share or under a real-time virus scanner each of those costs far more than the bytes do. While the step runs, its working folder `.objunpack-…part` in the output directory fills up; it is removed when the step ends, whatever the outcome.
+
 ### It never changes what it finds
 
 The archive and its `.md5` are only read: never renamed, moved or deleted. And nothing that already exists is replaced: if the output folder already holds `objects/` or `package/` — even empty — the step stops before reading the archive and leaves them as they are. The step's own directory is new at every run, so this only matters when `outputDir` points somewhere fixed. Nothing appears under `objects/` or `package/` until the whole package has been read and checked; a refused, failed or stopped run leaves nothing behind.

@@ -1,6 +1,6 @@
 # Object submission unpacker (`objunpack`) — specification
 
-Status: **complete — batch 4 delivered** (the template and the chain — §16) on `930aaaa`; batch 3 (designer panel — §15) on `1203b25`; batch 2 (registered — §14) on `538d1bb`; batch 1 (the core — §13) on `5f6c8c3`. Batch 0, the specification,
+Status: **first real run, 2026-10-04: a defect, fixed in §17** (a silent step). **complete — batch 4 delivered** (the template and the chain — §16) on `930aaaa`; batch 3 (designer panel — §15) on `1203b25`; batch 2 (registered — §14) on `538d1bb`; batch 1 (the core — §13) on `5f6c8c3`. Batch 0, the specification,
 was written 2026-10-04 on `89a66ad`. Gate 0 answered 2026-10-04 (§11). Corrections made by batch 1
 are struck through where the wrong text was, not rewritten.
 
@@ -578,4 +578,40 @@ feeds, not run here. The template in the designer and in a real run. Anything on
 
 **To close the feature on a real instance:** copy the template, put a real package in place, run
 to the hold; compare the tar produced by OBJ PACK with the original.
+
+## 17. The first real run: a step that looked hung (2026-10-04, on `8aded1a`)
+
+The author ran the template on Windows on a real package, `tf0005801.20261002.S001.V001.tar`,
+293 857 280 bytes. The console showed the checksum verified in 2.1 s and then **nothing** for at
+least eight minutes: working or hung could not be told.
+
+**The defect.** `ObjectUnpack` logged the start, the checksum, and then the next line only when
+the whole archive had been read. Between the two it creates one file per member, in silence. The
+lesson was already in this repository — `objpack` got phase lines and a heartbeat on 2026-09-29
+for exactly this (objpack spec §16, "a slow share no longer looks like a step that has hung") —
+and batch 1 did not carry it over. No suite could have caught it: every fixture unpacks in
+milliseconds, and nothing asserted that a long phase speaks.
+
+**The fix.** A phase line at the start of each phase, and inside the two long ones — reading the
+archive, naming the objects — a heartbeat at most every `progressIntervalMillis` (5 s; a field of
+the core, not a step parameter): members read and megabytes **of the archive file** with the
+percentage, including from inside a single large member; then files named. No behaviour changes:
+same files, same variables, same exit codes.
+
+**Measured in the sandbox, to tell a slow host from a slow algorithm:** 20 000 objects of 14 KB,
+a 301 MB tar built by the real `ObjectPack`, with name labels: unpacked in 3.5 s under Windows
+name rules (injected) and 4.7 s under Linux rules, on a local disk; reading 1.6–2.3 s, the join
+and the checks under 1 s, naming 0.7 s. Nothing in the code grows faster than the number of
+objects. **Not measured: the author's host.** Three file-system operations per object (create,
+rename, set the time) is what the step costs there; on a share or under a virus scanner that is
+where minutes go.
+
+**Verification.** 17 new assertions: every phase line present and in order on a package with the
+audit first and on one with the objects first; one heartbeat per member and per file when the
+interval is 0, none on a quick run at the default; the percentage never decreasing and never
+above 100; the megabytes those of the archive file; a 20 MB object, packaged by the real
+`ObjectPack`, reporting from inside itself. 9 mutations, all caught; one survived first — the
+megabyte figure was matched by shape only — and now is asserted against the file's size.
+
+**Still open:** whether the author's run was slow or stuck. With this patch the console answers.
 
