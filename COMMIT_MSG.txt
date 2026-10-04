@@ -1,22 +1,23 @@
-unarchive: batch C, opt-in deletion after extraction; batch R specified
+unarchive: batch R, nested archives (opt-in)
 
-Gate 0 of 2026-10-04: flat layout stays excluded; FIFOs and devices
-unchanged; zip, tar and gz suffice; non-UTF-8 tar names stay refused;
-deletion after extraction and nested archives become opt-in features.
+nested=extract extracts archives found inside an archive, in place
+(inner.zip becomes inner/), then removes them, down to nestedDepth (3);
+deeper ones are kept with a warning. Nested archives are selected by
+name with the step's pattern, never by content, so .docx/.xlsx/.jar
+(which are zips) are never opened. Everything happens in the outer
+archive's staging folder: any failure at any depth fails the outer
+archive and nothing of it is committed. Size limits count the whole
+tree; a gzip stream's ratio counts only that stream's bytes. On Linux a
+nested archive's links must stay inside its own folder. Manifest rows
+name nested files as inner.zip!entry. New output ${nestedExtracted}.
 
-afterExtract=delete: the archive is deleted only after its own commit -
-never when its extraction failed or was stopped, never when it was
-skipped. A failed deletion fails the step and says the extraction was
-committed. Designer option with a no-undo warning, validation,
-PARAM_OPTIONS, USAGE.md.
+Designer select and depth, PARAM_OPTIONS, USAGE.md "Archives inside
+archives".
 
-The spec (section 22) also specifies batch R, nested archives: opt-in,
-selected by name only (Office files are zips), depth 3 by default,
-extracted in place, removed after their own extraction, limits counted
-over the whole tree, all or nothing per outer archive.
-
-Verified: batch 2 suite 199, a non-root program 7 (the failed deletion
-can only be produced as a non-root user), Windows 232, Linux 140, links
-77, wiring 92, panel 117, guide 47; 10 mutations caught.
+Verified: nested suite 30 with fixtures from real tools; all earlier
+suites unchanged (Windows 232, batch 2 199, Linux 140, links 77,
+non-root 7); wiring 101; panel 130; guide 52; 22 mutations caught. A
+panel check that read the inline script source (and so could not fail)
+was found by a surviving mutation and fixed.
 
 Not verified: mvn clean package, a run in the container.

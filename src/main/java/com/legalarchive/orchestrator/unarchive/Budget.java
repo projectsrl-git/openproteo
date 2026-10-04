@@ -26,6 +26,8 @@ public final class Budget {
 
     private long entries;
     private long archiveBytes;
+    /** Bytes written since the current gzip stream started (section 22.5, ∩ I55). */
+    private long streamBytes;
     private long entryBytes;
     private String entryName;
 
@@ -56,6 +58,7 @@ public final class Budget {
     public void written(long n, long entryCompressed, long streamCompressed) throws UnarchiveException {
         entryBytes += n;
         archiveBytes += n;
+        streamBytes += n;
         if (entryBytes > maxEntryBytes) {
             throw new UnarchiveException(UnarchiveException.Rule.LIMIT_ENTRY_SIZE, "'" + EntryName.printable(entryName)
                     + "' passed maxEntryMb=" + (maxEntryBytes / (1024 * 1024)) + " (" + entryBytes + " bytes written)");
@@ -73,10 +76,19 @@ public final class Budget {
                         + c + " compressed, per entry)");
             }
         }
-        if (streamCompressed >= 0 && archiveBytes > RATIO_GRACE && archiveBytes > maxRatio * Math.max(streamCompressed, 1)) {
+        if (streamCompressed >= 0 && streamBytes > RATIO_GRACE && streamBytes > maxRatio * Math.max(streamCompressed, 1)) {
             throw new UnarchiveException(UnarchiveException.Rule.LIMIT_RATIO, "the stream expands more than maxRatio="
-                    + maxRatio + ":1 (" + archiveBytes + " bytes from " + streamCompressed + " compressed, whole stream)");
+                    + maxRatio + ":1 (" + streamBytes + " bytes from " + streamCompressed + " compressed, whole stream)");
         }
+    }
+
+    /**
+     * A new compressed stream begins (a nested gzip). <b>∩ I55</b>: the size limits stay cumulative
+     * over the whole tree, but a stream's ratio counts only what THAT stream produced - otherwise a
+     * 1 KB nested gzip met after 100 MB of legitimate data would read as 100 000:1.
+     */
+    public void startStream() {
+        streamBytes = 0;
     }
 
     public long entries() {

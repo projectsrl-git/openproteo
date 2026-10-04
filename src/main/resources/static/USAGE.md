@@ -1351,6 +1351,14 @@ The step refuses rather than repairs. An archive is refused, with the entry and 
 
 On Linux, a `\` in a tar entry is part of the name, as GNU tar treats it; in a zip it separates folders only when the zip was made on MS-DOS or Windows tools that declare it (Explorer, Java, .NET do), which is what unzip does. A zip whose entries are encrypted, or compressed with a method other than deflate (bzip2, LZMA, or DEFLATE64, which some Windows tools use for large files), is refused naming the method. A zip entry whose content does not match its checksum is refused as corrupted.
 
+### Archives inside archives
+
+With `nested=extract`, an archive found inside an archive is extracted too, in place: `inner.zip` becomes the folder `inner/` next to where it was, and the file `inner.zip` is removed. It goes on down to `nestedDepth` levels (default 3); an archive deeper than that is kept as a file, with a warning.
+
+Nested archives are found **by name**, with the step's `pattern` — never by content. A `.docx`, `.xlsx` or `.jar` is a zip inside, and is never opened unless the pattern names it. The format of what the pattern selected is then decided by its content, whatever `format` says (which applies to the outer archives only); a file named like an archive that is not one stops the step.
+
+Everything happens inside the outer archive's hidden working folder: if anything at any depth is refused or fails, the outer archive fails and nothing of it is kept. The limits count the outer archive and everything inside it together, so a small archive that hides a huge one is stopped. On Linux, a nested archive's links must stay inside its own folder. In the manifest, nested files are named like `inner.zip!data.csv` (two levels: `inner.tar.gz!deep.zip!y.csv`); the removed nested archives have no row of their own. `afterExtract` applies to the outer archive.
+
 ### Limits against archive bombs
 
 The limits count what is actually written, never what an archive declares: `maxEntries` entries per archive, `maxEntryMb` per file, `maxArchiveMb` per archive, and `maxRatio`, how much an entry may expand compared with its compressed size, checked once it has written 10 MB. A zip that declares more than `maxArchiveMb`, or more than the free space on the output drive plus 10%, is refused before anything is written.
@@ -1363,7 +1371,7 @@ Zip files do not always say how their names are encoded. The step uses the name 
 
 **0** done; **2** refused — a parameter or an archive, the message names the rule and the archive; **-997** stopped by the user (the archive in progress is removed, earlier ones stay); **1** an unexpected I/O error.
 
-Outputs: `${archivesFound}`, `${archivesExtracted}`, `${archivesSkipped}`, `${entriesExtracted}`, `${entriesSkipped}`, `${bytesExtracted}`, `${warnings}`, `${extractDirs}` (the folders extracted, separated by `;`), `${manifestFile}` and `${hostRules}` (`windows` or `linux`: the name rules applied).
+Outputs: `${archivesFound}`, `${archivesExtracted}`, `${archivesSkipped}`, `${entriesExtracted}`, `${entriesSkipped}`, `${bytesExtracted}`, `${warnings}`, `${extractDirs}` (the folders extracted, separated by `;`), `${manifestFile}`, `${hostRules}` (`windows` or `linux`: the name rules applied) and `${nestedExtracted}` (nested archives extracted).
 
 The manifest, `unarchive_manifest.csv` in the step directory, lists every extracted file: archive, name in the archive, where it was written, size, SHA-256 and modification time. It is UTF-8 without BOM, `;`-separated, one row per file, and contains only archives that were completely extracted.
 
@@ -1389,8 +1397,10 @@ Required: `sourceDir`. A parameter left empty means its default (the designer sh
 - `afterExtract` — default `keep`; `rename` adds `.done` to each archive once it is extracted, so the next run does not take it again; `delete` removes it once it is completely extracted and in place — never when its extraction failed or was stopped, and not when it was skipped (`onExisting=skip`). If the deletion itself fails, the step fails and says the archive was extracted but not deleted.
 - `preserveMtime` — default `true`: files keep the modification time stored in the archive.
 - `manifestHash` — default `true`; `false` leaves the SHA-256 column empty.
+- `nested` — default `none`; `extract` also extracts archives found inside archives (see above).
+- `nestedDepth` — default 3: the deepest level extracted when `nested=extract`.
 - `failOnEmpty` — default `false`; `true` fails the step when no archive matched. An archive with nothing inside is a warning either way.
 
 ### What it does not do yet
 
-No extraction of everything into one folder (one folder per archive only), and no archive inside an archive is opened — extract it with a second step.
+No extraction of everything into one folder (one folder per archive only).

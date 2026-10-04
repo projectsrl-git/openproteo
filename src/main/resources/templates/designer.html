@@ -478,7 +478,7 @@
         ['layout', 'subdir'], ['onExisting', 'fail'], ['onUnsupportedEntry', 'fail'], ['zipNameCharset', 'auto'],
         ['maxEntries', '100000'], ['maxEntryMb', '2048'], ['maxArchiveMb', '20480'], ['maxRatio', '200'],
         ['maxPathLength', 'auto'], ['checkFreeDisk', 'true'], ['afterExtract', 'keep'], ['preserveMtime', 'true'],
-        ['manifestHash', 'true'], ['failOnEmpty', 'false'] ];
+        ['manifestHash', 'true'], ['failOnEmpty', 'false'], ['nested', 'none'], ['nestedDepth', '3'] ];
     function uaDefault(name) { for (var k = 0; k < UA_DEFAULTS.length; k++) if (UA_DEFAULTS[k][0] === name) return UA_DEFAULTS[k][1]; return ''; }
     function uaSeed(n) {
         n.params = n.params || [];
@@ -2020,6 +2020,13 @@
                         '<option value="tar.gz"' + (uaFmt === 'tar.gz' || uaFmt === 'tgz' ? ' selected' : '') + '>tar.gz / tgz</option>' +
                         '<option value="gz"' + (uaFmt === 'gz' ? ' selected' : '') + '>gz \u2014 decompress only</option></select></div></div>';
                     if (uaFmt === 'gz') h += '<div class="dim small" style="color:#b9770e">gz only decompresses: a .tar.gz gives the .tar file, not its contents.</div>';
+                    var uaNest = String(nodeParam(n, 'nested') || 'none').toLowerCase();
+                    h += '<div class="form-row">' +
+                        '<div class="field wide"><label>Archives inside archives</label><select onchange="setNodeParam(' + i + ',\'nested\',this.value); renderNodes()" title="Found by NAME, with the pattern above - never by content, so .docx, .xlsx and .jar (which are zips) are never opened.">' +
+                        '<option value="none"' + (uaNest !== 'extract' ? ' selected' : '') + '>leave them as files</option>' +
+                        '<option value="extract"' + (uaNest === 'extract' ? ' selected' : '') + '>extract them too, in place</option></select></div>' +
+                        '<div class="field"><label>Max depth</label><input type="number" min="1" value="' + attresc(nodeParam(n, 'nestedDepth')) + '" placeholder="' + uaDefault('nestedDepth') + '" title="Levels below the archive itself; a deeper archive is kept as a file, with a warning." oninput="setNodeParam(' + i + ',\'nestedDepth\',this.value)"></div></div>';
+                    if (uaNest === 'extract') h += '<div class="dim small" style="color:#b9770e">inner.zip becomes inner/ next to where it was, then is removed. Found by name with the pattern above, never by content: .docx, .xlsx, .jar stay files. Limits count the whole tree; if anything inside fails, the outer archive fails and nothing of it is kept.</div>';
                     h += '</div>';
 
                     h += '<div class="sub"><div class="sub-h">Output</div>';
@@ -2407,6 +2414,10 @@
                     if (uaL && uaL !== 'subdir') errs.push(label + ' (' + n.id + '): layout must be subdir (the only layout available)');
                     var uaA = String(nodeParam(n, 'afterExtract') || '').trim().toLowerCase();
                     if (uaA && uaA !== 'keep' && uaA !== 'rename' && uaA !== 'delete') errs.push(label + ' (' + n.id + '): afterExtract must be keep, rename or delete');
+                    var uaNe = String(nodeParam(n, 'nested') || '').trim().toLowerCase();
+                    if (uaNe && uaNe !== 'none' && uaNe !== 'extract') errs.push(label + ' (' + n.id + '): nested must be none or extract');
+                    var uaD = String(nodeParam(n, 'nestedDepth') || '').trim();
+                    if (uaD && uaD.indexOf('${') < 0 && !/^[1-9][0-9]*$/.test(uaD)) errs.push(label + ' (' + n.id + '): nestedDepth must be a whole number above 0');
                     var uaE = String(nodeParam(n, 'onExisting') || '').trim().toLowerCase();
                     if (uaE && ['fail', 'skip', 'replace'].indexOf(uaE) < 0) errs.push(label + ' (' + n.id + '): onExisting must be fail, skip or replace');
                     var uaS = String(nodeParam(n, 'sourceDir') || '').trim(), uaO = String(nodeParam(n, 'outputDir') || '').trim();

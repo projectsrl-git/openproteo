@@ -1,7 +1,7 @@
 # Archive extraction executor (`unarchive`) — specification
 
-Status: **batch C delivered** (opt-in deletion, §22.3); **batch R specified** (opt-in nested
-archives, §22.4), next. Linux hosts complete (§21). Batches 0–4 delivered the executor for Windows. Batch 2 delivered the zip reader, limits,
+Status: **batches C and R delivered** (opt-in deletion §22.3, opt-in nested archives §22.5).
+Linux hosts complete (§21). Batches 0–4 delivered the executor for Windows. Batch 2 delivered the zip reader, limits,
 staging, commit and manifest. Gate 0 Q1–Q3 answered 2026-09-30, Q4–Q12 confirmed with the recommended
 defaults 2026-10-03 (§13). Batch 0 written on `0997815`, revised on `0509aa9`, batch 2 on `a4f02c8`.
 
@@ -514,6 +514,8 @@ archive with zero entries is a WARNING either way.
 | `preserveMtime` | `true` | §8.5 |
 | `manifestHash` | `true` | §9 |
 | `failOnEmpty` | `false` | §9 |
+| `nested` | `none` | §22.4: `extract` = archives inside archives, selected by name, extracted in place |
+| `nestedDepth` | 3 | §22.4: deepest nested level extracted; deeper ones kept as files with a warning |
 
 Conservative defaults hold trivially — a new executor changes no existing feed — but every default
 above is also the *refusing* or *non-destructive* choice, so a step configured with only `sourceDir`
@@ -1059,6 +1061,8 @@ API has no way to set it, so the strip is structural.
 | I52 | a nested archive beyond `nestedDepth` | recurse vs limit | kept as a file, with a WARNING naming it; not refused |
 | I53 | limits with nested archives | per archive vs per tree | cumulative over the outer archive and everything inside it (the 42.zip defence) |
 | I54 | `afterExtract` with nested archives | outer vs inner | `afterExtract` applies to the outer archive only; a nested archive is removed after its own extraction (R4) |
+| I55 | a gzip stream's ratio with cumulative limits | tree-wide byte count vs per-stream ratio | size limits cumulative; a stream's ratio counts only the bytes THAT stream produced (found while building R: a 14 KB nested gzip after 12.6 MB would have read as ~850:1) |
+| I56 | a nested archive selected by the pattern but without an archive extension (`payload.bin`) | `baseName` vs the file's own name | refused (`SUBDIR_COLLISION`) saying it has no archive extension, and what to do |
 
 ### 22.3. Batch C: `afterExtract=delete` (as built)
 
@@ -1103,3 +1107,35 @@ program.
   hard links to files of the same nested archive.
 * **Manifest**: rows for nested content name the entry as `P/inner.zip!entry` (the jar-URL
   convention); the removed nested archive has no row of its own.
+
+### 22.5. Batch R: nested archives (as built)
+
+`UnarchiveRun.nested` / `nestedDepth`; `expandNested` walks breadth-first over the regular files each
+context wrote, selects by name with the step's `FileMask` (names ending `.done` excluded, as at the top
+level), decides the format by content with `auto`, extracts into the sibling folder inside the same
+staging folder, deletes the nested file and its manifest row, and queues the new context. A context
+(`Ctx`) now carries its archive, its log label (`outer.zip!inner.tar.gz!deep.zip`), its manifest
+prefixes and its depth; with `nested=none` they equal what they were. `Budget.startStream()` (∩ I55).
+Nested links are verified against their own folder before the commit; nested folder modes join the
+outer list and are applied with it. Adapter: `nested`, `nestedDepth` (refused when malformed),
+`${nestedExtracted}`. Designer: the select, the depth, a hint, validation, two seeded defaults;
+`PARAM_OPTIONS`; USAGE.md "Archives inside archives" (and the line "no archive inside an archive is
+opened" removed).
+
+**Verification**: nested suite 30 — two levels from real tools (Info-ZIP zip of a GNU `tar -czf` of a
+zip) extracted in place and compared with the source files; a `.docx` (a zip) never opened; off by
+default; depth limit with the kept archive named in a warning; collision; a hostile nested archive
+refusing the outer one with nothing committed (and not deleted under `afterExtract=delete`); a file
+named like an archive that is not one; cumulative size limit (6 MB fits 8 MB, the tree does not); a
+nested gzip bomb; ∩ I55; manifest rows; configuration; on Linux a nested link escaping its folder, a
+nested chain escaping it only when followed, a confined link; outer `format=zip` with nested tar.gz;
+Stop during nested extraction; ∩ I56. Existing suites unchanged and green (Windows 232, batch 2 199,
+Linux 140, links 77, non-root 7); wiring 101, panel 130, guide 52, mechanical 20.
+
+**Mutations: core 14, adapter 3, panel 5 — all caught.** Two gaps were closed *before* running them:
+the nested-link verification needed a nested chain fixture (the escaping link was already stopped by
+the text check), and I55 needed its own fixture. **One panel mutation survived first and exposed a
+broken test of mine**: checks on `document.body.textContent` include the designer's inline script
+source, which contains every hint string — so they passed whatever the page showed. Fixed (the body
+without `<script>`); the batch-L1 "rules follow the server" check had the same flaw (its mutation had
+been caught only because it changed the script text too) and now passes for the right reason.

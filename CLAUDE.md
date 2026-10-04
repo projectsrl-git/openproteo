@@ -3638,3 +3638,17 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   showed 6 checks instead of 7; check that counts move when tests are added.
 * Batch R specified in the spec §22.4 (nested by name only - Office files are zips). Note in
   `.claude/2026-10-04-unarchive-C-delete.md`.
+
+## unarchive — Batch R: nested archives (opt-in)
+* `nested=extract` / `nestedDepth` (3): nested archives selected by NAME with the step's pattern
+  (never by content - Office files are zips), extracted in place inside the outer staging, removed,
+  all or nothing, one budget for the tree, Linux links confined to the nested folder, manifest
+  `inner.zip!entry`, `${nestedExtracted}`.
+* Found while building: **I55** a gzip stream's ratio counts only its own bytes (cumulative bytes
+  would have refused a 14 KB nested gzip after 12.6 MB as ~850:1); **I56** a nested archive without an
+  archive extension is refused with a clear message.
+* **Lesson**: in jsdom, `document.body.textContent` includes inline `<script>` source - a check for a
+  hint string there can never fail. Use the body without scripts. Found by a surviving mutation; an
+  L1 check had the same flaw.
+* Nested suite 30, all earlier suites green, wiring 101, panel 130, guide 52; 22 mutations caught.
+  Note in `.claude/2026-10-04-unarchive-R-nested.md`.

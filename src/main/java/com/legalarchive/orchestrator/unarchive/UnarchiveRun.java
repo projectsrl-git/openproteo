@@ -83,6 +83,10 @@ public final class UnarchiveRun {
     public int maxPathLength = 0;
     public boolean checkFreeDisk = true;
     public String afterExtract = "keep";
+    /** Gate 0 R1-R6 (section 22.4): "none" (default) or "extract" - archives found inside an archive, by name. */
+    public String nested = "none";
+    /** Deepest nested archive extracted; the outer archive is depth 0. */
+    public int nestedDepth = 3;
     public boolean preserveMtime = true;
     public boolean manifestHash = true;
     public boolean failOnEmpty;
@@ -113,6 +117,8 @@ public final class UnarchiveRun {
     public int warnings;
     public int mtimeFailures;
     public boolean wasAborted;
+    /** Nested archives extracted (and removed) across the run. */
+    public int nestedExtracted;
     /** The rule set applied, "windows" or "linux" - published so a run says which it used. */
     public String hostRules = "";
     public final List<String> extractDirs = new ArrayList<String>();
@@ -249,6 +255,8 @@ public final class UnarchiveRun {
                     + " (on a Java 8 JRE it lives in lib/charsets.jar)");
         }
         legacyCharset = Charset.forName(zipLegacyCharset);
+        if (!oneOf(low(nested, "none"), "none", "extract")) throw config("nested must be none or extract");
+        if (nestedDepth < 1) throw config("nestedDepth must be 1 or more");
         if (maxEntries <= 0 || maxEntryMb <= 0 || maxArchiveMb <= 0 || maxRatio <= 0 || maxPathLength < 0) {
             throw config("limits must be positive");
         }
@@ -346,22 +354,8 @@ public final class UnarchiveRun {
         try {
             Budget budget = new Budget(maxEntries, maxEntryMb * 1024 * 1024, maxArchiveMb * 1024 * 1024, maxRatio);
             Ctx x = new Ctx(c, staging, target, budget, rows);
-            switch (d.handling) {
-                case ZIP:
-                    extractZip(x);
-                    break;
-                case TAR:
-                    try (InputStream in = new BufferedInputStream(Files.newInputStream(c.file), 65536)) {
-                        extractTar(x, in, null);
-                    }
-                    break;
-                default:
-                    try (InputStream raw = new BufferedInputStream(Files.newInputStream(c.file), 65536)) {
-                        GzipSupport.Opened g = GzipSupport.open(raw, c.file.getFileName().toString(), d.handling);
-                        if (g.innerIsTar) extractTar(x, g.decompressed, g.compressedCounter);
-                        else extractSingle(x, g);
-                    }
-            }
+            extractInto(x, d);
+            if (low(nested, "none").equals("extract")) expandNested(x);
             if (rules == HostRules.LINUX) linuxFinish(x);
             commit(staging, target, n);
             committed = true;
@@ -396,10 +390,106 @@ public final class UnarchiveRun {
         }
     }
 
-    /** Per-archive state shared by the three extraction paths. */
+    /** Reads one archive into its context's folder, whichever its format. */
+    private void extractInto(Ctx x, ArchiveFormat.Decision d) throws IOException {
+        switch (d.handling) {
+            case ZIP:
+                extractZip(x);
+                break;
+            case TAR:
+                try (InputStream in = new BufferedInputStream(Files.newInputStream(x.archive), 65536)) {
+                    extractTar(x, in, null);
+                }
+                break;
+            default:
+                try (InputStream raw = new BufferedInputStream(Files.newInputStream(x.archive), 65536)) {
+                    x.budget.startStream();
+                    GzipSupport.Opened g = GzipSupport.open(raw, x.archive.getFileName().toString(), d.handling);
+                    if (g.innerIsTar) extractTar(x, g.decompressed, g.compressedCounter);
+                    else extractSingle(x, g);
+                }
+        }
+    }
+
+    /**
+     * Gate 0 R1-R6 (section 22.4). Breadth-first over everything written: a regular file whose NAME
+     * matches {@code pattern} (∩ I51: never by content - a .docx is a zip) is extracted into the folder
+     * beside it named by {@code baseName}, inside the same staging folder, then removed. Deeper than
+     * {@code nestedDepth}: kept, with a warning (∩ I52). One Budget for the whole tree (∩ I53). Any
+     * failure propagates and fails the outer archive (R6).
+     */
+    private void expandNested(Ctx outer) throws IOException {
+        FileMask mask = new FileMask(pattern);
+        java.util.ArrayDeque<Ctx> work = new java.util.ArrayDeque<Ctx>();
+        work.add(outer);
+        while (!work.isEmpty()) {
+            Ctx p = work.removeFirst();
+            for (Path f : new ArrayList<Path>(p.written)) {
+                String name = f.getFileName().toString();
+                if (name.endsWith(".done") || !mask.matchesAny(name)) continue;
+                String rel = p.staging.relativize(f).toString().replace('\\', '/');
+                String label = p.label + "!" + rel;
+                if (p.depth + 1 > nestedDepth) {
+                    warn(label + " is an archive deeper than nestedDepth=" + nestedDepth + "; kept as a file");
+                    continue;
+                }
+                checkAbort();
+                String base = ArchiveFormat.baseName(name);
+                EntryName.validate(base, true, rules, false);
+                Path folder = f.resolveSibling(base);
+                if (folder.equals(f)) {
+                    // ∩ I56: selected by the pattern but without an archive extension, so its folder would
+                    // carry its own name; refused with what to do, not with a misleading "already contains"
+                    throw new UnarchiveException(UnarchiveException.Rule.SUBDIR_COLLISION, label + " has no archive extension"
+                            + " (.zip, .tar, .tgz, .tar.gz, .gz), so its folder would have its own name; rename it in the"
+                            + " archive or narrow the pattern");
+                }
+                if (Files.exists(folder, LinkOption.NOFOLLOW_LINKS)) {
+                    throw new UnarchiveException(UnarchiveException.Rule.SUBDIR_COLLISION, label + " would extract into '"
+                            + p.staging.relativize(folder).toString().replace('\\', '/') + "', which the archive already contains");
+                }
+                byte[] head = new byte[ArchiveFormat.HEAD_BYTES];
+                int len;
+                try (InputStream in = Files.newInputStream(f)) {
+                    len = readUpTo(in, head);
+                }
+                ArchiveFormat.Decision d;
+                try {
+                    d = ArchiveFormat.decide(name, head, len, ArchiveFormat.Requested.AUTO);
+                } catch (UnarchiveException e) {
+                    throw new UnarchiveException(e.rule(), label + ": " + e.getMessage());
+                }
+                Files.createDirectory(folder);
+                Ctx q = new Ctx(p, f, folder);
+                EntryName.checkLength(p.target.toString(), EntryName.validate(p.staging.relativize(folder).toString().replace('\\', '/'), true, rules, false), pathLimit, rules);
+                log.accept("unarchive: " + label + " -> " + q.targetPrefix + "/ (" + ArchiveFormat.label(d.kind) + ", nested)");
+                extractInto(q, d);
+                Files.delete(f);
+                String row = p.targetPrefix + "/" + rel;
+                p.rows.removeIf(r -> r.target.equals(row));
+                p.files.remove(rel);
+                p.written.remove(f);
+                nestedExtracted++;
+                work.add(q);
+            }
+        }
+    }
+
+    /** Per-archive state shared by the three extraction paths; one per nested archive too. */
     private final class Ctx {
         final Candidate c;
         final Path staging, target;
+        /** The archive file this context reads (the candidate, or a nested archive inside a staging folder). */
+        final Path archive;
+        /** For the log: the candidate's path, then "!inner.zip" per level. */
+        final String label;
+        /** Manifest: the target column's prefix, and the entry column's ("inner.zip!" per level). */
+        final String targetPrefix, entryPrefix;
+        final int depth;
+        /** Regular files written by this context, the candidates for nested extraction. */
+        final List<Path> written = new ArrayList<Path>();
+        /** Linux: links of nested contexts, each verified against its own folder (section 22.4). */
+        final List<Object[]> nestedLinks;
         final Budget budget;
         final List<Row> rows;
         final NameIndex index;
@@ -408,8 +498,8 @@ public final class UnarchiveRun {
         final Map<String, Row> files = new HashMap<String, Row>();
         /** Linux: symlinks created, verified together before the commit. */
         final List<Path> symlinks = new ArrayList<Path>();
-        /** Linux: directory entries' mode and time, applied deepest first after everything else. */
-        final List<Object[]> dirs = new ArrayList<Object[]>();
+        /** Linux: directory entries' mode and time, applied deepest first after everything else - shared by nested contexts. */
+        final List<Object[]> dirs;
         /** ∩ I46: a zip's modes are applied as stored (unzip, measured); a tar's minus the umask (GNU tar). */
         boolean zip;
         int backslashNames, notNfcNames;
@@ -421,6 +511,33 @@ public final class UnarchiveRun {
             this.budget = budget;
             this.rows = rows;
             this.index = new NameIndex(rules);
+            this.archive = c.file;
+            this.label = c.rel;
+            this.targetPrefix = c.subdir;
+            this.entryPrefix = "";
+            this.depth = 0;
+            this.dirs = new ArrayList<Object[]>();
+            this.nestedLinks = new ArrayList<Object[]>();
+        }
+
+        /** A nested archive {@code file} inside {@code parent}'s folder, extracted into {@code folder}. */
+        Ctx(Ctx parent, Path file, Path folder) {
+            String relFolder = parent.staging.relativize(folder).toString().replace('\\', '/');
+            String relFile = parent.staging.relativize(file).toString().replace('\\', '/');
+            this.c = parent.c;
+            this.staging = folder;
+            this.target = parent.target.resolve(parent.staging.relativize(folder));
+            this.budget = parent.budget;
+            this.rows = parent.rows;
+            this.index = new NameIndex(rules);
+            this.archive = file;
+            this.label = parent.label + "!" + relFile;
+            this.targetPrefix = parent.targetPrefix + "/" + relFolder;
+            this.entryPrefix = parent.entryPrefix + relFile + "!";
+            this.depth = parent.depth + 1;
+            this.dirs = parent.dirs;
+            this.nestedLinks = parent.nestedLinks;
+            this.nestedLinks.add(new Object[]{folder, this.symlinks});
         }
     }
 
@@ -447,17 +564,17 @@ public final class UnarchiveRun {
             }
             place(x, n, e.name, r.payload(), -1, counter, e.mtime >= 0 ? e.mtime * 1000 : -1, e.mode);
         }
-        if (r.endMarkerMissing()) warn(x.c.rel + ": the tar has no end-of-archive blocks (accepted, as GNU tar does)");
-        if (r.loneZeroBlock()) warn(x.c.rel + ": the tar ends with a single zero block (accepted, as GNU tar does)");
-        if (!r.globalKeys().isEmpty()) log.accept("unarchive: " + x.c.rel + ": pax global header keys ignored " + r.globalKeys());
-        if (!r.ignoredPaxKeys().isEmpty()) log.accept("unarchive: " + x.c.rel + ": pax keys not applied " + r.ignoredPaxKeys());
-        if (r.volumeLabels() > 0) log.accept("unarchive: " + x.c.rel + ": " + r.volumeLabels() + " volume label(s) ignored");
+        if (r.endMarkerMissing()) warn(x.label + ": the tar has no end-of-archive blocks (accepted, as GNU tar does)");
+        if (r.loneZeroBlock()) warn(x.label + ": the tar ends with a single zero block (accepted, as GNU tar does)");
+        if (!r.globalKeys().isEmpty()) log.accept("unarchive: " + x.label + ": pax global header keys ignored " + r.globalKeys());
+        if (!r.ignoredPaxKeys().isEmpty()) log.accept("unarchive: " + x.label + ": pax keys not applied " + r.ignoredPaxKeys());
+        if (r.volumeLabels() > 0) log.accept("unarchive: " + x.label + ": " + r.volumeLabels() + " volume label(s) ignored");
         finish(x);
     }
 
     private void extractZip(Ctx x) throws IOException {
         x.zip = true;
-        try (ZipArchiveReader z = new ZipArchiveReader(x.c.file.toFile(), forcedCharset, legacyCharset)) {
+        try (ZipArchiveReader z = new ZipArchiveReader(x.archive.toFile(), forcedCharset, legacyCharset)) {
             long declared = z.declaredTotal();
             if (declared > maxArchiveMb * 1024 * 1024) {
                 throw new UnarchiveException(UnarchiveException.Rule.LIMIT_ARCHIVE_SIZE, "the directory declares "
@@ -476,7 +593,7 @@ public final class UnarchiveRun {
             for (ZipArchiveReader.NameRule nr : ZipArchiveReader.NameRule.values()) {
                 if (z.count(nr) > 0) decided.append(decided.length() == 0 ? "" : ", ").append(nr).append('=').append(z.count(nr));
             }
-            log.accept("unarchive: " + x.c.rel + ": names decided by " + (decided.length() == 0 ? "(no entries)" : decided));
+            log.accept("unarchive: " + x.label + ": names decided by " + (decided.length() == 0 ? "(no entries)" : decided));
             for (ZipArchiveReader.Entry e : z.entries()) {
                 checkAbort();
                 x.budget.startEntry(e.name);
@@ -513,7 +630,7 @@ public final class UnarchiveRun {
     }
 
     private void extractSingle(Ctx x, GzipSupport.Opened g) throws IOException {
-        String name = ArchiveFormat.innerNameOfGzip(x.c.file.getFileName().toString());
+        String name = ArchiveFormat.innerNameOfGzip(x.archive.getFileName().toString());
         x.budget.startEntry(name);
         EntryName.Name n = EntryName.validate(name, false, rules, false);
         place(x, n, name, g.decompressed, -1, g.compressedCounter, -1, -1);
@@ -571,8 +688,9 @@ public final class UnarchiveRun {
         if (rules == HostRules.LINUX && mode >= 0) setMode(p, mode, !x.zip);
         entriesExtracted++;
         bytesExtracted += bytes;
-        Row row = new Row(raw, x.c.subdir + "/" + n.path, bytes, md == null ? "" : hex(md.digest()), mtimeMillis);
+        Row row = new Row(x.entryPrefix + raw, x.targetPrefix + "/" + n.path, bytes, md == null ? "" : hex(md.digest()), mtimeMillis);
         x.rows.add(row);
+        x.written.add(p);
         if (rules == HostRules.LINUX) x.files.put(n.path, row);
     }
 
@@ -600,7 +718,7 @@ public final class UnarchiveRun {
         Files.createSymbolicLink(p, Paths.get(target));
         x.symlinks.add(p);
         entriesExtracted++;
-        x.rows.add(new Row(raw, x.c.subdir + "/" + n.path, 0, "", -1));
+        x.rows.add(new Row(x.entryPrefix + raw, x.targetPrefix + "/" + n.path, 0, "", -1));
     }
 
     /**
@@ -628,7 +746,7 @@ public final class UnarchiveRun {
         Files.createDirectories(p.getParent());
         Files.createLink(p, x.staging.resolve(tn.path));
         entriesExtracted++;
-        Row row = new Row(raw, x.c.subdir + "/" + n.path, t.bytes, t.sha, mtimeMillis);
+        Row row = new Row(x.entryPrefix + raw, x.targetPrefix + "/" + n.path, t.bytes, t.sha, mtimeMillis);
         x.rows.add(row);
         x.files.put(n.path, row);
     }
@@ -636,6 +754,11 @@ public final class UnarchiveRun {
     /** Before the commit: links verified through each other, then folders' modes and times, deepest first. */
     private void linuxFinish(Ctx x) throws IOException {
         LinkGuard.verify(x.staging, x.symlinks);
+        for (Object[] set : x.nestedLinks) {
+            @SuppressWarnings("unchecked")
+            List<Path> links = (List<Path>) set[1];
+            LinkGuard.verify((Path) set[0], links);             // a nested archive's links stay in ITS folder
+        }
         List<Object[]> ds = new ArrayList<Object[]>(x.dirs);
         ds.sort((a, b) -> ((Path) b[0]).getNameCount() - ((Path) a[0]).getNameCount());
         for (Object[] d : ds) {
@@ -651,7 +774,7 @@ public final class UnarchiveRun {
                 }
             }
         }
-        if (!x.symlinks.isEmpty()) log.accept("unarchive: " + x.c.rel + ": " + x.symlinks.size() + " symbolic link(s) created, all inside the archive's folder");
+        if (!x.symlinks.isEmpty()) log.accept("unarchive: " + x.label + ": " + x.symlinks.size() + " symbolic link(s) created, all inside the archive's folder");
     }
 
     /**
@@ -728,10 +851,10 @@ public final class UnarchiveRun {
     }
 
     private void finish(Ctx x) {
-        if (!x.skippedNames.isEmpty()) log.accept("unarchive: " + x.c.rel + ": skipped " + x.skippedNames);
-        if (x.backslashNames > 0) log.accept("unarchive: " + x.c.rel + ": " + x.backslashNames + " name(s) used '\\' as separator");
-        if (x.notNfcNames > 0) warn(x.c.rel + ": " + x.notNfcNames + " name(s) are not Unicode NFC; kept as they are");
-        if (x.budget.entries() == 0) warn(x.c.rel + ": the archive has no entries");
+        if (!x.skippedNames.isEmpty()) log.accept("unarchive: " + x.label + ": skipped " + x.skippedNames);
+        if (x.backslashNames > 0) log.accept("unarchive: " + x.label + ": " + x.backslashNames + " name(s) used '\\' as separator");
+        if (x.notNfcNames > 0) warn(x.label + ": " + x.notNfcNames + " name(s) are not Unicode NFC; kept as they are");
+        if (x.budget.entries() == 0) warn(x.label + ": the archive has no entries");
     }
 
     /**

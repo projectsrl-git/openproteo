@@ -403,6 +403,7 @@ public class InternalSteps {
         if ((v = pv(params, vars, "onUnsupportedEntry")) != null) u.onUnsupportedEntry = v;
         if ((v = pv(params, vars, "zipNameCharset")) != null) u.zipNameCharset = v;
         if ((v = pv(params, vars, "afterExtract")) != null) u.afterExtract = v;
+        if ((v = pv(params, vars, "nested")) != null) u.nested = v;
         u.recursive = yes(pv(params, vars, "recursive"), false);
         u.checkFreeDisk = yes(pv(params, vars, "checkFreeDisk"), true);
         u.preserveMtime = yes(pv(params, vars, "preserveMtime"), true);
@@ -411,7 +412,7 @@ public class InternalSteps {
 
         // Numbers are refused when malformed, never defaulted: a limit typed as "2O48" that silently
         // became the default would look configured and be something else.
-        String[] nums = { "maxEntries", "maxEntryMb", "maxArchiveMb", "maxRatio", "maxPathLength" };
+        String[] nums = { "maxEntries", "maxEntryMb", "maxArchiveMb", "maxRatio", "maxPathLength", "nestedDepth" };
         for (String k : nums) {
             String raw = pv(params, vars, k);
             if (raw == null) continue;
@@ -427,6 +428,10 @@ public class InternalSteps {
             else if ("maxEntryMb".equals(k)) u.maxEntryMb = n;
             else if ("maxArchiveMb".equals(k)) u.maxArchiveMb = n;
             else if ("maxRatio".equals(k)) u.maxRatio = n;
+            else if ("nestedDepth".equals(k)) {
+                if (n > 1000) { line.accept("unarchive: nestedDepth is too large"); res.exitCode = 2; res.lastLines = "nestedDepth is too large"; return; }
+                u.nestedDepth = (int) n;
+            }
             else if (n > Integer.MAX_VALUE) { line.accept("unarchive: maxPathLength is too large"); res.exitCode = 2; res.lastLines = "maxPathLength is too large"; return; }
             else u.maxPathLength = (int) n;
         }
@@ -457,6 +462,7 @@ public class InternalSteps {
         res.outVars.put("bytesExtracted", String.valueOf(u.bytesExtracted));
         res.outVars.put("warnings", String.valueOf(u.warnings));
         res.outVars.put("hostRules", u.hostRules);
+        res.outVars.put("nestedExtracted", String.valueOf(u.nestedExtracted));
         StringBuilder dirs = new StringBuilder();
         for (String d : u.extractDirs) { if (dirs.length() > 0) dirs.append(';'); dirs.append(d); }
         res.outVars.put("extractDirs", dirs.toString());
