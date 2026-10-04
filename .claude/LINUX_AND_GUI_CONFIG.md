@@ -170,9 +170,11 @@ Points 1 to 3 were answered on 2026-10-04 and are struck through; the answers ar
    artifact of 2026-08-03. Seen, not touched: unrelated to this amendment.~~ Corrected, together
    with the same claim in the Spring Boot line of «Stack e regole irrinunciabili».
 
-## 7. Batch 1 — platform diagnostics panel (SPEC ONLY, no code yet)
+## 7. Batch 1 — platform diagnostics panel ~~(SPEC ONLY, no code yet)~~ — DELIVERED
 
-Written 2026-10-04 on base `aaaf68f`. Code follows only after the author confirms §7.12.
+Written 2026-10-04 on base `aaaf68f`. ~~Code follows only after the author confirms §7.12.~~ Gate 1
+answered the same day (all five as recommended); code delivered on base `7b52145`. What the
+implementation changed or added against this text is in §7.13, not edited in place.
 
 ### 7.1 What it is, and what it is not
 
@@ -413,3 +415,43 @@ Not verifiable on either before deploy: `mvn clean package`, the controller wiri
    The alternative is probing on every GET, which on a public endpoint is a write anyone can drive.
 4. **The link only in the dashboard nav** (§7.2), or in every topbar?
 5. **Leave `System.lineSeparator()` in the audit report as it is** (§7.10)?
+
+**Answered 2026-10-04: all five as recommended.** Three more path rows; `sun.jnu.encoding` and the
+effective default charset; the probe cached with a 60-second floor; the link in the dashboard nav
+only; `System.lineSeparator()` in the audit report left as it is.
+
+### 7.13 Delivered — what the implementation decided beyond §7.1-7.11
+
+1. **`Probe again` is its own endpoint, `POST /api/platform/case-probe`**, returning the same
+   document as the GET. A request that writes a file is not a GET. The first GET after a start
+   still probes once; every later GET answers from the cache.
+2. **A `NOT_DETERMINED` answer is never cached or throttled.** Nothing was written to reach it, so
+   there is nothing to protect, and a directory created a moment later is probed at once.
+3. **Fields the §7.7 example did not show**: on a path row `set` and, for an absent file,
+   `creatable` (then `kindOk` / `writable` are absent, not false); on an interpreter row `rules`
+   and, when there is something to say, `detail`; on the probe `cached`, `throttled`, `reason`;
+   in `system` the two fields of Gate question 2 plus `interpreterRules`. A row never carries a key
+   whose value would be a guess.
+4. **A file that exists but is not executable** (non-Windows) is `NOT_FOUND` with a `detail`
+   naming it, and the search goes on: a later `PATH` entry can still win, and then the stale detail
+   is removed. Under Windows rules executability is not tested - the notion does not exist there.
+5. **No `PATH` at all** (non-Windows): the JDK's own fallback, `/bin:/usr/bin`, is searched. **An
+   empty `PATH` entry is skipped**: to the OS it means the current directory, which for a step is
+   that step's own folder - the same unknowable as §7.9.3.
+6. **Under Windows rules an absolute path is also recognised by its shape** (drive letter, UNC):
+   `Paths.get("C:\\x").isAbsolute()` is false on the JVM that runs the tests. On Windows itself
+   `isAbsolute()` already answers.
+7. **The scan is a committed tool**, `tools/scan_platform_whitelist.js`, exit 1 on a violation -
+   not advisory. It also asserts the one permitted write: exactly one `createFile`, exactly one
+   `delete`, no API that creates a directory, none that starts a process.
+
+**Not exercised, and said plainly:**
+
+- **`CASE_INSENSITIVE` on a real file system.** Tried and refused by the sandbox kernel: no
+  `mkfs.vfat`, an ext4 casefold image would not mount, tmpfs `casefold` rejected. The branch is one
+  ternary whose other arm IS measured, and inverting it is caught - but the first time this code
+  meets a case-insensitive directory is NTFS on the author's machine.
+- **A real `pwsh`.** None is installed in the sandbox. `bash` and `sh` are the real interpreters
+  found; `powershell.exe` and `cmd.exe` are correctly `NOT_FOUND` here.
+- **Windows.** The search order is exercised with an injected `os.name`, environment and a fake
+  directory tree - the logic, not the platform.

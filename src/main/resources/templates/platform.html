@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OpenProteo — Platform</title>
+    <link rel="icon" type="image/svg+xml" th:href="@{/img/logo.svg}">
+    <link rel="stylesheet" th:href="@{/css/app.css(v=${buildId})}">
+    <script>(function(){try{var t=localStorage.getItem("op-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+</head>
+<body>
+<div class="topbar">
+    <a class="brand" th:href="@{/}"><img th:src="@{/img/logo.svg}" alt="">OPENPROTEO</a>
+    <span class="sub">Platform</span>
+    <span class="spacer"></span>
+    <a class="btn sm ops" th:href="@{/overview}">▦ Operations</a>
+    <a class="btn sm ops" th:href="@{/logs}">🗒 Log report</a>
+    <span class="clock" id="clock"></span>
+</div>
+
+<div class="wrap" style="max-width:1200px">
+    <h1>Platform diagnostics</h1>
+    <p class="page-sub">What this instance thinks its host is: the operating system and the Java runtime, where the
+        configured paths really point, which interpreters it can find, and whether the feed base directory is
+        case-sensitive. <b>Read-only</b>: nothing is configured here, and nothing is created &mdash; a missing
+        directory is shown as missing.</p>
+    <p class="page-sub" id="platMsg">Loading&hellip;</p>
+    <div id="plat"></div>
+</div>
+
+<script>
+    var CTX = (function(){ var b=document.querySelector('.brand'); var h=b?b.getAttribute('href'):'/'; return h.charAt(h.length-1)==='/'?h:h+'/'; })();
+    function tick() { document.getElementById('clock').textContent = new Date().toLocaleString('it-IT'); }
+    tick(); setInterval(tick, 1000);
+
+    function esc(v) {
+        return String(v === null || v === undefined ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function chip(cls, text) { return '<span class="chip ' + cls + '">' + esc(text) + '</span>'; }
+    function yesno(v) { return v === true ? 'yes' : (v === false ? 'no' : '—'); }
+    function mono(v) { return '<span class="mono">' + esc(v) + '</span>'; }
+
+    /* Where each row's value is configured, so the page names the setting and not an internal key. */
+    var PATH_LABELS = {
+        workflowsDir: 'orchestrator.workflows-dir', scriptsDir: 'orchestrator.scripts-dir',
+        sharedDir: 'orchestrator.shared-dir', defaultBaseDir: 'orchestrator.default-base-dir',
+        datasourcesFile: 'orchestrator.datasources-file', ftpTargetsFile: 'orchestrator.ftp-targets-file',
+        maskPoolsDir: 'orchestrator.mask-pools-dir', globalVarsFile: 'global variables file (effective)',
+        logDir: 'application log directory', tmpDir: 'java.io.tmpdir (import staging)'
+    };
+    var EXE_LABELS = { powershell: 'orchestrator.powershell-exe', cmd: 'orchestrator.cmd-exe', java: 'orchestrator.java-exe' };
+
+    /* One verdict per path row. The order of the tests is the order a person would ask the questions in. */
+    function pathVerdict(r) {
+        if (r.error) return chip('FAILED', 'error') + ' <span class="dim">' + esc(r.error) + '</span>';
+        if (r.set === false) return chip('SKIPPED', 'not set');
+        var dir = r.expected === 'directory';
+        if (r.exists === false) {
+            if (dir) return chip('FAILED', 'missing');
+            return r.creatable === true ? chip('SKIPPED', 'absent, can be created') : chip('FAILED', 'absent, cannot be created');
+        }
+        if (r.kindOk === false) return chip('FAILED', dir ? 'not a directory' : 'not a file');
+        if (r.writable === false) return chip('FAILED', 'not writable');
+        return chip('SUCCESS', 'ok');
+    }
+
+    function exeVerdict(x) {
+        if (x.status === 'FOUND') return chip('SUCCESS', 'found');
+        if (x.status === 'NOT_FOUND') return chip('FAILED', 'not found');
+        if (x.status === 'UNDETERMINED') return chip('SKIPPED', 'cannot be determined');
+        return chip('SKIPPED', 'not configured');
+    }
+
+    function caseVerdict(c) {
+        if (c.error) return chip('FAILED', 'error') + ' <span class="dim">' + esc(c.error) + '</span>';
+        if (c.result === 'CASE_SENSITIVE') return chip('ON_HOLD', 'case-sensitive');
+        if (c.result === 'CASE_INSENSITIVE') return chip('ON_HOLD', 'case-insensitive');
+        return chip('SKIPPED', 'not determined') + ' <span class="dim">' + esc(c.reason) + '</span>';
+    }
+
+    function kv(label, value) {
+        return '<tr><td class="dim" style="width:260px">' + esc(label) + '</td><td>' + value + '</td></tr>';
+    }
+
+    function renderSystem(s) {
+        var h = '<h2>Host and Java runtime</h2><div class="panel"><table id="platSystem">';
+        if (s.error) return h + kv('error', esc(s.error)) + '</table></div>';
+        h += kv('Operating system (os.name)', mono(s.osName));
+        h += kv('Architecture (os.arch)', mono(s.osArch));
+        h += kv('Java version', mono(s.javaVersion));
+        h += kv('Java vendor', mono(s.javaVendor));
+        h += kv('Default charset (file.encoding)', mono(s.fileEncoding) + ' <span class="dim">effective: ' + esc(s.defaultCharset) + '</span>');
+        h += kv('File-name encoding (sun.jnu.encoding)', mono(s.jnuEncoding));
+        h += kv('Working directory (user.dir)', mono(s.userDir));
+        return h + '</table></div>';
+    }
+
+    function renderPaths(rows, userDir) {
+        var h = '<h2>Paths</h2><p class="page-sub">A relative value is resolved against the working directory, <span class="mono">'
+            + esc(userDir) + '</span>.</p><div class="panel"><table id="platPaths"><tr><th>Setting</th><th>Configured</th>'
+            + '<th>Resolved</th><th>Exists</th><th>Writable</th><th>Verdict</th></tr>';
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i];
+            h += '<tr data-key="' + esc(r.key) + '"><td>' + esc(PATH_LABELS[r.key] || r.key) + '<div class="dim">' + esc(r.expected || '') + '</div></td>'
+                + '<td class="mono">' + esc(r.configured) + '</td>'
+                + '<td class="mono">' + esc(r.absolute || '') + '</td>'
+                + '<td>' + yesno(r.exists) + '</td>'
+                + '<td>' + yesno(r.exists === false ? r.creatable : r.writable) + '</td>'
+                + '<td>' + pathVerdict(r) + '</td></tr>';
+        }
+        return h + '</table></div>';
+    }
+
+    function renderExes(rows, rules) {
+        var how = rules === 'windows'
+            ? 'Windows rules: .exe is added to a name without an extension, and the search goes through the Java directory, the working directory, the Windows system directories and then PATH.'
+            : 'PATH only: each directory of the PATH the server was started with, first executable file wins.';
+        var h = '<h2>Interpreters</h2><p class="page-sub">Each configured interpreter is looked for <b>without being started</b>. '
+            + '<span id="platRules">' + esc(how) + '</span> <b>Found</b> means a file is there, not that it runs; no version is shown, because showing one would mean running it.</p>'
+            + '<div class="panel"><table id="platExes"><tr><th>Setting</th><th>Configured</th><th>Resolved</th><th>How</th><th>Verdict</th></tr>';
+        for (var i = 0; i < rows.length; i++) {
+            var x = rows[i];
+            h += '<tr data-key="' + esc(x.key) + '"><td>' + esc(EXE_LABELS[x.key] || x.key) + '</td>'
+                + '<td class="mono">' + esc(x.configured) + '</td>'
+                + '<td class="mono">' + esc(x.resolved) + '</td>'
+                + '<td class="dim">' + esc(x.how) + '</td>'
+                + '<td>' + exeVerdict(x) + (x.detail ? ' <span class="dim">' + esc(x.detail) + '</span>' : '') + '</td></tr>';
+        }
+        return h + '</table></div>';
+    }
+
+    function renderTrust(v) {
+        var h = '<h2>Windows trust store</h2><div class="panel"><table id="platTrust">';
+        if (v === true) h += kv('SunMSCAPI provider', chip('SUCCESS', 'present') + ' <span class="dim">FTPS targets can use trust mode WINDOWS on this server.</span>');
+        else if (v === false) h += kv('SunMSCAPI provider', chip('SKIPPED', 'absent') + ' <span class="dim">Trust mode WINDOWS cannot work on this Java runtime: an FTPS target using it fails when it connects. Use a trust store file instead.</span>');
+        else h += kv('SunMSCAPI provider', chip('FAILED', 'error') + ' <span class="dim">' + esc(v && v.error) + '</span>');
+        return h + '</table></div>';
+    }
+
+    function renderCase(c) {
+        var h = '<h2>File-name case in the feed base directory</h2><p class="page-sub">Measured by creating a temporary file, '
+            + 'looking it up under a different case and deleting it. The answer is about this one directory, not about the whole '
+            + 'server: a feed with its own base directory on another disk can differ.</p><div class="panel"><table id="platCase">';
+        h += kv('Directory', mono(c.directory || ''));
+        h += kv('Result', caseVerdict(c));
+        if (c.probedAt) h += kv('Measured at', esc(c.probedAt) + (c.cached === true ? ' <span class="dim">(kept since then, not measured again)</span>' : ''));
+        if (c.leftover) h += kv('Left behind', chip('FAILED', 'not deleted') + ' ' + mono(c.leftover) + ' <span class="dim">could not be removed from that directory.</span>');
+        if (c.throttled === true) h += kv('', '<span id="platThrottled" class="dim">Not measured again: the last measurement is less than a minute old.</span>');
+        h += '</table><div style="padding:12px 14px"><button class="btn sm" id="platProbeBtn" onclick="probeAgain()">Probe again</button></div></div>';
+        return h;
+    }
+
+    function render(d) {
+        var msg = document.getElementById('platMsg');
+        var box = document.getElementById('plat');
+        if (!d || d.ok !== true) {
+            msg.textContent = 'The diagnostics could not be read' + (d && d.error ? ': ' + d.error : '.');
+            box.innerHTML = '';
+            return;
+        }
+        msg.innerHTML = '&nbsp;';
+        var s = d.system || {};
+        box.innerHTML = renderSystem(s) + renderPaths(d.paths || [], s.userDir) + renderExes(d.interpreters || [], s.interpreterRules)
+            + renderTrust(d.sunMscapi) + renderCase(d.caseSensitivity || {});
+    }
+
+    function load(method, path) {
+        fetch(CTX + path, { method: method, credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { render(d); })
+            .catch(function (e) {
+                document.getElementById('platMsg').textContent = 'The diagnostics could not be read: ' + (e && e.message ? e.message : e);
+            });
+    }
+    function probeAgain() { load('POST', 'api/platform/case-probe'); }
+    load('GET', 'api/platform');
+</script>
+<script th:src="@{/js/modal.js(v=${buildId})}"></script>
+<script th:src="@{/js/theme.js(v=${buildId})}"></script>
+</body>
+</html>

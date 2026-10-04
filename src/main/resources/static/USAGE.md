@@ -577,6 +577,66 @@ In the CSV view, the free-text filter and the FROM/TO range filters also apply t
 
 Deleting a run removes its record, its step logs and its step working directories, and the run disappears from the run history. The **audit trail is deliberately kept**: the events of that run (including the deletion itself) remain in the audit log for compliance, they are simply no longer listed as a run.
 
+## Platform diagnostics
+
+The **Platform** page (button on the dashboard, after Docs) shows what this instance thinks its host is: the operating system and the Java runtime, where the configured paths really point, which interpreters it can find, and whether file names are case-sensitive in the feed base directory.
+
+It is read-only. It configures nothing and creates nothing: a directory that does not exist is shown as missing, never created for you.
+
+Open it first on a new server, and again whenever a run fails on a path or an interpreter it cannot find. It is the quickest way to see that a server was started from the wrong folder.
+
+### Host and Java runtime
+
+The operating system, the architecture, the Java version and vendor, and the working directory (`user.dir`). Every relative value in the configuration, such as `./workflows`, is resolved against the working directory, which is why it is shown on the same page as the paths.
+
+Two encodings are shown, and they answer different questions. The default charset is what the server uses for the CONTENT of a file when a step does not name a charset. The file-name encoding (`sun.jnu.encoding`) is what it uses for the NAMES of files.
+
+On a Linux server started as a service without a locale, the file-name encoding is often `ANSI_X3.4-1968`, which is plain ASCII. Every file whose name contains an accented letter then fails, with an error that does not mention encodings at all. If you see that value, give the service a UTF-8 locale (for example `LANG=C.UTF-8`) and restart it.
+
+### Paths
+
+One row for each directory and file the instance is configured with: the workflows, scripts, shared and feed base directories, the datasources and FTPS targets files, the mask pools directory, the global variables file actually in use, the directory of the application log, and the Java temporary directory, where a workflow import is staged.
+
+Each row shows the value as configured, the absolute path it resolves to, whether it exists, whether the server can write to it, and a verdict:
+
+- `ok` — it exists, it is the right kind of thing, and the server can write to it.
+- `missing` — a directory that does not exist. Create it on the server; the page will not.
+- `absent, can be created` — a file that does not exist yet, in a folder the server can write to. This is normal on a new instance: the datasources file appears the first time a datasource is saved.
+- `absent, cannot be created` — a file that does not exist, in a folder that is missing or that the server cannot write to. Saving from the application will fail.
+- `not a directory`, `not a file` — something exists at that path, but it is the wrong kind: a file where a directory is expected, or the other way round.
+- `not writable` — it exists, but the account the server runs as cannot write to it. On Linux this is the usual finding when the paths are left at their defaults: they point inside the folder the server was started from, which normally belongs to root.
+- `not set` — an optional setting left empty, such as the mask pools directory. Nothing is resolved for it.
+- `error` — the value is not a usable path on this server; the text beside it says why.
+
+### Interpreters
+
+One row for each interpreter the external executors use: PowerShell, cmd and Java. Each is looked for **without being started**.
+
+- `found` — a file is there; the resolved path is shown. It does not mean the interpreter works: a damaged installation is still found. No version is shown, because showing one would mean running it.
+- `not found` — steps that use this executor fail on this server. This is expected for `cmd.exe` on Linux, and for `powershell.exe` unless PowerShell is installed there under that name.
+- `cannot be determined` — the configured value is a relative path such as `tools/pwsh`. Each step runs in its own folder and the operating systems resolve such a path differently, so the page cannot tell. Use a bare name or an absolute path.
+- `not configured` — the setting is empty.
+
+The page states which search it used. On Windows a name without an extension gets `.exe`, and the search goes through the Java directory, the working directory, the Windows system directories and then `PATH`. Elsewhere only the directories of `PATH` are searched, and the file must be executable.
+
+### Windows trust store
+
+Whether this Java runtime has the Windows certificate store provider (SunMSCAPI). It exists only on Windows. Where it is absent, an FTPS target whose trust mode is `WINDOWS` fails when it connects, and needs a trust store file instead.
+
+### File-name case in the feed base directory
+
+Whether `Report.csv` and `report.csv` are the same file there. The page measures it: it creates a small temporary file in the feed base directory, looks for it under a different case, and deletes it. That is the only thing the page ever writes.
+
+The answer is about that one directory, not about the whole server. A feed whose own base directory is on another disk can differ.
+
+The measurement is taken once and kept. **Probe again** repeats it, at most once a minute; asked sooner, the page shows the earlier result and says so.
+
+If the directory is missing or not writable the result is `not determined`, with the reason. It is never assumed.
+
+### Who can open it
+
+Until sign-in exists, anyone who can reach the application can open this page. It shows no password, no secret and nothing read from the configuration files. It does show the operating system, the Java version and where the application is installed.
+
 ## The elarxml step
 
 `elarxml` builds ELAR INDX and PULL files from a flat source CSV, replacing the standalone `elar-file-maker.jar`. It reads one row per document, embeds that document's content file as Base64 with its SHA-256, and groups documents into INDX/PULL pairs. Nothing accumulates across documents, so the memory it uses does not depend on how many documents a batch holds or how large the embedded files are.

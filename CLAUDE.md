@@ -3856,3 +3856,35 @@ compilazione no. Il WAR risultante è in `target/openproteo.war`.
   2026-08-03; corrected (struck through), and the Spring Boot line of the stack list with it.
   `X-User` before `getRemoteUser()`: confirmed as batch 3's decision, not touched before.
 * Note in `.claude/2026-10-04-platform-panel-batch1-spec.md`.
+
+## Platform diagnostics panel — Batch 1 delivered
+* Gate 1 answered, all five as recommended. `/platform` (dashboard nav, after Docs) over
+  `GET /api/platform`; `platform/PlatformProbe` is JDK-only and holds every decision,
+  `web/PlatformController` only chooses which configured values are described. Read-only, no new
+  parameter, no dependency, no executor touched. Spec §7.13 lists what the implementation decided.
+* **The sandbox is root, and root passes every permission check.** Two mutations (`writable` always
+  true; the not-writable guard removed) are caught ONLY by the run as a non-root user and are green
+  as root. Every suite here runs twice. Same lesson as unarchive L2, now with the proof beside it.
+* **`Probe again` is a POST** (`/api/platform/case-probe`): a request that writes a file is not a
+  GET. The probe refuses more than one write per 60 s whatever is asked, and a `NOT_DETERMINED`
+  answer is never cached, since nothing was written to reach it.
+* **The whitelist is enforced by `tools/scan_platform_whitelist.js`, exit 1, not advisory**:
+  property and environment reads by literal name only and within the list, a fixed set of
+  `AppProperties` getters in the controller, exactly one `createFile` and one `delete`, nothing that
+  creates a directory or starts a process. 21 controls, each proving a rule can fire - including
+  that a comment naming a forbidden call does not trip it and code after a comment is still seen.
+* **The controller was RUN, not only read**: compiled with Spring stubbed against the REAL
+  `AppProperties` and `GlobalVarsStore`, then called. A masking secret and a global variable set on
+  the properties appear nowhere in the response; the global-vars row is the store's own `file()`,
+  not a second copy of its rule. What that does not prove: Spring wiring, and the JSON Jackson
+  writes.
+* **Green mutations opened**: one exposed a real gap (nothing asserted `leftover` on a
+  not-determined answer); one was equivalent and is recorded as such - a stray `</div>` in a string
+  assigned to `innerHTML` is DROPPED by the fragment parser when no div is open, unlike the
+  designer's nested cards where it re-parents what follows. The mutation that bites there is an
+  UNCLOSED `<div>`. 35 probe + 21 page + 8 guide mutations.
+* **Not exercised**: `CASE_INSENSITIVE` on a real file system (the sandbox kernel refuses vfat and
+  casefold mounts - tried), a real `pwsh`, anything on Windows, `mvn clean package`, a browser.
+* `USAGE.md` «Platform diagnostics», through `docs.html`'s own `render()`; every verdict label is
+  lifted from the page and must appear in the guide. Note in
+  `.claude/2026-10-04-platform-panel-batch1-code.md`.

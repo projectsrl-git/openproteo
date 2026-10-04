@@ -176,6 +176,11 @@ public class PageController {
         return "docs";
     }
 
+    @GetMapping("/platform")
+    public String platform() {
+        return "platform";
+    }
+
     @GetMapping("/view")
     public String view() {
         return "view";
