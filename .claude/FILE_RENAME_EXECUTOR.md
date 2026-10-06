@@ -71,6 +71,11 @@ fuzzed over an alphabet of quotes, delimiters, blanks, CR, LF, `#`): 0 differenc
 from Windows PowerShell 5.1, from the 6.0.0-alpha.9 source: 5.1 assumes CR is always followed by
 LF, and skips only the first `#` line.
 
+**2026-10-06:** `PsCsvReader` now reads through a one-character look-ahead over a `Reader`, so
+that `objunpack` can take a large file record by record (`OBJECT_UNPACK_EXECUTOR.md` §19).
+`filerename` calls it as before. The parser of `9d98f95` and the new one gave identical output on
+300 000 fuzzed inputs under two delimiters; `Import-Csv` itself was not run again.
+
 ## 5. Deviations from the script
 
 1. The extension column is required only when the template contains `{EXT}` (the script required

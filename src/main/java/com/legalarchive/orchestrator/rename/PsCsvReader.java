@@ -3,6 +3,9 @@ package com.legalarchive.orchestrator.rename;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.Reader;
+import java.io.StringReader;
+import java.io.UncheckedIOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -51,12 +54,30 @@ public final class PsCsvReader {
         public boolean unspecifiedNames;
     }
 
-    private final String s;
-    private final char delim;
-    private int pos;
+    /**
+     * Receives a CSV record by record, so a caller that needs two columns of a large file does not
+     * have to hold every cell of it (added 2026-10-06: objunpack held a 52 MB metadata file as one
+     * string plus four million cell strings, and a server with a 512 MB heap never came out of it).
+     */
+    public interface RowHandler {
+        /**
+         * The header names, after H-naming: called once, before the first row - or at the end,
+         * with the names as written, for a file that has a header and no data row.
+         */
+        void header(List<String> names, boolean unspecifiedNames) throws IOException;
 
-    private PsCsvReader(String text, char delim) {
-        this.s = text;
+        /** One data row, as long as the header; a missing field is null. The array is the handler's. */
+        void row(String[] row) throws IOException;
+    }
+
+    /** The text is read through a one-character look-ahead, which is all the grammar needs. */
+    private final Reader in;
+    private final char delim;
+    /** The next character, {@code -1} at the end, {@code -2} when not read yet. */
+    private int ahead = -2;
+
+    private PsCsvReader(Reader in, char delim) {
+        this.in = in;
         this.delim = delim;
     }
 
@@ -95,28 +116,56 @@ public final class PsCsvReader {
 
     /** Parses already decoded text. Throws IllegalArgumentException for duplicate header names. */
     public static Table parse(String text, char delim) {
-        PsCsvReader r = new PsCsvReader(text, delim);
-        Table t = new Table();
-        List<String> header = r.readHeader();
-        List<String> values = new ArrayList<String>();
-        boolean first = true;
-        while (true) {
-            r.parseNextRecord(values);
-            if (values.isEmpty()) break;
-            if (values.size() == 1 && values.get(0).isEmpty()) continue;   // blank line
-            if (first) {
-                buildNames(header, t);
-                first = false;
-            }
-            String[] row = new String[t.header.size()];
-            for (int i = 0; i < row.length; i++) row[i] = i < values.size() ? values.get(i) : null;
-            t.rows.add(row);
-        }
-        if (first && header != null) {
-            // No data row: PowerShell never builds an object, so the names are the raw header.
-            for (String h : header) t.header.add(h);
+        final Table t = new Table();
+        try {
+            parse(new StringReader(text), delim, new RowHandler() {
+                @Override public void header(List<String> names, boolean unspecifiedNames) {
+                    t.header.addAll(names);
+                    t.unspecifiedNames = unspecifiedNames;
+                }
+                @Override public void row(String[] row) {
+                    t.rows.add(row);
+                }
+            });
+        } catch (IOException e) {
+            throw new IllegalStateException("reading from a string cannot fail", e);   // StringReader never throws
         }
         return t;
+    }
+
+    /**
+     * The same parser, record by record. {@code in} is read to its end and not closed; give it a
+     * buffered reader. A failure of the reader - a byte the charset decoder refuses, for a caller
+     * that asked the decoder to report - comes out as the {@link IOException} it was. Throws
+     * IllegalArgumentException for duplicate header names.
+     */
+    public static void parse(Reader in, char delim, RowHandler handler) throws IOException {
+        PsCsvReader r = new PsCsvReader(in, delim);
+        try {
+            List<String> header = r.readHeader();
+            List<String> values = new ArrayList<String>();
+            Table names = new Table();
+            boolean first = true;
+            while (true) {
+                r.parseNextRecord(values);
+                if (values.isEmpty()) break;
+                if (values.size() == 1 && values.get(0).isEmpty()) continue;   // blank line
+                if (first) {
+                    buildNames(header, names);
+                    handler.header(names.header, names.unspecifiedNames);
+                    first = false;
+                }
+                String[] row = new String[names.header.size()];
+                for (int i = 0; i < row.length; i++) row[i] = i < values.size() ? values.get(i) : null;
+                handler.row(row);
+            }
+            if (first && header != null) {
+                // No data row: PowerShell never builds an object, so the names are the raw header.
+                handler.header(new ArrayList<String>(header), false);
+            }
+        } catch (UncheckedIOException e) {
+            throw e.getCause();
+        }
     }
 
     /** BuildMshobject: empty names become H1, H2...; a clash among the final names is an error. */
@@ -136,25 +185,35 @@ public final class PsCsvReader {
 
     // ------------------------------------------------------------------ the port
 
-    private boolean eof() { return pos >= s.length(); }
+    private int peek() {
+        if (ahead == -2) {
+            try {
+                ahead = in.read();
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+        return ahead;
+    }
 
-    private char readChar() { return s.charAt(pos++); }
+    private boolean eof() { return peek() < 0; }
 
-    private boolean peekNextChar(char c) { return pos < s.length() && s.charAt(pos) == c; }
+    /** Only ever called when {@link #eof()} is false. */
+    private char readChar() { int c = peek(); ahead = -2; return (char) c; }
+
+    private boolean peekNextChar(char c) { return peek() == c; }
 
     private String readLine() {
-        int start = pos;
-        while (pos < s.length()) {
-            char c = s.charAt(pos);
+        StringBuilder line = new StringBuilder();
+        while (!eof()) {
+            char c = readChar();
             if (c == '\r' || c == '\n') {
-                String line = s.substring(start, pos);
-                pos++;
-                if (c == '\r' && pos < s.length() && s.charAt(pos) == '\n') pos++;
-                return line;
+                if (c == '\r' && peekNextChar('\n')) readChar();
+                return line.toString();
             }
-            pos++;
+            line.append(c);
         }
-        return s.substring(start);
+        return line.toString();
     }
 
     private List<String> readHeader() {

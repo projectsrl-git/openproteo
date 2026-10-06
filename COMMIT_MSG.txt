@@ -1,51 +1,45 @@
-A save reloads the saved workflow, not every workflow
+objunpack: read metadata row by row; fail properly when out of memory
 
-Every save called WorkflowRegistry.reload(): each *.xml parsed again,
-each feed's directories re-created, one WORKFLOW_LOADED appended to the
-audit trail of EVERY feed, every cron timer cancelled and re-created.
-None of it was needed for the workflows that had not changed.
+On AIX a real package of 100 000 objects (metadata 52 MB) was read in
+57 s, then the step stayed at "reading ...metadata.csv" for hours.
 
-WorkflowRegistry.refresh(names) reads the files the caller wrote, plus
-any *.xml whose modification time or size differs from when it was last
-read (so a file dropped in by hand is still picked up by the next save).
-Contract: the registry ends up exactly as reload() would leave it - same
-workflows, same order, same load errors. Where that depends on the whole
-directory (a feedId declared by two files or moving between files, a
-set-up failure to retry, a directory not listed) refresh calls reload()
-and logs why. WorkflowScheduler.reschedule(Refresh) re-plans only what
-was loaded or removed.
+Reproduced on Java 8 with a package of the same shape: with a 512 MB
+heap the step ran out of memory at exactly that line - it held the
+metadata as one string plus every cell, about ten times its size. And
+an OutOfMemoryError is caught by nothing on the step's path: the run
+pool logs it and the step stays RUNNING.
 
-Callers moved: designer save, save-xml, Variables mass save, lock,
-delete. Not moved: /api/reload, start-up, Bulk, Import.
+- PsCsvReader: one parser over a Reader, with a record-by-record
+  entry point; the string entry point runs through it. filerename is
+  called as before.
+- ObjectUnpack reads the metadata record by record and keeps per
+  object its name, mime type and row number only. Heartbeat and Stop
+  while reading it and while matching. More rows than maxObjects are
+  refused. The 512 MB cap on the file is gone.
+- runObjUnpack ends the step with exit 1 and a message naming the heap
+  when the JVM runs out of memory.
 
-Visible difference: the audit trail of a feed no longer receives
-WORKFLOW_LOADED when another feed is saved. No feed output changes.
-No new runtime parameter (checklist 10), hence no switch: stated as a
-judgement call in the session note.
+Same package after the change: completes with a 256 MB heap in 13 s.
+Not solved here: objpack, next in the chain, ran out of memory with
+512 MB on the same rows and needs 1 GB. Proposed, not done: catching
+Throwable in InternalSteps.run for every executor.
 
-Limit: a file changed by hand that keeps both its modification time and
-its size is not noticed by a save; Reload XML definitions notices it.
+No parameter added or removed. USAGE.md, the objunpack and filerename
+specs updated. README.md and CLAUDE.md not touched.
 
-Found, not touched: delete never rescheduled, so a deleted scheduled
-workflow keeps a timer that fails at each firing until the next
-reschedule.
+Verified on Linux (sandbox; Temurin 1.8.0_432 and JDK 21.0.12 both
+run; root and uid 65534; LANG=C.UTF-8): old parser against new on
+300 000 fuzzed inputs and a 70 MB file, identical; old ObjectUnpack
+against new on 31 packages from the real producers under 7
+configurations, 217 outcomes identical; 47 assertions on the new
+behaviour; 27 mutations, all caught; the lifted runObjUnpack under a
+100 MB heap; differential compile identical; git apply --check on a
+second clean clone.
+Verified on Windows: nothing.
+Verified on AIX: nothing. The author's run there found the defect.
+Not verified on any: IBM's JVM; the suites of the earlier batches,
+lost with the sandbox - their code is not touched here; mvn clean
+package.
 
-CLAUDE.md: the rule for callers (refresh with the file names, then
-reschedule with its result). USAGE.md: "What a save reloads". Kit in
-tools/registry-refresh-test. README.md not touched.
-
-Verified on Linux (sandbox, ext4; Temurin 1.8.0_432 compile and run,
-OpenJDK 21.0.12 run; root and uid 65534; LANG unset and C.UTF-8): the
-real WorkflowRegistry, WorkflowScheduler, WorkflowXmlParser and
-FeedLayout against stubs for Spring, slf4j and AuditLogger; after every
-refresh the registry and the scheduler compared with a fresh reload of
-the same directory - 8 groups, random walk of 600 rounds on 6 seeds, 0
-failures; 19 mutations on copies, all killed, a 20th investigated and
-the unreachable clause removed; ApiController by differential compile
-with two positive controls; USAGE.md through the real render().
-
-Verified on Windows: nothing. Read, not run: File.compareTo ignoring
-case, NTFS timestamps, on-disk name case differing from the caller's.
-
-Verified on neither: the Maven build, Spring wiring, the five endpoints
-over HTTP, the real AuditLogger hash chain.
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01HUY167c6pQG6D7P6dnBZC7

@@ -561,6 +561,15 @@ public class InternalSteps {
             code = 1;
             failure = "unexpected failure: " + e;
         }
+        catch (OutOfMemoryError e) {
+            // An Error is caught by nothing between here and the run pool, which only logs it: the
+            // step would stay RUNNING for ever (seen on the first 100 000-object package, 2026-10-06).
+            // By now ObjectUnpack has unwound and removed its staging folder, and what it had
+            // allocated is unreachable, so ending the step properly is safe.
+            code = 1;
+            failure = "the JVM ran out of memory (maximum heap " + (Runtime.getRuntime().maxMemory() / (1024L * 1024L))
+                    + " MB). Nothing was restored. The heap is set when the service is started (-Xmx); it is not a setting of this step";
+        }
         boolean done = code == 0;
         // The identity is read from the archive's name before anything else, so it is published
         // even when the package is then refused; the paths only when they exist.

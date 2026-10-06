@@ -1,6 +1,6 @@
 # Object submission unpacker (`objunpack`) — specification
 
-Status: **AIX and `nameRules`, §18 (2026-10-04, on `f34e507`).** First real run, 2026-10-04: a defect, fixed in §17 (a silent step). **complete — batch 4 delivered** (the template and the chain — §16) on `930aaaa`; batch 3 (designer panel — §15) on `1203b25`; batch 2 (registered — §14) on `538d1bb`; batch 1 (the core — §13) on `5f6c8c3`. Batch 0, the specification,
+Status: **memory on a 100 000-object package, §19 (2026-10-06, on `9d98f95`).** AIX and `nameRules`, §18 (2026-10-04, on `f34e507`). First real run, 2026-10-04: a defect, fixed in §17 (a silent step). **complete — batch 4 delivered** (the template and the chain — §16) on `930aaaa`; batch 3 (designer panel — §15) on `1203b25`; batch 2 (registered — §14) on `538d1bb`; batch 1 (the core — §13) on `5f6c8c3`. Batch 0, the specification,
 was written 2026-10-04 on `89a66ad`. Gate 0 answered 2026-10-04 (§11). Corrections made by batch 1
 are struck through where the wrong text was, not rewritten.
 
@@ -372,8 +372,9 @@ What the code decided beyond §4–§8, each also written where it belongs above
   atomic**: if the old content cannot be fully deleted the step stops with part of it gone, and
   the two folders are moved one after the other.~~ **Removed in batch 2 (§14).** What remains
   non-atomic: the two folders are moved one after the other.
-* The two limits chosen rather than derived: the audit file is read whole up to 256 MB, the
-  metadata up to 512 MB.
+* The two limits chosen rather than derived: the audit file is read whole up to 256 MB, ~~the
+  metadata up to 512 MB~~ (**corrected in §19:** the metadata is no longer held in memory; that
+  cap cost about ten times the file in heap and is gone).
 * A leftover `.objunpack-*.part` of a killed run is swept at the next run, without following links.
 
 **Measured in batch 1** (same tools as §3):
@@ -675,3 +676,107 @@ there (if it does not, the encoding rule of §8 is skipped, by design); that `Fi
 replace behaves there as on Linux; the 1023 figure; the rest of the application on AIX, which is
 outside this work. The author's run is the only AIX evidence there is: it shows the application
 starts there and reaches the step.
+
+## 19. A 100 000-object package that never finished: memory (2026-10-06, on `9d98f95`)
+
+**What happened.** The author ran the chain on AIX on a real package:
+`tf0005801.20261002.S060.V001.tar`, 291 MB, **100 000 objects**, audit 15.2 MB, metadata 52.4 MB.
+The archive was read in 57 s (100 003 members); the console then showed `the audit lists 100000
+object(s); reading …metadata.csv (52.4 MB)` and nothing else for hours.
+
+**Reproduced** (Temurin 1.8.0_432; a package of the same shape built by the real `ObjectPack`:
+100 000 objects, 294 MB, metadata 69.6 MB), on the code of `9d98f95`:
+
+| Heap | Result |
+|---|---|
+| `-Xmx256m` | `OutOfMemoryError: Java heap space`, at that same log line |
+| `-Xmx512m` | `OutOfMemoryError: GC overhead limit exceeded`, at that same log line, after 28 s of collecting |
+| `-Xmx768m` | completes in 38 s, 682 MB of heap committed |
+
+**Two defects, stacked.**
+
+1. *The metadata was held whole.* The step read the file into one string and parsed it into a
+   table of every cell — about ten times the file's size in heap — to use three columns of it.
+   §13 had written the 512 MB cap on that file as "chosen rather than derived" and §13 also said
+   "timing and memory at 100 000 objects are not measured". This is that measurement, made by the
+   first real package.
+2. *An `OutOfMemoryError` ended nothing.* Read on the code: `InternalSteps.run` catches
+   `Exception`; an `Error` passes through it and through the engine up to the run pool
+   (`WorkflowEngine.schedule`), which logs `run task … crashed` and does nothing else. The step
+   stays `RUNNING` for ever. So "hours at this point" needs no hours of work: the JVM gives up, and
+   nobody is told. **Which of the two the author saw — a JVM still collecting, or a run already
+   dead — is not known.** The application log decides it: a line `run task … crashed:
+   java.lang.OutOfMemoryError` means the second.
+
+**The fix.**
+
+* `PsCsvReader` gains `parse(Reader, delimiter, RowHandler)`: the same parser, one record at a
+  time. It is ONE implementation — the string entry point now runs through it — over a
+  one-character look-ahead, which is all the grammar ever used.
+* `ObjectUnpack` reads the metadata through it, from the file, through a strict UTF-8 decoder, and
+  keeps per `object_id` only the original name, the mime type and the row number. The delimiter is
+  read off the first 4 KB of the file. The 512 MB cap is gone: the file's size no longer matters.
+  ~~`MAX_METADATA_BYTES`~~.
+* A heartbeat and a Stop check while the metadata is read (rows, megabytes) and while the objects
+  are matched to their rows: the two phases §17 had left silent because no fixture was large
+  enough to make them last.
+* `runObjUnpack` catches `OutOfMemoryError`: exit 1, a message naming the heap's maximum and
+  saying where it is set. By then `ObjectUnpack` has unwound and removed its staging folder.
+* **New refusal:** a metadata file with more rows than `maxObjects` is refused while it is read
+  (`METADATA`). **∩ U17 — "rows ≠ objects is a conformance matter, relaxed by `warn`" (§7) × "what
+  the step keeps in memory must be bounded".** The bound wins above `maxObjects` only: 7 rows for 6
+  objects under `warn` is restored as before; 100 001 rows with `maxObjects=100000` is refused
+  under either mode, because a package cannot hold that many objects and a file of unbounded rows
+  is unbounded memory.
+
+**After the fix, same package:** completes with `-Xmx256m` in 12.7 s (metadata read in 1.8 s);
+with `-Xmx128m` it runs out of memory **in the audit file**, which is still read whole (16 MB of
+JSON for 100 000 objects, the most Transarch allows — so that cost is bounded by the format).
+Through the lifted `runObjUnpack` under `-Xmx100m`: exit 1, the message, nothing left on disk.
+
+**What this does not solve, measured and said now.** The next steps of the chain need more than
+`objunpack` does. The real `ObjectPack` on the same 100 000 rows: `OutOfMemoryError` with
+`-Xmx512m`, completes with `-Xmx1g` — it keeps every metadata row as a map while it packages.
+`csvsql` loads the metadata into H2 in memory when its inputs are under 700 MB: not measured.
+On a JVM with a 512 MB heap the chain will stop at one of those. The heap is a JVM parameter —
+out of the GUI's scope by the contract — and the Platform page does not show it.
+
+**Proposed, NOT done — each is a decision about code in production:**
+
+1. `InternalSteps.run`: catch `Throwable`, so an `Error` in ANY executor fails its step instead of
+   leaving the run `RUNNING`. One line, engine-wide.
+2. `objpack`: stop keeping every row; it needs a second pass or a spill file.
+3. The Platform page: show the JVM's maximum heap.
+4. `AuditJson.read`: a streaming reader, if packages near the limit must run in under 256 MB.
+
+**Verification.** The suites of §13–§18 lived in the sandbox, never in the repository (Gate 0 G7),
+and the sandbox was recycled between sessions: **they are gone**, and were not re-run. What was
+rebuilt for this change, and is stronger for it on the code that changed:
+
+* *Old against new, parser:* 300 000 fuzzed inputs × 2 delimiters over an alphabet of quotes,
+  delimiters, blanks, CR, LF, `#`, `#Fields: `, a non-BMP character — plus the 69.6 MB metadata
+  file — parsed by the `PsCsvReader` of `9d98f95` and by the new one: identical output, byte for
+  byte. The stream entry point against the string one on 400 000 more: 0 differences.
+* *Old against new, executor core:* 31 packages — 14 from the real producers (`ObjectPack`; the
+  legacy script under `pwsh` 7.4.6 with GNU tar) and 17 with the metadata tampered — each under 7
+  configurations: 217 runs, 94 restores and 123 refusals, the outcome of every one (objects by
+  name and hash, variables, inconsistencies, the refusal's full text, what is left on disk)
+  identical between the old classes and the new.
+* *New behaviour:* 47 assertions — the heartbeats and their order, Stop inside each of the two
+  phases, the row bound, and the round trip package → objunpack → `ObjectPack` → objunpack on
+  eight packages of both producers.
+* 27 mutations of the new code on copies, anchors checked: 27 caught. A control for the
+  out-of-memory handling (the catch removed: the method dies with the Error) and for the
+  differential compile (459 lines before and after; an error put in the changed line shows).
+* On Temurin 8 and JDK 21, as root and as uid 65534.
+
+**Two of my own checks were wrong on the way, and are recorded because the pattern is the one this
+project warns about.** The first differential reported "0 differences" while every successful run
+was being digested as the same harness exception (a temp-file prefix too short): it was reading
+its own failure. Seen only by reading the digests. And the first "Java 21" run was Java 8: the
+selector had replaced nothing; seen because the suite prints the version it runs on.
+
+**Not verified:** anything on AIX or on IBM's JVM, including how long it collects before giving
+up; the fixtures with bsdtar (not installable here this time); `LANG` empty; the panel and the
+executor suites of §14–§18 (lost, and their code is untouched by this patch except the one catch);
+`csvsql` on a file this size; `mvn clean package`.

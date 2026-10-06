@@ -25,7 +25,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
@@ -137,8 +136,6 @@ public final class ObjectUnpack {
     public final List<String> inconsistencies = new ArrayList<String>();
     public final List<String> warnings = new ArrayList<String>();
 
-    /** Largest metadata file read into memory. A guard, not a format rule. */
-    static final long MAX_METADATA_BYTES = 512L * 1024 * 1024;
     private static final int COPY_BUFFER = 64 * 1024;
     private static final long ABORT_CHECK_BYTES = 8L * 1024 * 1024;
     private static final String STAGING_PREFIX = ".objunpack-";
@@ -525,48 +522,82 @@ public final class ObjectUnpack {
             inconsistencies.add("metadata_file_name in the audit is '" + doc.metadataFileName
                     + "' but the package's metadata file is '" + metaM.name + "'");
         }
-        if (metaM.size > MAX_METADATA_BYTES) {
-            throw new ObjUnpackException(Reason.METADATA, metaM.name + " is " + metaM.size + " bytes, over the "
-                    + MAX_METADATA_BYTES + " this step reads into memory");
-        }
         say("the audit lists " + doc.files.size() + " object(s); reading " + metaM.name + " (" + mb(metaM.size) + ")");
-        String text = decodeUtf8(Files.readAllBytes(metaM.staged.toPath()), metaM.name);
-        char delim = delimiterOf(text, metaM.name);
+        final String metaName = metaM.name;
+        final char delim = delimiterOf(headOf(metaM.staged), metaName);
         metadataDelimiterUsed = String.valueOf(delim);
-        PsCsvReader.Table table;
+        // The metadata is read record by record and only what the join needs is kept: per object_id
+        // the original name, the mime type and the row number. Holding the file as one string plus
+        // every cell (as this did until 2026-10-06) cost about ten times its size in heap: on a
+        // 512 MB JVM a 52 MB metadata file of a 100 000-object package never finished.
+        final Map<String, String[]> rowOfId = new HashMap<String, String[]>();   // id -> {name, mime, row}
+        final int[] col = { -1, -1, -1 };                                        // object_id, name, mime
+        final int[] rowsWithoutIdBox = { 0 };
+        final List<String> headerSeen = new ArrayList<String>();
+        final long metaBytes = metaM.size;
+        final long tMeta = System.nanoTime();
+        lastBeat = tMeta;
+        metadataRows = 0;
+        final GzipSupport.Counting metaPos = new GzipSupport.Counting(new FileInputStream(metaM.staged));
         try {
-            table = PsCsvReader.parse(text, delim);
+            InputStream metaIn = new BufferedInputStream(metaPos, COPY_BUFFER);
+            metaIn.mark(3);
+            byte[] bom = new byte[3];
+            int nb = metaIn.read(bom, 0, 3);
+            if (!(nb == 3 && (bom[0] & 0xFF) == 0xEF && (bom[1] & 0xFF) == 0xBB && (bom[2] & 0xFF) == 0xBF)) {
+                metaIn.reset();
+            }
+            java.io.Reader reader = new java.io.BufferedReader(new java.io.InputStreamReader(metaIn,
+                    StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                            .onUnmappableCharacter(CodingErrorAction.REPORT)), COPY_BUFFER);
+            PsCsvReader.parse(reader, delim, new PsCsvReader.RowHandler() {
+                @Override public void header(List<String> names, boolean unspecifiedNames) throws IOException {
+                    headerSeen.addAll(names);
+                    col[0] = column(names, "object_id");
+                    col[1] = column(names, "original_object_name");
+                    col[2] = column(names, "mime_type");
+                    requireColumns(col, metaName, delim, headerSeen);
+                }
+                @Override public void row(String[] cells) throws IOException {
+                    metadataRows++;
+                    if (metadataRows > (long) maxObjects) {
+                        throw new ObjUnpackException(Reason.METADATA, metaName + " has more than maxObjects=" + maxObjects
+                                + " rows; a package cannot hold more objects than that, so the file is not read further");
+                    }
+                    if ((metadataRows & 1023) == 0) {
+                        stopIfAborted();
+                        if (beatDue()) {
+                            say("reading the metadata: " + metadataRows + " row(s), " + mb(metaPos.count()) + " of "
+                                    + mb(metaBytes) + ", " + secs(tMeta));
+                        }
+                    }
+                    String id = canonicalId(cells[col[0]]);
+                    if (id.isEmpty()) {
+                        rowsWithoutIdBox[0]++;
+                        return;
+                    }
+                    String name = cells[col[1]] == null ? "" : cells[col[1]].trim();
+                    String mime = col[2] < 0 || cells[col[2]] == null ? "" : cells[col[2]].trim();
+                    String[] prev = rowOfId.put(id, new String[] { name, mime, Integer.toString(metadataRows) });
+                    if (prev != null) {
+                        throw new ObjUnpackException(Reason.MAPPING, "object_id " + id + " is on two metadata rows ("
+                                + prev[2] + " and " + metadataRows + "); which one describes the object cannot be decided");
+                    }
+                }
+            });
+        } catch (CharacterCodingException e) {
+            throw new ObjUnpackException(Reason.METADATA, metaName + " is not valid UTF-8, which the Transarch specification"
+                    + " requires (3.2); its names cannot be read without guessing");
         } catch (IllegalArgumentException e) {
-            throw new ObjUnpackException(Reason.METADATA, metaM.name + ": " + e.getMessage());
+            throw new ObjUnpackException(Reason.METADATA, metaName + ": " + e.getMessage());
+        } finally {
+            metaPos.close();
         }
-        int cId = column(table, "object_id");
-        int cName = column(table, "original_object_name");
-        int cMime = column(table, "mime_type");
-        if (cId < 0) {
-            throw new ObjUnpackException(Reason.METADATA, metaM.name + " has no object_id column (read with delimiter '"
-                    + delim + "'; header: " + sample(table.header, 8) + ")");
-        }
-        if (cName < 0) {
-            throw new ObjUnpackException(Reason.METADATA, metaM.name + " has no original_object_name column, so the"
-                    + " package does not say what its objects were called (the legacy script in MapMode=Order does not"
-                    + " require the column). Header: " + sample(table.header, 8));
-        }
-        metadataRows = table.rows.size();
-        say("the metadata has " + metadataRows + " row(s), delimiter '" + delim + "'; matching every object to its row and checking the names");
-        Map<String, Integer> rowOfId = new HashMap<String, Integer>();
-        int rowsWithoutId = 0;
-        for (int i = 0; i < table.rows.size(); i++) {
-            String id = canonicalId(table.rows.get(i)[cId]);
-            if (id.isEmpty()) {
-                rowsWithoutId++;
-                continue;
-            }
-            Integer prev = rowOfId.put(id, Integer.valueOf(i));
-            if (prev != null) {
-                throw new ObjUnpackException(Reason.MAPPING, "object_id " + id + " is on two metadata rows ("
-                        + (prev.intValue() + 1) + " and " + (i + 1) + "); which one describes the object cannot be decided");
-            }
-        }
+        requireColumns(col, metaName, delim, headerSeen);   // a file with no header at all never called header()
+        final int cMime = col[2];
+        int rowsWithoutId = rowsWithoutIdBox[0];
+        say("the metadata has " + metadataRows + " row(s), delimiter '" + delim + "', read in " + secs(tMeta)
+                + "; matching every object to its row and checking the names");
         if (rowsWithoutId > 0) {
             inconsistencies.add(rowsWithoutId + " metadata row(s) have an empty object_id");
         }
@@ -582,8 +613,16 @@ public final class ObjectUnpack {
         int mimeDiffers = 0;
         String mimeExample = null;
         int item = 0;
+        long tJoin = System.nanoTime();
+        lastBeat = tJoin;
         for (AuditJson.FileItem f : doc.files) {
             item++;
+            if ((item & 1023) == 0) {
+                stopIfAborted();
+                if (beatDue()) {
+                    say("matching: " + item + " of " + doc.files.size() + " object(s), " + secs(tJoin));
+                }
+            }
             if (f.fileName == null || f.fileName.isEmpty() || f.objectId == null || f.objectId.trim().isEmpty()) {
                 throw new ObjUnpackException(Reason.AUDIT, "item " + item + " of submission_object_files in " + auditM.name
                         + " has no " + (f.fileName == null || f.fileName.isEmpty() ? "file_name" : "object_id"));
@@ -606,14 +645,12 @@ public final class ObjectUnpack {
                 throw new ObjUnpackException(Reason.MAPPING, "the audit lists '" + f.fileName
                         + "' as an object, but it is the package's own audit, metadata or control file");
             }
-            Integer row = rowOfId.get(id);
+            String[] row = rowOfId.get(id);
             if (row == null) {
                 throw new ObjUnpackException(Reason.MAPPING, "object_id " + id + " ('" + f.fileName
                         + "') has no row in " + metaM.name + ", so its original name is unknown");
             }
-            String[] cells = table.rows.get(row.intValue());
-            String original = cells[cName] == null ? "" : cells[cName].trim();
-            m.restoreAs = hostName(original, id, row.intValue() + 1);
+            m.restoreAs = hostName(row[0], id, Integer.parseInt(row[2]));
             EntryName.checkLength(objectsBase, EntryName.validate(m.restoreAs, false, rules, false), maxPath, rules);
             String key = rules == HostRules.LINUX ? m.restoreAs : EntryName.collisionKey(m.restoreAs);
             List<String> ids = idsByKey.get(key);
@@ -627,7 +664,7 @@ public final class ObjectUnpack {
                 spellingsByKey.get(key).add(m.restoreAs);
             }
             if (cMime >= 0 && f.mimeType != null) {
-                String mm = cells[cMime] == null ? "" : cells[cMime].trim();
+                String mm = row[1];
                 if (!mm.equals(f.mimeType.trim())) {
                     mimeDiffers++;
                     if (mimeExample == null) {
@@ -857,15 +894,37 @@ public final class ObjectUnpack {
 
     // ------------------------------------------------------------------ small things
 
-    private String decodeUtf8(byte[] b, String name) throws IOException {
-        int skip = b.length >= 3 && (b[0] & 0xFF) == 0xEF && (b[1] & 0xFF) == 0xBB && (b[2] & 0xFF) == 0xBF ? 3 : 0;
+    /**
+     * The first characters of the metadata file, for reading the delimiter off its header. Decoded
+     * leniently on purpose: only the ASCII start matters here, and the whole file is decoded
+     * strictly when it is read.
+     */
+    private static String headOf(File f) throws IOException {
+        byte[] b = new byte[4096];
+        int n = 0;
+        InputStream in = new FileInputStream(f);
         try {
-            return StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT)
-                    .decode(ByteBuffer.wrap(b, skip, b.length - skip)).toString();
-        } catch (CharacterCodingException e) {
-            throw new ObjUnpackException(Reason.METADATA, name + " is not valid UTF-8, which the Transarch specification"
-                    + " requires (3.2); its names cannot be read without guessing");
+            while (n < b.length) {
+                int r = in.read(b, n, b.length - n);
+                if (r < 0) break;
+                n += r;
+            }
+        } finally {
+            in.close();
+        }
+        int skip = n >= 3 && (b[0] & 0xFF) == 0xEF && (b[1] & 0xFF) == 0xBB && (b[2] & 0xFF) == 0xBF ? 3 : 0;
+        return new String(b, skip, n - skip, StandardCharsets.UTF_8);
+    }
+
+    private static void requireColumns(int[] col, String name, char delim, List<String> header) throws IOException {
+        if (col[0] < 0) {
+            throw new ObjUnpackException(Reason.METADATA, name + " has no object_id column (read with delimiter '"
+                    + delim + "'; header: " + sample(header, 8) + ")");
+        }
+        if (col[1] < 0) {
+            throw new ObjUnpackException(Reason.METADATA, name + " has no original_object_name column, so the"
+                    + " package does not say what its objects were called (the legacy script in MapMode=Order does not"
+                    + " require the column). Header: " + sample(header, 8));
         }
     }
 
@@ -899,9 +958,9 @@ public final class ObjectUnpack {
         return c;
     }
 
-    private static int column(PsCsvReader.Table t, String name) {
-        for (int i = 0; i < t.header.size(); i++) {
-            if (name.equalsIgnoreCase(t.header.get(i).trim())) {
+    private static int column(List<String> header, String name) {
+        for (int i = 0; i < header.size(); i++) {
+            if (name.equalsIgnoreCase(header.get(i).trim())) {
                 return i;
             }
         }
