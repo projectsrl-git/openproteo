@@ -1308,7 +1308,13 @@
                         var on = (n.validateChecks || []).indexOf(cid) >= 0;
                         h += '<label class="agg-chip"><input type="checkbox"' + (on ? ' checked' : '') + ' onchange="toggleCheck(' + i + ',\'' + cid + '\')"><span>' + CHECK_LABELS[cid] + '</span></label>';
                     });
-                    h += '</div><div class="dim small" style="margin-top:6px">outputs: ##VAR checksTotal, checksPassed, checksFailed — step FAILS if any check fails</div></div>';
+                    h += '</div>';
+                    var vOnFailed = String(nodeParam(n, 'onFailedChecks') || 'fail').toLowerCase();
+                    h += '<div class="form-row"><div class="field wide"><label>When a check fails</label><select onchange="setNodeParam(' + i + ',\'onFailedChecks\',this.value === \'fail\' ? \'\' : this.value); renderNodes()" title="Applies from the next run of the step. continue is for a check used as a question: put a gate after the step and branch on ${checksFailed}. A CSV that is not found still fails the step.">' +
+                        '<option value="fail"' + (vOnFailed !== 'continue' ? ' selected' : '') + '>fail the step (default)</option>' +
+                        '<option value="continue"' + (vOnFailed === 'continue' ? ' selected' : '') + '>continue — the step succeeds, the result is in ${checksFailed}</option></select></div></div>';
+                    if (vOnFailed === 'continue') h += '<div class="dim small" style="color:#b9770e">This step no longer stops the workflow when the file is wrong. Unless a gate after it tests <b>${checksFailed}</b>, a file that failed its checks goes on to the next step.</div>';
+                    h += '<div class="dim small" style="margin-top:6px">outputs: ##VAR checksTotal, checksPassed, checksFailed — ' + (vOnFailed === 'continue' ? 'the step does NOT fail when a check fails' : 'step FAILS if any check fails') + '</div></div>';
                 } else if (ex === 'csvreplace') {
                     h += '<div class="form-row">' +
                         '<div class="field wide"><label>Input CSV *</label><input class="sugin" list="pathsug" value="' + attresc(n.source) + '" placeholder="${extraction.outputFile}" oninput="updNode(' + i + ',\'source\',this.value)"></div>' +
@@ -2464,6 +2470,10 @@
                     if (!String(nodeParam(n, 'targetDestination') || '').trim()) errs.push(label + ' (' + n.id + '): objpack needs targetDestination for a TAR-packaged submission');
                     if (!String(nodeParam(n, 'metadataCsv') || '').trim()) errs.push(label + ' (' + n.id + '): objpack needs metadataCsv');
                     if (!String(nodeParam(n, 'objectsDir') || '').trim()) errs.push(label + ' (' + n.id + '): objpack needs objectsDir');
+                }
+                if (ex === 'validate') {
+                    var vOf = String(nodeParam(n, 'onFailedChecks') || '').trim().toLowerCase();
+                    if (vOf && vOf.indexOf('${') < 0 && vOf !== 'fail' && vOf !== 'continue') errs.push(label + ' (' + n.id + '): onFailedChecks must be fail or continue');
                 }
                 if (ex === 'objunpack') {
                     if (!String(nodeParam(n, 'archive') || '').trim()) errs.push(label + ' (' + n.id + '): objunpack needs the package to unpack (archive)');

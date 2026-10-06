@@ -4428,6 +4428,22 @@ public class InternalSteps {
                 ? java.util.Arrays.asList("rowCount", "colCount", "jsonSchema", "noQuotes", "colNames", "notNull", "businessDate", "businessDateNotBefore", "displayDates")
                 : step.validateChecks;
 
+        // What a failed check does to the STEP. fail (the default, and what every existing workflow
+        // gets): the step fails, as it always has. continue: the step ends with exit 0 and the
+        // outcome is in ${checksFailed}, for a gate to branch on - a check used as a question
+        // ("does this file need correcting?") rather than as a barrier. It covers failed CHECKS
+        // only: a CSV that is not there, or an unreadable one, still fails the step.
+        String onFailed = blankToNull(params.get("onFailedChecks"));
+        final boolean continueOnFailedChecks;
+        if (onFailed == null || "fail".equalsIgnoreCase(onFailed)) continueOnFailedChecks = false;
+        else if ("continue".equalsIgnoreCase(onFailed)) continueOnFailedChecks = true;
+        else {
+            line.accept("validate: onFailedChecks must be fail or continue; got '" + onFailed + "'");
+            res.exitCode = 2;
+            res.lastLines = "onFailedChecks must be fail or continue";
+            return;
+        }
+
         // seed checklist (PENDING) so the UI shows the sub-steps immediately
         final java.util.List<com.legalarchive.orchestrator.model.run.CheckResult> checks = new ArrayList<com.legalarchive.orchestrator.model.run.CheckResult>();
         for (String id : selected) checks.add(new com.legalarchive.orchestrator.model.run.CheckResult(id, checkLabel(id)));
@@ -4787,8 +4803,10 @@ public class InternalSteps {
             res.outVars.put("checksPassed", String.valueOf(passed));
             res.outVars.put("checksFailed", String.valueOf(failed));
             for (Map.Entry<String, String> e : res.outVars.entrySet()) line.accept("##VAR " + e.getKey() + "=" + e.getValue());
-            res.exitCode = failed > 0 ? 1 : 0;
-            line.accept("validation finished: " + passed + " passed, " + failed + " failed" + (failed > 0 ? " — STEP FAILED" : ""));
+            res.exitCode = (failed > 0 && !continueOnFailedChecks) ? 1 : 0;
+            line.accept("validation finished: " + passed + " passed, " + failed + " failed" + (failed > 0
+                    ? (continueOnFailedChecks ? " — step NOT failed (onFailedChecks=continue): branch on ${checksFailed}" : " — STEP FAILED")
+                    : ""));
         } finally {
             r.close();
         }

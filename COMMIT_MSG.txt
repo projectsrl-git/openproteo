@@ -1,45 +1,41 @@
-objunpack: read metadata row by row; fail properly when out of memory
+objunpack: pre-check template sends a valid package without unpacking
 
-On AIX a real package of 100 000 objects (metadata 52 MB) was read in
-57 s, then the step stayed at "reading ...metadata.csv" for hours.
+Packages of 100 000 objects mostly need no correction; unpacking and
+repacking each one costs minutes and twice the disk.
 
-Reproduced on Java 8 with a package of the same shape: with a 512 MB
-heap the step ran out of memory at exactly that line - it held the
-metadata as one string plus every cell, about ten times its size. And
-an OutOfMemoryError is caught by nothing on the step's path: the run
-pool logs it and the step stays RUNNING.
+- scripts/objunpack-precheck.sh (bash; Linux and AIX): verifies the
+  md5, extracts only the audit and the metadata CSV, publishes the
+  record count the audit declares and whether the counts agree.
+- validate: onFailedChecks = fail (default) | continue. With continue
+  the step succeeds and ${checksFailed} carries the result, for a gate
+  to branch on. Absent or fail: exactly as before.
+- workflows/_TEMPLATE-objunpack-precheck-resend.xml: script, validate,
+  gate; a coherent, verified, valid package goes straight to the FTPS
+  step as it arrived, anything else through the existing corrective
+  chain. _TEMPLATE-objunpack-resend.xml is unchanged.
+- Designer: "When a check fails" on the validate panel; the option in
+  the variables page.
 
-- PsCsvReader: one parser over a Reader, with a record-by-record
-  entry point; the string entry point runs through it. filerename is
-  called as before.
-- ObjectUnpack reads the metadata record by record and keeps per
-  object its name, mime type and row number only. Heartbeat and Stop
-  while reading it and while matching. More rows than maxObjects are
-  refused. The 512 MB cap on the file is gone.
-- runObjUnpack ends the step with exit 1 and a message naming the heap
-  when the JVM runs out of memory.
+The short cut does not run objunpack's per-object checks: it trusts
+the checksum, three counts and the metadata checks. USAGE.md says so.
 
-Same package after the change: completes with a 256 MB heap in 13 s.
-Not solved here: objpack, next in the chain, ran out of memory with
-512 MB on the same rows and needs 1 GB. Proposed, not done: catching
-Throwable in InternalSteps.run for every executor.
+The script has no Windows version. USAGE.md and the objunpack spec
+(section 20) updated. README.md and CLAUDE.md not touched.
 
-No parameter added or removed. USAGE.md, the objunpack and filerename
-specs updated. README.md and CLAUDE.md not touched.
+Verified on Linux (sandbox; Temurin 1.8.0_432 and JDK 21.0.12; bash
+5.2.21, GNU tar 1.35; LANG=C.UTF-8): the script against objunpack's
+own reading of 15 packages, refusals and a 100 000-object package,
+280 assertions as root, 275 as uid 65534; validate's real body before
+and after, 375 assertions, identical without the parameter; the
+template parsed and walked with the real resolver, gate evaluation,
+send plan and bash runner, 12 scenarios; the panel in jsdom; 61
+mutations, 4 equivalent and explained in the spec.
 
-Verified on Linux (sandbox; Temurin 1.8.0_432 and JDK 21.0.12 both
-run; root and uid 65534; LANG=C.UTF-8): old parser against new on
-300 000 fuzzed inputs and a 70 MB file, identical; old ObjectUnpack
-against new on 31 packages from the real producers under 7
-configurations, 217 outcomes identical; 47 assertions on the new
-behaviour; 27 mutations, all caught; the lifted runObjUnpack under a
-100 MB heap; differential compile identical; git apply --check on a
-second clean clone.
 Verified on Windows: nothing.
-Verified on AIX: nothing. The author's run there found the defect.
-Not verified on any: IBM's JVM; the suites of the earlier batches,
-lost with the sandbox - their code is not touched here; mvn clean
-package.
+
+Not verified on either: anything on AIX (its tar, csum, bash); the
+engine running the template; a real FTPS send; Jackson reading the
+dataschema (a stub stood in for it); a browser; mvn clean package.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01HUY167c6pQG6D7P6dnBZC7

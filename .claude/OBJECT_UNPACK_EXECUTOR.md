@@ -780,3 +780,110 @@ selector had replaced nothing; seen because the suite prints the version it runs
 up; the fixtures with bsdtar (not installable here this time); `LANG` empty; the panel and the
 executor suites of §14–§18 (lost, and their code is untouched by this patch except the one catch);
 `csvsql` on a file this size; `mvn clean package`.
+
+## 20. Looking before unpacking: the pre-check template (2026-10-06, on `b7632e7`)
+
+**The request.** The packages are large (100 000 objects each) and most need no correction.
+Before working one: extract only the metadata CSV and the audit file; read from the audit how
+many records to expect; validate the CSV with that count; if it is valid, skip unpack and repack
+and go straight to the FTPS send. Decided by the author: when it is *not* valid the workflow
+goes on by itself with the corrective chain; the extraction is a bash script only (AIX and
+Linux, no PowerShell twin); the suites stay out of the repository.
+
+**What was built.** Three pieces, none of them touching `objunpack`:
+
+* `scripts/objunpack-precheck.sh` — a bash step. Parameters `archive` (path, or a wildcard that
+  must match one file), `outputDir`, `md5Check` (`require` default | `ifPresent` | `off`),
+  `countMembers` (`yes` default | `no`). It verifies the `.md5` (`md5sum`, else `csum -h MD5`,
+  else `openssl md5`), extracts `<base>.audit.json` and `<base>.metadata.csv` **by exact name**
+  with the host's `tar`, and publishes `archive`, `archiveName`, `md5Name`, `packageDir`,
+  `submissionBaseName`, `metadataCsv`, `auditJson`, `expectedRecords` (the audit's
+  `record_count`), `auditFileEntries`, `tarMembers`, `csvLines`, `metadataDelimiter`,
+  `md5Present`, `md5Checked`, `packageCoherent`. Exit 0; 2 refused; 3 checksum mismatch.
+* `validate` gains `onFailedChecks` = `fail` (default) | `continue`. With `continue` the step
+  ends with exit 0 whatever the checks say and the outcome is in `${checksFailed}`. A missing
+  CSV still exits 2; a value that is neither is refused (exit 2) before anything is read.
+* `workflows/_TEMPLATE-objunpack-precheck-resend.xml`: PRECHECK → SEND_ORIGINAL (setvar) →
+  PRECHECK_CSV (validate, `continue`) → gate NEEDS_NO_CORRECTION → FTPSSEND, or → the five
+  steps of §16 unchanged → SEND_REBUILT (setvar) → FTPSSEND. The gate:
+  `${PRECHECK.packageCoherent} == true && ${PRECHECK.md5Checked} == true &&
+  ${PRECHECK_CSV.checksFailed} == 0`. `_TEMPLATE-objunpack-resend.xml` is untouched.
+
+**Why a script and not a mode of `objunpack`.** That is what was asked, and it has a merit of
+its own: `tar` reads two named members without the JVM holding anything. Its cost is declared
+below — it is the first part of this chain that exists for one family of hosts only.
+
+**∩ U18 — "a failed check fails the step" (validate, since it exists) × "the result of the
+check is the question".** The engine has no continue-on-failure, and a gate cannot run after a
+failed step. Resolved on the step, opt-in: `onFailedChecks=continue`. The default is `fail`
+and writes no parameter, so every existing workflow is byte-for-byte what it was. The panel
+says, when `continue` is chosen, that without a gate on `${checksFailed}` a failed file goes on.
+
+**∩ U19 — "what objunpack restores has been checked member by member" (§7) × "do not unpack".**
+They cannot both hold, and the short cut is the author's choice. What it keeps: the checksum,
+three counts (`record_count` = `file_name` entries = members − 3) and the six metadata checks.
+What it gives up: every per-object check of §7 — that each listed object is in the archive
+under its name, has a metadata row, has a usable name. A package with right counts and valid
+metadata in which one object was replaced by a file of another name is sent. Said in USAGE in
+those words.
+
+**∩ U20 — "the Delimiter field is not resolved" (§16) × "the metadata has the package's
+delimiter".** The first validate step reads the package's own CSV, so its literal delimiter
+must be the package's. It fails in the safe direction: with the wrong one colCount and colNames
+fail, the gate says no, and the package is unpacked and rebuilt (measured: the same clean
+content with `;` under the template's `,` takes the corrective path). Nothing wrong is sent;
+the short cut is silently never taken, and USAGE says where to look.
+
+**∩ U21 — "never modify the source, never replace a result" (§14) × a second tool that reads
+the source.** Same rule, restated in the script: it writes only into `outputDir`, refuses
+`outputDir` = the archive's folder, and refuses when either file is already there.
+
+**∩ U22 — "send `*.tar` and `*.md5`" (§16) × "send the original from where it arrived".** The
+landing folder may hold other packages and stray `.md5` files. The send step therefore takes
+its folder and two exact names from variables set by the two setvar steps; on the rebuilt
+branch the tar is `${OBJPACK.submissionBaseName}.tar*`, so a compressed rebuild is still found.
+
+**∩ U23 — "Linux and Windows both" (the contract) × "bash only" (the author's answer).** The
+template does not run on a Windows server: its first step needs bash. Declared in the template's
+description and in USAGE; the other template remains the one for Windows.
+
+**∩ U24 — "no parameter that exists only in the file" × the new parameter.** `onFailedChecks`
+has its control in the validate panel and its entry in the variables page; the script's four
+parameters are ordinary step parameters, edited in the designer like any script's.
+
+**Evidence** (Linux; Temurin 1.8.0_432 and JDK 21.0.12; bash 5.2.21, GNU tar 1.35; LANG=C.UTF-8;
+the Java suites as root):
+
+* *The script against `objunpack` itself:* 15 packages from the real producers and with
+  tampered metadata — record count, entries, members, delimiter equal to what `ObjectUnpack`
+  reports; the two extracted files byte-identical to the ones it puts in `package/`; the
+  archive's folder identical before and after (names, sizes, times, bytes). With refusals,
+  checksum modes, incoherent packages, a minified one-line audit and the 100 000-object
+  package: 280 assertions as root, 275 as uid 65534 (the 100 000-object package is not
+  readable there). Through the real `StepExecutor` bash runner as well.
+* *validate, old body against new:* the real `runValidate`, lifted by position from `a282349`
+  and from this change, on 17 cases: without the parameter (and with `fail`, any case, or
+  blank) every line, variable, check and report identical; with `continue`, exit 0 where the
+  default gives 1 and everything else identical but the last line; exit 2 stays exit 2.
+  375 assertions, on both JDKs. **Jackson is replaced by a stub that reads a flat JSON array**
+  — the sandbox cannot download it — so the dataschema *parsing* is not Jackson's.
+* *The template walked:* parsed by the real `WorkflowXmlParser`; the script run by the real
+  runner with the template's parameters; its variables fed to the real `VarResolver`, the
+  lifted validate, the real `evalCondition` and the real `SendPlan`. 12 scenarios, 38
+  assertions: which path is taken and exactly which files would be sent from which folder.
+  **The engine itself does not run here** (Spring): the walk is my loop over the parsed nodes.
+* *The panel* in a DOM (jsdom 22): 20 assertions. Differential compile: 459 lines before and
+  after.
+* *Mutations on copies, anchors checked:* script 30: 26 caught. The 4 that survive are the
+  refusal on `tar`'s exit status (plain and gzip) and the two "the file is there" tests: each
+  covers the others, deliberately, because a `tar` that returns 0 for a member it did not find
+  is exactly what cannot be tried here. Removed together they are caught. Three survivors were
+  real holes in the suite, and each got its own case: the name grammar was only ever refused
+  together with something else; `record_count` ≠ entries only together with the member count;
+  no compressed package with a member missing. validate 10: 9 caught, 1 does not compile.
+  Template 14: 14 caught. Panel 7: 7 caught.
+
+**Not verified:** anything on AIX — `tar`, `csum`, `sed`, `tr`, the bash there, and whether
+bash is installed at all; nothing on Windows (the Java change is platform-neutral, the panel is
+not browser-tested beyond jsdom); a real FTPS send; the engine running the template; bsdtar;
+the Java suites as non-root; `mvn clean package`.

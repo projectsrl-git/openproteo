@@ -201,7 +201,7 @@ Both business-date bound checks read **Date format** as OpenProteo's own date **
 - **safecopy** — copy files from one directory to another, writing each file as `<name>.on_fly_` and renaming it to the final name only after the copy completes (atomic move when possible), so a downstream watcher never picks up a partial file. The files are chosen either by one or more wildcards (comma-separated, e.g. `*.md5, *.tar`) or by naming them in one column of a CSV (see «Copying the files listed in a CSV (ifscopy, filecopy, safecopy)»).
 - **ifscopy** — copy from an IBM i IFS path to local, either by listing a directory and matching a pattern or by copying exactly the files named in one column of a CSV (see «Copying the files listed in a CSV (ifscopy, filecopy, safecopy)»). This is the one executor that needs the **IBM i native** datasource type, because it reuses that connection's credentials for the file transfer.
 - **csvreplace** — string substitution inside CSV columns.
-- **validate** — run a checklist of validations over a CSV.
+- **validate** — run a checklist of validations over a CSV. Reports `${checksTotal}`, `${checksPassed}` and `${checksFailed}`. When a check fails the step fails and the run stops — unless **When a check fails** is set to *continue* (`onFailedChecks=continue`): the step then succeeds whatever the checks say, and what they said is in `${checksFailed}`. That is for a check used as a question — "does this file need correcting?" — and it only makes sense with a gate right after the step that tests `${checksFailed}`; without one, a file that failed its checks goes on to the next step. It covers failed checks only: a CSV that is not there still fails the step. The default is *fail*, and a step that does not set it behaves as it always has.
 - **anonymize** — ARX-based CSV anonymization (statistical; in progress).
 - **setvar** — assign workflow variables. Each assignment is `name = expression`, where the expression is resolved for `${vars}` first and then, if what remains is a chain of whole numbers joined by `+` and `-`, evaluated **left to right** with no operator precedence: `${A} + ${B} - ${C}` gives one number. A **space on each side of every operator is required** — that is a guard, not a formatting rule: without it a literal like `2026-08-05` would be read as arithmetic and silently become 2013, so any value with no spaces (a path, a date, a `;`-separated list) passes through untouched. Anything that is not exactly a chain of integers is also left as it is, which is the normal case. Only `+` and `-` are evaluated; `*` and `/` are not. An overflow returns the expression unchanged rather than a wrapped number. Note that assignments within one step cannot refer to each other: every parameter of a step is resolved before the step runs, so a value computed from another assignment needs a second `setvar` step.
 
@@ -1607,6 +1607,31 @@ Four things to set before the first run:
 - `ftpsTarget` — the id of the FTPS target.
 
 What the middle steps do to the metadata, measured on packages from both producers: a value wrapped in quotes because it contains the delimiter is kept whole; a quote **inside** a value is removed by `dequote` (`said "ok"` becomes `said ok`) — that is its purpose, and it is the one place where the rebuilt rows differ from the package's; a value with a line break splits the record unless `dequote` is given `embeddedNewlines=space` (or `csvsql` its *line breaks inside values* option), and `objpack` refuses a split record. If the package's audit has no `TargetDestination` (the older script writes it empty when not given), `objpack` stops and asks for one: set it on that step. A name label (`map.nameLabel`) is not in the template: add it on OBJ PACK if the feed uses one.
+
+### Sending a package as it is when it needs no correction
+
+Unpacking a package of 100 000 objects takes minutes and as much disk again, and most packages need nothing done to them. `workflows/_TEMPLATE-objunpack-precheck-resend.xml` looks first and unpacks only when it has to:
+
+1. **Look inside the package** — a bash step, `objunpack-precheck.sh`. It verifies the `.md5`, takes **only** the audit file and the metadata CSV out of the archive, into the step's own directory, and reads how many records the package declares. No object is extracted.
+2. **Check package metadata** — a `validate` step on that CSV, against the feed's dataschema, with the declared number of records as the expected row count and *When a check fails* set to *continue*.
+3. **Send as it is?** — a gate. If the package is coherent, its checksum was verified and no check failed, the workflow goes straight to the FTPS step and sends the package **as it arrived**: same file, same name, same version, and its own `.md5`. Otherwise it goes on by itself with the corrective resend described above — unpack, `csvsql`, `dequote`, `validate`, `objpack` with the version raised by one — and sends the rebuilt package.
+
+The FTPS step is on hold in both cases, and it sends two files by their exact names rather than `*.tar` and `*.md5`, because the folder a package arrives in may hold other packages.
+
+**What the script publishes** (write them as `${PRECHECK.name}`): `metadataCsv` and `auditJson`, the two extracted files; `expectedRecords`, the `record_count` of the audit; `auditFileEntries`, how many objects the audit lists; `tarMembers`, how many members the archive has; `csvLines`; `metadataDelimiter`, read from the header line (`tab` for a tab); `md5Present`, `md5Checked`; `archive`, `archiveName`, `md5Name`, `packageDir`, `submissionBaseName`; and `packageCoherent`, which is `true` when the record count, the number of objects listed and the number of members minus three (audit, metadata, control) all agree. `packageCoherent` says nothing about what the metadata contains: that is the validate step's part.
+
+**What "needs no correction" means here, and what it does not.** The short cut is taken on three counts and six checks of the metadata. It does **not** open the objects: that every object the audit lists is in the archive under its name, that each has a metadata row, that the names are usable — all of that is `objunpack`'s work, and a package sent as it is has not been through it. A package whose counts are right and whose metadata is valid, but in which one object was replaced by another file of a different name, is sent. The checksum says the archive is the one its sender made; it does not say the sender made it well.
+
+**Before the first run**, besides what the other template needs:
+
+- Upload `objunpack-precheck.sh` (in `scripts/` of the repository) to the scripts folder. The server needs **bash** and **tar** — Linux or AIX; the Platform page shows the bash it will use. For the checksum the script uses `md5sum`, or `csum` on AIX, or `openssl`, whichever it finds first. A `.tar.gz` also needs `gzip`. There is no Windows version of the script.
+- **The delimiter of the Check package metadata step**, like that of the three middle steps, is written in the template as a comma and does not follow the package. If it is wrong, nothing wrong is sent: the checks fail, the short cut is not taken, and every package is unpacked and rebuilt. If no package ever takes the short cut, look there first — the *Look inside* step shows `metadataDelimiter`.
+- The dataschema must describe the metadata **as it is in the package**, column for column. The corrective path selects the dataschema's columns out of a wider file; the short cut cannot, so a package with one column more than the dataschema is always rebuilt.
+- The script runs with `md5Check=require`. With `ifPresent` or `off` a package whose checksum was not verified is never sent as it is: the gate asks for `md5Checked`.
+
+Like `objunpack`, the script only reads the archive and its folder, and replaces nothing: run twice into the same directory, it stops. A wildcard in `archive` must match exactly one file.
+
+Measured here on a package of 100 000 objects (294 MB, metadata 70 MB), on Linux: the script about 2 seconds, the validate step under 1 second with a 128 MB heap.
 
 ### While it runs
 

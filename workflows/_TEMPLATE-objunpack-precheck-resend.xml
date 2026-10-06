@@ -1,0 +1,78 @@
+<workflow feedId="_TEMPLATE-objunpack-precheck-resend" sourceId="TEMPLATE" targetId="T2" name="Send a Transarch object package as it is when it needs no correction; otherwise unpack, rebuild and resend">
+    <description>Template. Looks inside one Transarch object package WITHOUT unpacking its objects: a bash step extracts only the audit and the metadata CSV and reads how many records the package declares; the metadata is then validated against the feed's dataschema. If the package is coherent, its checksum was verified and no check failed, the package is sent AS IT IS (same name, same version) and nothing is unpacked. Otherwise the workflow goes on by itself with the corrective resend of _TEMPLATE-objunpack-resend: unpack, csvsql, dequote, validate, objpack (version + 1), send. BEFORE THE FIRST RUN: 1) upload objunpack-precheck.sh to the scripts folder; the host needs bash and tar (Linux, AIX); 2) put the package and its .md5 where packageArchive points; 3) feedDir must hold the feed's dataschema.json; 4) the delimiter of the Check package metadata, CSV SQL, Remove CSV Double Quotes and Check CSV steps is written here as a comma and is NOT taken from the package (that field does not resolve variables): set all four to the delimiter the package uses, which the Look inside step shows as metadataDelimiter; 5) set ftpsTarget to an FTPS target id. A wrong delimiter on the first check only costs the short cut: the package is then unpacked and rebuilt. Nothing here changes the package, and no step replaces an existing result.</description>
+    <variables>
+        <var name="packageArchive" value="${landingIn}/*.tar"/>
+        <var name="recordBusinessDate" value="record_business_date"/>
+        <var name="recordBusinessDateFormat" value="YYYYMMDD"/>
+        <var name="ftpsTarget" value="CHANGE-ME"/>
+    </variables>
+    <steps>
+        <step id="PRECHECK" name="Look inside the package" exec="bash" script="objunpack-precheck.sh">
+            <param name="archive" value="${packageArchive}"/>
+            <param name="outputDir" value="${stepDir}"/>
+            <param name="md5Check" value="require"/>
+            <param name="countMembers" value="yes"/>
+        </step>
+        <step id="SEND_ORIGINAL" name="What to send: the package as it is" exec="setvar">
+            <param name="sendDir" value="${PRECHECK.packageDir}"/>
+            <param name="sendTar" value="${PRECHECK.archiveName}"/>
+            <param name="sendMd5" value="${PRECHECK.md5Name}"/>
+        </step>
+        <step id="PRECHECK_CSV" name="Check package metadata" exec="validate" source="${PRECHECK.metadataCsv}" delimiter="," checks="rowCount,colCount,notNull,jsonSchema,noQuotes,colNames">
+            <param name="expectedRows" value="${PRECHECK.expectedRecords}"/>
+            <param name="dataschema" value="${feedDir}/dataschema.json"/>
+            <param name="dateFormat" value="${recordBusinessDateFormat}"/>
+            <param name="businessDateColumn" value="${recordBusinessDate}"/>
+            <param name="onFailedChecks" value="continue"/>
+        </step>
+        <gate id="NEEDS_NO_CORRECTION" name="Send as it is?" type="auto" condition="${PRECHECK.packageCoherent} == true &amp;&amp; ${PRECHECK.md5Checked} == true &amp;&amp; ${PRECHECK_CSV.checksFailed} == 0" onTrue="FTPSSEND" onFalse="OBJUNPACK"/>
+        <step id="OBJUNPACK" name="Unpack the package" exec="objunpack">
+            <param name="archive" value="${packageArchive}"/>
+            <param name="md5Check" value="require"/>
+            <param name="onInconsistency" value="fail"/>
+            <param name="metadataDelimiter" value="auto"/>
+            <param name="maxObjects" value="100000"/>
+            <param name="maxObjectMb" value="2048"/>
+            <param name="maxArchiveMb" value="20480"/>
+            <param name="maxRatio" value="200"/>
+            <param name="maxPathLength" value="auto"/>
+            <param name="preserveMtime" value="true"/>
+            <param name="nameRules" value="auto"/>
+        </step>
+        <step id="CSVSQL" name="CSV SQL" exec="csvsql" csvFile="${stepDir}/output.csv" delimiter=",">
+            <query>SELECT {{columns}} FROM SOURCE</query>
+            <param name="columnsSchema" value="${feedDir}/dataschema.json"/>
+            <input csv="${OBJUNPACK.metadataCsv}" table="SOURCE" delimiter="${OBJUNPACK.metadataDelimiter}"/>
+        </step>
+        <step id="REMOVE_CSV_DOUBLE_QUOTES" name="Remove CSV Double Quotes" exec="dequote" source="${CSVSQL.outputFile}" delimiter=",">
+            <param name="outFile" value="${stepDir}/output.csv"/>
+        </step>
+        <step id="CHECK_CSV_VS_DATASCHEMA" name="Check CSV vs DataSchema" exec="validate" source="${REMOVE_CSV_DOUBLE_QUOTES.outputFile}" delimiter="," checks="rowCount,colCount,notNull,jsonSchema,noQuotes,colNames">
+            <param name="expectedRows" value="${OBJUNPACK.objectCount}"/>
+            <param name="dataschema" value="${feedDir}/dataschema.json"/>
+            <param name="dateFormat" value="${recordBusinessDateFormat}"/>
+            <param name="businessDateColumn" value="${recordBusinessDate}"/>
+        </step>
+        <step id="OBJPACK" name="OBJ PACK" exec="objpack">
+            <param name="tfId" value="${OBJUNPACK.tfId}"/>
+            <param name="transmissionDate" value="${OBJUNPACK.transmissionDate}"/>
+            <param name="sequenceNr" value="${OBJUNPACK.sequenceNr}"/>
+            <param name="versionNr" value="${OBJUNPACK.nextVersionNr}"/>
+            <param name="targetDestination" value="${OBJUNPACK.targetDestination}"/>
+            <param name="metadataCsv" value="${REMOVE_CSV_DOUBLE_QUOTES.outputFile}"/>
+            <param name="objectsDir" value="${OBJUNPACK.objectsDir}"/>
+            <param name="outDelimiter" value="${OBJUNPACK.metadataDelimiter}"/>
+            <param name="outputDir" value="${stepDir}"/>
+        </step>
+        <step id="SEND_REBUILT" name="What to send: the rebuilt package" exec="setvar">
+            <param name="sendDir" value="${dir.OBJPACK}"/>
+            <param name="sendTar" value="${OBJPACK.submissionBaseName}.tar*"/>
+            <param name="sendMd5" value="${OBJPACK.submissionBaseName}.md5"/>
+        </step>
+        <step id="FTPSSEND" name="FTPS Send files" exec="ftpsend" source="${sendDir}" onHold="true">
+            <param name="target" value="${ftpsTarget}"/>
+            <send pattern="${sendTar}"/>
+            <send pattern="${sendMd5}"/>
+        </step>
+    </steps>
+</workflow>
