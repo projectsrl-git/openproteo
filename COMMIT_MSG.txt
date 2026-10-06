@@ -1,33 +1,51 @@
-AIX gets the POSIX name rules; nameRules on the objunpack step
+A save reloads the saved workflow, not every workflow
 
-On an AIX server objunpack stopped with "this host is neither Windows
-nor Linux (os.name='AIX')". By the author's decision AIX is treated as
-Linux, and the choice of rules is settable from the GUI.
+Every save called WorkflowRegistry.reload(): each *.xml parsed again,
+each feed's directories re-created, one WORKFLOW_LOADED appended to the
+audit trail of EVERY feed, every cron timer cancelled and re-created.
+None of it was needed for the workflows that had not changed.
 
-- HostRules.detect returns the Linux (POSIX) rules for AIX. unarchive
-  shares the class and now runs on AIX too. The first log line says
-  "file-name rules: linux (os.name AIX, a POSIX system)".
-- New step parameter nameRules on objunpack: auto (default), linux or
-  windows - for a server the detection does not know. In the panel's
-  Output section, seeded with the other defaults, applied at the next
-  run of the step, no restart. windows may be chosen anywhere; linux
-  on a Windows server is refused, because Windows would not store
-  those names as written.
-- With maxPathLength=auto objunpack uses 1023 bytes on AIX (its
-  PATH_MAX, from the documentation) instead of 4096.
+WorkflowRegistry.refresh(names) reads the files the caller wrote, plus
+any *.xml whose modification time or size differs from when it was last
+read (so a file dropped in by hand is still picked up by the next save).
+Contract: the registry ends up exactly as reload() would leave it - same
+workflows, same order, same load errors. Where that depends on the whole
+directory (a feedId declared by two files or moving between files, a
+set-up failure to retry, a directory not listed) refresh calls reload()
+and logs why. WorkflowScheduler.reschedule(Refresh) re-plans only what
+was loaded or removed.
 
-No file-only key (checklist 10). On Windows and Linux nothing changes.
-USAGE.md updated for both executors; the template carries
-nameRules=auto. README.md and CLAUDE.md not touched.
+Callers moved: designer save, save-xml, Variables mass save, lock,
+delete. Not moved: /api/reload, start-up, Bulk, Import.
 
-Verified on Linux with os.name injected (sandbox; Temurin 1.8.0_432
-and JDK 21.0.10 both run; root and uid 65534; LANG=C.UTF-8 and empty):
-core suite 694 assertions in the eight combinations, 38 new; 10
-mutations of the new code, all caught; the lifted runObjUnpack, 90
-assertions, 23 mutations caught; the panel through its controls, 141
-assertions, twelve fields = twelve parameters read; differential
-compile identical; git apply --check on a second clean clone.
-Verified on Windows: nothing.
-Verified on AIX: nothing. Not one line ran there.
-Not verified on any: the IBM JVM's behaviour; the 1023 figure; mvn
-clean package; a browser.
+Visible difference: the audit trail of a feed no longer receives
+WORKFLOW_LOADED when another feed is saved. No feed output changes.
+No new runtime parameter (checklist 10), hence no switch: stated as a
+judgement call in the session note.
+
+Limit: a file changed by hand that keeps both its modification time and
+its size is not noticed by a save; Reload XML definitions notices it.
+
+Found, not touched: delete never rescheduled, so a deleted scheduled
+workflow keeps a timer that fails at each firing until the next
+reschedule.
+
+CLAUDE.md: the rule for callers (refresh with the file names, then
+reschedule with its result). USAGE.md: "What a save reloads". Kit in
+tools/registry-refresh-test. README.md not touched.
+
+Verified on Linux (sandbox, ext4; Temurin 1.8.0_432 compile and run,
+OpenJDK 21.0.12 run; root and uid 65534; LANG unset and C.UTF-8): the
+real WorkflowRegistry, WorkflowScheduler, WorkflowXmlParser and
+FeedLayout against stubs for Spring, slf4j and AuditLogger; after every
+refresh the registry and the scheduler compared with a fresh reload of
+the same directory - 8 groups, random walk of 600 rounds on 6 seeds, 0
+failures; 19 mutations on copies, all killed, a 20th investigated and
+the unreachable clause removed; ApiController by differential compile
+with two positive controls; USAGE.md through the real render().
+
+Verified on Windows: nothing. Read, not run: File.compareTo ignoring
+case, NTFS timestamps, on-disk name case differing from the caller's.
+
+Verified on neither: the Maven build, Spring wiring, the five endpoints
+over HTTP, the real AuditLogger hash chain.

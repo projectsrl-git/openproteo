@@ -1294,7 +1294,7 @@ public class ApiController {
             String fileName = def.sourceFile != null ? new java.io.File(def.sourceFile).getName() : feedId + ".xml";
             Path target = dir.toPath().resolve(fileName);
             Files.write(target, xml.getBytes(StandardCharsets.UTF_8));
-            registry.reload();
+            registry.refresh(java.util.Collections.singletonList(fileName));
             FeedLayout layout = registry.layout(feedId);
             if (layout != null) audit.log(layout.auditFile(), feedId, null, null, locked ? "FEED_LOCKED" : "FEED_UNLOCKED", user(req), new java.util.LinkedHashMap<String, String>());
             out.put("ok", true);
@@ -1350,7 +1350,7 @@ public class ApiController {
             java.io.File dir = new java.io.File(props.getWorkflowsDir());
             java.io.File f = new java.io.File(dir, new java.io.File(wf.sourceFile == null ? feedId + ".xml" : wf.sourceFile).getName());
             boolean removed = f.exists() && f.delete();
-            registry.reload();
+            registry.refresh(java.util.Collections.singletonList(f.getName()));
             out.put("ok", removed);
             if (!removed) out.put("error", "Workflow file not found or could not be deleted");
             return removed ? ResponseEntity.ok(out) : ResponseEntity.status(HttpStatus.NOT_FOUND).body(out);
@@ -2352,8 +2352,7 @@ public class ApiController {
                 return ResponseEntity.ok(out);   // 200 for the same reason: IIS replaces 4xx bodies
             }
             Files.write(target, xml.getBytes(StandardCharsets.UTF_8));
-            registry.reload();
-            scheduler.reschedule();
+            scheduler.reschedule(registry.refresh(java.util.Collections.singletonList(fileName)));
         } catch (Exception e) {
             return badRequest(out, "Save failed: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
         }
@@ -2930,15 +2929,18 @@ public class ApiController {
             return ResponseEntity.badRequest().body(out);
         }
 
-        // all valid: write every staged file, then reload once
+        // all valid: write every staged file, then read back the ones written
         java.io.File dir = new java.io.File(props.getWorkflowsDir());
+        java.util.List<String> written = new java.util.ArrayList<String>();
         try {
-            for (String[] s : staged) Files.write(dir.toPath().resolve(s[1]), s[2].getBytes(StandardCharsets.UTF_8));
+            for (String[] s : staged) {
+                Files.write(dir.toPath().resolve(s[1]), s[2].getBytes(StandardCharsets.UTF_8));
+                written.add(s[1]);
+            }
         } catch (Exception e) {
             return badRequest(out, "Validation passed but writing failed: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
         }
-        registry.reload();
-        scheduler.reschedule();
+        scheduler.reschedule(registry.refresh(written));
         out.put("ok", true);
         out.put("saved", staged.size());
         out.put("results", results);
@@ -2948,8 +2950,10 @@ public class ApiController {
     /**
      * Designer: validate and save a workflow definition.
      * The XML is generated server-side, re-validated with the same parser used at
-     * load time, written to the workflows directory, then registry and scheduler
-     * are reloaded. The save is recorded in the feed audit log.
+     * load time, written to the workflows directory, then the registry reads back
+     * that one file and the scheduler re-plans that one workflow (every workflow
+     * only when the registry says it had to reload everything). The save is
+     * recorded in the feed audit log.
      */
     /**
      * STEP node ids of a definition, in order. GATE, LOOP and ENDLOOP are deliberately ignored: the
@@ -3077,8 +3081,7 @@ public class ApiController {
             }
 
             Files.write(target, xml.getBytes(StandardCharsets.UTF_8));
-            registry.reload();
-            scheduler.reschedule();
+            scheduler.reschedule(registry.refresh(java.util.Collections.singletonList(fileName)));
 
             FeedLayout layout = registry.layout(dto.feedId);
             if (layout != null) {

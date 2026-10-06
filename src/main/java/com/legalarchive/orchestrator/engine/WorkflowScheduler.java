@@ -50,25 +50,59 @@ public class WorkflowScheduler {
         scheduled.clear();
         scheduleErrors.clear();
 
+        for (WorkflowDef wf : registry.all()) schedule(wf);
+    }
+
+    /**
+     * After {@link WorkflowRegistry#refresh}: re-plans only the workflows the refresh touched, and
+     * leaves the timer of every other workflow alone. When the refresh reloaded everything, so
+     * does this. The result is what {@link #reschedule()} would leave behind.
+     */
+    public synchronized void reschedule(WorkflowRegistry.Refresh refresh) {
+        if (refresh == null || refresh.full) {
+            reschedule();
+            return;
+        }
+        for (String feedId : refresh.removed) unschedule(feedId);
+        for (String feedId : refresh.loaded) {
+            unschedule(feedId);
+            WorkflowDef wf = registry.get(feedId);
+            if (wf != null) schedule(wf);
+        }
+        // cron errors are shown in the order of the workflows, as reschedule() leaves them
+        Map<String, String> ordered = new LinkedHashMap<String, String>();
         for (WorkflowDef wf : registry.all()) {
-            if (wf.cron == null) continue;
-            final String feedId = wf.feedId;
-            try {
-                ScheduledFuture<?> f = scheduler.schedule(
-                        () -> {
-                            try {
-                                engine.start(feedId, "CRON", "scheduler");
-                            } catch (Exception e) {
-                                log.error("[{}] avvio da scheduler fallito: {}", feedId, e.getMessage(), e);
-                            }
-                        },
-                        new CronTrigger(wf.cron));
-                scheduled.put(feedId, f);
-                log.info("[{}] pianificato con cron '{}'", feedId, wf.cron);
-            } catch (Exception e) {
-                log.error("[{}] cron non valida '{}': {}", feedId, wf.cron, e.getMessage());
-                scheduleErrors.put(feedId, "Invalid cron '" + wf.cron + "': " + e.getMessage());
-            }
+            String err = scheduleErrors.get(wf.feedId);
+            if (err != null) ordered.put(wf.feedId, err);
+        }
+        scheduleErrors.clear();
+        scheduleErrors.putAll(ordered);
+    }
+
+    private void unschedule(String feedId) {
+        ScheduledFuture<?> f = scheduled.remove(feedId);
+        if (f != null) f.cancel(false);
+        scheduleErrors.remove(feedId);
+    }
+
+    private void schedule(WorkflowDef wf) {
+        if (wf.cron == null) return;
+        final String feedId = wf.feedId;
+        try {
+            ScheduledFuture<?> f = scheduler.schedule(
+                    () -> {
+                        try {
+                            engine.start(feedId, "CRON", "scheduler");
+                        } catch (Exception e) {
+                            log.error("[{}] avvio da scheduler fallito: {}", feedId, e.getMessage(), e);
+                        }
+                    },
+                    new CronTrigger(wf.cron));
+            scheduled.put(feedId, f);
+            log.info("[{}] pianificato con cron '{}'", feedId, wf.cron);
+        } catch (Exception e) {
+            log.error("[{}] cron non valida '{}': {}", feedId, wf.cron, e.getMessage());
+            scheduleErrors.put(feedId, "Invalid cron '" + wf.cron + "': " + e.getMessage());
         }
     }
 

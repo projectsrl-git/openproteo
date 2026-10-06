@@ -281,7 +281,20 @@ orchestrator.mask-pools-dir=       # opzionale: override dei pool senza rebuild
   e `opAlert(msg,opts)`; sostituiscono confirm()/alert() nativi. opts: {title,okText,
   cancelText,danger}. Mai piu' confirm()/alert() nei template.
 * **Delete workflow**: `POST /api/workflows/{feedId}/delete` cancella il file XML e fa
-  reload (rifiuta se c'e' un run attivo; storia/dati su disco restano). Bottone nel designer.
+  ~~reload~~ `refresh` (2026-10-04, vedi il punto sotto) (rifiuta se c'e' un run attivo;
+  storia/dati su disco restano). Bottone nel designer.
+* **Registro dei workflow: `reload()` e `refresh(nomi)`** (aggiunto 2026-10-04). `reload()`
+  rilegge tutti i file: avvio, bottone Reload, Bulk, Import. Chi scrive o cancella **un** file
+  di workflow chiama `registry.refresh(nomi)` passando i nomi dei file toccati, e poi
+  `scheduler.reschedule(esito)`: vengono riletti solo quei file e quelli cambiati su disco
+  (nome, data di modifica, dimensione). Il contratto e' che dopo `refresh` il registro contiene
+  **esattamente** cio' che `reload` ci avrebbe messo - stessi workflow, stesso ordine, stessi
+  errori; dove non puo' garantirlo (feedId dichiarato da due file o che cambia file, setup
+  fallito, directory non elencata) `refresh` chiama `reload` e lo scrive nel log. Chi tocca
+  `refresh` rilancia il confronto contro un `reload` fresco su una directory vera (nota
+  `.claude/2026-10-04-save-reloads-one-workflow.md`). I nomi vanno passati **sempre**: due
+  salvataggi della stessa lunghezza nello stesso tick dell'orologio del file system hanno lo
+  stesso timbro, e senza il nome il secondo non viene riletto.
 * **Multi-selezione dashboard**: checkbox per riga + barra azioni (Run/Delete massivi);
   loop client-side sugli endpoint per-feed. closest() NON usato (browser UBS): risalita
   DOM manuale.

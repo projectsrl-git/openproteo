@@ -78,6 +78,20 @@ Under *Generated XML* the designer can open a direct XML editor: paste/edit a fu
 then *Validate & save XML* — it is parsed/validated and, on success, the page reloads on the
 saved feed. Handy to clone a workflow by changing a few details.
 
+### What a save reloads
+
+Saving a workflow reads back **only that workflow**. This holds for every save made from the application: the designer, **Validate & save XML**, the Variables page (the workflows it changed), the maintenance lock, and Delete. The other workflows are not parsed again, their directories are not re-created, their cron timers are not touched, and no `WORKFLOW_LOADED` record is added to their audit trail - before, each save wrote one such record into the audit trail of **every** feed.
+
+A file put into the workflows directory by hand - copied, edited, or deleted outside the application - is still picked up by the next save: at each save the application compares the name, modification time and size of every `*.xml` with what it last read, and reads the ones that differ. Comparing is not parsing: only the changed files are read. A file changed by hand that keeps both its modification time and its size is not noticed until **Reload XML definitions**.
+
+The application reloads **every** workflow, and says why in the application log (`Workflow refresh: reloading every workflow - ...`), when the outcome depends on more than the changed file:
+
+- a `feedId` is declared by more than one file, or moves from one file to another - which file wins is decided by the order of the whole directory;
+- a workflow whose directories could not be created at the last load - it is tried again;
+- the workflows directory could not be listed at the last load.
+
+**Reload XML definitions** on the dashboard, application start, Bulk creation and Import reload everything, as before.
+
 ### Publishing output variables from a script (`##VAR`)
 
 A script publishes a variable by printing a line to **stdout** in the form:

@@ -1,0 +1,2 @@
+package org.springframework.boot.context.properties;
+public @interface ConfigurationProperties { String prefix() default ""; }
