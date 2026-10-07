@@ -1,5 +1,5 @@
 <workflow feedId="_TEMPLATE-objunpack-precheck-resend" sourceId="TEMPLATE" targetId="T2" name="Send a Transarch object package as it is when it needs no correction; otherwise unpack, rebuild and resend">
-    <description>Template. Looks inside one Transarch object package WITHOUT unpacking its objects: a bash step extracts only the audit and the metadata CSV and reads how many records the package declares; the metadata is then validated against the feed's dataschema. If the package is coherent, its checksum was verified and no check failed, the package is sent AS IT IS (same name, same version) and nothing is unpacked. Otherwise the workflow goes on by itself with the corrective resend of _TEMPLATE-objunpack-resend: unpack, csvsql, dequote, validate, objpack (version + 1), send. BEFORE THE FIRST RUN: 1) copy objunpack-precheck.sh into the server scripts directory, or upload it from the Files panel and write its FULL PATH in the Script field of the Look inside step (an upload does not go to the scripts directory, and that field does not resolve its alias); the host needs bash and tar (Linux, AIX); 2) put the package and its .md5 where packageArchive points; 3) feedDir must hold the feed's dataschema.json; 4) the delimiter of the Check package metadata, CSV SQL, Remove CSV Double Quotes and Check CSV steps is written here as a comma and is NOT taken from the package (that field does not resolve variables): set all four to the delimiter the package uses, which the Look inside step shows as metadataDelimiter; 5) set ftpsTarget to an FTPS target id. A wrong delimiter on the first check only costs the short cut: the package is then unpacked and rebuilt. Nothing here changes the package, and no step replaces an existing result.</description>
+    <description>Template. Looks inside one Transarch object package WITHOUT unpacking its objects: a bash step extracts only the audit and the metadata CSV and reads how many records the package declares; the metadata is then validated against the feed's dataschema. If the package is coherent, its checksum was verified and no check failed, the package is sent AS IT IS (same name, same version) and nothing is unpacked. Otherwise the workflow goes on by itself with the corrective resend of _TEMPLATE-objunpack-resend: unpack, csvsql, dequote, validate, objpack (version + 1), send. BEFORE THE FIRST RUN: 1) copy objunpack-precheck.sh into the server scripts directory, or upload it from the Files panel and write its FULL PATH in the Script field of the Look inside step (an upload does not go to the scripts directory, and that field does not resolve its alias); the host needs bash and tar (Linux, AIX); 2) put the package and its .md5 where packageArchive points; 3) feedDir must hold the feed's dataschema.json; 4) the delimiter of the Check package metadata, CSV SQL, Remove CSV Double Quotes and Check CSV steps is written here as a comma and is NOT taken from the package (that field does not resolve variables): set all four to the delimiter the package uses, which the Look inside step shows as metadataDelimiter; 5) set ftpsTarget to an FTPS target id. A wrong delimiter on the first check only costs the short cut: the package is then unpacked and rebuilt. The Look inside, Unpack and OBJ PACK steps work in a folder of their own for each run (their step directory, then the run id), because a step directory is the same at every run of a workflow. Nothing here changes the package, and no step replaces an existing result.</description>
     <variables>
         <var name="packageArchive" value="${landingIn}/*.tar"/>
         <var name="recordBusinessDate" value="record_business_date"/>
@@ -9,7 +9,7 @@
     <steps>
         <step id="PRECHECK" name="Look inside the package" exec="bash" script="objunpack-precheck.sh">
             <param name="archive" value="${packageArchive}"/>
-            <param name="outputDir" value="${stepDir}"/>
+            <param name="outputDir" value="${stepDir}/${runId}"/>
             <param name="md5Check" value="require"/>
             <param name="countMembers" value="yes"/>
         </step>
@@ -28,6 +28,7 @@
         <gate id="NEEDS_NO_CORRECTION" name="Send as it is?" type="auto" condition="${PRECHECK.packageCoherent} == true &amp;&amp; ${PRECHECK.md5Checked} == true &amp;&amp; ${PRECHECK_CSV.checksFailed} == 0" onTrue="FTPSSEND" onFalse="OBJUNPACK"/>
         <step id="OBJUNPACK" name="Unpack the package" exec="objunpack">
             <param name="archive" value="${packageArchive}"/>
+            <param name="outputDir" value="${stepDir}/${runId}"/>
             <param name="md5Check" value="require"/>
             <param name="onInconsistency" value="fail"/>
             <param name="metadataDelimiter" value="auto"/>
@@ -62,10 +63,10 @@
             <param name="metadataCsv" value="${REMOVE_CSV_DOUBLE_QUOTES.outputFile}"/>
             <param name="objectsDir" value="${OBJUNPACK.objectsDir}"/>
             <param name="outDelimiter" value="${OBJUNPACK.metadataDelimiter}"/>
-            <param name="outputDir" value="${stepDir}"/>
+            <param name="outputDir" value="${stepDir}/${runId}"/>
         </step>
         <step id="SEND_REBUILT" name="What to send: the rebuilt package" exec="setvar">
-            <param name="sendDir" value="${dir.OBJPACK}"/>
+            <param name="sendDir" value="${dir.OBJPACK}/${runId}"/>
             <param name="sendTar" value="${OBJPACK.submissionBaseName}.tar*"/>
             <param name="sendMd5" value="${OBJPACK.submissionBaseName}.md5"/>
         </step>

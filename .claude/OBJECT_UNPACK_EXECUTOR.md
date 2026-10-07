@@ -430,10 +430,14 @@ modified"*. Read in both of its possible senses, and both are now guaranteed and
   `outputDir` is left alone. The only things the step deletes are its own `.objunpack-*.part`
   staging folders.
 
-**∩ U10 — "nothing existing is replaced" × re-running a step.** With `outputDir` left to its
+**∩ U10 — "nothing existing is replaced" × re-running a step.** ~~With `outputDir` left to its
 default this never bites: the step directory is new at every run. With a fixed `outputDir` a
 second run is refused, and the remedy is the author's — another folder, or removing the old
-result by hand. Not the step's.
+result by hand. Not the step's.~~ **Corrected 2026-10-07 (§22): the premise was false.** A step
+directory belongs to the feed and is the same at every run (`FeedLayout`: `feedDir/NN_<stepId>`),
+so with the default `outputDir` the SECOND run of any workflow is refused. The rule stands - the
+step replaces nothing - and the remedy is a folder of its own for each run,
+`outputDir=${stepDir}/${runId}`, which the templates now set.
 
 **Registration, read on the code of `unarchive`, the last executor registered:** the three places
 in `WorkflowXmlParser` (the accepted values, the error text, the `internal` set),
@@ -911,3 +915,170 @@ the Java suites as non-root; `mvn clean package`.
 and validate resolved as a variable (so the template can follow the package); a check in the
 script that every `file_name` of the audit is a member of the archive. Both are the next
 intervention, on the HEAD that follows this one.
+
+## 22. Every package of a folder, in one workflow of two phases; and a step directory is not new at every run (2026-10-07, on `2c0c19a`)
+
+**The requests, in order** - three in one afternoon, none of the first two committed:
+(a) a first step that lists every `.tar` of a path and the pre-check workflow of §20 executed
+for each; (b) the same split in two templates, one that checks and writes a **quarantine list**
+and one that unpacks and repacks what is on it; (c) one template again - "one template per
+feed" - that does (b)'s first part including the send, ends with success if nothing is in
+quarantine, and otherwise goes on, in the same workflow, with (b)'s second part on the list it
+has just made. Always without touching Java. (a) and (b) were delivered as zips on this same
+base (`…every-package-2c0c19a.zip`, `…check-and-correct-2c0c19a.zip`) and are **superseded by
+this delivery**: their templates are not in the repository; the scripts and the correction of
+the two existing templates are.
+
+**What was built.**
+
+* `scripts/list-packages.sh` — parameters `dir`, `pattern`, `onEmpty`; publishes `packages`,
+  `packageNames`, `packageCount`, `packagesDir`.
+* `scripts/quarantine-list.sh` — one script, five actions (`new`, `add`, `pending`, `done`,
+  `summary`) on a text list: `category TAB package TAB reason`, category `correct` or `manual`,
+  with `<list>.done` beside it for what has been worked.
+* `scripts/objunpack-precheck.sh` — new parameter `onRefusal` = `fail` (default) | `report`, and
+  two new variables, `packageReadable` and `problem`. All seventeen variables are now published
+  every time, empty when not known.
+* `workflows/_TEMPLATE-objunpack-check-and-correct.xml`, 29 nodes: gate RESUME → LIST → gate
+  ANY_PACKAGE → NEW_LIST → LOOP EACH_PACKAGE { PRECHECK (`report`) → gate READABLE →
+  PRECHECK_CSV (`continue`) → gate VALID → gate SEND_VALID → SEND_AS_IT_IS → QUARANTINE } →
+  PENDING → gate ANY_PENDING → LOOP EACH_QUARANTINED { the five steps of §16 → SEND_REBUILT →
+  WORKED } → SUMMARY → gate MANUAL_LEFT. Three variables switch it: `sendValidPackages`,
+  `correctQuarantined`, `resumeCorrection`. The list is `${feedDir}/objunpack-quarantine.txt`.
+
+No executor, no engine change.
+
+**The defect found on the way - mine, from §14.** To know where each pass of a loop may write I
+read `FeedLayout`: `stepDirs` is built once per feed, `feedDir/NN_<stepId>`, and nothing empties
+it between runs. §14 (∩ U10) and USAGE said "the step directory is new at every run". It never
+was. Consequences, in the templates as committed up to `2c0c19a`:
+
+* `_TEMPLATE-objunpack-resend.xml`: the second run stops in the Unpack step ("already holds
+  objects/"). And with the Unpack step's folder emptied by hand, the send step - `*.tar` and
+  `*.md5` in the OBJ PACK step's directory - would send the earlier run's package as well.
+* `_TEMPLATE-objunpack-precheck-resend.xml`: the second run stops in its first step.
+
+Both reproduced by walking the old templates twice in one feed, and kept in the suite as
+controls, with a third: a template with only the Unpack step corrected plans to send **both**
+runs' packages. The author's UAT feed had run each template once, which is why it was not seen.
+
+**The correction, without Java:** the steps that must not find an earlier result get
+`${stepDir}/${runId}` as their folder - `outputDir` of the pre-check script, of `objunpack`, of
+`objpack` - and the send reads `${dir.OBJPACK}/${runId}`; in a loop, the same with
+`/${packageNoString}` after it. `csvsql`, `dequote` and `validate` keep their step directory:
+they replace their own output, and what they wrote is consumed before the next pass begins.
+
+**∩ U25 — "one folder per run" × "the disk".** Nothing removes those folders: every run that
+unpacks leaves its objects behind until the feed's files are cleaned from the GUI. Decided: no
+deletion by default - a default that deletes is not conservative - and USAGE gives the one line
+that does it (`deleteOnSuccess` on the send step).
+
+**∩ U26 — "the first failure stops the run" (the engine) × "go through every package".**
+Resolved differently in the two phases. In the CHECK,
+nothing that is the package's fault fails a step: the script reports instead of refusing
+(`onRefusal=report`) and `validate` continues (`onFailedChecks=continue`), so the run always
+reaches the last package and the list is complete. What still fails it is the workflow's own
+fault - a parameter, a folder that cannot be written - and that should stop it. In the
+CORRECTION a failure does stop the run, because there a failure is news: the check had said the
+package could be read. What makes that bearable is `.done` and `resumeCorrection`: see ∩ U32.
+
+**∩ U27 — "the loop splits on `;` and trims each item" (the engine's `splitList`) × file
+names.** A path with `;`, or with a blank at either end, would be gone through as paths that do
+not exist; a tab would break the list's own lines. Both scripts refuse such a path, naming it,
+when it is listed, when it is added, and when a hand-edited list is read.
+
+**∩ U28 — "sends on hold" (§16) × "a batch".** The hold is per step, so in a loop it is per
+package. Kept, in both workflows: a batch that sends dozens of packages to a legal archive
+without anyone looking is not the conservative default. And `sendValidPackages=false` with
+`correctQuarantined=false` makes the workflow a check that sends and unpacks nothing.
+
+**∩ U29 — "what can be corrected" × "what the check can know".** `correct` is given only to a
+package that was read, whose checksum was verified and whose counts agree, and whose metadata
+failed a check: the one case §20 already sent down the corrective chain and that chain is known
+to handle. Everything else is `manual` - including counts that do not agree, which `objunpack`
+with `onInconsistency=fail` would refuse and which would therefore stop phase 2 at its first
+step. A wrong literal delimiter (§20, ∩ U20) lands every package in `correct`: the safe
+direction again, at the cost of rebuilding them all.
+
+**∩ U30 — "never replace" (§14) × "a new list at every check".** The list is ours, not a
+package, but the same rule is kept: `new` renames the earlier list and its `.done`, never
+deletes them, and never onto a name that exists. A `.done` left without its list is set aside
+too, because it would silently hide packages of the new list.
+
+**∩ U31 — "a variable that is not published keeps its value" (the engine: `run.vars` is one
+map for the run) × a loop.** In a loop, a step that publishes a variable only on success leaves
+the previous pass's value for the next gate. The pre-check script therefore publishes every
+variable at every pass, empty when unknown, and the template sets the quarantine category
+and reason before each gate that may send a package to the list.
+
+**∩ U32 — "one workflow" (the request) × "run it again after a failure".** With two workflows
+the second could simply be run again. With one, running again repeats phase 1: the valid
+packages are sent a second time, and a new list is started whose `.done` is empty, so the
+packages already corrected would be corrected and sent again too. The GUI can start a
+TEST run from a chosen step (USAGE, "Step-by-step test from a step"); I have not read how far
+that is a normal run, so the template does not lean on it and carries its own switch: `resumeCorrection=true`
+makes its first gate jump to PENDING, on the list as it stands. It is a variable the operator
+must set and unset by hand; forgetting to unset it means the next run checks nothing. Said in
+the template and in USAGE, with the reason. Decided against the alternative - never starting a
+new list while the old one has pending entries - because it would silently skip the check of
+whatever arrived since.
+
+**∩ U33 — "ends with success if nothing is in quarantine" (the request) × "what is in
+quarantine and cannot be corrected".** The request names two outcomes; there is a third: phase
+2 has nothing to do, or has done it, and `manual` entries remain - packages that were not sent
+and that no step will send. Decided: that run ends REJECTED, not SUCCESS, by a last gate on
+`${SUMMARY.quarantineManual}`: a green run that left documents out of a legal archive is the
+worse mistake. It is one gate with two literal targets, and USAGE says how to make it a success
+for a feed that wants it. **This is my choice, not the author's, and is flagged as such in the
+delivery.**
+
+**∩ U34 — "two loops in one workflow" × the variables of the first.** `run.vars` is one map:
+after the first loop, `${package}` still holds its last item. The second loop therefore uses
+names of its own (`quarantined`, `quarantinedNoString`), and three mutations check that no step
+of phase 2 reads a variable of phase 1.
+
+**Evidence** (Linux; Temurin 1.8.0_432 and JDK 21.0.12; bash 5.2.21; GNU tar 1.35;
+LANG=C.UTF-8; root):
+
+* *The three scripts.* `list-packages.sh`: 39 assertions on real folders, and 1000 files through
+  the real bash runner. `quarantine-list.sh`: 47 - every action, the earlier list kept, a path
+  that is the beginning of another, a hand-edited list, 400 entries. `objunpack-precheck.sh`:
+  the 280 of §20 unchanged, and 99 more for `onRefusal=report` - twelve ways a package cannot
+  be read, each failing by default and reported with exit 0, all seventeen variables published
+  each time; what is the workflow's fault failing in both modes. All three also as uid 65534.
+* *The template walked* (`WalkAll`): parsed by the real `WorkflowXmlParser`; parameters and gate
+  conditions by the real `VarResolver`; the scripts run by the real `StepExecutor`; `setvar`,
+  `validate`, `objunpack`, `dequote`, `objpack` are their bodies lifted by position from
+  `InternalSteps`, executed on real packages; the send is the real `SendPlan`, not a send. 23
+  assertions: seven files in one folder - two valid, one with a quote in a value, one with
+  another delimiter, one with a wrong checksum, one with a member too many, one that is not a
+  package - the whole check before the first unpack, what each phase sends and from where, the
+  list, the `.done`, the run ending REJECTED; the same run again in the same feed; all valid
+  (SUCCESS, phase 2 not entered); valid and to-correct (SUCCESS); only a wrong checksum
+  (REJECTED); an empty folder (SKIPPED); each of the two switches alone and both together; a
+  package damaged just before its unpack in phase 2, the run failing there, and
+  `resumeCorrection` taking up that package alone, sending nothing a second time; resume with
+  nothing left and with no list; an unverified checksum; `x.tar` beside `x.tar.gz`. On both
+  JDKs, and as uid 65534.
+* *The two existing templates walked twice in one feed*, 8 assertions, three of them controls
+  on the templates as they were (see above).
+* *Mutations on copies, anchors checked:* 102 - list script 17, quarantine script 25, pre-check
+  script 17, the new template 36, the existing templates 7. 99 caught; 3 equivalent here: `-d`
+  weakened to `-e` is covered by the `cd` after it; removing the sort changes nothing on a host
+  whose only locales are C, which is the case the sort is not there for; and sending the
+  rebuilt `.md5` by mask is the same while the pack step has a folder of its own, which is why
+  it has one. **Five survivors were holes in the suite**, each closed with its own case: an
+  assertion made in a subshell, printed and not counted; "add without a list" refused only
+  because its folder was missing too; worked packages compared so that `pkg.tar.gz` stood for
+  `pkg.tar`; the gate's checksum term, never decisive while the script required the checksum;
+  the per-package folder of the check, which matters only for two files with one base name.
+
+**What is NOT real in the walk, and so not verified:** the loop over the nodes is mine, written
+from `WorkflowEngine.loop` (LOOP/ENDLOOP, gate jumps - including a gate as first node, a gate
+that jumps to an ENDLOOP and one that jumps over a whole loop - the publication of a step's
+variables, the step directories); `csvsql` is emulated (H2 is not in the sandbox) as "the
+dataschema's columns, written with the step's delimiter"; Jackson is a stub in `validate`; on
+hold is not modelled, nor `deleteOnSuccess`, which USAGE suggests on the strength of its code
+alone; `orchestrator.max-transitions` is counted (77 for the seven files) and not enforced.
+Nothing ran on AIX or Windows: `date`, `mv`, `sort` and bash's `read` there are used in their
+plainest forms, and `date -r` was taken out because on AIX it means something else.

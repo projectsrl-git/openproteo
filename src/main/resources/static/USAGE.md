@@ -1634,7 +1634,7 @@ Unpacking a package of 100 000 objects takes minutes and as much disk again, and
 
 The FTPS step is on hold in both cases, and it sends two files by their exact names rather than `*.tar` and `*.md5`, because the folder a package arrives in may hold other packages.
 
-**What the script publishes** (write them as `${PRECHECK.name}`): `metadataCsv` and `auditJson`, the two extracted files; `expectedRecords`, the `record_count` of the audit; `auditFileEntries`, how many objects the audit lists; `tarMembers`, how many members the archive has; `csvLines`; `metadataDelimiter`, read from the header line (`tab` for a tab); `md5Present`, `md5Checked`; `archive`, `archiveName`, `md5Name`, `packageDir`, `submissionBaseName`; and `packageCoherent`, which is `true` when the record count, the number of objects listed and the number of members minus three (audit, metadata, control) all agree. `packageCoherent` says nothing about what the metadata contains: that is the validate step's part.
+**What the script publishes** (write them as `${PRECHECK.name}`): `metadataCsv` and `auditJson`, the two extracted files; `expectedRecords`, the `record_count` of the audit; `auditFileEntries`, how many objects the audit lists; `tarMembers`, how many members the archive has; `csvLines`; `metadataDelimiter`, read from the header line (`tab` for a tab); `md5Present`, `md5Checked`; `archive`, `archiveName`, `md5Name`, `packageDir`, `submissionBaseName`; and `packageCoherent`, which is `true` when the record count, the number of objects listed and the number of members minus three (audit, metadata, control) all agree. `packageCoherent` says nothing about what the metadata contains: that is the validate step's part. Two more: `packageReadable`, `true` when the audit and the metadata could be extracted and counted, and `problem`, empty when the package was read, its counts agree and its checksum was verified, and otherwise saying which of the three is not so. All of them are published at every run, empty when not known. With the parameter `onRefusal` = `report` a package that cannot be looked into — a wrong checksum, a file that is not a package — does not fail the step: it ends well with `packageReadable` = `false` and the reason in `problem`. The default is `fail`, as it has always been; `report` is for a workflow that goes through many packages.
 
 **What "needs no correction" means here, and what it does not.** The short cut is taken on three counts and six checks of the metadata. It does **not** open the objects: that every object the audit lists is in the archive under its name, that each has a metadata row, that the names are usable — all of that is `objunpack`'s work, and a package sent as it is has not been through it. A package whose counts are right and whose metadata is valid, but in which one object was replaced by another file of a different name, is sent. The checksum says the archive is the one its sender made; it does not say the sender made it well.
 
@@ -1645,9 +1645,58 @@ The FTPS step is on hold in both cases, and it sends two files by their exact na
 - The dataschema must describe the metadata **as it is in the package**, column for column. The corrective path selects the dataschema's columns out of a wider file; the short cut cannot, so a package with one column more than the dataschema is always rebuilt.
 - The script runs with `md5Check=require`. With `ifPresent` or `off` a package whose checksum was not verified is never sent as it is: the gate asks for `md5Checked`.
 
-Like `objunpack`, the script only reads the archive and its folder, and replaces nothing: run twice into the same directory, it stops. A wildcard in `archive` must match exactly one file.
+Like `objunpack`, the script only reads the archive and its folder, and replaces nothing: run twice into the same directory, it stops — which is why the template gives it `${stepDir}/${runId}`, a folder of its own for each run. A wildcard in `archive` must match exactly one file.
 
 Measured here on a package of 100 000 objects (294 MB, metadata 70 MB), on Linux: the script about 2 seconds, the validate step under 1 second with a 128 MB heap.
+
+### Every package of a folder, in one workflow
+
+`workflows/_TEMPLATE-objunpack-check-and-correct.xml` does the whole work on a folder of packages in one run, in two phases.
+
+**Phase 1 — the check. Nothing is unpacked.**
+
+- **List packages** (`list-packages.sh`) lists the files of `packagesDir` that match `packagePattern` — default `*.tar`; several patterns separated by a blank; subfolders are not searched. With nothing to do the run ends as SKIPPED.
+- **For each package**, in name order: the pre-check script verifies the checksum and extracts only the audit and the metadata CSV; the metadata is validated against the feed's dataschema.
+- A package that passes is sent **as it is** — same name, same version.
+- A package that does not pass is **not touched and not sent**. It is written to the quarantine list and the check **goes on with the next one**: in this phase a package that cannot even be read does not stop the run.
+
+**Phase 2 — the correction, only if the list has something to correct.** For each such package: `objunpack`, `csvsql`, `dequote`, `validate`, `objpack` with the version raised by one, `ftpsend`, and the package is recorded as worked.
+
+**How the run ends.** SKIPPED when the folder holds no package. SUCCESS when no package is left for a person: every one was sent, as it is or rebuilt. **REJECTED when the list holds packages that no workflow can handle** — they were not sent, and a run that leaves documents behind should not be green. If for a feed that should count as a success, change the two targets of the last gate.
+
+**The quarantine list** is a text file: the one named by the variable `quarantineList`, by default `objunpack-quarantine.txt` in the feed's folder, where it can be opened from the Workflow files panel. One package per line, three fields separated by a tab:
+
+```
+correct   /data/landing/tf0005801.20261002.S061.V001.tar   1 of 6 metadata checks failed
+manual    /data/landing/tf0005801.20261002.S064.V001.tar   tf0005801.20261002.S064.V001.tar has MD5 … but tf0005801.20261002.S064.V001.md5 says …
+```
+
+- `correct` — the package can be read and its counts agree; its metadata did not pass the checks. Phase 2 works these.
+- `manual` — no workflow can handle it: a wrong or missing checksum, a file that is not a package, counts that do not agree. Phase 2 does not touch these; they are there for a person to read.
+
+Beside the list, a file with the same name plus `.done` holds the packages already worked. Each run starts a new list; the earlier one is kept, renamed with the date and time, with its `.done`. Clearing the feed's history does not remove them.
+
+**Three switches**, all variables of the workflow:
+
+- `sendValidPackages`, default `true`. With `false` a package that passes the check is not sent.
+- `correctQuarantined`, default `true`. With `false` phase 2 is not entered: the list is written and left.
+- `resumeCorrection`, default `false`. With `true` the run skips phase 1 and goes straight to phase 2 on the list as it is.
+
+With the first two `false` the run only checks: it sends nothing, unpacks nothing, and writes the list.
+
+**After a failure in phase 2, do not simply run again.** A new run would repeat phase 1: the valid packages would be sent a second time, and a new list would be started, forgetting which packages had already been corrected. Set `resumeCorrection` to `true` and run: only the packages not yet worked are taken up. Set it back to `false` afterwards. The package that failed fails again until it is repaired, or until its line in the list is changed by hand from `correct` to `manual`.
+
+What else to know:
+
+- **Both FTPS steps are on hold**, so the run stops at every package it is about to send and waits to be released. To send without stopping, untick **On hold** on those steps.
+- **Every run sends every valid package it finds.** A package left in the folder is sent again by the next run: move the packages out when they are done, or use a pattern that only matches the new ones.
+- **The delimiter** of the Check package metadata step, and of the three middle steps of phase 2, is written in the template as a comma and does not follow the package. If the first is not the one the packages use, every package ends in the list as `correct` and is rebuilt — nothing wrong is sent, but nothing takes the short way either. Look there first if the list is longer than expected.
+- **A package that is unpacked stays unpacked**, under the Unpack step's directory, until the feed's history is cleared: 100 000 objects each. To free the space as the run goes, give the **FTPS Send the rebuilt package** step the parameter `deleteOnSuccess` = `${dir.OBJUNPACK}/${runId}/${quarantinedNoString}`.
+- Every step that must not find an earlier result works in a folder of its own — its step directory, then the run, then `001`, `002`, … — because a step keeps the same directory at every pass of a loop, as it does at every run.
+- A run is limited to `orchestrator.max-transitions` steps and gates (500 unless configured), and each release from a hold starts the count again. A package sent as it is takes ten, one that is corrected sixteen: without a hold in between, about 50 valid packages, or about 30 that all need correcting.
+- A file whose name contains `;`, a tab or a line break, or begins or ends with a blank, cannot be put in a list: the step stops and names it.
+
+**The three scripts** — `list-packages.sh`, `objunpack-precheck.sh`, `quarantine-list.sh`, in `scripts/` of the repository — go in the server's scripts directory, or are uploaded from the Files panel with their full path written in each step's Script field. They need bash, `tar`, `sort`, `date` and `mv`. There is no Windows version.
 
 ### While it runs
 
@@ -1657,7 +1706,7 @@ The live console shows each phase as it starts — reading the archive, reading 
 
 ### It never changes what it finds
 
-The archive and its `.md5` are only read: never renamed, moved or deleted. And nothing that already exists is replaced: if the output folder already holds `objects/` or `package/` — even empty — the step stops before reading the archive and leaves them as they are. The step's own directory is new at every run, so this only matters when `outputDir` points somewhere fixed. Nothing appears under `objects/` or `package/` until the whole package has been read and checked; a refused, failed or stopped run leaves nothing behind.
+The archive and its `.md5` are only read: never renamed, moved or deleted. And nothing that already exists is replaced: if the output folder already holds `objects/` or `package/` — even empty — the step stops before reading the archive and leaves them as they are. **A step's directory is the same at every run of a workflow** — it belongs to the feed, not to the run — so with `outputDir` left to its default the step works once and stops at the second run, finding the first one's result. Give it a folder of its own for each run: `outputDir` = `${stepDir}/${runId}`, which is what the ready-made workflows below do. (Until October 2026 this page said the directory was new at every run. It is not.) Nothing appears under `objects/` or `package/` until the whole package has been read and checked; a refused, failed or stopped run leaves nothing behind.
 
 ### What stops the step
 

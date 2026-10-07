@@ -1,53 +1,53 @@
-objpack keeps no rows in memory; a step ending with an Error is ended
+objunpack: one check-and-correct template for a folder of packages
 
-On AIX, objpack on 100 000 rows (52 MB) stopped at "read 63271 rows"
-and the step stayed RUNNING for an hour and a half.
+Asked, without Java changes: one template per feed that checks every
+package of a folder and sends the valid ones; ends with success when
+nothing is in quarantine; otherwise goes on, in the same workflow,
+to unpack and repack what the check put on the list.
 
-Reproduced on Java 8: it kept every row as a map of its cells for the
-whole run, which does not fit in 512 MB. And an Error in a step was
-caught by nothing: the run pool logged it and the step stayed RUNNING.
+- workflows/_TEMPLATE-objunpack-check-and-correct.xml. Phase 1: list
+  the folder; per package verify the checksum, extract only audit
+  and metadata, validate; send as it is, or write to the quarantine
+  list as "correct" (metadata invalid) or "manual" (cannot be read,
+  not verified, counts that disagree) and go on. Phase 2, if any
+  "correct": unpack, csvsql, dequote, validate, objpack (version+1),
+  send, record as worked.
+- scripts/list-packages.sh, scripts/quarantine-list.sh: new.
+- scripts/objunpack-precheck.sh: onRefusal=report (default fail, as
+  before); packageReadable and problem; every variable published at
+  every run, because in a loop an unpublished one keeps its value.
 
-- ObjectPack keeps per row what the checks and the names need. The
-  other columns are read again from the CSV where they are written:
-  the metadata, the dataschema's not-nullable check, the discarded
-  rows. The file is checked to be the one read the first time; if it
-  changed the step stops and leaves no half-written metadata.
-- AuditJson.write streams instead of building the text first.
-- InternalSteps.run catches Error: exit 1, a message naming the heap
-  for an out-of-memory. WorkflowEngine.executeStep has the same net.
-- The Platform page shows the heap the steps can use.
-- ObjectPack.glob: every include/exclude pattern with a literal
-  character threw PatternSyntaxException. Fixed.
-- USAGE: a file uploaded from the Files panels is NOT in the scripts
-  directory, and the Script field resolves no variable, so an alias
-  cannot be written there. It said the opposite. The pre-check
-  template's description is corrected the same way.
+Decided by me, flagged for confirmation: a run that leaves "manual"
+packages ends REJECTED, not SUCCESS; resumeCorrection=true takes up
+phase 2 after a failure without repeating the check and its sends;
+the list lives in the feed's folder.
 
-Same 100 000 rows after the change: completes with a 144 MB heap (not
-with 128); with 256 MB the outcome is identical to the old code's
-with 1 GB. No parameter added. Input that worked gives what it gave.
+Found on the way, and corrected: USAGE and the spec said a step's
+directory is new at every run. It belongs to the feed. The two
+templates delivered before worked ONCE per feed, and with the Unpack
+folder cleared by hand the send of *.tar would have delivered the
+earlier run's package too. Both now use ${stepDir}/${runId}. A
+workflow already created from them needs the same values by hand.
 
-Not done: the Script field still resolves no variable (decided); the
-audit file is still read whole. Next intervention: the Delimiter
-field as a variable, and a listing check in the pre-check script.
+Replaces the zips every-package-2c0c19a and check-and-correct-2c0c19a
+(same base, never committed).
 
-USAGE.md and the objpack and objunpack specs updated. README.md and
-CLAUDE.md not touched.
+USAGE.md and the objunpack spec (section 22; section 14 corrected,
+struck through) updated. README.md and CLAUDE.md not touched.
 
-Verified on Linux (sandbox; Temurin 1.8.0_432 and JDK 21.0.12;
-LANG=C.UTF-8; root): ObjectPack old against new on 625 cases, the
-whole outcome identical; 53 assertions on the new refusals; the real
-InternalSteps.run, lifted, with a real OutOfMemoryError, 268
-assertions; the Platform row in jsdom. A subset as uid 65534 and with
-LANG empty. 34 mutations, all caught after three holes in the suite
-were closed (spec section 18).
+Verified on Linux (sandbox; Temurin 1.8.0_432 and JDK 21.0.12; bash
+5.2.21; LANG=C.UTF-8; root and uid 65534): the three scripts, 465
+assertions; the template parsed and walked with the real resolver,
+gates, bash runner, send plan and the lifted bodies of five
+executors on seven real files, 23 assertions; the old templates
+twice in one feed, with three controls; 102 mutations, 99 caught,
+3 equivalent here.
 
-Verified on Windows: nothing.
+Verified on Windows: nothing. The template needs bash.
 
-Not verified on either: AIX and the IBM JVM, where a short heap may
-take minutes to become an error; WorkflowEngine's new catch (the
-class does not compile here: differential compile only); a browser;
-mvn clean package.
+Not verified on either: AIX; the engine running these loops (the
+walk's loop is mine, written from the engine's); csvsql (emulated);
+on hold inside a loop; deleteOnSuccess; mvn clean package.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01HUY167c6pQG6D7P6dnBZC7

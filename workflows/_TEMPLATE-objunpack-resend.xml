@@ -1,5 +1,5 @@
 <workflow feedId="_TEMPLATE-objunpack-resend" sourceId="TEMPLATE" targetId="T2" name="Unpack a Transarch object package, rebuild it and resend it">
-    <description>Template. Unpacks one Transarch object package (objunpack), rebuilds the metadata through csvsql, dequote and validate, packages it again (objpack) and sends it (ftpsend, on hold). As it stands it is a CORRECTIVE RESEND: same feed id, same transmission date and same sequence as the package, version + 1. For a new submission set tfId, transmissionDate, sequenceNr and versionNr on the OBJ PACK step. BEFORE THE FIRST RUN: 1) put the package and its .md5 where packageArchive points; 2) feedDir must hold the feed's dataschema.json; 3) the delimiter of the CSV SQL, Remove CSV Double Quotes and Check CSV steps is written here as a comma and is NOT taken from the package (that field does not resolve variables): set all three to the delimiter the package uses, which the Unpack step shows as metadataDelimiter; 4) set ftpsTarget to an FTPS target id. The Unpack step never changes the package and never replaces an existing result.</description>
+    <description>Template. Unpacks one Transarch object package (objunpack), rebuilds the metadata through csvsql, dequote and validate, packages it again (objpack) and sends it (ftpsend, on hold). As it stands it is a CORRECTIVE RESEND: same feed id, same transmission date and same sequence as the package, version + 1. For a new submission set tfId, transmissionDate, sequenceNr and versionNr on the OBJ PACK step. BEFORE THE FIRST RUN: 1) put the package and its .md5 where packageArchive points; 2) feedDir must hold the feed's dataschema.json; 3) the delimiter of the CSV SQL, Remove CSV Double Quotes and Check CSV steps is written here as a comma and is NOT taken from the package (that field does not resolve variables): set all three to the delimiter the package uses, which the Unpack step shows as metadataDelimiter; 4) set ftpsTarget to an FTPS target id. The Unpack and OBJ PACK steps work in a folder of their own for each run (their step directory, then the run id): a step directory is the same at every run of a workflow, so without it a second run would find the first one's result - the Unpack step would stop, and the send would pick up the earlier package too. The Unpack step never changes the package and never replaces an existing result.</description>
     <variables>
         <var name="packageArchive" value="${landingIn}/*.tar"/>
         <var name="recordBusinessDate" value="record_business_date"/>
@@ -9,6 +9,7 @@
     <steps>
         <step id="OBJUNPACK" name="Unpack the package" exec="objunpack">
             <param name="archive" value="${packageArchive}"/>
+            <param name="outputDir" value="${stepDir}/${runId}"/>
             <param name="md5Check" value="require"/>
             <param name="onInconsistency" value="fail"/>
             <param name="metadataDelimiter" value="auto"/>
@@ -43,9 +44,9 @@
             <param name="metadataCsv" value="${REMOVE_CSV_DOUBLE_QUOTES.outputFile}"/>
             <param name="objectsDir" value="${OBJUNPACK.objectsDir}"/>
             <param name="outDelimiter" value="${OBJUNPACK.metadataDelimiter}"/>
-            <param name="outputDir" value="${stepDir}"/>
+            <param name="outputDir" value="${stepDir}/${runId}"/>
         </step>
-        <step id="FTPSSEND" name="FTPS Send files" exec="ftpsend" source="${dir.OBJPACK}" onHold="true">
+        <step id="FTPSSEND" name="FTPS Send files" exec="ftpsend" source="${dir.OBJPACK}/${runId}" onHold="true">
             <param name="target" value="${ftpsTarget}"/>
             <send pattern="*.tar"/>
             <send pattern="*.md5"/>
