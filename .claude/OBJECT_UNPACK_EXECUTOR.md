@@ -887,3 +887,27 @@ the Java suites as root):
 bash is installed at all; nothing on Windows (the Java change is platform-neutral, the panel is
 not browser-tested beyond jsdom); a real FTPS send; the engine running the template; bsdtar;
 the Java suites as non-root; `mvn clean package`.
+
+## 21. The first run of the pre-check on AIX, and where the script lives (2026-10-07, on `d577da6`)
+
+**What the author's run showed.** On the AIX UAT host, with the template of §20:
+
+* The step could not find the script. USAGE said "upload `objunpack-precheck.sh` to the scripts
+  folder", written by me without checking: an upload from the Files panels goes to the shared
+  or the feed folder, **not** to `orchestrator.scripts-dir`. And the `${alias}` an uploaded
+  executable gets cannot be written in a step's Script field: `WorkflowEngine` passes that field
+  to `resolveScript` as it is, without resolving variables - USAGE said the opposite, and had
+  said so since before this executor. With the file's full path in the Script field the step
+  ran. Both sentences of USAGE are corrected; the code is unchanged, by the author's decision
+  ("il resto va bene così").
+* The script then ran on AIX - its `tar`, its checksum tool, its bash - and the workflow went on
+  through the validate step and the gate. **That is the first evidence from AIX for §20**, and it
+  is the author's, not mine. The gate chose the corrective path; which check said so was not
+  reported to me.
+* The corrective path then stopped in `objpack`, out of memory: `.claude/OBJECT_PACKAGE_EXECUTOR.md`
+  §18.
+
+**Still open from §20, by decision or for lack of one:** the Delimiter field of csvsql, dequote
+and validate resolved as a variable (so the template can follow the package); a check in the
+script that every `file_name` of the audit is a member of the archive. Both are the next
+intervention, on the HEAD that follows this one.

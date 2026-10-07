@@ -225,7 +225,7 @@ and the writer must refuse rather than truncate.
 | `objectSource` | `path` if `map.objectPath` is set, else `name` | §3.3 — never `order` by default |
 | `recurse` | `no` | §3.3 |
 | `orderBy` | `name` | only for `objectSource=order` |
-| `include` / `exclude` | `*` / the five output patterns | as the script's `$Include`/`$Exclude` |
+| `include` / `exclude` | `*` / ~~the five output patterns~~ none (corrected 2026-10-07, see §18: the code has never had a default `exclude`, and until that date could not have had one) | as the script's `$Include`/`$Exclude` |
 | `dataschema` | — | optional; pre-flight only, never packaged (§3.1) |
 | `packageMode` | `tar` | `tar` only in batch 1 |
 | `compression` | `none` | §9.4 |
@@ -499,3 +499,115 @@ numbered 1..N.
 its values were exactly 1..N in row order — the sequence check enforced it. Assigning 1..N produces
 those same values. The only configurations that change are ones that used to fail. A test asserts
 exactly that, on a source already numbered 1..4.
+
+## 18. 100 000 rows: the rows are no longer kept, 2026-10-07 (on `d577da6`)
+
+**What happened.** On AIX, in the corrective chain of §16 of the objunpack spec, `objpack` was
+given 100 000 rows (a 52.5 MB CSV). The console reached `read 63271 rows, paired 63270 objects
+so far` and did not move again; an hour and a half later the step was still RUNNING.
+
+**Reproduced** (Temurin 1.8.0_432; 100 000 rows, 72 MB CSV, 44 columns): with a 512 MB heap the
+old code does not finish - it spends minutes collecting garbage before it gives up - and with
+1 GB it completes. Each row was kept as a `LinkedHashMap` of its 44 cells for the whole run.
+
+**Two defects, not one.** The memory; and that a step which ends with an `Error` is not ended:
+nothing between the step's method and the run pool catches it, the pool logs it, the step stays
+RUNNING. `objunpack` got its own catch in `b7632e7`; every other step had none.
+
+**What changed.**
+
+* A `Pair` holds what the checks and the names need - line number, object, id, type, date, name,
+  label, member name, size - and not the row. The other columns are read again from the CSV
+  (`replay`) where they are written: the submission's metadata, the dataschema's not-nullable
+  check, the list of discarded rows.
+* `AuditJson.write` writes as it produces instead of building the whole text first.
+* `InternalSteps.run` catches `Error`: exit 1, a message naming the heap for an out-of-memory
+  and the error otherwise, the same line in the step log. `WorkflowEngine.executeStep` has the
+  same net for what does not pass through `InternalSteps`.
+* The Platform page shows the heap (`PlatformProbe.system`: `maxHeapMb`, `usedHeapMb`, from the
+  memory MXBean - the whitelist scan forbids `Runtime.getRuntime` in that class, for its `exec`).
+* `ObjectPack.glob` lower-cased the finished regular expression, turning the `\Q..\E` of
+  `Pattern.quote` into `\q..\e`: every `include`/`exclude` pattern with a literal character
+  threw `PatternSyntaxException`. It now lower-cases the pattern. Found while reading the class
+  for this change; it is why the table of §5 could never have had a default `exclude`.
+
+**Measured after** (same file): completes with a 144 MB heap, not with 128 MB (the audit file is
+read back whole to be validated). The outcome with 256 MB is identical to the old code's with
+1 GB: 100 024 lines of variables, messages and every member's name, size and hash.
+
+**∩ P1 - "nothing is written until every cheap check has been made" (class comment, §4) × "the
+rows are read again while writing".** A check now exists that can only be made while writing:
+that the file is still the one that was read. It fails late by nature. Decided: when it fails
+while the metadata is being written, the half-written metadata is deleted and nothing else has
+been produced yet; when it fails on the list of discarded rows - written last, after the tar and
+the md5 - the package is complete and stays, the half list is deleted, and the step fails, which
+stops the run before anything is sent. The order of the outputs was not changed to avoid this:
+writing the discards first would leave a discards file behind every refusal of `writeAll`.
+
+**∩ P2 - "the source is read again" × "the output may be the source".** `metadataCsv` can be
+the very file the submission's metadata is written to (a package rebuilt in its own folder with
+the same name; the old code read everything first, so it worked). Decided: detected with
+`Files.isSameFile`; the rows are then read from a copy made in `outputDir`
+(`.objpack-source-<n>.tmp`), removed at the end. In that case a failure half way does not delete
+the metadata file, because it is all that is left of the source.
+
+**∩ P3 - "the file changed" × what can be seen.** Checked, in this order: size and date before
+each pass; the header; that each kept line is where it was and has the header's field count;
+that its `original_object_name` and `mime_type` are the ones read the first time. Not seen: a
+change that keeps all of those and alters another column. Example: `plain` rewritten to `plaim`
+with the date put back - the metadata carries `plaim`. The step's input is another step's output
+and nothing should be writing it; this is a guard against a run stepping on its own files, not
+a seal.
+
+**∩ P4 - "not nullable" × the order of the report.** The old code checked column by column, so
+it reported the first not-nullable column, in the dataschema's order, that has an empty value
+anywhere, at its first row. One pass over the file must give the same answer when an earlier
+column is empty later in the file than a later column: it does (fixture `swap.csv`: `lbl` empty
+on line 3, `remark` on line 9, `remark` declared first - line 9 is reported).
+
+**∩ P5 - "an Error ends the step" × "the exit code a step had set".** An `Exception` keeps a
+non-zero exit code the step had already set; an `Error` always gives 1, because after one
+nothing the step had decided can be trusted.
+
+**Evidence** (Linux; Temurin 1.8.0_432 unless said; LANG=C.UTF-8; root):
+
+* *Old against new, the whole outcome:* 625 cases - 22 CSV files (delimiters, BOM, CRLF, blank
+  line, Latin-1, a duplicated column name, header only, empty, a short row), every pairing mode,
+  skip/fail/warn for missing objects and stale dates, mapped ids, labels, compression, emitted
+  objects, 21 dataschemas, the source as the output, odd characters in the destination - 256
+  packaged and 369 refused, 75 with a discards file: variables, warnings, every line said, every
+  file by hash and every tar member by name, size and hash, identical. Old against old first:
+  identical, so the comparison is not reading the clock.
+* *New behaviour:* 53 assertions - nine ways of changing the file between the passes that are
+  refused and one that is not seen (∩ P3), at three points of the run; what is left on disk
+  after each; the passes in the console; the copy when the source is the output;
+  `include`/`exclude` by order and by name; `glob` on a 37-row table (the old class throws on 31
+  of them).
+* *`InternalSteps.run`, lifted by position, old and new:* for each of the 25 kinds, a step that
+  returns, fails or throws an `Exception` behaves as before; one that ends with a **real**
+  `OutOfMemoryError` (a 64 MB JVM filled until it throws) escapes from the old `run` and ends
+  the step in the new one, exit 1, the message in the result and in the log, and the JVM goes
+  on. Also `StackOverflowError`, `NoClassDefFoundError`, `AssertionError`. 268 assertions.
+* All three suites also on JDK 21.0.12. The differential on 114 of the cases and the 53
+  assertions as uid 65534; the differential on those 114 with `LANG` empty.
+* The heap figure on Java 8 and 21; the Platform row in a DOM (11 assertions); differential
+  compile (501 lines before and after, with its control), scans: see the session note.
+* *Mutations on copies, anchors checked:* `ObjectPack` and `AuditJson` 27 - 27 caught, after
+  three holes in the suite were closed, each found by a mutation that survived: the line-number
+  check was only ever exercised together with the name check (it needs rows that look alike:
+  fixture `twins.csv`); the field-count check likewise; no not-nullable value was blanks only.
+  `InternalSteps.run` 7 - 7 caught.
+
+**Four of my own checks were wrong on the way.** The first matrix never reached the not-nullable
+check: its dataschemas declared the duplicated column twice, the step refused them on the column
+order, and 42 "identical" cases were the same refusal. Seen by counting the outcomes, not by the
+comparison. A `pkill -f` on the suite's name killed the shell that typed it (the contract says
+so). A mutation was reported caught while I was editing the suite under it: the three affected
+were run again. And a tamper meant to keep the file's size replaced four bytes with three, so
+it was being refused by the size check and not by the one it was written for; the mutation of
+that one survived, which is how it was seen.
+
+**Not verified:** AIX, the IBM JVM (how long it collects before throwing is the JVM's own
+business: on a short heap the message may take minutes to arrive, and the cure for the case
+that was seen is the first change, not the catch); `WorkflowEngine.executeStep`'s new catch
+(the class does not compile here; differential compile only); Windows; `mvn clean package`.

@@ -3,7 +3,6 @@ package com.legalarchive.orchestrator.objpack;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
@@ -55,33 +54,33 @@ public final class AuditJson {
         if (entries == null || entries.isEmpty()) {
             throw new ObjPackException("the audit file needs at least one object");
         }
-        StringBuilder sb = new StringBuilder(256 + entries.size() * 160);
-        sb.append("{\n");
-        sb.append("    \"transmission_date\" : ").append(Long.parseLong(name.transmissionDate())).append(",\n");
-        sb.append("    \"sequence_number\" : \"").append(pad3(name.sequenceNr())).append("\",\n");
-        sb.append("    \"version_number\" : \"").append(pad3(name.versionNr())).append("\",\n");
-        sb.append("    \"record_count\" : ").append(entries.size()).append(",\n");
-        sb.append("    \"TargetDestination\": \"").append(esc(targetDestination.trim())).append("\",\n");
-        sb.append("    \"metadata_file_name\" : \"").append(esc(name.metadataCsv())).append("\",\n");
-        sb.append("    \"submission_object_files\" : [\n");
-        for (int i = 0; i < entries.size(); i++) {
-            Entry e = entries.get(i);
-            sb.append("        {\n");
-            sb.append("            \"file_name\" : \"").append(esc(e.fileName)).append("\",\n");
-            sb.append("            \"mime_type\" : \"").append(esc(e.mimeType)).append("\",\n");
-            sb.append("            \"object_id\" : \"").append(e.objectId).append("\"\n");
-            sb.append("        }").append(i == entries.size() - 1 ? "\n" : ",\n");
-        }
-        sb.append("    ]\n");
-        sb.append("}\n");
-
-        byte[] bytes = sb.toString().getBytes(Charset.forName("UTF-8"));
-        OutputStream os = new FileOutputStream(out);
+        // Written as it is produced. Built whole in memory first, the text of a 100 000-object
+        // audit (16 MB) took several times its size in heap for a moment, at the point where the
+        // packaging needs the least.
+        java.io.Writer sb = new java.io.BufferedWriter(
+                new java.io.OutputStreamWriter(new FileOutputStream(out), Charset.forName("UTF-8")), 1 << 16);
         try {
-            os.write(bytes);
-            os.flush();
+            sb.append("{\n");
+            sb.append("    \"transmission_date\" : ").append(Long.toString(Long.parseLong(name.transmissionDate()))).append(",\n");
+            sb.append("    \"sequence_number\" : \"").append(pad3(name.sequenceNr())).append("\",\n");
+            sb.append("    \"version_number\" : \"").append(pad3(name.versionNr())).append("\",\n");
+            sb.append("    \"record_count\" : ").append(Integer.toString(entries.size())).append(",\n");
+            sb.append("    \"TargetDestination\": \"").append(esc(targetDestination.trim())).append("\",\n");
+            sb.append("    \"metadata_file_name\" : \"").append(esc(name.metadataCsv())).append("\",\n");
+            sb.append("    \"submission_object_files\" : [\n");
+            for (int i = 0; i < entries.size(); i++) {
+                Entry e = entries.get(i);
+                sb.append("        {\n");
+                sb.append("            \"file_name\" : \"").append(esc(e.fileName)).append("\",\n");
+                sb.append("            \"mime_type\" : \"").append(esc(e.mimeType)).append("\",\n");
+                sb.append("            \"object_id\" : \"").append(Integer.toString(e.objectId)).append("\"\n");
+                sb.append("        }").append(i == entries.size() - 1 ? "\n" : ",\n");
+            }
+            sb.append("    ]\n");
+            sb.append("}\n");
+            sb.flush();
         } finally {
-            os.close();
+            sb.close();
         }
     }
 

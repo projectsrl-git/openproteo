@@ -157,6 +157,12 @@ public final class PlatformProbe {
         m.put("defaultCharset", Charset.defaultCharset().name());
         m.put("userDir", nz(userDir));
         m.put("interpreterRules", interpreterRules());
+        // The heap the steps share. It is fixed when the JVM starts (-Xmx), so the page can only
+        // show it: a step that needs more than this fails, whatever its own settings say.
+        java.lang.management.MemoryUsage heap =
+                java.lang.management.ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
+        m.put("maxHeapMb", Long.valueOf(heap.getMax() < 0 ? -1L : heap.getMax() / (1024L * 1024L)));
+        m.put("usedHeapMb", Long.valueOf(heap.getUsed() / (1024L * 1024L)));
         return m;
     }
 

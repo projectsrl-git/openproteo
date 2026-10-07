@@ -112,6 +112,10 @@
         h += kv('Default charset (file.encoding)', mono(s.fileEncoding) + ' <span class="dim">effective: ' + esc(s.defaultCharset) + '</span>');
         h += kv('File-name encoding (sun.jnu.encoding)', mono(s.jnuEncoding) + jnuVerdict(s));
         h += kv('Working directory (user.dir)', mono(s.userDir));
+        if (typeof s.maxHeapMb === 'number') {
+            h += kv('Heap the steps can use', (s.maxHeapMb < 0 ? '<span class="dim">no limit reported</span>' : mono(s.maxHeapMb + ' MB'))
+                + ' <span class="dim">in use now: ' + esc(String(s.usedHeapMb)) + ' MB. It is the -Xmx the service was started with, less what the Java runtime keeps for itself. It cannot be set here, on a workflow or on a step: a step that needs more fails saying so.</span>');
+        }
         return h + '</table></div>';
     }
 

@@ -1020,6 +1020,15 @@ public class WorkflowEngine {
             auditFeed(layout, run.feedId, run.runId, step.id, "STEP_FAILED", "system", kv("error", String.valueOf(e.getMessage())));
             store.save(layout, run);
             return false;
+        } catch (Error e) {
+            // The same net one level up, for what does not pass through InternalSteps.run: an Error
+            // here used to reach the run pool, which logs it and leaves the step RUNNING for ever.
+            String why = InternalSteps.describeError(e, Runtime.getRuntime().maxMemory());
+            se.status = StepStatus.FAILED; se.endTs = now(); se.message = why;
+            log.error("[{}] STEP_FAILED {} step={} {}", run.feedId, run.runId, step.id, why);
+            auditFeed(layout, run.feedId, run.runId, step.id, "STEP_FAILED", "system", kv("error", why));
+            store.save(layout, run);
+            return false;
         }
     }
 

@@ -201,12 +201,16 @@ Both business-date bound checks read **Date format** as OpenProteo's own date **
 - **safecopy** — copy files from one directory to another, writing each file as `<name>.on_fly_` and renaming it to the final name only after the copy completes (atomic move when possible), so a downstream watcher never picks up a partial file. The files are chosen either by one or more wildcards (comma-separated, e.g. `*.md5, *.tar`) or by naming them in one column of a CSV (see «Copying the files listed in a CSV (ifscopy, filecopy, safecopy)»).
 - **ifscopy** — copy from an IBM i IFS path to local, either by listing a directory and matching a pattern or by copying exactly the files named in one column of a CSV (see «Copying the files listed in a CSV (ifscopy, filecopy, safecopy)»). This is the one executor that needs the **IBM i native** datasource type, because it reuses that connection's credentials for the file transfer.
 - **csvreplace** — string substitution inside CSV columns.
-- **validate** — run a checklist of validations over a CSV. Reports `${checksTotal}`, `${checksPassed}` and `${checksFailed}`. When a check fails the step fails and the run stops — unless **When a check fails** is set to *continue* (`onFailedChecks=continue`): the step then succeeds whatever the checks say, and what they said is in `${checksFailed}`. That is for a check used as a question — "does this file need correcting?" — and it only makes sense with a gate right after the step that tests `${checksFailed}`; without one, a file that failed its checks goes on to the next step. It covers failed checks only: a CSV that is not there still fails the step. The default is *fail*, and a step that does not set it behaves as it always has.
+- **validate** — run a checklist of validations over a CSV. Reports `${checksTotal}`, `${checksPassed}` and `${checksFailed}`. When a check fails the step fails and the run stops — unless **When a check fails** is set to **continue** (`onFailedChecks=continue`): the step then succeeds whatever the checks say, and what they said is in `${checksFailed}`. That is for a check used as a question — "does this file need correcting?" — and it only makes sense with a gate right after the step that tests `${checksFailed}`; without one, a file that failed its checks goes on to the next step. It covers failed checks only: a CSV that is not there still fails the step. The default is **fail**, and a step that does not set it behaves as it always has.
 - **anonymize** — ARX-based CSV anonymization (statistical; in progress).
 - **setvar** — assign workflow variables. Each assignment is `name = expression`, where the expression is resolved for `${vars}` first and then, if what remains is a chain of whole numbers joined by `+` and `-`, evaluated **left to right** with no operator precedence: `${A} + ${B} - ${C}` gives one number. A **space on each side of every operator is required** — that is a guard, not a formatting rule: without it a literal like `2026-08-05` would be read as arithmetic and silently become 2013, so any value with no spaces (a path, a date, a `;`-separated list) passes through untouched. Anything that is not exactly a chain of integers is also left as it is, which is the normal case. Only `+` and `-` are evaluated; `*` and `/` are not. An overflow returns the expression unchanged rather than a wrapped number. Note that assignments within one step cannot refer to each other: every parameter of a step is resolved before the step runs, so a value computed from another assignment needs a second `setvar` step.
 
 External executors run a PowerShell (or other) script from the scripts directory or an
-absolute path; the script path can use `${alias}` of an uploaded executable.
+absolute path. The **Script** field is used as it is written: a variable is not resolved there,
+so the `${alias}` of an uploaded executable cannot be written in it. A file uploaded from the
+Files panels is not stored in the scripts directory: to run one, write its full path in the
+Script field — the run's variables show that path under the file's alias. In a step's
+**parameters** the alias works like any other variable.
 
 **Using generated files as a source.** Files produced by a run (the `output` files you see in the
 Feed Files panel, e.g. `10_SQL_EXTRACTION/...csv`) can be fed straight into a later `csvsql`
@@ -667,6 +671,8 @@ Open it first on a new server, and again whenever a run fails on a path or an in
 ### Host and Java runtime
 
 The operating system, the architecture, the Java version and vendor, and the working directory (`user.dir`). Every relative value in the configuration, such as `./workflows`, is resolved against the working directory, which is why it is shown on the same page as the paths.
+
+**Heap the steps can use** is the memory all the running steps share. It is the `-Xmx` the service was started with, less what the Java runtime keeps for itself, so it reads a little lower than the number on the command line. It cannot be set from this application: not here, not on a workflow, not on a step. A built-in step that needs more than this ends as **failed**, with a message that names this figure; it no longer stays **running** with a console that has stopped. When a server is short of memory that message can take a long time to arrive, because the Java runtime first spends its time trying to free some: a step whose console has not moved for minutes on a large file is worth checking against this row.
 
 Two encodings are shown, and they answer different questions. The default charset is what the server uses for the CONTENT of a file when a step does not name a charset. The file-name encoding (`sun.jnu.encoding`) is what it uses for the NAMES of files.
 
@@ -1294,6 +1300,16 @@ A large metadata CSV, or objects on a slow network share, can keep the step busy
 
 The durations are also the way to find where time actually goes. On a network drive, listing a directory and looking up each file are separate round trips; if *listed … files* or *pre-flight done* is where the minutes go, that is the share, not the CSV.
 
+### Memory, and the source CSV read more than once
+
+The step keeps, for each row, what it needs to find and name the object, and not the row: the other columns are read again from the source CSV when they are written. So the CSV is read once to pair rows and objects, once more to write the submission's metadata, once more for the dataschema check when the dataschema has a non-nullable column, and again for the list of discarded rows when there is one. The live console shows each of these passes.
+
+Measured on 100 000 rows of a 70 MB CSV, the most a submission can hold: the step completes with a 144 MB heap, and not with 128 MB. Before this it did not complete with 512 MB — it slowed to a stop part of the way through the rows, with nothing in the console to say why — and needed 1 GB.
+
+Because it is read more than once, **the source CSV must not change while the step runs**. If it does — a different size or date, a line that is no longer where it was, a row whose name or type is not the one read the first time — the step stops and says that the file changed, and leaves no half-written metadata behind. What it cannot see is a change that keeps the size, the date, the lines, the names and the types, in some other column.
+
+When the source CSV **is** the file the submission's metadata is written to — a package rebuilt in the folder it came from, with the same name — the rows are read from a copy made in the output folder and removed at the end.
+
 ### The dataschema, if you have one
 
 Point `dataschema` at the feed's shared `dataschema.json` and the step checks the source CSV against it before packaging anything: the declared column order, and that no column marked non-nullable is empty. It is the same file the `sql` and `json2csv` steps already use — the shape Transarch validates against and the shape this project stores are the same.
@@ -1323,7 +1339,7 @@ Required: `tfId`, `transmissionDate`, `targetDestination`, `metadataCsv`, `objec
 - `sequenceNr`, `versionNr` — 1 to 999, default 1.
 - `targetDestination` — the landing endpoint URL, from the onboarding team.
 - `metadataCsv`, `inDelimiter`, `inCharset` — the source CSV. An empty delimiter samples the header for `;`, `,`, tab or `|`.
-- `objectsDir`, `objectSource`, `recurse`, `orderBy`, `include`, `exclude`, `onMissingObject`.
+- `objectsDir`, `objectSource`, `recurse`, `orderBy`, `include`, `exclude`, `onMissingObject`. `include` and `exclude` are lists of file-name patterns with `*` and `?`, upper and lower case alike; they limit which files of the folder can be paired with a row, whichever way rows are paired: a file that `include` does not match, or that `exclude` matches, is treated as not being there. Until October 2026 any pattern with a letter or a dot in it, such as `*.pdf`, stopped the step with an error instead of matching.
 - `map.objectId`, `map.recordBusinessDate`, `map.recordBusinessDate.format`, `map.mimeType`, `map.originalObjectName`, `map.objectPath`, `map.nameLabel` — the last places free text between the base name and the OID, e.g. `….monthly_report.OID2.pdf`.
 - `outputDir` (default `${stepDir}`), `outDelimiter` (default `;`), `emitObjects`, `compression` (`none` or `gzip`).
 - `dataschema`, `maxObjectMb` (2048), `maxSubmissionMb` (20480), `maxObjects` (100000), `failOnOversize` (on), `businessDateMonths` (10), `onStaleBusinessDate` (`warn`, `fail` or `skip`), `failOnStaleBusinessDate` (the older on/off form of the same choice, used only when `onStaleBusinessDate` is absent), `mimeCheck` (`off`, `warn` or `fail`).
@@ -1613,7 +1629,7 @@ What the middle steps do to the metadata, measured on packages from both produce
 Unpacking a package of 100 000 objects takes minutes and as much disk again, and most packages need nothing done to them. `workflows/_TEMPLATE-objunpack-precheck-resend.xml` looks first and unpacks only when it has to:
 
 1. **Look inside the package** — a bash step, `objunpack-precheck.sh`. It verifies the `.md5`, takes **only** the audit file and the metadata CSV out of the archive, into the step's own directory, and reads how many records the package declares. No object is extracted.
-2. **Check package metadata** — a `validate` step on that CSV, against the feed's dataschema, with the declared number of records as the expected row count and *When a check fails* set to *continue*.
+2. **Check package metadata** — a `validate` step on that CSV, against the feed's dataschema, with the declared number of records as the expected row count and **When a check fails** set to **continue**.
 3. **Send as it is?** — a gate. If the package is coherent, its checksum was verified and no check failed, the workflow goes straight to the FTPS step and sends the package **as it arrived**: same file, same name, same version, and its own `.md5`. Otherwise it goes on by itself with the corrective resend described above — unpack, `csvsql`, `dequote`, `validate`, `objpack` with the version raised by one — and sends the rebuilt package.
 
 The FTPS step is on hold in both cases, and it sends two files by their exact names rather than `*.tar` and `*.md5`, because the folder a package arrives in may hold other packages.
@@ -1624,8 +1640,8 @@ The FTPS step is on hold in both cases, and it sends two files by their exact na
 
 **Before the first run**, besides what the other template needs:
 
-- Upload `objunpack-precheck.sh` (in `scripts/` of the repository) to the scripts folder. The server needs **bash** and **tar** — Linux or AIX; the Platform page shows the bash it will use. For the checksum the script uses `md5sum`, or `csum` on AIX, or `openssl`, whichever it finds first. A `.tar.gz` also needs `gzip`. There is no Windows version of the script.
-- **The delimiter of the Check package metadata step**, like that of the three middle steps, is written in the template as a comma and does not follow the package. If it is wrong, nothing wrong is sent: the checks fail, the short cut is not taken, and every package is unpacked and rebuilt. If no package ever takes the short cut, look there first — the *Look inside* step shows `metadataDelimiter`.
+- Put `objunpack-precheck.sh` (in `scripts/` of the repository) where the step can find it. Either copy it into the server's scripts directory — the Platform page shows which one that is, and it needs access to the server — and leave the step's Script field as `objunpack-precheck.sh`; or upload it from the Files panel and write its **full path** in the Script field. An upload does not go to the scripts directory, and the Script field does not resolve `${objunpack_precheck}`: the full path is shown among the run's variables under that alias. The server needs **bash** and **tar** — Linux or AIX; the Platform page shows the bash it will use. For the checksum the script uses `md5sum`, or `csum` on AIX, or `openssl`, whichever it finds first. A `.tar.gz` also needs `gzip`. There is no Windows version of the script.
+- **The delimiter of the Check package metadata step**, like that of the three middle steps, is written in the template as a comma and does not follow the package. If it is wrong, nothing wrong is sent: the checks fail, the short cut is not taken, and every package is unpacked and rebuilt. If no package ever takes the short cut, look there first — the **Look inside** step shows `metadataDelimiter`.
 - The dataschema must describe the metadata **as it is in the package**, column for column. The corrective path selects the dataschema's columns out of a wider file; the short cut cannot, so a package with one column more than the dataschema is always rebuilt.
 - The script runs with `md5Check=require`. With `ifPresent` or `off` a package whose checksum was not verified is never sent as it is: the gate asks for `md5Checked`.
 
@@ -1637,7 +1653,7 @@ Measured here on a package of 100 000 objects (294 MB, metadata 70 MB), on Linux
 
 The live console shows each phase as it starts — reading the archive, reading the audit and the metadata, matching every object to its metadata row, giving the objects their names, moving the result into place — and, inside the long ones, a line every five seconds: how many members have been read and how much of the archive file, how many metadata rows, how many objects matched, how many files named. A package of many small objects is slow in proportion to their **number**, not to its size: every object is one file to create and one to rename, and on a network share or under a real-time virus scanner each of those costs far more than the bytes do. While the step runs, its working folder `.objunpack-…part` in the output directory fills up; it is removed when the step ends, whatever the outcome.
 
-**Memory.** The metadata file is read row by row and only each object's id, original name and type are kept, so its size does not matter. The audit file is read whole: measured on a package of 100 000 objects, the most Transarch accepts, the step completed with a 256 MB heap and not with 128 MB. If the JVM runs out of memory the step fails saying so and naming the heap's maximum; the heap is set when the service is started (`-Xmx`), not on the step. The steps that follow need more than this one: `objpack` keeps every metadata row in memory while it packages, and for 100 000 rows of a 70 MB metadata file it needed more than 512 MB and ran with 1 GB.
+**Memory.** The metadata file is read row by row and only each object's id, original name and type are kept, so its size does not matter. The audit file is read whole: measured on a package of 100 000 objects, the most Transarch accepts, the step completed with a 256 MB heap and not with 128 MB. If the JVM runs out of memory the step fails saying so and naming the heap's maximum; the heap is set when the service is started (`-Xmx`), not on the step. `objpack`, further down the chain, no longer needs more: see **Memory** in its section.
 
 ### It never changes what it finds
 

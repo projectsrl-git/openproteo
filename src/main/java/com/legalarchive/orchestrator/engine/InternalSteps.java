@@ -141,10 +141,33 @@ public class InternalSteps {
             res.exitCode = res.exitCode == 0 ? 1 : res.exitCode;
             res.lastLines = e.getMessage();
             safeLine(log, "ERROR: " + e.getMessage());
+        } catch (Error e) {
+            // An Error - running out of memory above all - was caught by nothing between a step and
+            // the run pool, which only logs it: the step stayed RUNNING for ever, with a console
+            // that had simply stopped (objpack on a 100 000-row file, 2026-10-07). By the time it
+            // arrives here the step's own method has unwound and what it had allocated is
+            // unreachable, so ending the step as failed is safe.
+            res.exitCode = 1;
+            res.lastLines = describeError(e, Runtime.getRuntime().maxMemory());
+            safeLine(log, "ERROR: " + res.lastLines);
         } finally {
             if (log != null) try { log.close(); } catch (Exception ignored) {}
         }
         return res;
+    }
+
+    /**
+     * What a step that ended with an {@link Error} says. Out of memory names the heap and where it
+     * is set, because the next thing the operator needs to know is that no setting of the step or
+     * of the workflow changes it.
+     */
+    public static String describeError(Error e, long maxHeapBytes) {
+        if (e instanceof OutOfMemoryError) {
+            return "the JVM ran out of memory (maximum heap " + (maxHeapBytes / (1024L * 1024L))
+                    + " MB) and the step was ended. The heap is set when the service is started (-Xmx);"
+                    + " it is not a setting of the step or of the workflow";
+        }
+        return "the step was ended by an internal error: " + e;
     }
 
     // -------------------------------------------------------------- objpack

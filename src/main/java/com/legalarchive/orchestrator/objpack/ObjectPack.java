@@ -121,6 +121,18 @@ public final class ObjectPack {
     /** Rows left out of the submission, with the reason, in the order they were met. */
     private final List<Object[]> discarded = new ArrayList<Object[]>();   // {Pair, reason}
     private List<String> sourceHeader;
+    /** The distinct column names in header order: the keys every row's column map has. */
+    private List<String> columnNames;
+    /** The delimiter the metadata was read with, and what the file looked like then (see replay). */
+    private char readDelimiter;
+    private long readLength;
+    private long readModified;
+    /** The file replay reads: the metadata CSV, or a copy of it when the output would replace it. */
+    private File replayFrom;
+    private File replayCopy;
+    /** The columns each row's name and type were read from, to recognise the row when it is read again. */
+    private String nameColumn;
+    private String mimeColumn;
     private boolean directByName;
     private Map<String, List<File>> nameIndex;
     private Boolean caseInsensitiveFs;
@@ -135,9 +147,13 @@ public final class ObjectPack {
             "object_id", "record_business_date", "mime_type", "original_object_name"
     };
 
-    /** One metadata row paired with the object it describes. */
+    /**
+     * One metadata row paired with the object it describes. It holds what the checks and the names
+     * need and NOT the row: on a 100 000-row, 70 MB metadata file the rows kept here as one map
+     * each needed more than a 512 MB heap (2026-10-06). The other columns are read again from the
+     * file when they are written - see {@link #replay}.
+     */
     private static final class Pair {
-        Map<String, String> row;
         long lineNo;
         File object;
         int objectId;
@@ -150,6 +166,16 @@ public final class ObjectPack {
     }
 
     public void run() throws IOException {
+        try {
+            pack();
+        } finally {
+            if (replayCopy != null && replayCopy.exists() && !replayCopy.delete()) {
+                warnings.add("a working copy of the metadata was left behind: " + replayCopy.getAbsolutePath());
+            }
+        }
+    }
+
+    private void pack() throws IOException {
         String comp = normaliseCompression(compression);
         validateDateFormat(businessDateFormat, "map.recordBusinessDate.format");
         SubmissionName name = new SubmissionName(tfId, transmissionDate, sequenceNr, versionNr);
@@ -225,12 +251,18 @@ public final class ObjectPack {
 
     private List<Pair> readAndPair() throws IOException {
         char delim = inDelimiter != 0 ? inDelimiter : detectDelimiter(metadataCsv);
+        readDelimiter = delim;
+        readLength = metadataCsv.length();
+        readModified = metadataCsv.lastModified();
+        replayFrom = metadataCsv;
         FlatCsvReader r = new FlatCsvReader(metadataCsv, inCharset, true, delim, quoteChar);
         List<Pair> pairs = new ArrayList<Pair>();
         List<String> headers;
         try {
             headers = Arrays.asList(r.header());
             sourceHeader = headers;
+            // What asColumnMap's keys are: a name that appears twice is one key, at its first place.
+            columnNames = new ArrayList<String>(new java.util.LinkedHashSet<String>(headers));
             // object_id is the one role that does NOT fall back to its Transarch name. The id
             // belongs to the submission, not to the source: a source column that happens to be
             // called object_id is ignored and the kept rows are numbered 1..N, exactly as the
@@ -251,6 +283,8 @@ public final class ObjectPack {
             String cDate  = resolve(mapRecordBusinessDate, FALLBACK[1], headers, true);
             String cMime  = resolve(mapMimeType, FALLBACK[2], headers, true);
             String cName  = resolve(mapOriginalObjectName, FALLBACK[3], headers, true);
+            nameColumn = cName;
+            mimeColumn = cMime;
             String cPath  = resolve(mapObjectPath, null, headers, false);
             String cLabel = resolve(mapNameLabel, null, headers, false);
 
@@ -315,7 +349,6 @@ public final class ObjectPack {
                 }
                 Map<String, String> m = r.asColumnMap(row);
                 Pair p = new Pair();
-                p.row = m;
                 p.lineNo = row.lineNo;
                 p.mimeType = trim(m.get(cMime));
                 p.businessDate = businessDate(trim(m.get(cDate)), row.lineNo);
@@ -631,6 +664,10 @@ public final class ObjectPack {
 
     /** '*' and '?', case-insensitive, matching the whole name. */
     static boolean glob(String pattern, String s) {
+        // The PATTERN is lower-cased, not the finished expression: lower-casing the expression
+        // turned the \Q..\E that quote() writes into \q..\e, which is not a regular expression,
+        // so every pattern with a literal character in it ("*.pdf") threw instead of matching.
+        pattern = pattern.toLowerCase(Locale.ROOT);
         StringBuilder re = new StringBuilder("^");
         for (int i = 0; i < pattern.length(); i++) {
             char c = pattern.charAt(i);
@@ -642,7 +679,7 @@ public final class ObjectPack {
                 re.append(java.util.regex.Pattern.quote(String.valueOf(c)));
             }
         }
-        return s.toLowerCase(Locale.ROOT).matches(re.append('$').toString().toLowerCase(Locale.ROOT));
+        return s.toLowerCase(Locale.ROOT).matches(re.append('$').toString());
     }
 
     // ------------------------------------------------------------------ ids, dates, pre-flight
@@ -926,8 +963,10 @@ public final class ObjectPack {
         header.add("reason");
         header.addAll(sourceHeader);
         CsvWriter w = new CsvWriter(discardedFile, outDelimiter, false, 0, 0);
+        boolean written = false;
         try {
             w.header(header.toArray(new String[header.size()]));
+            final List<String[]> rows = new ArrayList<String[]>(discarded.size());
             for (Object[] d : discarded) {
                 Pair p = (Pair) d[0];
                 String[] cells = new String[header.size()];
@@ -937,21 +976,117 @@ public final class ObjectPack {
                 String reason = (String) d[1];
                 String prefix = "line " + p.lineNo + ": ";
                 cells[1] = reason.startsWith(prefix) ? reason.substring(prefix.length()) : reason;
-                for (int i = 0; i < sourceHeader.size(); i++) {
-                    String v = p.row.get(sourceHeader.get(i));
-                    cells[2 + i] = v == null ? "" : v;
-                }
-                w.row(cells);
+                rows.add(cells);
             }
+            // The source values are read again from the file. The list is in the order the rows
+            // were discarded - first those with no object, then those outside the date window -
+            // and each of those runs is in file order, so one pass over the file serves each run.
+            int from = 0;
+            while (from < discarded.size()) {
+                int to = from + 1;
+                while (to < discarded.size()
+                        && ((Pair) discarded.get(to)[0]).lineNo > ((Pair) discarded.get(to - 1)[0]).lineNo) {
+                    to++;
+                }
+                List<Pair> run = new ArrayList<Pair>(to - from);
+                for (int k = from; k < to; k++) {
+                    run.add((Pair) discarded.get(k)[0]);
+                }
+                final int base = from;
+                final CsvWriter out = w;
+                replay(run, "discarded rows", new RowUse() {
+                    public void row(int index, Pair p, Map<String, String> m) throws IOException {
+                        String[] cells = rows.get(base + index);
+                        for (int i = 0; i < sourceHeader.size(); i++) {
+                            String v = m.get(sourceHeader.get(i));
+                            cells[2 + i] = v == null ? "" : v;
+                        }
+                        out.row(cells);
+                        rows.set(base + index, null);
+                    }
+                });
+                from = to;
+            }
+            written = true;
         } finally {
             w.close();
+            if (!written) {
+                // A list of discarded rows that stops half way would be read as the whole list.
+                File half = discardedFile;
+                discardedFile = null;
+                if (!half.delete()) {
+                    warnings.add("a partial list of discarded rows was left behind: " + half.getAbsolutePath());
+                }
+            }
+        }
+    }
+
+    /** What is done with one kept row when the metadata file is read again. */
+    private interface RowUse {
+        void row(int index, Pair p, Map<String, String> columns) throws IOException;
+    }
+
+    /**
+     * Reads the metadata file again and hands {@code use} the columns of each row in {@code rows},
+     * which must be in file order. This is what lets a {@link Pair} not carry its row.
+     *
+     * <p>The file is a step's output and nothing should be writing it; if it is not the file that
+     * was read the first time - its size or date changed, or a line that was there is not - the
+     * packaging stops, because the rows would be written under each other's object.
+     */
+    private void replay(List<Pair> rows, String what, RowUse use) throws IOException {
+        if (rows.isEmpty()) {
+            return;
+        }
+        String changed = metadataCsv.getName() + " changed while it was being packaged"
+                + " (it is read once to pair the objects and again to write the " + what + ")";
+        if (replayFrom.length() != readLength || replayFrom.lastModified() != readModified) {
+            throw new ObjPackException(changed);
+        }
+        FlatCsvReader r = new FlatCsvReader(replayFrom, inCharset, true, readDelimiter, quoteChar);
+        try {
+            int headerSize = r.headerSize();
+            if (!Arrays.asList(r.header()).equals(sourceHeader)) {
+                throw new ObjPackException(changed);
+            }
+            int k = 0;
+            long want = rows.get(0).lineNo;
+            FlatCsvReader.Row row;
+            while (k < rows.size() && (row = r.next()) != null) {
+                if (row.lineNo < want) {
+                    continue;
+                }
+                if (row.lineNo > want || row.fields.length != headerSize) {
+                    throw new ObjPackException(changed);
+                }
+                Pair p = rows.get(k);
+                Map<String, String> m = r.asColumnMap(row);
+                // The line is where it was; is it the same row? Its name and type are what tie it
+                // to its object, so those are compared with what was read the first time.
+                if (!sameText(p.originalName, trim(m.get(nameColumn))) || !sameText(p.mimeType, trim(m.get(mimeColumn)))) {
+                    throw new ObjPackException(changed);
+                }
+                use.row(k, p, m);
+                k++;
+                if (beatDue()) {
+                    say(what + ": " + k + "/" + rows.size() + " rows");
+                }
+                if (k < rows.size()) {
+                    want = rows.get(k).lineNo;
+                }
+            }
+            if (k < rows.size()) {
+                throw new ObjPackException(changed);
+            }
+        } finally {
+            r.close();
         }
     }
 
     private void checkAgainstSchema(List<Pair> pairs) throws IOException {
         Dataschema ds = Dataschema.read(dataschema);
         List<String> declared = ds.names();
-        List<String> actual = new ArrayList<String>(pairs.get(0).row.keySet());
+        List<String> actual = columnNames;
         int n = Math.min(declared.size(), actual.size());
         for (int i = 0; i < n; i++) {
             if (!declared.get(i).equalsIgnoreCase(actual.get(i))) {
@@ -964,17 +1099,35 @@ public final class ObjectPack {
             warnings.add("the dataschema declares " + declared.size() + " columns and the source CSV has "
                     + actual.size());
         }
+        // The first not-nullable column, in the dataschema's order, that has an empty value, and
+        // the first row where it is empty: found in one pass over the file, and reported exactly
+        // as when the columns were checked one after the other.
+        final List<String> required = new ArrayList<String>();
         for (Dataschema.Column c : ds.columns()) {
-            if (c.nullable) {
-                continue;
+            if (!c.nullable) {
+                required.add(c.name);
             }
-            for (Pair p : pairs) {
-                String v = p.row.get(c.name);
-                if (v == null || v.trim().isEmpty()) {
-                    throw new ObjPackException("line " + p.lineNo + ": column '" + c.name
-                            + "' is declared not nullable in the dataschema but is empty");
+        }
+        if (required.isEmpty()) {
+            return;
+        }
+        final long[] firstEmpty = new long[required.size()];
+        final int[] open = { required.size() };          // columns before the first one found empty
+        replay(pairs, "dataschema check", new RowUse() {
+            public void row(int index, Pair p, Map<String, String> m) {
+                for (int i = 0; i < open[0]; i++) {
+                    String v = m.get(required.get(i));
+                    if (v == null || v.trim().isEmpty()) {
+                        firstEmpty[i] = p.lineNo;
+                        open[0] = i;                     // nothing after this column can be reported
+                        break;
+                    }
                 }
             }
+        });
+        if (open[0] < required.size()) {
+            throw new ObjPackException("line " + firstEmpty[open[0]] + ": column '" + required.get(open[0])
+                    + "' is declared not nullable in the dataschema but is empty");
         }
     }
 
@@ -989,6 +1142,19 @@ public final class ObjectPack {
         md5File      = new File(outputDir, name.md5());
 
         say("writing " + name.metadataCsv() + ", " + name.auditJson() + " and " + name.control());
+        if (meta.exists() && java.nio.file.Files.isSameFile(meta.toPath(), metadataCsv.toPath())) {
+            // The source CSV is the very file this submission's metadata is written to (a package
+            // rebuilt in place). Its rows are still needed after it is replaced, so they are read
+            // from a copy, removed at the end.
+            if (metadataCsv.length() != readLength || metadataCsv.lastModified() != readModified) {
+                throw new ObjPackException(metadataCsv.getName() + " changed while it was being packaged");
+            }
+            replayCopy = new File(outputDir, ".objpack-source-" + System.nanoTime() + ".tmp");
+            copy(metadataCsv, replayCopy);
+            replayFrom = replayCopy;
+            readLength = replayCopy.length();
+            readModified = replayCopy.lastModified();
+        }
         writeMetadata(meta, pairs);
 
         List<AuditJson.Entry> entries = new ArrayList<AuditJson.Entry>(pairs.size());
@@ -1106,8 +1272,8 @@ public final class ObjectPack {
     }
 
     private void writeMetadata(File out, List<Pair> pairs) throws IOException {
-        List<String> passthrough = new ArrayList<String>();
-        for (String h : pairs.get(0).row.keySet()) {
+        final List<String> passthrough = new ArrayList<String>();
+        for (String h : columnNames) {
             if (!isMapped(h)) {
                 passthrough.add(h);
             }
@@ -1115,24 +1281,39 @@ public final class ObjectPack {
         List<String> header = new ArrayList<String>(Arrays.asList(FALLBACK));
         header.addAll(passthrough);
 
-        CsvWriter w = new CsvWriter(out, outDelimiter, false, 0, 0);
+        final CsvWriter w = new CsvWriter(out, outDelimiter, false, 0, 0);
+        final int width = header.size();
+        boolean written = false;
         try {
             w.header(header.toArray(new String[header.size()]));
-            for (Pair p : pairs) {
-                String[] cells = new String[header.size()];
-                cells[0] = Integer.toString(p.objectId);
-                cells[1] = p.businessDate;
-                cells[2] = p.mimeType;
-                cells[3] = p.originalName;
-                for (int i = 0; i < passthrough.size(); i++) {
-                    String v = p.row.get(passthrough.get(i));
-                    cells[4 + i] = v == null ? "" : v;
+            // The passthrough columns come from the file, read again row by row.
+            replay(pairs, "metadata", new RowUse() {
+                public void row(int index, Pair p, Map<String, String> m) throws IOException {
+                    String[] cells = new String[width];
+                    cells[0] = Integer.toString(p.objectId);
+                    cells[1] = p.businessDate;
+                    cells[2] = p.mimeType;
+                    cells[3] = p.originalName;
+                    for (int i = 0; i < passthrough.size(); i++) {
+                        String v = m.get(passthrough.get(i));
+                        cells[4 + i] = v == null ? "" : v;
+                    }
+                    w.row(cells);
                 }
-                w.row(cells);
-            }
+            });
+            written = true;
         } finally {
             w.close();
+            // A metadata file that stops half way must not be left looking like one. Not when it
+            // is being written over the source itself: then it is all that is left of it.
+            if (!written && replayCopy == null && !out.delete()) {
+                warnings.add("a partial metadata file was left behind: " + out.getAbsolutePath());
+            }
         }
+    }
+
+    private static boolean sameText(String a, String b) {
+        return a == null ? b == null : a.equals(b);
     }
 
     private boolean isMapped(String header) {
