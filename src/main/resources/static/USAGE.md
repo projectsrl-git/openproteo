@@ -1698,6 +1698,17 @@ What else to know:
 
 **The three scripts** — `list-packages.sh`, `objunpack-precheck.sh`, `quarantine-list.sh`, in `scripts/` of the repository — go in the server's scripts directory, or are uploaded from the Files panel with their full path written in each step's Script field. They need bash, `tar`, `sort`, `date` and `mv`. There is no Windows version.
 
+### The same work in other shapes
+
+The one-workflow template above is the one to use. Three earlier shapes of the same work are in `workflows/` as well, for a feed that is better served by one of them. They use the scripts above, and each one's description says what it needs before the first run.
+
+- `_TEMPLATE-objunpack-precheck-resend-all.xml` — **one loop, no list.** For every package of the folder it does what `_TEMPLATE-objunpack-precheck-resend.xml` does for one: send it as it is, or unpack, rebuild and send it. The first package that cannot be worked — a wrong checksum, a file that is not a package — **stops the run**, and the packages after it are not looked at. It is the simplest of the three, and the right one only when a package that cannot be read should stop everything.
+- `_TEMPLATE-objunpack-check-quarantine.xml` and `_TEMPLATE-objunpack-correct-quarantined.xml` — **the two phases as two workflows.** The first checks every package, sends the valid ones (`sendValidPackages`) and writes the quarantine list; it never unpacks. The second takes the list and corrects the packages of category `correct`, recording each one in the `.done` file. After a failure the second is simply run again: it goes on from the package it stopped at, and the check is not repeated. With nothing left to correct it ends as SKIPPED. Neither ends REJECTED: the first ends as SUCCESS even when it has put packages in the list, so read the list after every check.
+
+For the pair, the list is by default `objunpack-quarantine.txt` in the **shared files**, not in the feed's folder, because the two workflows are two feeds and must find the same file: `quarantineList` must name the same file in both. The shared files are common to every feed, so a second copy of the pair, for another source, needs a list of its own name in both of its workflows.
+
+Everything said above about holds, the delimiters, packages left in the folder, unpacked objects and `max-transitions` applies to these too. In `_TEMPLATE-objunpack-correct-quarantined.xml` the loop variable is `packageNoString`, so the `deleteOnSuccess` of its FTPS step is `${dir.OBJUNPACK}/${runId}/${packageNoString}`. In `_TEMPLATE-objunpack-precheck-resend-all.xml` one FTPS step sends both kinds of package, so that suggestion does not apply there as written.
+
 ### While it runs
 
 The live console shows each phase as it starts — reading the archive, reading the audit and the metadata, matching every object to its metadata row, giving the objects their names, moving the result into place — and, inside the long ones, a line every five seconds: how many members have been read and how much of the archive file, how many metadata rows, how many objects matched, how many files named. A package of many small objects is slow in proportion to their **number**, not to its size: every object is one file to create and one to rename, and on a network share or under a real-time virus scanner each of those costs far more than the bytes do. While the step runs, its working folder `.objunpack-…part` in the output directory fills up; it is removed when the step ends, whatever the outcome.

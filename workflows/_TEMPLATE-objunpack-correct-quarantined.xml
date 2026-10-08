@@ -1,0 +1,72 @@
+<workflow feedId="_TEMPLATE-objunpack-correct-quarantined" sourceId="TEMPLATE" targetId="T2" name="Correct the quarantined Transarch object packages: unpack, rebuild and resend each one">
+    <description>Template, second of two. Takes the quarantine list written by _TEMPLATE-objunpack-check-quarantine and, for each package of category correct that has not been worked yet, does the corrective resend of _TEMPLATE-objunpack-resend: unpack (objunpack), rebuild the metadata through csvsql, dequote and validate, package it again (objpack: same feed id, transmission date and sequence, version + 1) and send it (ftpsend, on hold). A package that has been sent is recorded as worked in the file beside the list (its name plus .done), so the workflow can be run again after a failure and goes on from the package it stopped at; run with nothing pending, it ends as SKIPPED. Packages of category manual are not touched: they are for a person. Each package works in a folder of its own - the step directory, then the run id, then 001, 002, ... BEFORE THE FIRST RUN: 1) quarantine-list.sh where the steps can find it (two steps use it), as for the first template; 2) quarantineList must name the same file as in the first template; 3) feedDir must hold the feed dataschema.json; 4) the delimiter of the CSV SQL, Remove CSV Double Quotes and Check CSV steps is written here as a comma and is NOT taken from the package: set all three to the delimiter the packages use; 5) ftpsTarget. WHAT TO KNOW: the first step that fails stops the run, and the packages after it wait for the next run; the one that failed will fail again until it is corrected by hand or its line in the list is changed to manual. The FTPS step is on hold at every package. A package that is unpacked stays unpacked under the Unpack step directory until the feed files are cleaned. The packages themselves are never changed.</description>
+    <variables>
+        <var name="quarantineList" value="${sharedDir}/objunpack-quarantine.txt"/>
+        <var name="recordBusinessDate" value="record_business_date"/>
+        <var name="recordBusinessDateFormat" value="YYYYMMDD"/>
+        <var name="ftpsTarget" value="CHANGE-ME"/>
+    </variables>
+    <steps>
+        <step id="PENDING" name="Read the quarantine list" exec="bash" script="quarantine-list.sh">
+            <param name="action" value="pending"/>
+            <param name="list" value="${quarantineList}"/>
+        </step>
+        <gate id="ANY_PENDING" name="Anything to correct?" type="auto" condition="${PENDING.pendingCount} &gt; 0" onTrue="EACH_PACKAGE" onFalse="END:SKIPPED"/>
+        <loop id="EACH_PACKAGE" name="For each quarantined package" over="${PENDING.pending}" delimiter=";" itemVar="package" indexVar="packageNo" indexStringVar="packageNoString" indexPad="3" countVar="packageTotal"/>
+            <step id="OBJUNPACK" name="Unpack the package" exec="objunpack">
+                <param name="archive" value="${package}"/>
+                <param name="outputDir" value="${stepDir}/${runId}/${packageNoString}"/>
+                <param name="md5Check" value="require"/>
+                <param name="onInconsistency" value="fail"/>
+                <param name="metadataDelimiter" value="auto"/>
+                <param name="maxObjects" value="100000"/>
+                <param name="maxObjectMb" value="2048"/>
+                <param name="maxArchiveMb" value="20480"/>
+                <param name="maxRatio" value="200"/>
+                <param name="maxPathLength" value="auto"/>
+                <param name="preserveMtime" value="true"/>
+                <param name="nameRules" value="auto"/>
+            </step>
+            <step id="CSVSQL" name="CSV SQL" exec="csvsql" csvFile="${stepDir}/output.csv" delimiter=",">
+                <query>SELECT {{columns}} FROM SOURCE</query>
+                <param name="columnsSchema" value="${feedDir}/dataschema.json"/>
+                <input csv="${OBJUNPACK.metadataCsv}" table="SOURCE" delimiter="${OBJUNPACK.metadataDelimiter}"/>
+            </step>
+            <step id="REMOVE_CSV_DOUBLE_QUOTES" name="Remove CSV Double Quotes" exec="dequote" source="${CSVSQL.outputFile}" delimiter=",">
+                <param name="outFile" value="${stepDir}/output.csv"/>
+            </step>
+            <step id="CHECK_CSV_VS_DATASCHEMA" name="Check CSV vs DataSchema" exec="validate" source="${REMOVE_CSV_DOUBLE_QUOTES.outputFile}" delimiter="," checks="rowCount,colCount,notNull,jsonSchema,noQuotes,colNames">
+                <param name="expectedRows" value="${OBJUNPACK.objectCount}"/>
+                <param name="dataschema" value="${feedDir}/dataschema.json"/>
+                <param name="dateFormat" value="${recordBusinessDateFormat}"/>
+                <param name="businessDateColumn" value="${recordBusinessDate}"/>
+            </step>
+            <step id="OBJPACK" name="OBJ PACK" exec="objpack">
+                <param name="tfId" value="${OBJUNPACK.tfId}"/>
+                <param name="transmissionDate" value="${OBJUNPACK.transmissionDate}"/>
+                <param name="sequenceNr" value="${OBJUNPACK.sequenceNr}"/>
+                <param name="versionNr" value="${OBJUNPACK.nextVersionNr}"/>
+                <param name="targetDestination" value="${OBJUNPACK.targetDestination}"/>
+                <param name="metadataCsv" value="${REMOVE_CSV_DOUBLE_QUOTES.outputFile}"/>
+                <param name="objectsDir" value="${OBJUNPACK.objectsDir}"/>
+                <param name="outDelimiter" value="${OBJUNPACK.metadataDelimiter}"/>
+                <param name="outputDir" value="${stepDir}/${runId}/${packageNoString}"/>
+            </step>
+
+            <step id="FTPSSEND" name="FTPS Send the rebuilt package" exec="ftpsend" source="${dir.OBJPACK}/${runId}/${packageNoString}" onHold="true">
+                <param name="target" value="${ftpsTarget}"/>
+                <send pattern="${OBJPACK.submissionBaseName}.tar*"/>
+                <send pattern="${OBJPACK.submissionBaseName}.md5"/>
+            </step>
+            <step id="WORKED" name="Record the package as worked" exec="bash" script="quarantine-list.sh">
+                <param name="action" value="done"/>
+                <param name="list" value="${quarantineList}"/>
+                <param name="package" value="${package}"/>
+            </step>
+        <endloop id="END_EACH_PACKAGE"/>
+        <step id="SUMMARY" name="Quarantine list: the counts" exec="bash" script="quarantine-list.sh">
+            <param name="action" value="summary"/>
+            <param name="list" value="${quarantineList}"/>
+        </step>
+    </steps>
+</workflow>

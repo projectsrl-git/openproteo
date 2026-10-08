@@ -1,0 +1,69 @@
+<workflow feedId="_TEMPLATE-objunpack-check-quarantine" sourceId="TEMPLATE" targetId="T2" name="Check every Transarch object package of a folder: send the valid ones as they are, list the others for correction">
+    <description>Template, first of two. Goes through every package of a folder WITHOUT unpacking any: a bash step lists the files of packagesDir that match packagePattern, and for each one, in name order, a script verifies the checksum, extracts only the audit and the metadata CSV, and the metadata is validated against the feed dataschema. A package that passes is sent AS IT IS (same name, same version) when sendValidPackages is true, and is otherwise left alone. A package that does not pass is NOT touched and NOT sent: it is written to the quarantine list - category correct when it can be read and only its metadata needs correcting, category manual when no workflow can handle it (wrong checksum, not a package, counts that do not agree) - and the run GOES ON with the next package. The second template, _TEMPLATE-objunpack-correct-quarantined, takes the list and unpacks, rebuilds and resends the packages of category correct. The list is the file named by quarantineList, by default in the shared files, where it can be read from the GUI; a new run keeps the earlier list under another name and starts a new one. BEFORE THE FIRST RUN: 1) the three scripts where the steps can find them - list-packages.sh, objunpack-precheck.sh, quarantine-list.sh - in the server scripts directory, or uploaded from the Files panel with their FULL PATH written in each Script field (four steps use quarantine-list.sh); the host needs bash and tar; 2) packagesDir and packagePattern; 3) feedDir must hold the feed dataschema.json; 4) the delimiter of the Check package metadata step is written here as a comma and is not taken from the package: set it to the delimiter the packages use, or every package is quarantined; 5) ftpsTarget, and sendValidPackages (true: the FTPS step, on hold, so the run waits at every valid package - untick On hold to send without stopping; false: nothing is sent, the run only checks and lists). Nothing here changes the packages or their folder.</description>
+    <variables>
+        <var name="packagesDir" value="${landingIn}"/>
+        <var name="packagePattern" value="*.tar"/>
+        <var name="quarantineList" value="${sharedDir}/objunpack-quarantine.txt"/>
+        <var name="sendValidPackages" value="true"/>
+        <var name="recordBusinessDate" value="record_business_date"/>
+        <var name="recordBusinessDateFormat" value="YYYYMMDD"/>
+        <var name="ftpsTarget" value="CHANGE-ME"/>
+    </variables>
+    <steps>
+        <step id="LIST" name="List packages" exec="bash" script="list-packages.sh">
+            <param name="dir" value="${packagesDir}"/>
+            <param name="pattern" value="${packagePattern}"/>
+            <param name="onEmpty" value="ok"/>
+        </step>
+        <gate id="ANY_PACKAGE" name="Any package?" type="auto" condition="${LIST.packageCount} &gt; 0" onTrue="NEW_LIST" onFalse="END:SKIPPED"/>
+        <step id="NEW_LIST" name="Start the quarantine list" exec="bash" script="quarantine-list.sh">
+            <param name="action" value="new"/>
+            <param name="list" value="${quarantineList}"/>
+            <param name="runId" value="${runId}"/>
+        </step>
+        <loop id="EACH_PACKAGE" name="For each package" over="${LIST.packages}" delimiter=";" itemVar="package" indexVar="packageNo" indexStringVar="packageNoString" indexPad="3" countVar="packageTotal"/>
+            <step id="PRECHECK" name="Look inside the package" exec="bash" script="objunpack-precheck.sh">
+                <param name="archive" value="${package}"/>
+                <param name="outputDir" value="${stepDir}/${runId}/${packageNoString}"/>
+                <param name="md5Check" value="require"/>
+                <param name="countMembers" value="yes"/>
+                <param name="onRefusal" value="report"/>
+            </step>
+            <step id="WHY_MANUAL" name="If set aside now: for a person" exec="setvar">
+                <param name="quarantineCategory" value="manual"/>
+                <param name="quarantineReason" value="${PRECHECK.problem}"/>
+            </step>
+            <gate id="READABLE" name="Readable, verified and coherent?" type="auto" condition="${PRECHECK.packageReadable} == true &amp;&amp; ${PRECHECK.md5Checked} == true &amp;&amp; ${PRECHECK.packageCoherent} == true" onTrue="PRECHECK_CSV" onFalse="QUARANTINE"/>
+            <step id="PRECHECK_CSV" name="Check package metadata" exec="validate" source="${PRECHECK.metadataCsv}" delimiter="," checks="rowCount,colCount,notNull,jsonSchema,noQuotes,colNames">
+                <param name="expectedRows" value="${PRECHECK.expectedRecords}"/>
+                <param name="dataschema" value="${feedDir}/dataschema.json"/>
+                <param name="dateFormat" value="${recordBusinessDateFormat}"/>
+                <param name="businessDateColumn" value="${recordBusinessDate}"/>
+                <param name="onFailedChecks" value="continue"/>
+            </step>
+            <step id="WHY_CORRECT" name="If set aside now: to correct" exec="setvar">
+                <param name="quarantineCategory" value="correct"/>
+                <param name="quarantineReason" value="${PRECHECK_CSV.checksFailed} of ${PRECHECK_CSV.checksTotal} metadata checks failed"/>
+            </step>
+            <gate id="VALID" name="Metadata valid?" type="auto" condition="${PRECHECK_CSV.checksFailed} == 0" onTrue="SEND_VALID" onFalse="QUARANTINE"/>
+            <gate id="SEND_VALID" name="Send the valid ones?" type="auto" condition="${sendValidPackages} == true" onTrue="FTPSSEND" onFalse="END_EACH_PACKAGE"/>
+            <step id="FTPSSEND" name="FTPS Send the package as it is" exec="ftpsend" source="${PRECHECK.packageDir}" onHold="true">
+                <param name="target" value="${ftpsTarget}"/>
+                <send pattern="${PRECHECK.archiveName}"/>
+                <send pattern="${PRECHECK.md5Name}"/>
+            </step>
+            <gate id="SENT" name="Sent: next package" type="auto" condition="1 == 1" onTrue="END_EACH_PACKAGE" onFalse="END_EACH_PACKAGE"/>
+            <step id="QUARANTINE" name="Add to the quarantine list" exec="bash" script="quarantine-list.sh">
+                <param name="action" value="add"/>
+                <param name="list" value="${quarantineList}"/>
+                <param name="category" value="${quarantineCategory}"/>
+                <param name="package" value="${package}"/>
+                <param name="reason" value="${quarantineReason}"/>
+            </step>
+        <endloop id="END_EACH_PACKAGE"/>
+        <step id="SUMMARY" name="Quarantine list: the counts" exec="bash" script="quarantine-list.sh">
+            <param name="action" value="summary"/>
+            <param name="list" value="${quarantineList}"/>
+        </step>
+    </steps>
+</workflow>

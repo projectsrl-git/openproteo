@@ -1,53 +1,18 @@
-objunpack: one check-and-correct template for a folder of packages
+objunpack: add the loop-only and two-workflow templates as alternatives
 
-Asked, without Java changes: one template per feed that checks every
-package of a folder and sends the valid ones; ends with success when
-nothing is in quarantine; otherwise goes on, in the same workflow,
-to unpack and repack what the check put on the list.
+The two shapes delivered before the one-workflow template, and not
+committed, are added unchanged on the current scripts:
 
-- workflows/_TEMPLATE-objunpack-check-and-correct.xml. Phase 1: list
-  the folder; per package verify the checksum, extract only audit
-  and metadata, validate; send as it is, or write to the quarantine
-  list as "correct" (metadata invalid) or "manual" (cannot be read,
-  not verified, counts that disagree) and go on. Phase 2, if any
-  "correct": unpack, csvsql, dequote, validate, objpack (version+1),
-  send, record as worked.
-- scripts/list-packages.sh, scripts/quarantine-list.sh: new.
-- scripts/objunpack-precheck.sh: onRefusal=report (default fail, as
-  before); packageReadable and problem; every variable published at
-  every run, because in a loop an unpublished one keeps its value.
+- _TEMPLATE-objunpack-precheck-resend-all.xml: one loop over a folder,
+  no list; the first package that cannot be worked stops the run.
+- _TEMPLATE-objunpack-check-quarantine.xml and
+  _TEMPLATE-objunpack-correct-quarantined.xml: check and quarantine list
+  in one workflow, correction of the list in another, resumable.
 
-Decided by me, flagged for confirmation: a run that leaves "manual"
-packages ends REJECTED, not SUCCESS; resumeCorrection=true takes up
-phase 2 after a failure without repeating the check and its sends;
-the list lives in the feed's folder.
-
-Found on the way, and corrected: USAGE and the spec said a step's
-directory is new at every run. It belongs to the feed. The two
-templates delivered before worked ONCE per feed, and with the Unpack
-folder cleared by hand the send of *.tar would have delivered the
-earlier run's package too. Both now use ${stepDir}/${runId}. A
-workflow already created from them needs the same values by hand.
-
-Replaces the zips every-package-2c0c19a and check-and-correct-2c0c19a
-(same base, never committed).
-
-USAGE.md and the objunpack spec (section 22; section 14 corrected,
-struck through) updated. README.md and CLAUDE.md not touched.
-
-Verified on Linux (sandbox; Temurin 1.8.0_432 and JDK 21.0.12; bash
-5.2.21; LANG=C.UTF-8; root and uid 65534): the three scripts, 465
-assertions; the template parsed and walked with the real resolver,
-gates, bash runner, send plan and the lifted bodies of five
-executors on seven real files, 23 assertions; the old templates
-twice in one feed, with three controls; 102 mutations, 99 caught,
-3 equivalent here.
-
-Verified on Windows: nothing. The template needs bash.
-
-Not verified on either: AIX; the engine running these loops (the
-walk's loop is mine, written from the engine's); csvsql (emulated);
-on hold inside a loop; deleteOnSuccess; mvn clean package.
+USAGE gains "The same work in other shapes" (the one-workflow template
+stays the recommended one; the pair keeps its list in the shared files,
+so each copy of the pair needs a list name of its own). Spec section 23
+(U35-U37). No script and no Java change.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01HUY167c6pQG6D7P6dnBZC7

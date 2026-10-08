@@ -926,7 +926,8 @@ feed" - that does (b)'s first part including the send, ends with success if noth
 quarantine, and otherwise goes on, in the same workflow, with (b)'s second part on the list it
 has just made. Always without touching Java. (a) and (b) were delivered as zips on this same
 base (`…every-package-2c0c19a.zip`, `…check-and-correct-2c0c19a.zip`) and are **superseded by
-this delivery**: their templates are not in the repository; the scripts and the correction of
+this delivery**: ~~their templates are not in the repository~~ their templates were added on
+`1bdf3fa`, as alternatives, at the author's request (§23); the scripts and the correction of
 the two existing templates are.
 
 **What was built.**
@@ -1082,3 +1083,47 @@ hold is not modelled, nor `deleteOnSuccess`, which USAGE suggests on the strengt
 alone; `orchestrator.max-transitions` is counted (77 for the seven files) and not enforced.
 Nothing ran on AIX or Windows: `date`, `mv`, `sort` and bash's `read` there are used in their
 plainest forms, and `date -r` was taken out because on AIX it means something else.
+
+## 23. The two superseded shapes brought into the repository (2026-10-08, on `1bdf3fa`)
+
+**The request:** "voglio avere tutto lo scenario completo e tutti i template e script
+disponibili" - every template and script of §22's afternoon in the repository, not only the
+last. The two zips of (a) and (b) cannot be applied on `1bdf3fa`: `git apply --check` stops on
+this file and on `scripts/list-packages.sh`, which `1bdf3fa` already holds. So their templates
+are delivered again on the current base, without their scripts.
+
+**What was added:** `workflows/_TEMPLATE-objunpack-precheck-resend-all.xml` (a),
+`workflows/_TEMPLATE-objunpack-check-quarantine.xml` and
+`workflows/_TEMPLATE-objunpack-correct-quarantined.xml` (b), byte for byte as delivered in those
+zips; a USAGE subsection, "The same work in other shapes". No script changes. `list-packages.sh`
+is identical in both zips and in `1bdf3fa`. `quarantine-list.sh` of (b) differs from the
+committed one only in its header comments. `objunpack-precheck.sh` of (b) is the committed one;
+(a) did not touch it and ran on the `2c0c19a` version, and the committed one adds `onRefusal`
+with default `fail`, which is the mode (a) relies on. All three templates were walked with the
+committed scripts. The three templates already used
+`${stepDir}/${runId}/${packageNoString}`: they were written after the defect of §22 was found.
+The one-workflow template stays the recommended one, and USAGE says so.
+
+**∩ U35 — "two workflows find one list" × "the shared files are every feed's".** The pair
+keeps its list in `${sharedDir}`, because two feeds have two `feedDir`s. A second copy of the
+pair for another source, left on the default, would start a new list over the first one's -
+not lose it: `new` renames the earlier list (∩ U30) - and the second workflow of the first copy
+would then correct the other source's packages. Not changed in the templates (a default per
+copy cannot be known); USAGE says that each copy of the pair needs a list name of its own.
+
+**∩ U36 — "ends REJECTED when manual packages are left" (∩ U33) × the pair.** The pair does not
+have that last gate: the check ends SUCCESS whatever it put in the list, the correction SKIPPED
+when nothing is pending. Kept as delivered, said in USAGE, so that the difference is a known
+one.
+
+**∩ U37 — "the first failure stops the run" × (a).** (a) has no list: a package that cannot be
+read stops the run there, and the packages after it are not looked at. That is the behaviour
+(b) and (c) were asked for to avoid; it is kept in (a) because for a feed where one bad package
+should stop everything it is the right one, and USAGE says it.
+
+**Evidence** (Linux, Temurin 1.8.0_432, the walker of §22 on the repository's scripts at
+`1bdf3fa`): (a) 6 assertions - including a wrong checksum stopping the run at the last of
+three packages, after the first two were sent; (b) 28; (c) 23, unchanged; the two corrected
+templates of §22, 8, with the controls now taken from `2c0c19a` since `origin/main` holds the
+corrected ones. The mutation runs of §22 were not repeated: nothing they covered changed. Not
+run on AIX or Windows; the engine itself was not run.
