@@ -1,17 +1,33 @@
-objunpack: check-quarantine deletes its extracts once a package is sent
+Diagnostic snapshots for runs stuck between two steps
 
-The FTPS step of _TEMPLATE-objunpack-check-quarantine.xml now carries
-deleteOnSuccess=${dir.PRECHECK}/${runId}/${packageNoString}: once a
-package has been sent as it is, the audit and metadata the Look inside
-step extracted from it are deleted. A package put in the quarantine list
-keeps its folder, with the validation report that says which line and
-column failed. The author's change, made by hand on the server, extended
-from the metadata file to the whole per-package folder.
+Two runs on the UAT host stayed RUNNING with no step running, once for
+minutes, once for good; the GUI could not say why. This adds, without
+any new setting:
 
-The run folder is deliberately not used: on the FTPS step it would
-delete, at every send, the folders of the packages listed before it.
+- diag/StallSnapshot: a text snapshot - engine state, the run threads,
+  lock-wait and write times of the run save and the audit line, a disk
+  probe per folder (with a timeout), GC and CPU over ten seconds, heap,
+  host load and memory, the full thread dump with lock owners.
+- diag/StallWatchdog + DiagnosticsService: every 30 s; a run RUNNING
+  with no step running whose state has not changed for 2 minutes gets a
+  snapshot (again every 15 minutes, 3 at most). Kept in memory (12) and
+  written to <log dir>/diag (50).
+- Platform page: "Take a diagnostic snapshot" and the list, to download.
+- WorkflowEngine: an Error thrown between two steps now ends the run
+  FAILED with a message naming it, instead of leaving it RUNNING for
+  ever with no thread working on it.
+- RunStore.save and AuditLogger.log report their lock wait and write
+  time (same locks as before).
 
-USAGE and spec section 24 (U38, U39). No script and no Java change.
+USAGE (Platform diagnostics) and spec .claude/STALL_DIAGNOSTICS.md.
+
+Verified on Linux (JDK): Temurin 1.8.0_432 and OpenJDK 21.0.12 - the
+new classes, RunStore and AuditLogger compiled for real against stubs
+and run (also as a non-root user), mutations; WorkflowEngine by
+differential compilation with a positive control.
+Verified on Windows: nothing.
+Not verified: Spring wiring and Jackson output, the engine run end to
+end, the IBM JVM (its OS bean names), AIX.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01HUY167c6pQG6D7P6dnBZC7

@@ -29,16 +29,27 @@ public class RunStore {
             .enable(SerializationFeature.INDENT_OUTPUT)
             .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
-    public synchronized void save(FeedLayout layout, WorkflowRun run) {
-        try {
-            Path f = layout.runFile(run.runId);
-            Files.createDirectories(f.getParent());
-            // scrittura atomica: tmp + move
-            Path tmp = f.resolveSibling(f.getFileName() + ".tmp");
-            mapper.writeValue(tmp.toFile(), run);
-            Files.move(tmp, f, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        } catch (Exception e) {
-            log.error("Salvataggio run {} fallito: {}", run.runId, e.getMessage(), e);
+    /**
+     * Saves the run. One lock for every feed, as before ({@code synchronized} on this store, the
+     * same monitor as {@link #delete}); the time spent waiting for it and inside it goes to
+     * {@link com.legalarchive.orchestrator.diag.IoTimings}, for the diagnostic snapshots.
+     */
+    public void save(FeedLayout layout, WorkflowRun run) {
+        long t0 = System.nanoTime();
+        synchronized (this) {
+            long t1 = System.nanoTime();
+            try {
+                Path f = layout.runFile(run.runId);
+                Files.createDirectories(f.getParent());
+                // scrittura atomica: tmp + move
+                Path tmp = f.resolveSibling(f.getFileName() + ".tmp");
+                mapper.writeValue(tmp.toFile(), run);
+                Files.move(tmp, f, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception e) {
+                log.error("Salvataggio run {} fallito: {}", run.runId, e.getMessage(), e);
+            } finally {
+                com.legalarchive.orchestrator.diag.IoTimings.record("run save", run.feedId + " " + run.runId, t1 - t0, System.nanoTime() - t1);
+            }
         }
     }
 

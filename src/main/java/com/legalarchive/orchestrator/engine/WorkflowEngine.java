@@ -390,6 +390,14 @@ public class WorkflowEngine {
         return true;
     }
 
+    /**
+     * The runs the engine holds in memory - queued, running, waiting, on hold - as a copy of the
+     * list (the runs themselves are the live objects). For the diagnostic snapshots.
+     */
+    public java.util.List<WorkflowRun> liveRuns() {
+        return new java.util.ArrayList<WorkflowRun>(activeRuns.values());
+    }
+
     /** runId del run attivo per il feed, o null se nessuno è in corso/in coda. */
     public String activeRunId(String feedId) { return runningFeeds.get(feedId); }
 
@@ -717,6 +725,8 @@ public class WorkflowEngine {
             finish(def, layout, run, RunStatus.SUCCESS, null);
         } catch (Exception e) {
             finish(def, layout, run, RunStatus.FAILED, "Internal error: " + e.getMessage());
+        } catch (Error e) {
+            endedByError(def, layout, run, e);
         }
     }
 
@@ -727,6 +737,31 @@ public class WorkflowEngine {
             loop(def, layout, run, next);
         } catch (Exception e) {
             finish(def, layout, run, RunStatus.FAILED, "Internal error: " + e.getMessage());
+        } catch (Error e) {
+            endedByError(def, layout, run, e);
+        }
+    }
+
+    /**
+     * An Error thrown BETWEEN two steps - an OutOfMemoryError while saving the run or writing the
+     * audit, typically. Before 2026-10-12 it left the loop, reached the run pool, which logs it
+     * and goes on, and the run stayed RUNNING for ever with nothing working on it. That is what
+     * the "stuck" runs of 2026-10-09 and 2026-10-12 look like from the GUI; whether it is what
+     * happened there is what the diagnostic snapshots are for (spec STALL_DIAGNOSTICS.md).
+     * Errors inside a step were already caught by executeStep (2c0c19a). Best effort: finishing
+     * needs memory too, and if it fails again the run stays as it was, as before.
+     */
+    private void endedByError(WorkflowDef def, FeedLayout layout, WorkflowRun run, Error e) {
+        try {
+            String why = e instanceof OutOfMemoryError
+                    ? "the JVM ran out of memory (maximum heap " + (Runtime.getRuntime().maxMemory() / (1024L * 1024L))
+                      + " MB) between two steps, and the run was ended. The heap is set when the service is started (-Xmx)"
+                    : "the run was ended by an internal error between two steps: " + e;
+            log.error("[{}] run {} ended by an error between two steps: {}", run.feedId, run.runId, why, e);
+            finish(def, layout, run, RunStatus.FAILED, why);
+        } catch (Throwable again) {
+            try { log.error("[{}] run {} could not be ended after an error between two steps: {}", run.feedId, run.runId, again.toString()); }
+            catch (Throwable ignored) { }
         }
     }
 

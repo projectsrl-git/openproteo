@@ -73,7 +73,9 @@ public class AuditLogger {
     public void log(Path auditFile, String feedId, String runId, String node,
                     String event, String user, Map<String, String> details) {
         Object lock = locks.computeIfAbsent(feedId, k -> new Object());
+        long t0 = System.nanoTime();
         synchronized (lock) {
+            long t1 = System.nanoTime();
             try {
                 Files.createDirectories(auditFile.getParent());
                 ChainState st = chains.get(feedId);
@@ -104,6 +106,10 @@ public class AuditLogger {
             } catch (Exception ex) {
                 // l'audit non deve mai far fallire il run, ma l'errore va nel log applicativo
                 log.error("Impossibile scrivere audit {}: {}", auditFile, ex.getMessage(), ex);
+            } finally {
+                // for the diagnostic snapshots: lock wait and write time of this line
+                com.legalarchive.orchestrator.diag.IoTimings.record("audit line", feedId + " " + (runId == null ? "" : runId) + " " + event,
+                        t1 - t0, System.nanoTime() - t1);
             }
         }
     }

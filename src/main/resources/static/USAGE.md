@@ -664,7 +664,7 @@ Deleting a run removes its record, its step logs and its step working directorie
 
 The **Platform** page (button on the dashboard, after Docs) shows what this instance thinks its host is: the operating system and the Java runtime, where the configured paths really point, which interpreters it can find, and whether file names are case-sensitive in the feed base directory.
 
-It is read-only. It configures nothing and creates nothing: a directory that does not exist is shown as missing, never created for you.
+It configures nothing, and a directory that does not exist is shown as missing, never created for you. It writes in two cases only: the case probe below, and the diagnostic snapshots at the end of the page.
 
 Open it first on a new server, and again whenever a run fails on a path or an interpreter it cannot find. It is the quickest way to see that a server was started from the wrong folder.
 
@@ -716,7 +716,7 @@ Whether this Java runtime has the Windows certificate store provider (SunMSCAPI)
 
 ### File-name case in the feed base directory
 
-Whether `Report.csv` and `report.csv` are the same file there. The page measures it: it creates a small temporary file in the feed base directory, looks for it under a different case, and deletes it. That is the only thing the page ever writes.
+Whether `Report.csv` and `report.csv` are the same file there. The page measures it: it creates a small temporary file in the feed base directory, looks for it under a different case, and deletes it.
 
 The answer is about that one directory, not about the whole server. A feed whose own base directory is on another disk can differ.
 
@@ -724,9 +724,29 @@ The measurement is taken once and kept. **Probe again** repeats it, at most once
 
 If the directory is missing or not writable the result is `not determined`, with the reason. It is never assumed.
 
+### Diagnostic snapshots
+
+A snapshot is a text file for whoever looks after OpenProteo, for the case of a run that is **RUNNING and does not move**. It says, in this order:
+
+- what the engine is doing: each live run, the node it is at, whether a step is running, and when the last one ended;
+- where the run's thread is (`wf-runner`) at the start, and again in the full thread dump at the end, about ten seconds later: a frame that has not changed between the two is where the run waits, and a thread waiting for a lock names the thread that holds it;
+- how long the engine's two writes between steps have taken - saving the run and writing the audit line - split into the time spent waiting for their lock and the time spent writing; the ones that took two seconds or more are listed;
+- how fast the disk answers: a 4 KB file is created, written, synced and deleted in the stuck run's feed folder, in the feed base directory and in the Java temporary directory. A folder that does not answer in 15 seconds is reported as such, and the snapshot goes on without it;
+- garbage collection and CPU over those ten seconds, the heap and its pools, the host's load and memory as the Java runtime sees them.
+
+**Taken by itself.** OpenProteo looks at the running runs every 30 seconds. A run that is RUNNING, with no step running, and whose state has not changed for **2 minutes** is stuck between two steps - the engine needs milliseconds there - and a snapshot is taken; while it stays stuck, one more every 15 minutes, three at most. A step that runs for a long time is not judged: a long step can be normal. The application log says `taking a diagnostic snapshot`.
+
+**Taken on request.** The button **Take a diagnostic snapshot** takes one now, in about ten seconds - longer if the disk is slow. At most one every 30 seconds.
+
+**Where they are.** The page lists the last 12, newest first, each with **Download**. They are kept in memory, so that they can be downloaded even when the disk does not answer, and are lost at a restart. Each is also written under the application log directory, in `diag/` (`logs/diag/` by default), where the last 50 are kept.
+
+Taking a snapshot changes nothing: it does not stop, resume or alter any run. None of this has a setting.
+
+A run whose thread is ended by a Java error between two steps - running out of memory while saving the run, typically - now ends as **failed**, with a message that names the error and the maximum heap. Until now it stayed RUNNING with nothing working on it.
+
 ### Who can open it
 
-Until sign-in exists, anyone who can reach the application can open this page. It shows no password, no secret and nothing read from the configuration files. It does show the operating system, the Java version and where the application is installed.
+Until sign-in exists, anyone who can reach the application can open this page. It shows no password, no secret and nothing read from the configuration files. It does show the operating system, the Java version and where the application is installed. A diagnostic snapshot also shows the feed and run names, the folders it probed and the stack of every thread; never a run's variables, the Java command line or an environment variable.
 
 ## The elarxml step
 

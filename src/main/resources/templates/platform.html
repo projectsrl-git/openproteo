@@ -25,6 +25,20 @@
         directory is shown as missing.</p>
     <p class="page-sub" id="platMsg">Loading&hellip;</p>
     <div id="plat"></div>
+
+    <h2>Diagnostic snapshots</h2>
+    <p class="page-sub">A snapshot is a text file that says what the engine is doing, how busy the Java runtime and the
+        host are, how fast the disk answers, and where every thread is. One is taken <b>automatically</b> when a run is
+        RUNNING with no step running and does not move for <span id="diagStall">2 minutes</span> &mdash; stuck between two
+        steps &mdash; and you can take one yourself here, for example while a run looks stuck. Download it and send it
+        to whoever looks after OpenProteo. Taking one lasts about ten seconds and changes nothing.</p>
+    <div class="panel">
+        <div style="padding:12px 14px">
+            <button class="btn sm" id="diagTakeBtn" onclick="takeSnapshot()">Take a diagnostic snapshot</button>
+            <span class="dim" id="diagMsg"></span>
+        </div>
+        <div id="diagList"></div>
+    </div>
 </div>
 
 <script>
@@ -198,6 +212,52 @@
     }
     function probeAgain() { load('POST', 'api/platform/case-probe'); }
     load('GET', 'api/platform');
+
+    /* ---- diagnostic snapshots ---- */
+    function renderDiag(d) {
+        var box = document.getElementById('diagList');
+        if (!d || d.ok !== true) { box.innerHTML = '<div style="padding:12px 14px" class="dim">The snapshots could not be listed.</div>'; return; }
+        if (typeof d.stallSeconds === 'number') document.getElementById('diagStall').textContent = Math.round(d.stallSeconds / 60) + ' minutes';
+        var rows = d.snapshots || [];
+        if (rows.length === 0) { box.innerHTML = '<div style="padding:12px 14px" class="dim" id="diagNone">No snapshot since the last start.</div>'; return; }
+        var h = '<table id="diagTable"><tr><th>Taken</th><th>How</th><th>Why</th><th>Size</th><th>On disk</th><th></th></tr>';
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i];
+            var disk = r.savedAs ? '<span class="mono">' + esc(r.savedAs) + '</span>' : '<span class="dim">' + esc(r.saveError || 'being written') + '</span>';
+            h += '<tr data-id="' + esc(r.id) + '"><td class="mono" style="white-space:nowrap">' + esc(r.takenAt) + '</td>'
+                + '<td>' + (r.automatic ? chip('ON_HOLD', 'automatic') : chip('SKIPPED', 'on request')) + '</td>'
+                + '<td>' + esc(r.reason) + '</td>'
+                + '<td style="white-space:nowrap">' + esc(r.sizeKb) + ' KB</td>'
+                + '<td>' + disk + '</td>'
+                + '<td><a class="btn sm" href="' + CTX + 'api/diagnostics/' + encodeURIComponent(r.id) + '">Download</a></td></tr>';
+        }
+        box.innerHTML = h + '</table>';
+    }
+    function loadDiag() {
+        fetch(CTX + 'api/diagnostics', { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { renderDiag(d); })
+            .catch(function () { renderDiag(null); });
+    }
+    function takeSnapshot() {
+        var btn = document.getElementById('diagTakeBtn');
+        var msg = document.getElementById('diagMsg');
+        btn.disabled = true;
+        msg.textContent = 'Taking a snapshot: about ten seconds, longer if the disk is slow.';
+        fetch(CTX + 'api/diagnostics/snapshot', { method: 'POST', credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                btn.disabled = false;
+                msg.textContent = d && d.ok === true ? 'Taken: download it below.' : ((d && d.error) || 'The snapshot could not be taken.');
+                loadDiag();
+            })
+            .catch(function (e) {
+                btn.disabled = false;
+                msg.textContent = 'The snapshot could not be taken: ' + (e && e.message ? e.message : e);
+            });
+    }
+    loadDiag();
+    setInterval(loadDiag, 60000);
 </script>
 <script th:src="@{/js/modal.js(v=${buildId})}"></script>
 <script th:src="@{/js/theme.js(v=${buildId})}"></script>
