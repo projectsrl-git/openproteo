@@ -1,18 +1,17 @@
-objunpack: add the loop-only and two-workflow templates as alternatives
+objunpack: check-quarantine deletes its extracts once a package is sent
 
-The two shapes delivered before the one-workflow template, and not
-committed, are added unchanged on the current scripts:
+The FTPS step of _TEMPLATE-objunpack-check-quarantine.xml now carries
+deleteOnSuccess=${dir.PRECHECK}/${runId}/${packageNoString}: once a
+package has been sent as it is, the audit and metadata the Look inside
+step extracted from it are deleted. A package put in the quarantine list
+keeps its folder, with the validation report that says which line and
+column failed. The author's change, made by hand on the server, extended
+from the metadata file to the whole per-package folder.
 
-- _TEMPLATE-objunpack-precheck-resend-all.xml: one loop over a folder,
-  no list; the first package that cannot be worked stops the run.
-- _TEMPLATE-objunpack-check-quarantine.xml and
-  _TEMPLATE-objunpack-correct-quarantined.xml: check and quarantine list
-  in one workflow, correction of the list in another, resumable.
+The run folder is deliberately not used: on the FTPS step it would
+delete, at every send, the folders of the packages listed before it.
 
-USAGE gains "The same work in other shapes" (the one-workflow template
-stays the recommended one; the pair keeps its list in the shared files,
-so each copy of the pair needs a list name of its own). Spec section 23
-(U35-U37). No script and no Java change.
+USAGE and spec section 24 (U38, U39). No script and no Java change.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01HUY167c6pQG6D7P6dnBZC7

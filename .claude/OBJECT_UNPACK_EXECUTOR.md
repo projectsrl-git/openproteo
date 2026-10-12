@@ -1127,3 +1127,49 @@ three packages, after the first two were sent; (b) 28; (c) 23, unchanged; the tw
 templates of §22, 8, with the controls now taken from `2c0c19a` since `origin/main` holds the
 corrected ones. The mutation runs of §22 were not repeated: nothing they covered changed. Not
 run on AIX or Windows; the engine itself was not run.
+
+## 24. The check deletes what it extracted from a package once it is sent (2026-10-12, on `98dbc65`)
+
+**The request.** The author had added by hand, on the FTPS step of
+`_TEMPLATE-objunpack-check-quarantine.xml`, `deleteOnSuccess=${PRECHECK.metadataCsv}` with
+`deleteOnSuccessType=file`, wanted the extracted audit JSON gone too, and asked for the change in
+the template.
+
+**What was read before answering** (`WorkflowEngine.deleteOnSuccess`, lines 818-849): one path,
+var-resolved, deleted after the step's exit 0 - recursively when it is a folder; refused (audit
+`DELETE_ON_SUCCESS_REFUSED`, no failure) when it is outside the feeds base or less than two levels
+under it. `deleteOnSuccessType` is not read by the engine: only the designer and the import page
+know it.
+
+**What was built.** The FTPS step gets `deleteOnSuccess=${dir.PRECHECK}/${runId}/${packageNoString}`
+and `deleteOnSuccessType=directory`: the package's own folder, which holds exactly
+`<base>.audit.json` and `<base>.metadata.csv` (the script extracts nothing else) and whatever
+`validate` wrote beside the metadata. Description of the template and USAGE updated. No script, no Java.
+
+**∩ U38 — "no deletion by default" (∩ U25) × the author's decision.** ∩ U25 kept deletion out of
+the defaults. Here the author decided it, and what is deleted is a copy extracted for the check,
+never a package: the template now deletes by default, on this one template. ∩ U25 stands for the
+others, where what would be deleted are unpacked objects or rebuilt packages.
+
+**∩ U39 — "one folder per run" × "delete at every send".** Asked whether the run folder,
+`${dir.PRECHECK}/${runId}`, would do: on the FTPS step it would delete, at every send, the folders
+of every package before it, quarantined ones included, so whether a listed package keeps its
+files would depend on the name order. Kept per package. The folders of listed packages stay, with
+the validation report that `validate` writes beside the metadata - the only place that says which
+line and column failed. Deleting everything at the end (the run folder on SUMMARY) was offered as
+the consistent alternative and declined in favour of keeping the reports.
+
+**Evidence** (Linux; Temurin 1.8.0_432 and JDK 21.0.12; the walker of §22, now also running the
+REAL `deleteOnSuccess` and `deleteRecursively`, lifted by position from `WorkflowEngine` with only
+the layout, properties, log and audit replaced by stubs): the pair suite 32 assertions, 4 new and
+1 changed - after seven files, the folders left are those of the four listed packages that had
+one (a file refused by its name never gets a folder); exactly two deletions, each one package's
+folder, as a folder; a listed package keeps audit, metadata and validation report; with
+`sendValidPackages=false` nothing is deleted; `x.tar` sent and `x.tar.gz` listed: only the
+second's folder left. Six mutations of the parameter, all caught: the run folder, the parameter
+removed, `${packageNo}` unpadded, `${stepDir}` (the FTPS step's own), the metadata file alone (the
+first manual version), and `${PRECHECK.packageDir}` - which the engine's own guard refuses, the
+landing folder being outside the feeds base. The other three suites unchanged (8, 23, 6).
+**Not verified:** a real send - the walker plans the send and treats a plan as success, so "a
+failed send deletes nothing" rests on the engine's code (the call sits in the exit-0 branch) and
+was not exercised; AIX; the engine itself.
