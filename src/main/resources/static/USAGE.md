@@ -393,7 +393,8 @@ width there.
 
 The engine has a safety limit `orchestrator.max-transitions` (default 500) against runaway
 gate loops; for a loop over many files raise it (transitions are roughly files × steps in the
-block). During a run the diagram shows the loop live: a back-arrow links ENDLOOP to its LOOP, an `iteration N / total` label appears near the LOOP, each body block carries a `xN` badge, and the arrow pulses while the executed blocks flash as the pass restarts.
+block). It is read once, when the application starts: in the external `application.properties`, or
+on the command line before `-jar` - `java -Dorchestrator.max-transitions=2000 -jar openproteo-standalone.war`. During a run the diagram shows the loop live: a back-arrow links ENDLOOP to its LOOP, an `iteration N / total` label appears near the LOOP, each body block carries a `xN` badge, and the arrow pulses while the executed blocks flash as the pass restarts.
 
 ## Splitting (SQL export and SPLIT step)
 
@@ -1675,7 +1676,8 @@ Measured here on a package of 100 000 objects (294 MB, metadata 70 MB), on Linux
 
 **Phase 1 — the check. Nothing is unpacked.**
 
-- **List packages** (`list-packages.sh`) lists the files of `packagesDir` that match `packagePattern` — default `*.tar`; several patterns separated by a blank; subfolders are not searched. With nothing to do the run ends as SKIPPED.
+- **List packages** (`list-packages.sh`) lists the files of `packagesDir` that match `packagePattern` — default `*.tar`; several patterns separated by a blank; subfolders are not searched. It leaves out every package already in the **sent list** (below). With nothing to do the run ends as SKIPPED.
+- A range of sequence numbers is written with character classes, which the shell understands: `tf0005856.20261005.S1[0-7][0-9].V001.tar tf0005856.20261005.S18[0-7].V001.tar` takes S100 to S187 - the first pattern S100–S179, the second S180–S187.
 - **For each package**, in name order: the pre-check script verifies the checksum and extracts only the audit and the metadata CSV; the metadata is validated against the feed's dataschema.
 - A package that passes is sent **as it is** — same name, same version.
 - A package that does not pass is **not touched and not sent**. It is written to the quarantine list and the check **goes on with the next one**: in this phase a package that cannot even be read does not stop the run.
@@ -1696,6 +1698,11 @@ manual    /data/landing/tf0005801.20261002.S064.V001.tar   tf0005801.20261002.S0
 
 Beside the list, a file with the same name plus `.done` holds the packages already worked. Each run starts a new list; the earlier one is kept, renamed with the date and time, with its `.done`. Clearing the feed's history does not remove them.
 
+**The sent list** is another text file: the one named by `sentList`, by default `objunpack-sent.txt` in the feed's folder. After every send that succeeds, a step records the package, one line each, five fields separated by a tab - its name, the name it was sent as (the same, or the rebuilt version + 1), its folder, the run, the date. Unlike the quarantine list it is never renamed or started anew: it is the memory of what has left. List packages compares names, exactly: `x.tar` is not `x.tar.gz`, and a package moved to another folder with the same name is still left out. A line that begins with `#` is a comment. Clearing the feed's history does not remove the list.
+
+- The record is written right after the send, by its own step. If that step fails - the file cannot be written - the package has been sent but is not recorded, and the run stops there: the next run would send it again. Check the list before running again.
+- With `sendValidPackages=false` nothing is sent and nothing is recorded.
+
 **Three switches**, all variables of the workflow:
 
 - `sendValidPackages`, default `true`. With `false` a package that passes the check is not sent.
@@ -1709,14 +1716,14 @@ With the first two `false` the run only checks: it sends nothing, unpacks nothin
 What else to know:
 
 - **Both FTPS steps are on hold**, so the run stops at every package it is about to send and waits to be released. To send without stopping, untick **On hold** on those steps.
-- **Every run sends every valid package it finds.** A package left in the folder is sent again by the next run: move the packages out when they are done, or use a pattern that only matches the new ones.
+- **A package that has been sent is not sent again.** Its name is in the sent list, and List packages leaves it out of every later run - also when it was corrected and sent as version + 1. To send one again on purpose, delete its line from the list.
 - **The delimiter** of the Check package metadata step, and of the three middle steps of phase 2, is written in the template as a comma and does not follow the package. If the first is not the one the packages use, every package ends in the list as `correct` and is rebuilt — nothing wrong is sent, but nothing takes the short way either. Look there first if the list is longer than expected.
 - **A package that is unpacked stays unpacked**, under the Unpack step's directory, until the feed's history is cleared: 100 000 objects each. To free the space as the run goes, give the **FTPS Send the rebuilt package** step the parameter `deleteOnSuccess` = `${dir.OBJUNPACK}/${runId}/${quarantinedNoString}`.
 - Every step that must not find an earlier result works in a folder of its own — its step directory, then the run, then `001`, `002`, … — because a step keeps the same directory at every pass of a loop, as it does at every run.
-- A run is limited to `orchestrator.max-transitions` steps and gates (500 unless configured), and each release from a hold starts the count again. A package sent as it is takes ten, one that is corrected sixteen: without a hold in between, about 50 valid packages, or about 30 that all need correcting.
+- A run is limited to `orchestrator.max-transitions` steps and gates (500 unless configured), and each release from a hold starts the count again. A package sent as it is takes eleven, one that is corrected seventeen: without a hold in between, about 45 valid packages, or about 29 that all need correcting. For more in one run, raise the limit at start-up (see "Loops"); or split the folder with the pattern, at most about 45 packages a run; or leave On hold on the FTPS step, whose every release starts the count again. A run that reaches the limit ends FAILED with "Exceeded the limit of 500 node transitions".
 - A file whose name contains `;`, a tab or a line break, or begins or ends with a blank, cannot be put in a list: the step stops and names it.
 
-**The three scripts** — `list-packages.sh`, `objunpack-precheck.sh`, `quarantine-list.sh`, in `scripts/` of the repository — go in the server's scripts directory, or are uploaded from the Files panel with their full path written in each step's Script field. They need bash, `tar`, `sort`, `date` and `mv`. There is no Windows version.
+**The four scripts** — `list-packages.sh`, `objunpack-precheck.sh`, `quarantine-list.sh`, `sent-list.sh`, in `scripts/` of the repository — go in the server's scripts directory, or are uploaded from the Files panel with their full path written in each step's Script field. They need bash, `tar`, `sort`, `date` and `mv`. There is no Windows version.
 
 ### The same work in other shapes
 
@@ -1727,7 +1734,7 @@ The one-workflow template above is the one to use. Three earlier shapes of the s
 
 In `_TEMPLATE-objunpack-check-quarantine.xml` the FTPS step deletes, once a package has been sent, what the Look inside step extracted from it: its folder `${dir.PRECHECK}/${runId}/${packageNoString}`, with the audit and the metadata. The folder of a package put in the list is kept, with its validation report beside the metadata — line, column and detail of every check that failed, which the list does not give. To keep everything, remove the step's `deleteOnSuccess` parameter. Its companion `deleteOnSuccessType` (`directory`) is for the designer: the engine deletes a folder or a file according to what the path is, and only when the send succeeded. Do not point it at the whole run, `${dir.PRECHECK}/${runId}`: on the FTPS step that would delete, at every send, the folders of the packages listed before it.
 
-For the pair, the list is by default `objunpack-quarantine.txt` in the **shared files**, not in the feed's folder, because the two workflows are two feeds and must find the same file: `quarantineList` must name the same file in both. The shared files are common to every feed, so a second copy of the pair, for another source, needs a list of its own name in both of its workflows.
+For the pair, the list is by default `objunpack-quarantine.txt` in the **shared files**, not in the feed's folder, because the two workflows are two feeds and must find the same file: `quarantineList` must name the same file in both. The same holds for the sent list, `objunpack-sent.txt` in the shared files, named by `sentList` in both: the second records the rebuilt packages under their original names, and the first then leaves them out. The shared files are common to every feed, so a second copy of the pair, for another source, needs lists of its own names in both of its workflows. `_TEMPLATE-objunpack-precheck-resend-all.xml` keeps its sent list in the feed's folder.
 
 Everything said above about holds, the delimiters, packages left in the folder, unpacked objects and `max-transitions` applies to these too. In `_TEMPLATE-objunpack-correct-quarantined.xml` the loop variable is `packageNoString`, so the `deleteOnSuccess` of its FTPS step is `${dir.OBJUNPACK}/${runId}/${packageNoString}`. In `_TEMPLATE-objunpack-precheck-resend-all.xml` one FTPS step sends both kinds of package, so that suggestion does not apply there as written.
 

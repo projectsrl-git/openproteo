@@ -1173,3 +1173,98 @@ landing folder being outside the feeds base. The other three suites unchanged (8
 **Not verified:** a real send - the walker plans the send and treats a plan as success, so "a
 failed send deletes nothing" rests on the engine's code (the call sits in the exit-0 branch) and
 was not exercised; AIX; the engine itself.
+
+## 25. A sent list, a range of packages, and the 50-package wall (2026-10-12, on `8b6e37a`)
+
+**The three questions, from the first runs on 88 packages (S100 to S187 of one day).** (a) How to
+give a range, without Java. (b) A dry run without FTP "stops after 50 loops". (c) "There should be
+a sent list that keeps me from sending files already sent", without Java.
+
+**(a) A range needs nothing new.** `list-packages.sh` hands each pattern to the shell, which knows
+character classes: `tf0005856.20261005.S1[0-7][0-9].V001.tar tf0005856.20261005.S18[0-7].V001.tar`
+is S100-S179 plus S180-S187. Run on a folder of S001-S200 plus a V002 and another date: 88 names,
+S100 first, S187 last. Written in USAGE.
+
+**(b) The wall is `orchestrator.max-transitions`, not a hang** - stated as the probable cause, the
+author asked to confirm the message. A package sent as it is costs ten transitions in the check
+template (eleven from this delivery); with no hold the counter never restarts, and 50 x 10 is the
+default 500. The run then ends FAILED, "Exceeded the limit of 500 node transitions". Remedies
+without Java, in USAGE: the limit at start-up (`-Dorchestrator.max-transitions=2000` before
+`-jar`; it is an `@ConfigurationProperties(prefix="orchestrator")` field of `AppProperties`), a
+range of at most about 45 packages a run, or a hold, whose release restarts the count. The key is
+still file-only (debt in CLAUDE.md, «Configurazione esterna»); this delivery adds nothing to it.
+
+**(c) What was built.**
+
+* `scripts/sent-list.sh` - one action, `add`: appends `name TAB sentAs TAB folder TAB run TAB date`
+  to the file named by `list`, creating it with a comment line; never renames, never empties.
+  Publishes `sentList`, `sentName`, `sentAsName`, `sentTotal`, `alreadyListed`. A name already in
+  the list is recorded again and said (WARNING), not refused: the send has already happened.
+* `scripts/list-packages.sh` - new optional parameter `skipList`: a file whose name is the first
+  field of a line of that file is left out, and named; a list that does not exist yet leaves out
+  nothing. New variables `skippedCount`, `skippedNames`. `onEmpty` applies after the leaving out.
+  Without `skipList` nothing changes - the 39 assertions of §22 pass unchanged.
+* The four templates that send: `sentList` (shared files for the pair, the feed folder for the
+  one-workflow template and the loop-only one), `skipList=${sentList}` on List packages, and a
+  record step right after every FTPS step - `RECORD_SENT`, and `RECORD_REBUILT` in phase 2 of the
+  one-workflow template. A rebuilt package is recorded under its ORIGINAL name with the V002 name
+  beside it. The loop-only template sets `sentAs` in both of its setvar steps, beside `sendDir`.
+
+**∩ U40 — "every new behaviour is born off" (CLAUDE.md, «Default conservativi») × the sent list on
+in the templates.** A template is copied into a new feed; no existing feed changes with this
+delivery. In the scripts the behaviour is off (no `skipList`, nothing left out). In the templates
+it is on, at the author's request, and in the conservative direction for a legal archive: what is
+prevented is a second send.
+
+**∩ U41 — "record after the send" × "the record can fail".** Recording before the send would keep
+out a package whose send then failed; recording after leaves a window - sent, not recorded - if
+the record step itself fails (the file cannot be written). Decided: after, by its own step, which
+fails the run there; USAGE says to check the list before running again. Not closable without
+Java: a send step cannot write a file of ours.
+
+**∩ U42 — "a new list at every check" (∩ U30) × the sent list.** The quarantine list is the state
+of one check; the sent list is the memory of what has left. The rename rule of ∩ U30 does not
+apply to it, and nothing in the templates starts it anew.
+
+**∩ U43 — "compare by name" × folders and extensions.** The name, exactly: `x.tar` and `x.tar.gz`
+are two packages; a package moved to another folder with its name is still left out - the name is
+the submission. The folder is written on the line for a person, not compared.
+
+**∩ U44 — "a line that begins with '#' is a comment" × a file whose name begins with '#'.** It
+could never be found in the list. With a `skipList`, `list-packages.sh` refuses such a file,
+naming it; `sent-list.sh` refuses to record one. Without a `skipList` it is listed as before.
+
+**∩ U45 — "the check leaves out what was sent" × the correction's pending list.** A pending entry
+comes from a check that already left out what was sent, so it cannot name a package already
+sent - unless something else sent it between the check and the correction. That case is not
+guarded: the second template does not read the sent list before sending. Declared.
+
+**∩ U46 — "one transition more per send" × the numbers in USAGE.** Eleven and seventeen, about 45
+and 29 packages a run; the loop-only template up to thirteen, about 38. Updated in USAGE and in
+the template descriptions.
+
+**Evidence** (Linux; Temurin 1.8.0_432 and JDK 21.0.12; bash 5.2.21; LANG=C.UTF-8 and empty):
+
+* *The scripts.* `sent-list.sh` and `skipList`: 33 assertions, including a list edited by hand
+  (comments, blank lines, extra fields), exact names (`lit*.tar` against `lit1.tar`,
+  `x.tar.gz` against `x.tar`), everything already sent with `onEmpty` ok and fail, 1000 recorded
+  against 1100 files, the round trip between the two scripts, and as uid 65534 a list that cannot
+  be written, created or read - the last refused rather than read as empty. `list-packages.sh`
+  unchanged otherwise: 39 of 39.
+* *Mutations on the scripts:* 15, 14 caught. The survivor is equivalent: skipping comment lines
+  while reading the list matters only for a name beginning with '#', which is refused (∩ U44).
+  A first run reported three mutations caught only because the non-root user could not reach the
+  mutated copies; rerun with the copies where that user can read them, with a control that passes.
+* *The templates walked* (the walker of §22 and §24): the pair 37 assertions - after the check the
+  two sent are in the list; a second check (dry run) leaves them out, named, and records nothing;
+  the correction records the two rebuilt under their original names; a third check looks only at
+  the three for a person and sends nothing; a line deleted from the list makes that package, and
+  only it, go again. The one-workflow template 24 - the same run again in the same feed now looks
+  only at the three for a person, REJECTED again, nothing sent or unpacked. The loop-only
+  template 7 - a second run is SKIPPED. Twelve mutations of the wiring, all caught; the six of §24
+  on `deleteOnSuccess`, all caught again.
+* *The range:* the pattern above on a real folder, as said in (a).
+
+**Not verified:** a real send; the engine itself (the walker's loop is mine, as in §22); AIX - the
+scripts use only bash built-ins, `cut`-free reading with `IFS`, `date '+%Y-%m-%d %H:%M:%S'`,
+`dirname` and `tr`; the 50-package stop on the author's server, whose message was not seen.
