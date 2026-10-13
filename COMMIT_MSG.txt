@@ -1,26 +1,23 @@
-objunpack: a sent list, so that no run sends a package twice
+Raise the transition limit per workflow with the variable maxTransitions
 
-New scripts/sent-list.sh records, after every successful send, the
-package's name - and, for a rebuilt package, the version + 1 it was sent
-as. list-packages.sh gets an optional skipList parameter that leaves out
-every package whose name is in that list (new variables skippedCount and
-skippedNames); without it nothing changes.
+orchestrator.max-transitions (500) stopped a check of 50 packages at the
+50th and could be raised only by restarting the server. The engine now
+reads the run variable maxTransitions - of the workflow, or global - at
+every entry into a run: a whole number above the configured limit raises
+it, up to 100000; a lower one leaves the configured limit; anything else
+stops the run before its next node, saying so. The audit records the
+limit used (TRANSITION_LIMIT), and the "Exceeded the limit" message now
+says how to raise it. Without the variable nothing changes.
 
-The four templates that send (check-quarantine, correct-quarantined,
-check-and-correct, precheck-resend-all) now carry sentList, pass it as
-skipList to List packages, and record each send right after its FTPS
-step. A package left in the folder is no longer sent again by the next
-run, also after it was corrected and sent as V002. To send one again,
-delete its line. The pair shares one list in the shared files.
+The objunpack templates' descriptions say how to use it; they carry no
+empty maxTransitions variable, which would hide a global one. USAGE
+(Loops) and spec .claude/MAX_TRANSITIONS_VARIABLE.md.
 
-USAGE: a range of packages with shell character classes (S100-S187),
-the sent list, the transition limit (eleven per package now, about 45 a
-run) and how to raise it at start-up. Spec section 25 (U40-U46).
-
-Verified on Linux (JDK): Temurin 1.8.0_432 and JDK 21.0.12; scripts and
-templates walked, mutations; also as a non-root user.
-Verified on Windows: nothing (bash scripts).
-Not verified: a real FTPS send, the engine itself, AIX.
+Verified on Linux (JDK): Temurin 1.8.0_432 and OpenJDK 21.0.12 - the
+decision method lifted and run (21 cases, mutations), the walker on a
+template with a lowered limit, the engine by differential compilation.
+Verified on Windows: nothing.
+Not verified: the engine's loop at run time, AIX.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01HUY167c6pQG6D7P6dnBZC7

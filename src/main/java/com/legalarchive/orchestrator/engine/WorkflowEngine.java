@@ -590,10 +590,28 @@ public class WorkflowEngine {
                 log.info("[{}] RUN_RUNNING {} (dequeued)", run.feedId, run.runId);
                 auditFeed(layout, run.feedId, run.runId, null, "RUN_RUNNING", "system", null);
             }
+            // The limit of this pass: orchestrator.max-transitions, raised by the variable maxTransitions
+            // (global or of the workflow) when that asks for more. Read at every entry - start, release
+            // from a hold, gate decision - which is also when the count starts again.
+            String[] limitNote = new String[1];
+            String rawLimit = run.vars.get(TRANSITIONS_VAR);
+            int limit = transitionLimit(props.getMaxTransitions(),
+                    rawLimit == null ? null : VarResolver.resolve(rawLimit, run.vars), limitNote);
+            if (limit < 0) {
+                finish(def, layout, run, RunStatus.FAILED, limitNote[0]);
+                return;
+            }
+            if (limitNote[0] != null) {
+                auditFeed(layout, run.feedId, run.runId, null, "TRANSITION_LIMIT", "system",
+                        kv("limit", String.valueOf(limit), "note", limitNote[0]));
+            }
             while (idx < def.nodes.size()) {
-                if (++transitions > props.getMaxTransitions()) {
-                    finish(def, layout, run, RunStatus.FAILED, "Exceeded the limit of " + props.getMaxTransitions()
-                            + " node transitions: possible gate loop");
+                if (++transitions > limit) {
+                    finish(def, layout, run, RunStatus.FAILED, "Exceeded the limit of " + limit
+                            + " node transitions: possible gate loop. The limit is orchestrator.max-transitions ("
+                            + props.getMaxTransitions() + "), or the variable " + TRANSITIONS_VAR
+                            + " of the workflow or global when it is higher, up to " + TRANSITIONS_CEILING
+                            + "; each release from a hold starts the count again");
                     return;
                 }
                 RunControl ctl = controls.get(run.runId);
@@ -728,6 +746,49 @@ public class WorkflowEngine {
         } catch (Error e) {
             endedByError(def, layout, run, e);
         }
+    }
+
+    /** The run variable that raises the transition limit of a workflow (spec MAX_TRANSITIONS_VARIABLE.md). */
+    static final String TRANSITIONS_VAR = "maxTransitions";
+    /** The most the variable can ask for. */
+    static final int TRANSITIONS_CEILING = 100_000;
+
+    /**
+     * The transition limit of one pass of the engine over a run.
+     *
+     * <p>{@code configured} is orchestrator.max-transitions; {@code value} the variable
+     * {@link #TRANSITIONS_VAR}, already resolved, or null when the run has none. The variable can
+     * only RAISE the limit: a value at or below the configured one leaves the configured one, a
+     * value above {@link #TRANSITIONS_CEILING} gives the ceiling. {@code note[0]} receives what was
+     * decided, for the audit, or stays null when the variable is absent or blank.
+     *
+     * <p>Returns -1, with the reason in {@code note[0]}, when the value is not a whole number: a
+     * limit the author meant to raise and that silently stayed low would stop the run later, at a
+     * point that says nothing about why.
+     */
+    static int transitionLimit(int configured, String value, String[] note) {
+        if (value == null || value.trim().isEmpty()) return configured;
+        String v = value.trim();
+        if (!v.matches("[+-]?[0-9]+")) {
+            note[0] = "The variable " + TRANSITIONS_VAR + " is '" + v + "': it must be a whole number (the most node"
+                    + " transitions a run may take, for example 2000). The run is stopped before its next node";
+            return -1;
+        }
+        // more than nine digits after the sign and the leading zeros cannot be an int: say so without parsing
+        boolean huge = v.replaceFirst("^[+-]?0*", "").length() > 9;
+        long asked = huge ? (v.startsWith("-") ? Long.MIN_VALUE : Long.MAX_VALUE) : Long.parseLong(v);
+        if (asked <= configured) {
+            note[0] = TRANSITIONS_VAR + "=" + v + " is not above orchestrator.max-transitions=" + configured
+                    + ": the configured limit applies";
+            return configured;
+        }
+        if (asked > TRANSITIONS_CEILING) {
+            note[0] = TRANSITIONS_VAR + "=" + v + " is above the ceiling of " + TRANSITIONS_CEILING + ": "
+                    + TRANSITIONS_CEILING + " applies";
+            return TRANSITIONS_CEILING;
+        }
+        note[0] = TRANSITIONS_VAR + "=" + v + " raises the limit from orchestrator.max-transitions=" + configured;
+        return (int) asked;
     }
 
     private void continueFromTarget(WorkflowDef def, FeedLayout layout, WorkflowRun run, GateDef gate, String target) {

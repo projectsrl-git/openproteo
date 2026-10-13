@@ -394,7 +394,18 @@ width there.
 The engine has a safety limit `orchestrator.max-transitions` (default 500) against runaway
 gate loops; for a loop over many files raise it (transitions are roughly files × steps in the
 block). It is read once, when the application starts: in the external `application.properties`, or
-on the command line before `-jar` - `java -Dorchestrator.max-transitions=2000 -jar openproteo-standalone.war`. During a run the diagram shows the loop live: a back-arrow links ENDLOOP to its LOOP, an `iteration N / total` label appears near the LOOP, each body block carries a `xN` badge, and the arrow pulses while the executed blocks flash as the pass restarts.
+on the command line before `-jar` - `java -Dorchestrator.max-transitions=2000 -jar openproteo-standalone.war`.
+
+**Raising it for one workflow, from the GUI.** Give the workflow a variable named `maxTransitions` with the limit it needs, for example `2000`, in the designer like any other variable. It applies from the next run, and at the next release from a hold of a run already going. Set as a **global** variable it applies to every workflow that does not set its own. The rules:
+
+- It can only raise the limit: a value at or below `orchestrator.max-transitions` leaves the configured limit.
+- At most `100000`; a higher value gives `100000`.
+- It must be a whole number. Anything else - `2,000`, `2000.0`, a variable that does not resolve - stops the run before its first node, with a message that says so: a limit meant to be raised that silently stayed low would stop the run later, without saying why.
+- It may name another variable: `${myLimit}` is resolved first.
+- A workflow variable `maxTransitions` hides a global one, even when it is lower or empty; to use the global one, do not give the workflow the variable at all.
+- When the variable is set, the audit records the limit used and why (`TRANSITION_LIMIT`).
+
+During a run the diagram shows the loop live: a back-arrow links ENDLOOP to its LOOP, an `iteration N / total` label appears near the LOOP, each body block carries a `xN` badge, and the arrow pulses while the executed blocks flash as the pass restarts.
 
 ## Splitting (SQL export and SPLIT step)
 
@@ -1720,7 +1731,7 @@ What else to know:
 - **The delimiter** of the Check package metadata step, and of the three middle steps of phase 2, is written in the template as a comma and does not follow the package. If the first is not the one the packages use, every package ends in the list as `correct` and is rebuilt — nothing wrong is sent, but nothing takes the short way either. Look there first if the list is longer than expected.
 - **A package that is unpacked stays unpacked**, under the Unpack step's directory, until the feed's history is cleared: 100 000 objects each. To free the space as the run goes, give the **FTPS Send the rebuilt package** step the parameter `deleteOnSuccess` = `${dir.OBJUNPACK}/${runId}/${quarantinedNoString}`.
 - Every step that must not find an earlier result works in a folder of its own — its step directory, then the run, then `001`, `002`, … — because a step keeps the same directory at every pass of a loop, as it does at every run.
-- A run is limited to `orchestrator.max-transitions` steps and gates (500 unless configured), and each release from a hold starts the count again. A package sent as it is takes eleven, one that is corrected seventeen: without a hold in between, about 45 valid packages, or about 29 that all need correcting. For more in one run, raise the limit at start-up (see "Loops"); or split the folder with the pattern, at most about 45 packages a run; or leave On hold on the FTPS step, whose every release starts the count again. A run that reaches the limit ends FAILED with "Exceeded the limit of 500 node transitions".
+- A run is limited to `orchestrator.max-transitions` steps and gates (500 unless configured), and each release from a hold starts the count again. A package sent as it is takes eleven, one that is corrected seventeen: without a hold in between, about 45 valid packages, or about 29 that all need correcting. For more in one run, give the workflow the variable `maxTransitions`, for example `2000` (see "Loops"); or raise the limit at start-up; or split the folder with the pattern, at most about 45 packages a run; or leave On hold on the FTPS step, whose every release starts the count again. A run that reaches the limit ends FAILED with "Exceeded the limit of … node transitions", and the message says how to raise it.
 - A file whose name contains `;`, a tab or a line break, or begins or ends with a blank, cannot be put in a list: the step stops and names it.
 
 **The four scripts** — `list-packages.sh`, `objunpack-precheck.sh`, `quarantine-list.sh`, `sent-list.sh`, in `scripts/` of the repository — go in the server's scripts directory, or are uploaded from the Files panel with their full path written in each step's Script field. They need bash, `tar`, `sort`, `date` and `mv`. There is no Windows version.
