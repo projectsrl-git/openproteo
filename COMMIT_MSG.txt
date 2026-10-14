@@ -1,23 +1,48 @@
-Raise the transition limit per workflow with the variable maxTransitions
+objunpack: check every package, then send the valid ones in one block
 
-orchestrator.max-transitions (500) stopped a check of 50 packages at the
-50th and could be raised only by restarting the server. The engine now
-reads the run variable maxTransitions - of the workflow, or global - at
-every entry into a run: a whole number above the configured limit raises
-it, up to 100000; a lower one leaves the configured limit; anything else
-stops the run before its next node, saying so. The audit records the
-limit used (TRANSITION_LIMIT), and the "Exceeded the limit" message now
-says how to raise it. Without the variable nothing changes.
+New template _TEMPLATE-objunpack-check-then-send.xml, no Java. A loop
+that only checks: each valid package is PREPARED - a folder in a
+staging folder with a link to the package and one to its .md5, the
+packages' folder never written - and the others go to the quarantine
+list as before. Then one ftpsend with forEach, concurrency 1: one FTPS
+session per package, the package then its .md5, each link renamed
+.sent once its file is sent and verified. sent-list.sh action=reconcile,
+at the end and at the start of the next run, records every package
+whose two files were sent; a package sent in part gets its .md5 alone;
+what was prepared and not sent is sent by the next run without being
+checked again (Fabiano's answers a-d, 2026-10-14).
 
-The objunpack templates' descriptions say how to use it; they carry no
-empty maxTransitions variable, which would hide a global one. USAGE
-(Loops) and spec .claude/MAX_TRANSITIONS_VARIABLE.md.
+- scripts/send-stage.sh (new): verdict send/correct/manual, the links,
+  the extracts handed to deleteOnSuccess only when prepared; a staging
+  folder in or under the packages' folder refused before anything is
+  created, on physical paths.
+- scripts/sent-list.sh: action reconcile; one function writes a line
+  for add and reconcile; add unchanged.
+- check-quarantine and every other template unchanged.
+- Spec OBJECT_UNPACK_EXECUTOR.md section 26, intersections U47-U57;
+  USAGE subsection; session note.
 
-Verified on Linux (JDK): Temurin 1.8.0_432 and OpenJDK 21.0.12 - the
-decision method lifted and run (21 cases, mutations), the walker on a
-template with a lowered limit, the engine by differential compilation.
-Verified on Windows: nothing.
-Not verified: the engine's loop at run time, AIX.
+MY CHOICE, flagged: sendValidPackages=false in the template (U47).
+With no hold, that variable is the only thing between a copy of the
+template and a send to PROD. Set it to true to send.
+
+Read in the code and different from what was expected: forEach splits
+on commas too without delimiter (the step sets ";"); forEach runs no
+deleteOnSuccess and drops the items' outputs; after a failure it tries
+the remaining packages (server down: each waits the connect timeout).
+
+Verified on Linux (JDK Temurin 1.8.0_432 and OpenJDK 21.0.12): scripts
+57 assertions + 8 permission cases, root and uid 65534, LANG empty and
+C.UTF-8; template walked, 484 assertions (parser, VarResolver, bash
+runner, runFtpSend and deleteOnSuccess real; node loop, fan-out,
+validate and FTPS server mine), FTP stopped at every position in three
+ways and resumed: each file once, never an .md5 before its package,
+each name once in the sent list; 45 mutations, 44 caught, 1
+equivalent, 1 suite hole closed. 900 packages: reconcile 4 s / 9 s.
+Verified on Windows: nothing (the template needs bash and links).
+Not verified: the engine itself, concurrency other than 1, a real
+FTPS server, Transarch on a half-sent package (questions in the note),
+AIX.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01HUY167c6pQG6D7P6dnBZC7
+Claude-Session: https://claude.ai/code/session_01VwVJXDQyLp3rSyjsahSds5

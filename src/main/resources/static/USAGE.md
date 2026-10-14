@@ -1749,6 +1749,35 @@ For the pair, the list is by default `objunpack-quarantine.txt` in the **shared 
 
 Everything said above about holds, the delimiters, packages left in the folder, unpacked objects and `max-transitions` applies to these too. In `_TEMPLATE-objunpack-correct-quarantined.xml` the loop variable is `packageNoString`, so the `deleteOnSuccess` of its FTPS step is `${dir.OBJUNPACK}/${runId}/${packageNoString}`. In `_TEMPLATE-objunpack-precheck-resend-all.xml` one FTPS step sends both kinds of package, so that suggestion does not apply there as written.
 
+### Check everything first, then send in one block
+
+`workflows/_TEMPLATE-objunpack-check-then-send.xml` does the work of `_TEMPLATE-objunpack-check-quarantine.xml` in another order: **first it checks every package, sending nothing; then it sends the valid ones, all together**. It is meant for a long list of packages - hundreds - on a server where a send can stop half way.
+
+**The check.** List packages, the pre-check script, the metadata check: as in the other templates. Then a new script, `send-stage.sh`, decides for each package. A package that passes is **prepared**: in the staging folder - `stagingDir`, by default `objunpack-send` in the feed's folder - it gets a folder of its own, named after the package, holding a link to the package and a link to its `.md5`. Nothing is copied, and the packages' folder is never written. The audit and the metadata extracted from it are deleted there and then: the send does not need them. A package that does not pass goes to the quarantine list, `correct` or `manual`, exactly as in the other templates, with its extracts and its validation report kept for whoever corrects it; `_TEMPLATE-objunpack-correct-quarantined.xml` works the list.
+
+**The send.** One FTPS step goes through the prepared packages one at a time, in name order: for each, one FTPS session, the package and then its `.md5`. Each file, once sent and checked with SIZE, has its link renamed with `.sent`. A last step, `sent-list.sh` with `action=reconcile`, then records in the sent list every package whose two files were sent, and removes its folder from the staging folder - the links, never the package.
+
+**If the send stops half way** - the server goes away, a transfer fails - the run ends FAILED. **Run it again as it is.** Its first step records what was sent; if something prepared is left to send, the run sends only that, **without checking it again**, and ends; the run after that checks the packages that are left. Nothing is sent twice and nothing prepared is forgotten:
+
+- a package whose `.tar` and `.md5` were both sent is recorded and not sent again;
+- a package whose `.tar` was sent and whose `.md5` was not is named as HALF SENT, and gets its `.md5` alone;
+- a package that was not sent, or whose `.tar` stopped half way, is sent again whole;
+- a prepared package that has changed since it was checked - gone, its `.md5` gone, or not the same size - is not sent: it is named, its folder removed, and the next run checks it again.
+
+After a send that stopped, run **this** template again before any other on the same packages: until its first step has run, the sent list does not name what was sent, and `_TEMPLATE-objunpack-check-quarantine.xml`, which reads the same list, would send those packages again.
+
+The FTPS step tries every package, even after one has failed: a failure on one package does not stop the others. If the server is down, each package then waits for the connect timeout of the FTPS target, 30 seconds unless changed, before failing; press **Stop** to end the run after the package in progress.
+
+**Sending is off when the template is copied.** `sendValidPackages` is `false`: the run checks, prepares and lists, and sends nothing. Set it to `true` to send. There is **no hold**: with `true`, the block is sent as soon as the check ends, without waiting for anyone. A run with `false` leaves the valid packages prepared; a later run with `true` sends them without checking them again. A run with `false` checks again what was prepared before, and leaves it as it is.
+
+**Before the first run**, besides what `_TEMPLATE-objunpack-check-quarantine.xml` needs: the five scripts - `list-packages.sh`, `objunpack-precheck.sh`, `send-stage.sh`, `quarantine-list.sh`, `sent-list.sh` - where the steps can find them (three steps use `sent-list.sh`); and a server where bash can make symbolic links, which Linux and AIX can. `stagingDir` must not be the packages' folder or inside it: the step refuses it before writing anything.
+
+**What can go wrong and stops the run, for a person to look at:** the reconcile finds a package folder in a state no send leaves - for example the link of the `.tar` not renamed and that of the `.md5` renamed, which happens only if a rename failed after a send (the FTPS step's log says `could not rename`). Nothing is recorded for it, and every run stops at its first step until the folder is put right: rename the link to say what was sent, or delete the folder to have the package checked again.
+
+**Transitions.** Eleven per run, six for each package prepared or set aside for a person, seven for each one to correct; the whole send is one. With no hold the count does not start again, so 81 valid packages fit in the default 500 and 82 do not: for more, give the workflow the variable `maxTransitions`, for example `10000` (about 1660 packages).
+
+**Time.** Measured on Linux with 900 packages: preparing a package takes a few hundredths of a second; the reconcile of 900 prepared packages 4 seconds, recording 900 sent ones 9 seconds. On a slow server give the two reconcile steps a longer timeout, as the pre-check already needs.
+
 ### While it runs
 
 The live console shows each phase as it starts — reading the archive, reading the audit and the metadata, matching every object to its metadata row, giving the objects their names, moving the result into place — and, inside the long ones, a line every five seconds: how many members have been read and how much of the archive file, how many metadata rows, how many objects matched, how many files named. A package of many small objects is slow in proportion to their **number**, not to its size: every object is one file to create and one to rename, and on a network share or under a real-time virus scanner each of those costs far more than the bytes do. While the step runs, its working folder `.objunpack-…part` in the output directory fills up; it is removed when the step ends, whatever the outcome.

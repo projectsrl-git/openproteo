@@ -1268,3 +1268,155 @@ the template descriptions.
 **Not verified:** a real send; the engine itself (the walker's loop is mine, as in §22); AIX - the
 scripts use only bash built-ins, `cut`-free reading with `IFS`, `date '+%Y-%m-%d %H:%M:%S'`,
 `dirname` and `tr`; the 50-package stop on the author's server, whose message was not seen.
+
+## 26. Check every package, then send the valid ones in one block (2026-10-14, on `96fba1b`)
+
+**The request.** Optimise `_TEMPLATE-objunpack-check-quarantine.xml` without Java: first a loop
+that only checks - the valid packages prepared for the send, the others in the quarantine list as
+today - then one send of the valid ones; and a sent list from which a send that stopped half way
+can be taken up again from the last package sent, with no package sent twice and none lost. The
+packages and their folder are never touched (the invariant of every template of this family).
+About 900 packages to send to PROD Transarch from the AIX host.
+
+**The author's answers to the four questions asked before building** (2026-10-14):
+(a) a new template, `_TEMPLATE-objunpack-check-then-send.xml`; `check-quarantine` unchanged;
+(b) the send as one `ftpsend` step with `forEach` over the prepared packages, `concurrency=1`:
+one FTPS session per package, the package and then its `.md5`;
+(c) **no hold** before the block;
+(d) after a send that stopped, the next run sends what was prepared and not sent **without
+checking it again** (a pre-check took 14.5 minutes on a slow day), and the run after that checks
+the rest.
+
+**What was read in the code before designing** (`96fba1b`), beyond what the request listed:
+
+* `runForEach` splits the list on `[;,\n]` when the step has no `delimiter`: **on commas too**. The
+  send step therefore declares `delimiter=";"`.
+* `runForEach` keeps only each item's exit code: the outputs of the items (`filesSent`,
+  `firstFailure`, ...) are dropped, `deleteOnSuccess` is **not** called (it sits in the
+  single-execution branch of `executeStep`), and `retry` is not applied. It publishes `itemsTotal`,
+  `itemsOk`, `itemsFailed`, saves the run once when the items have joined, and writes one log per
+  item, which the step's log view merges.
+* Each item resolves the step's parameters, `source` and `<send>` masks against a copy of the run
+  variables holding `item` and `itemIndex` (`runOnce` → `InternalSteps.run` → `runFtpSend`).
+* `HostFiles.renameNoReplace` is `Files.move` with no option: it moves a symbolic link itself,
+  never its target, and never onto an existing name. `JdkFtpsClient.store` reads with
+  `FileInputStream`, which follows the link. A rename that fails is a `WARNING` in the step log
+  and the step still succeeds.
+* Stop is looked at before each item and between two files; an item blocked on the network ends
+  when its timeout does (`connectTimeoutSec` 30 and `dataTimeoutSec` 300 by default, per target).
+* `LOOP` and `ENDLOOP` are node transitions like any other.
+* `Glob.matches` matches the whole name, ignoring case: `*.tar` does not match `x.tar.sent`.
+
+**What was built.**
+
+* `scripts/send-stage.sh` (new) - runs once per package after the pre-check and `validate`, and
+  decides: `send` (read, checksum verified, counts agree, no metadata check failed), `correct`
+  (the same, but a check failed), `manual` (anything else, with the pre-check's `problem` as the
+  reason). For `send` it makes `<staging>/<base>/` holding a symbolic link to the package, one to
+  its `.md5`, and `.origin` (the two paths and the package's size), built under `.new-<base>.<pid>`
+  and renamed into place. A package already prepared is left exactly as it is, `.sent` links
+  included. It publishes `verdict`, `staged`, `stagedDir`, `quarantineCategory`,
+  `quarantineReason`, and `deleteExtract` - the pre-check's folder for this package when it was
+  prepared, empty otherwise.
+* `scripts/sent-list.sh` - new action `reconcile` on a staging folder; the line of the list is now
+  written by one function used by `add` and `reconcile`; `add` is unchanged. Per package folder,
+  in name order: both links renamed `.sent` - recorded (not twice: the list is read once, at the
+  start) and the folder removed, links and `.origin` only; the package's link renamed and the
+  `.md5`'s not - HALF, still to send; neither renamed - to send, unless the package or its `.md5`
+  is gone or the package's size changed, in which case the folder is removed and the package
+  named (`unstaged`); anything else - the step stops and names the folder. A `.new-` folder left by
+  a preparation that stopped is removed. Publishes `toSendDirs` (for the `forEach`),
+  `toSendCount`, `toSendNames`, `recordedCount`, `recordedNames`, `halfCount`, `halfNames`,
+  `unstagedCount`, `unstagedNames`, `sentList`, `sentTotal`.
+* `workflows/_TEMPLATE-objunpack-check-then-send.xml` (new), 18 nodes: RECONCILE_FIRST → gate
+  RESUME_SEND (something prepared and not sent, and sending on: go to RECONCILE) → LIST → gate
+  ANY_PACKAGE → NEW_LIST → LOOP { PRECHECK → gate READABLE (no: to STAGE) → PRECHECK_CSV → STAGE
+  (`deleteOnSuccess=${STAGE.deleteExtract}`) → gate STAGED (yes: next package) → QUARANTINE } →
+  SUMMARY → RECONCILE → gate SEND_BLOCK → SEND (`ftpsend`, `forEach=${RECONCILE.toSendDirs}`,
+  `delimiter=";"`, `concurrency=1`, `source=${item}`, `renameSent=.sent`, masks `*.tar` optional,
+  `*.tar.gz` optional, `*.md5`) → RECONCILE_AFTER.
+
+No Java, no other template, no other script changed.
+
+**∩ U47 — "every new behaviour is born off" (CLAUDE.md, «Default conservativi») × "no hold"
+(answer c).** With no hold, the only thing between a copy of the template and a send to the legal
+archive is a variable. Decided: the template is delivered with `sendValidPackages=false` - a run
+checks, prepares and lists, and sends nothing - and the description, USAGE and the delivery say
+to set it to `true` to send. **This is my choice, not the author's: flagged in the delivery.**
+`check-quarantine`, which has a hold, keeps `true`.
+
+**∩ U48 — "the first failure ends the step" (`ftpsend`) × "every item is tried" (`forEach`).**
+Inside a package the rule holds: one session, the package before its `.md5`, and a failure on the
+package means its `.md5` is not attempted. Across packages it does not: after a failure the next
+packages are still tried. If the server is down, every remaining package waits for the connect
+timeout of the target - 30 s by default, so 900 packages could take 7.5 hours to fail; Stop ends it
+after the package in progress. A failure leaves at most one package half sent; several failures,
+several, each named by the next reconcile. Decided by the author (b).
+
+**∩ U49 — "recorded after the send" (∩ U41) × "a send step that fails ends the run".** The
+reconcile after the send does not run when the send fails: the reconcile at the start of the next
+run records what was sent. Until then the sent list does not name those packages, and a run of
+another template that reads the same list - `check-quarantine` by default - would send them again.
+USAGE says: after a send that stopped, run this template again before any other on those packages.
+
+**∩ U50 — "send without checking again" (answer d) × "a package can change after it was
+checked".** The reconcile that sends what was prepared checks that the package and its `.md5` are
+still there and that the package has the size recorded when it was prepared; otherwise the folder
+is removed and the next run that checks looks at the package again. A package replaced by another
+of the same size is not seen: only the checksum, verified in the check, would see it. Declared.
+
+**∩ U51 — "send what was prepared first" (answer d) × `sendValidPackages=false`.** The run goes
+straight to the send only when sending is on. In a dry run what was prepared is checked again, and
+`send-stage.sh` leaves its folder as it is: otherwise a dry run that had prepared one package would
+never check another.
+
+**∩ U52 — "delete the extracts once the package is sent" (§24, ∩ U38) × "the send comes later".**
+Here the extracts of a package are deleted when it is PREPARED: the send reads the original through
+a link and needs nothing extracted. So also in a dry run. The extracts of a package put in the list
+are kept with its validation report, as in §24 (∩ U39 stands). The deletion is the engine's
+(`deleteOnSuccess` on STAGE, resolved after the step's outputs are published), with its guard on
+the feeds base.
+
+**∩ U53 — "a link is renamed after its file is verified" × "a rename can fail with only a
+WARNING".** Package not renamed and `.md5` renamed is not a state a send leaves: the reconcile stops
+there, records nothing and names the folder; a person reads the FTPS log ("could not rename") and
+decides. Package renamed and `.md5` not, when the `.md5` had in fact been sent and only its rename
+failed, reads as HALF: the `.md5` is sent a second time, same name, same content. Not closable
+without Java.
+
+**∩ U54 — "half sent" × "what Transarch does".** The template never sends a `.md5` before its
+package. What Transarch does with a package that arrived without its `.md5`, with a package stored
+again over a truncated one, or with a `.md5` that arrives in a later session - not decidable here.
+Questions for Transarch, in the session note. The same questions apply to `check-quarantine` after
+a failed send.
+
+**∩ U55 — "the sent list" × two templates.** `check-then-send` uses the same default sent list as
+the pair, `${sharedDir}/objunpack-sent.txt`: each leaves out what the other sent. The staging folder
+is per feed (`${feedDir}/objunpack-send`): two copies of the template, two feeds, two staging
+folders.
+
+**∩ U56 — "nothing is written in the packages' folder" × "a staging folder set by hand".**
+`send-stage.sh` refuses a staging folder that is the package's folder or inside it, compared on
+physical paths (a link to that folder does not hide it), BEFORE creating anything; a staging
+folder that does not exist yet is compared from its nearest existing ancestor.
+
+**∩ U57 — transitions.** Eleven per run, six for each package prepared or set aside for a person,
+seven for one to correct; the send of the whole block is one. Without a hold the count never
+starts again: 81 valid packages fit in the default 500 (497), 82 do not; with `maxTransitions`
+10000, about 1660. Per valid package `check-quarantine` runs six steps in eleven transitions;
+here three steps in six, and the send of the whole block is one step - one transition and one
+save of the run when its items have joined.
+
+**Measured** (Linux, bash 5.2, a local disk): 900 packages - `send-stage.sh` 24 ms each,
+`reconcile` with 900 to send 4 s, with 900 to record 9 s. The bash steps' default timeout is
+`stepTimeoutMins` (5 minutes): on a slow host the reconcile of a large block should be given more,
+as the pre-check already is.
+
+**Evidence** (Linux; Temurin 1.8.0_432 and JDK 21.0.12; bash 5.2.21; GNU tar 1.35; LANG empty and
+C.UTF-8; root and uid 65534) - details in `.claude/2026-10-14-objunpack-check-then-send.md`: the
+two scripts 57 assertions plus 8 permission cases; the template walked, 484 assertions - the
+parser, `VarResolver`, the bash runner, `runFtpSend` and `deleteOnSuccess` real, the node loop,
+the fan-out and `validate` mine, the server a fake - including the FTP stopped at every position in
+three ways and taken up again; 45 mutations, 44 caught, one equivalent, one hole closed.
+**Not verified:** the engine itself; `concurrency` other than 1; a real FTPS server; AIX; Windows,
+where the template cannot run (bash, symbolic links).

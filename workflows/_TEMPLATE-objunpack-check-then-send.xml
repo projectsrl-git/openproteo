@@ -1,0 +1,97 @@
+<workflow feedId="_TEMPLATE-objunpack-check-then-send" sourceId="TEMPLATE" targetId="T2" name="Check every Transarch object package of a folder, then send the valid ones in one block">
+    <description>Template. Like _TEMPLATE-objunpack-check-quarantine, but the sending is taken out of the loop. FIRST, A LOOP OF CHECKS ONLY: a bash step lists the files of packagesDir that match packagePattern, leaving out those already in the sent list, and for each one, in name order, a script verifies the checksum and extracts only the audit and the metadata CSV, the metadata is validated against the feed dataschema, and send-stage.sh decides. A package that passes is PREPARED: a folder stagingDir/base holds a link to the package and a link to its .md5, nothing is copied, and the audit and metadata extracted from it are deleted. A package that does not pass is NOT touched: it goes to the quarantine list - correct when only its metadata needs correcting, manual otherwise - for _TEMPLATE-objunpack-correct-quarantined. THEN ONE SEND OF EVERY PREPARED PACKAGE, when sendValidPackages is true: one FTPS step goes through the prepared folders one at a time, one session per package, the package and then its .md5, and renames each link .sent once that file is sent and verified. A reconcile step (sent-list.sh) then records in the sent list every package whose two files were sent. IF THE SEND STOPS HALF WAY the run ends FAILED; run it again as it is: its first step records what was sent, and when something prepared is left to send the run sends only that, WITHOUT checking again, and ends - the following run checks the rest. A package whose .tar was sent and whose .md5 was not gets its .md5 alone. Nothing is sent twice and nothing prepared is forgotten. BEFORE THE FIRST RUN: 1) the five scripts where the steps can find them - list-packages.sh, objunpack-precheck.sh, send-stage.sh, quarantine-list.sh, sent-list.sh - in the server scripts directory, or uploaded from the Files panel with their FULL PATH in each Script field (three steps use sent-list.sh, two quarantine-list.sh); the host needs bash, tar and symbolic links; 2) packagesDir and packagePattern; 3) feedDir must hold the feed dataschema.json; 4) the delimiter of the Check package metadata step is written here as a comma and is not taken from the package: set it to the delimiter the packages use, or every package is quarantined; 5) ftpsTarget; 6) sendValidPackages is FALSE: the run checks, prepares and lists, and sends nothing. Set it to true to send. There is NO hold: with true the block is sent as soon as the checks end, without stopping. TRANSITIONS: a run takes eleven node transitions plus six for every package prepared or set aside for a person and seven for one to correct; the send of the whole block is one. Without a hold the count does not start again, so for more than about 80 packages give the workflow the variable maxTransitions (for example 10000). Nothing here changes the packages or their folder.</description>
+    <variables>
+        <var name="packagesDir" value="${landingIn}"/>
+        <var name="packagePattern" value="*.tar"/>
+        <var name="quarantineList" value="${sharedDir}/objunpack-quarantine.txt"/>
+        <var name="sentList" value="${sharedDir}/objunpack-sent.txt"/>
+        <var name="stagingDir" value="${feedDir}/objunpack-send"/>
+        <var name="sendValidPackages" value="false"/>
+        <var name="recordBusinessDate" value="record_business_date"/>
+        <var name="recordBusinessDateFormat" value="YYYYMMDD"/>
+        <var name="ftpsTarget" value="CHANGE-ME"/>
+    </variables>
+    <steps>
+        <step id="RECONCILE_FIRST" name="What the last send left" exec="bash" script="sent-list.sh">
+            <param name="action" value="reconcile"/>
+            <param name="list" value="${sentList}"/>
+            <param name="staging" value="${stagingDir}"/>
+            <param name="runId" value="${runId}"/>
+        </step>
+        <gate id="RESUME_SEND" name="Prepared and not sent: send those first?" type="auto" condition="${RECONCILE_FIRST.toSendCount} &gt; 0 &amp;&amp; ${sendValidPackages} == true" onTrue="RECONCILE" onFalse="LIST"/>
+        <step id="LIST" name="List packages" exec="bash" script="list-packages.sh">
+            <param name="dir" value="${packagesDir}"/>
+            <param name="pattern" value="${packagePattern}"/>
+            <param name="onEmpty" value="ok"/>
+            <param name="skipList" value="${sentList}"/>
+        </step>
+        <gate id="ANY_PACKAGE" name="Any package?" type="auto" condition="${LIST.packageCount} &gt; 0" onTrue="NEW_LIST" onFalse="END:SKIPPED"/>
+        <step id="NEW_LIST" name="Start the quarantine list" exec="bash" script="quarantine-list.sh">
+            <param name="action" value="new"/>
+            <param name="list" value="${quarantineList}"/>
+            <param name="runId" value="${runId}"/>
+        </step>
+        <loop id="EACH_PACKAGE" name="For each package" over="${LIST.packages}" delimiter=";" itemVar="package" indexVar="packageNo" indexStringVar="packageNoString" indexPad="3" countVar="packageTotal"/>
+            <step id="PRECHECK" name="Look inside the package" exec="bash" script="objunpack-precheck.sh">
+                <param name="archive" value="${package}"/>
+                <param name="outputDir" value="${stepDir}/${runId}/${packageNoString}"/>
+                <param name="md5Check" value="require"/>
+                <param name="countMembers" value="yes"/>
+                <param name="onRefusal" value="report"/>
+            </step>
+            <gate id="READABLE" name="Readable, verified and coherent?" type="auto" condition="${PRECHECK.packageReadable} == true &amp;&amp; ${PRECHECK.md5Checked} == true &amp;&amp; ${PRECHECK.packageCoherent} == true" onTrue="PRECHECK_CSV" onFalse="STAGE"/>
+            <step id="PRECHECK_CSV" name="Check package metadata" exec="validate" source="${PRECHECK.metadataCsv}" delimiter="," checks="rowCount,colCount,notNull,jsonSchema,noQuotes,colNames">
+                <param name="expectedRows" value="${PRECHECK.expectedRecords}"/>
+                <param name="dataschema" value="${feedDir}/dataschema.json"/>
+                <param name="dateFormat" value="${recordBusinessDateFormat}"/>
+                <param name="businessDateColumn" value="${recordBusinessDate}"/>
+                <param name="onFailedChecks" value="continue"/>
+            </step>
+            <step id="STAGE" name="Prepare for the send, or say why not" exec="bash" script="send-stage.sh">
+                <param name="staging" value="${stagingDir}"/>
+                <param name="package" value="${package}"/>
+                <param name="readable" value="${PRECHECK.packageReadable}"/>
+                <param name="md5Checked" value="${PRECHECK.md5Checked}"/>
+                <param name="coherent" value="${PRECHECK.packageCoherent}"/>
+                <param name="problem" value="${PRECHECK.problem}"/>
+                <param name="checksFailed" value="${PRECHECK_CSV.checksFailed}"/>
+                <param name="checksTotal" value="${PRECHECK_CSV.checksTotal}"/>
+                <param name="extractDir" value="${dir.PRECHECK}/${runId}/${packageNoString}"/>
+                <param name="deleteOnSuccess" value="${STAGE.deleteExtract}"/>
+                <param name="deleteOnSuccessType" value="directory"/>
+            </step>
+            <gate id="STAGED" name="Prepared: next package" type="auto" condition="${STAGE.staged} == true" onTrue="END_EACH_PACKAGE" onFalse="QUARANTINE"/>
+            <step id="QUARANTINE" name="Add to the quarantine list" exec="bash" script="quarantine-list.sh">
+                <param name="action" value="add"/>
+                <param name="list" value="${quarantineList}"/>
+                <param name="category" value="${STAGE.quarantineCategory}"/>
+                <param name="package" value="${package}"/>
+                <param name="reason" value="${STAGE.quarantineReason}"/>
+            </step>
+        <endloop id="END_EACH_PACKAGE"/>
+        <step id="SUMMARY" name="Quarantine list: the counts" exec="bash" script="quarantine-list.sh">
+            <param name="action" value="summary"/>
+            <param name="list" value="${quarantineList}"/>
+        </step>
+        <step id="RECONCILE" name="What is prepared to send" exec="bash" script="sent-list.sh">
+            <param name="action" value="reconcile"/>
+            <param name="list" value="${sentList}"/>
+            <param name="staging" value="${stagingDir}"/>
+            <param name="runId" value="${runId}"/>
+        </step>
+        <gate id="SEND_BLOCK" name="Send the block?" type="auto" condition="${sendValidPackages} == true &amp;&amp; ${RECONCILE.toSendCount} &gt; 0" onTrue="SEND" onFalse="END:SUCCESS"/>
+        <step id="SEND" name="FTPS Send every prepared package" exec="ftpsend" source="${item}" forEach="${RECONCILE.toSendDirs}" delimiter=";" concurrency="1">
+            <param name="target" value="${ftpsTarget}"/>
+            <param name="renameSent" value=".sent"/>
+            <send pattern="*.tar" optional="true"/>
+            <send pattern="*.tar.gz" optional="true"/>
+            <send pattern="*.md5"/>
+        </step>
+        <step id="RECONCILE_AFTER" name="Record what was sent" exec="bash" script="sent-list.sh">
+            <param name="action" value="reconcile"/>
+            <param name="list" value="${sentList}"/>
+            <param name="staging" value="${stagingDir}"/>
+            <param name="runId" value="${runId}"/>
+        </step>
+    </steps>
+</workflow>
