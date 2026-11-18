@@ -1,48 +1,26 @@
-objunpack: check every package, then send the valid ones in one block
+Spec: headless artifact and command-line control channel (H0)
 
-New template _TEMPLATE-objunpack-check-then-send.xml, no Java. A loop
-that only checks: each valid package is PREPARED - a folder in a
-staging folder with a link to the package and one to its .md5, the
-packages' folder never written - and the others go to the quarantine
-list as before. Then one ftpsend with forEach, concurrency 1: one FTPS
-session per package, the package then its .md5, each link renamed
-.sent once its file is sent and verified. sent-list.sh action=reconcile,
-at the end and at the start of the next run, records every package
-whose two files were sent; a package sent in part gets its .md5 alone;
-what was prepared and not sent is sent by the next run without being
-checked again (Fabiano's answers a-d, 2026-10-14).
+Spec only, no code. .claude/HEADLESS.md (r4) designs a third artifact,
+openproteo-headless.war, with no web server in it, and a CLI that drives
+the single engine through a file-based control directory: inbox, work,
+outbox. The user recorded for a CLI action is the OS owner of the request
+file, so access control becomes the server's own logon (two-factor at
+UBS) plus the ACL of the inbox.
 
-- scripts/send-stage.sh (new): verdict send/correct/manual, the links,
-  the extracts handed to deleteOnSuccess only when prepared; a staging
-  folder in or under the packages' folder refused before anything is
-  created, on physical paths.
-- scripts/sent-list.sh: action reconcile; one function writes a line
-  for add and reconcile; add unchanged.
-- check-quarantine and every other template unchanged.
-- Spec OBJECT_UNPACK_EXECUTOR.md section 26, intersections U47-U57;
-  USAGE subsection; session note.
+Decided with the author: one engine plus a file channel rather than a JVM
+per command (the engine, the run-id counter and the audit chain tail are
+all per-JVM state); reads go through the channel too; instance settings
+are saved in <workflowsDir>/openproteo-instance.json and written from the
+Platform page; personal accounts only; run variables are audited as name
+and value; a world-writable inbox switches the channel off; the engine
+lock belongs to the headless artifact only; the setup GUI may be bound to
+loopback, with a Host/Origin filter.
 
-MY CHOICE, flagged: sendValidPackages=false in the template (U47).
-With no hold, that variable is the only thing between a copy of the
-template and a send to PROD. Set it to true to send.
+Still open, neither changes the design: Q6 (CLI client copied beside
+Tomcat) and Q7 (is a browser available on the server).
 
-Read in the code and different from what was expected: forEach splits
-on commas too without delimiter (the step sets ";"); forEach runs no
-deleteOnSuccess and drops the items' outputs; after a failure it tries
-the remaining packages (server down: each waits the connect timeout).
-
-Verified on Linux (JDK Temurin 1.8.0_432 and OpenJDK 21.0.12): scripts
-57 assertions + 8 permission cases, root and uid 65534, LANG empty and
-C.UTF-8; template walked, 484 assertions (parser, VarResolver, bash
-runner, runFtpSend and deleteOnSuccess real; node loop, fan-out,
-validate and FTPS server mine), FTP stopped at every position in three
-ways and resumed: each file once, never an .md5 before its package,
-each name once in the sent list; 45 mutations, 44 caught, 1
-equivalent, 1 suite hole closed. 900 packages: reconcile 4 s / 9 s.
-Verified on Windows: nothing (the template needs bash and links).
-Not verified: the engine itself, concurrency other than 1, a real
-FTPS server, Transarch on a half-sent package (questions in the note),
-AIX.
+Verified on Linux: nothing (spec only).
+Verified on Windows: nothing (spec only).
+Not verified on either: everything; plan per batch in section 11.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01VwVJXDQyLp3rSyjsahSds5
