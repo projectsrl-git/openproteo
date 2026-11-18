@@ -26,6 +26,27 @@
     <p class="page-sub" id="platMsg">Loading&hellip;</p>
     <div id="plat"></div>
 
+    <h2>Command-line control</h2>
+    <p class="page-sub">The command line (<span class="mono">openproteo-headless.war cli</span>) drives this instance
+        through a <b>control directory</b> on this server: it starts, stops and approves runs, and reads their status
+        and logs, without a page and without HTTP. Whoever may create files in its <span class="mono">inbox</span>
+        folder may do all of that, and is recorded in the audit under their own Windows or Linux account. The folder is
+        not created here: create it with <span class="mono">inbox</span> and <span class="mono">outbox</span> inside and
+        the permissions described in the documentation. A saved value applies at the <b>next start</b>.</p>
+    <div class="panel">
+        <table id="ctlTable"></table>
+        <div class="form-row">
+            <div class="field wide">
+                <label for="ctlDir">Control directory (absolute path; empty = no command line)</label>
+                <input id="ctlDir" type="text" spellcheck="false">
+            </div>
+        </div>
+        <div style="padding:0 16px 14px 16px">
+            <button class="btn sm" id="ctlSaveBtn" onclick="saveControl()">Save for the next start</button>
+            <span class="dim" id="ctlMsg"></span>
+        </div>
+    </div>
+
     <h2>Diagnostic snapshots</h2>
     <p class="page-sub">A snapshot is a text file that says what the engine is doing, how busy the Java runtime and the
         host are, how fast the disk answers, and where every thread is. One is taken <b>automatically</b> when a run is
@@ -212,6 +233,54 @@
     }
     function probeAgain() { load('POST', 'api/platform/case-probe'); }
     load('GET', 'api/platform');
+
+    /* ---- command-line control (.claude/HEADLESS.md 4.4) ---- */
+    function renderControl(d) {
+        var t = document.getElementById('ctlTable');
+        if (!d || d.ok !== true) { t.innerHTML = kv('State', chip('FAILED', 'unknown') + ' <span class="dim">The state could not be read.</span>'); return; }
+        var state = d.state === 'SERVING' ? chip('SUCCESS', 'serving') : chip('SKIPPED', 'off');
+        var h = kv('State now', state + ' <span class="dim" id="ctlReason">' + esc(d.reason) + '</span>');
+        h += kv('Control directory now', d.controlDir ? mono(d.controlDir) + ' <span class="dim">from ' + esc(d.source) + '</span>' : '<span class="dim">not set</span>');
+        var saved = d.savedControlDir;
+        var next = saved === null || saved === undefined ? '<span class="dim">nothing saved here</span>'
+            : (saved === '' ? '<span class="dim">empty: no command line</span>' : mono(saved));
+        if (d.overriddenBy) next += ' <span class="dim" id="ctlOverridden">Has no effect: the ' + esc(d.overriddenBy) + ' sets the value, and wins.</span>';
+        else if (d.restartNeeded === true) next += ' ' + chip('ON_HOLD', 'restart needed');
+        h += kv('Saved for the next start', next);
+        if (d.settingsError) h += kv('Settings file error', chip('FAILED', 'unreadable') + ' <span class="dim">' + esc(d.settingsError) + '</span>');
+        h += kv('Settings file', mono(d.settingsFile || ''));
+        t.innerHTML = h;
+        var inp = document.getElementById('ctlDir');
+        if (document.activeElement !== inp) inp.value = saved !== null && saved !== undefined ? saved : (d.controlDir || '');
+    }
+    function loadControl() {
+        fetch(CTX + 'api/control', { credentials: 'same-origin' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { renderControl(d); })
+            .catch(function () { renderControl(null); });
+    }
+    function saveControl() {
+        var v = document.getElementById('ctlDir').value.trim();
+        var msg = document.getElementById('ctlMsg');
+        var text = v === ''
+            ? 'Save an empty control directory? From the next start the command line will not be available.'
+            : 'Save ' + v + ' as the control directory? It applies at the next start of OpenProteo. Anyone who may create files in its inbox folder will be able to run, stop and approve every workflow.';
+        opConfirm(text, function () {
+            msg.textContent = 'Saving...';
+            fetch(CTX + 'api/control/settings', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ controlDir: v })
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                    msg.textContent = d && d.ok === true ? 'Saved: it applies at the next start.' : ((d && d.error) || 'Not saved.');
+                    if (d && d.ok === true) renderControl(d);
+                })
+                .catch(function (e) { msg.textContent = 'Not saved: ' + (e && e.message ? e.message : e); });
+        }, { title: 'Command-line control', okText: 'Save', danger: true });
+    }
+    loadControl();
 
     /* ---- diagnostic snapshots ---- */
     function renderDiag(d) {

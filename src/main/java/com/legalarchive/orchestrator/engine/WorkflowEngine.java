@@ -155,25 +155,41 @@ public class WorkflowEngine {
 
     /** Avvia un run. Ritorna il run creato, o null se il feed ha gia' un run attivo. */
     public WorkflowRun start(String feedId, String trigger, String user) {
+        return start(feedId, trigger, user, null, null);
+    }
+
+    /**
+     * Starts a run with variables for this run only, and extra audit details (spec
+     * {@code .claude/HEADLESS.md} section 6.4). The three-argument form passes nulls, and with
+     * nulls this method does and audits exactly what it did before the overload existed.
+     *
+     * @param overrides variables set as if written in the workflow's Variables, for this run;
+     *                  a reserved name is refused with {@link InvalidVariablesException} before
+     *                  anything is written
+     * @param auditExtra details appended to the RUN_QUEUED / RUN_REJECTED line of this call
+     */
+    public WorkflowRun start(String feedId, String trigger, String user,
+                             Map<String, String> overrides, Map<String, String> auditExtra) {
         WorkflowDef def = registry.get(feedId);
         FeedLayout layout = registry.layout(feedId);
         if (def == null || layout == null) {
             throw new IllegalArgumentException("Unknown workflow: " + feedId);
         }
+        checkOverrides(layout, overrides);
         synchronized (this) {
             if (def.locked) {
                 log.warn("[{}] avvio rifiutato ({}): feed bloccato (manutenzione)", feedId, trigger);
                 auditFeed(layout, feedId, null, null, "RUN_REJECTED", user,
-                        kv("reason", "feed is locked for maintenance", "trigger", trigger));
+                        with(kv("reason", "feed is locked for maintenance", "trigger", trigger), auditExtra));
                 return null;
             }
             if (runningFeeds.containsKey(feedId)) {
                 log.warn("[{}] avvio rifiutato ({}): run gia' attivo {}", feedId, trigger, runningFeeds.get(feedId));
                 auditFeed(layout, feedId, null, null, "RUN_REJECTED", user,
-                        kv("reason", "a run is already active: " + runningFeeds.get(feedId), "trigger", trigger));
+                        with(kv("reason", "a run is already active: " + runningFeeds.get(feedId), "trigger", trigger), auditExtra));
                 return null;
             }
-            WorkflowRun run = buildRun(def, layout, trigger, user);
+            WorkflowRun run = buildRun(def, layout, trigger, user, overrides);
             run.status = RunStatus.QUEUED;          // in coda FIFO finche' il worker non lo preleva
             runningFeeds.put(feedId, run.runId);
             activeRuns.put(run.runId, run);
@@ -181,7 +197,7 @@ public class WorkflowEngine {
             store.save(layout, run);
             log.info("[{}] RUN_QUEUED {} trigger={} user={}", feedId, run.runId, trigger, user);
             auditFeed(layout, feedId, run.runId, null, "RUN_QUEUED", user,
-                    kv("trigger", trigger, "workflow", def.name));
+                    with(kv("trigger", trigger, "workflow", def.name), auditExtra));
             enqueue(run.runId, () -> loop(def, layout, run, 0));
             return run;
         }
@@ -207,7 +223,7 @@ public class WorkflowEngine {
                     + "). Wait for it to finish before testing a step on the same feed.");
         }
 
-        final WorkflowRun run = buildRun(def, layout, "TEST", user);
+        final WorkflowRun run = buildRun(def, layout, "TEST", user, null);
         LocalDateTime now = LocalDateTime.now();
         run.runId = def.feedId + "_test_" + now.format(ID_TS) + "_" + String.format("%03d", seq.incrementAndGet() % 1000);
         run.vars.put("runId", run.runId);
@@ -265,7 +281,7 @@ public class WorkflowEngine {
         java.util.Set<String> planIds = new java.util.HashSet<String>();
         for (StepDef s : plan) planIds.add(s.id);
 
-        final WorkflowRun run = buildRun(def, layout, "TEST", user);
+        final WorkflowRun run = buildRun(def, layout, "TEST", user, null);
         LocalDateTime now = LocalDateTime.now();
         run.runId = def.feedId + "_test_" + now.format(ID_TS) + "_" + String.format("%03d", seq.incrementAndGet() % 1000);
         run.vars.put("runId", run.runId);
@@ -324,6 +340,12 @@ public class WorkflowEngine {
 
     /** Decisione su un gate manuale in attesa: riprende il run. */
     public boolean decide(String feedId, String runId, boolean approve, String user, String note) {
+        return decide(feedId, runId, approve, user, note, null);
+    }
+
+    /** As {@link #decide(String, String, boolean, String, String)}, with extra details on the GATE_DECISION line. */
+    public boolean decide(String feedId, String runId, boolean approve, String user, String note,
+                          Map<String, String> auditExtra) {
         WorkflowDef def = registry.get(feedId);
         FeedLayout layout = registry.layout(feedId);
         if (def == null || layout == null) return false;
@@ -347,7 +369,7 @@ public class WorkflowEngine {
         }
         log.info("[{}] GATE_DECISION {} gate={} decision={} user={}", feedId, runId, gate.id, approve ? "APPROVE" : "REJECT", user);
         auditFeed(layout, feedId, runId, gate.id, "GATE_DECISION", user,
-                kv("decision", approve ? "APPROVE" : "REJECT", "note", note == null ? "" : note));
+                with(kv("decision", approve ? "APPROVE" : "REJECT", "note", note == null ? "" : note), auditExtra));
 
         run.waitingGateId = null;
         run.status = RunStatus.QUEUED;          // rientra in coda FIFO
@@ -364,6 +386,11 @@ public class WorkflowEngine {
 
     /** Resume a run paused ON HOLD: execute the held step (without re-holding) and continue. */
     public boolean resumeHold(String feedId, String runId, String user) {
+        return resumeHold(feedId, runId, user, null);
+    }
+
+    /** As {@link #resumeHold(String, String, String)}, with extra details on the RUN_RESUMED line. */
+    public boolean resumeHold(String feedId, String runId, String user, Map<String, String> auditExtra) {
         WorkflowDef def = registry.get(feedId);
         FeedLayout layout = registry.layout(feedId);
         if (def == null || layout == null) return false;
@@ -374,7 +401,7 @@ public class WorkflowEngine {
         if (active != null && !active.equals(runId)) return false;
 
         log.info("[{}] RUN_RESUMED {} from on-hold step={} user={}", feedId, runId, run.onHoldStepId, user);
-        auditFeed(layout, feedId, runId, run.onHoldStepId, "RUN_RESUMED", user, kv("step", run.onHoldStepId));
+        auditFeed(layout, feedId, runId, run.onHoldStepId, "RUN_RESUMED", user, with(kv("step", run.onHoldStepId), auditExtra));
 
         run.releasedHold = run.onHoldStepId;   // execute the held step this time, don't re-hold
         run.onHoldStepId = null;
@@ -462,6 +489,11 @@ public class WorkflowEngine {
      * viene chiuso direttamente come ABORTED.
      */
     public boolean stop(String feedId, String runId, String user) {
+        return stop(feedId, runId, user, null);
+    }
+
+    /** As {@link #stop(String, String, String)}, with extra details on the RUN_STOP_REQUESTED / RUN_FORCE_STOPPED lines. */
+    public boolean stop(String feedId, String runId, String user, Map<String, String> auditExtra) {
         WorkflowDef def = registry.get(feedId);
         FeedLayout layout = registry.layout(feedId);
         if (def == null || layout == null) return false;
@@ -473,7 +505,7 @@ public class WorkflowEngine {
         boolean repeatStop = c != null && c.aborted;   // a Stop was already requested for this run
         if (c != null) c.aborted = true;
         log.info("[{}] STOP requested for {} by {}", feedId, runId, user);
-        auditFeed(layout, feedId, runId, null, "RUN_STOP_REQUESTED", user, null);
+        auditFeed(layout, feedId, runId, null, "RUN_STOP_REQUESTED", user, with(null, auditExtra));
 
         if (run.status == RunStatus.WAITING_APPROVAL || run.status == RunStatus.ON_HOLD) {
             run.waitingGateId = null;
@@ -506,7 +538,7 @@ public class WorkflowEngine {
         // now and abandon the worker, so the UI/Operations don't stay stuck on RUNNING forever.
         if (repeatStop && !isTerminal(run.status)) {
             log.warn("[{}] FORCE stop {} (repeat request): finalising ABORTED, worker thread abandoned", feedId, runId);
-            auditFeed(layout, feedId, runId, null, "RUN_FORCE_STOPPED", user, null);
+            auditFeed(layout, feedId, runId, null, "RUN_FORCE_STOPPED", user, with(null, auditExtra));
             finish(def, layout, run, RunStatus.ABORTED, "Force-stopped by " + user);
         }
         return true;
@@ -529,7 +561,8 @@ public class WorkflowEngine {
 
     // ------------------------------------------------------------------ core
 
-    private WorkflowRun buildRun(WorkflowDef def, FeedLayout layout, String trigger, String user) {
+    private WorkflowRun buildRun(WorkflowDef def, FeedLayout layout, String trigger, String user,
+                                 Map<String, String> overrides) {
         WorkflowRun run = new WorkflowRun();
         LocalDateTime now = LocalDateTime.now();
         run.runId = def.feedId + "_" + now.format(ID_TS) + "_" + String.format("%03d", seq.incrementAndGet() % 1000);
@@ -554,6 +587,7 @@ public class WorkflowEngine {
         run.vars.putAll(layout.dirVars());
         run.vars.put("sharedDir", assets.sharedDir().toString());   // app-level shared files dir
         run.vars.putAll(def.variables);
+        if (overrides != null) run.vars.putAll(overrides);   // run variables from the CLI: as if in def.variables, this run only
         run.vars.putAll(assets.scriptVars(def.feedId)); // alias degli script caricati (app + feed)
 
         for (NodeDef n : def.nodes) {
@@ -1262,6 +1296,49 @@ public class WorkflowEngine {
     private void auditFeed(FeedLayout layout, String feedId, String runId, String node,
                            String event, String user, Map<String, String> details) {
         audit.log(layout.auditFile(), feedId, runId, node, event, user, details);
+    }
+
+    /**
+     * The details of an audit line, plus the extra details of the caller. Without extras it returns
+     * {@code base} itself, null included, so a call from the GUI writes the line it always wrote.
+     */
+    static Map<String, String> with(Map<String, String> base, Map<String, String> extra) {
+        if (extra == null || extra.isEmpty()) return base;
+        Map<String, String> m = new LinkedHashMap<String, String>();
+        if (base != null) m.putAll(base);
+        m.putAll(extra);
+        return m;
+    }
+
+    /** Names OpenProteo sets for every run; a run variable from the CLI may not replace them (HEADLESS.md 6.4). */
+    public static final java.util.Set<String> RESERVED_VARS = java.util.Collections.unmodifiableSet(
+            new java.util.LinkedHashSet<String>(java.util.Arrays.asList(
+                    "runId", "feedId", "parentId", "sourceId", "targetId", "__prod",
+                    "feedName", "runDate", "runTs", "sharedDir")));
+
+    /** A run variable that cannot be accepted. Thrown before anything is written or audited. */
+    public static class InvalidVariablesException extends IllegalArgumentException {
+        private static final long serialVersionUID = 1L;
+        public InvalidVariablesException(String message) { super(message); }
+    }
+
+    static void checkOverrides(FeedLayout layout, Map<String, String> overrides) {
+        if (overrides == null || overrides.isEmpty()) return;
+        java.util.Set<String> dirVars = layout.dirVars().keySet();
+        for (Map.Entry<String, String> e : overrides.entrySet()) {
+            String n = e.getKey();
+            if (n == null || !n.matches("[A-Za-z0-9_.-]+")) {
+                throw new InvalidVariablesException("Invalid variable name '" + n
+                        + "': only letters, digits, '_', '.' and '-' are allowed");
+            }
+            if (RESERVED_VARS.contains(n) || dirVars.contains(n) || n.startsWith("dir.")) {
+                throw new InvalidVariablesException("Variable '" + n
+                        + "' is reserved: OpenProteo sets it for every run");
+            }
+            if (e.getValue() == null) {
+                throw new InvalidVariablesException("Variable '" + n + "' has no value");
+            }
+        }
     }
 
     private static Map<String, String> kv(String... pairs) {

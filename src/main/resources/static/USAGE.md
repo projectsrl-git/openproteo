@@ -672,6 +672,79 @@ In the CSV view, the free-text filter and the FROM/TO range filters also apply t
 
 Deleting a run removes its record, its step logs and its step working directories, and the run disappears from the run history. The **audit trail is deliberately kept**: the events of that run (including the deletion itself) remain in the audit log for compliance, they are simply no longer listed as a run.
 
+## Command-line control
+
+OpenProteo can be driven from the command line on the server, without a page and without HTTP: start a run (with variables), wait for it, read its status and step logs, stop it, approve or reject a manual gate, release a hold. The command line talks to the running instance through a **control directory**. It never starts a second engine, never reads the configuration, and never touches a feed directory or a secret. Setup stays in the GUI: the command line changes no workflow and no setting.
+
+This is the first half of headless operation (`.claude/HEADLESS.md`). The second half, an artifact that runs the engine with no web server at all, comes with batch H2. Until then the command line works beside the GUI, against the same engine.
+
+### Who may use it, and how they are recorded
+
+Whoever may **create files in the inbox** of the control directory may run, stop and approve every workflow, and read run statuses and step logs. The inbox's permissions are therefore the authorisation. The user recorded in the run and in the audit is the **operating-system owner** of the request file, for example `CORP\jdoe` on Windows or `jdoe` on Linux: the system sets it, and a non-administrator cannot change it. Use personal accounts. A shared account makes every action look like that account's.
+
+If administrators of a Windows server create the requests, check the local policy *"System objects: Default owner for objects created by members of the Administrators group"*. When it is set to *Administrators group*, their requests are owned by `BUILTIN\Administrators`. The audit then shows that group, and the person appears beside it as `declaredUser`.
+
+### Setting it up
+
+1. On a **local disk** of the server (not a network share), create the control directory with two folders inside, `inbox` and `outbox`. The instance creates `work`, `instance.json` and `instance.lock` itself.
+2. Give the folders their permissions. The instance's service account needs full control of everything. The operators need:
+   * `inbox`: create files. Never `Everyone`, `Users` or `Authenticated Users`: if one of them may create files there, **the instance keeps the channel off** and the Platform page says why. On Linux use an operators group and mode `1730` on `inbox`; the sticky bit lets each person withdraw only their own requests.
+   * `outbox`: read.
+   * the control directory itself: read (the command line reads `instance.json`).
+
+   Do not expose the disk through a file share (including `C$`): a share lets someone write into the inbox without logging on to the server.
+3. On the **Platform** page, under *Command-line control*, enter the absolute path and save. The value goes into `openproteo-instance.json` in the workflows directory and **applies at the next start**. A value given on the command line, as a Java system property or as an environment variable wins over it, and the page says so. One instance per control directory: a second one finds it taken, leaves it alone and says which instance holds it.
+4. Restart OpenProteo. The Platform page shows *serving*.
+5. On the server, put `openproteo-headless.war` and `tools/openproteo.cmd` (Windows) or `tools/openproteo.sh` (Linux) of the **same build** in one folder, and set `OPENPROTEO_CONTROL` to the control directory. On a Tomcat server too: the plain `openproteo.war` cannot run a command.
+
+### Commands
+
+```
+openproteo ping                                       is the instance serving? who am I recorded as?
+openproteo feeds                                      workflows, last run, cron
+openproteo runs <feedId> [--limit N]
+openproteo status <feedId> <runId>
+openproteo log <feedId> <runId> [<stepId>] [--tail N] [--follow]
+openproteo run <feedId> [--var name=value]... [--wait]
+openproteo wait <feedId> <runId>
+openproteo stop <feedId> <runId>                      a second stop force-stops, as in the GUI
+openproteo approve|reject <feedId> <runId> [--note text]
+openproteo resume <feedId> <runId>
+openproteo reload                                     as the Reload button
+openproteo audit-verify <feedId>
+```
+
+`--json` prints the data as JSON. `--control <dir>` overrides `OPENPROTEO_CONTROL`.
+
+`run` returns as soon as the run is queued and prints its id. With `--wait` it waits, and its exit code is the run's. `--var name=value` sets a variable for that run only, as if it were written in the workflow's Variables. The names OpenProteo sets for every run (`runId`, `feedId`, `parentId`, `sourceId`, `targetId`, `feedName`, `runDate`, `runTs`, `sharedDir`, `feedDir`, `landingIn`, `landingOut`, `logDir`, `dir.*`, `__prod`) are refused. Run variables are **configuration, never personal data**: their names and values are written in the run's audit line.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | done; with `--wait` / `wait`: the run ended SUCCESS |
+| 1 | the run ended FAILED (and `audit-verify`: the chain is broken) |
+| 2 | usage error |
+| 3 / 4 | the run is paused: waiting for approval / on hold |
+| 5 / 6 / 7 | the run ended REJECTED / ABORTED / SKIPPED |
+| 10 | unknown workflow or run |
+| 11 | the workflow is locked for maintenance |
+| 12 | conflict: a run is already active, the run is not waiting, it has already ended... |
+| 13 | a variable is reserved or malformed |
+| 20 | no instance is serving the control directory, or it did not take the request within 30 s (the request is then withdrawn, never executed) |
+| 21 | the request waited more than 120 s and was refused, not executed |
+| 22 | the command line and the instance are from incompatible builds |
+| 23 | the instance failed while executing the request |
+| 30 | local error: control directory missing, inbox not writable for you |
+
+A scheduler script can branch on the range: 0-9 is the run, 10-19 a refusal, 20-29 the channel, 30 this machine.
+
+### What is the same as in the GUI, and what is not
+
+A run started from the command line is the run the Run button would have started: same queue, same parallel limit, same files, same audit events. The audit lines of a command-line request carry three more details: `channel=cli`, `request=<id>` and, on `RUN_QUEUED`, `var.<name>`. Lines written from the GUI are unchanged. Step-by-step tests stay in the GUI.
+
+The instance has to be running: between restarts nothing answers, and the command line says so. The application log records each request (command, workflow, run, user, exit code), never variable values.
+
 ## Platform diagnostics
 
 The **Platform** page (button on the dashboard, after Docs) shows what this instance thinks its host is: the operating system and the Java runtime, where the configured paths really point, which interpreters it can find, and whether file names are case-sensitive in the feed base directory.

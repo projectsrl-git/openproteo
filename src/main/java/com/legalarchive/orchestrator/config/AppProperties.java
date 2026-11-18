@@ -23,6 +23,14 @@ public class AppProperties {
     private String defaultBaseDir = "./feeds";
 
     /**
+     * Control directory of the command line (spec .claude/HEADLESS.md). Empty = no control channel.
+     * Set from the Platform page into openproteo-instance.json; applies at the next start.
+     */
+    private String controlDir = "";
+    public String getControlDir() { return controlDir; }
+    public void setControlDir(String v) { this.controlDir = v; }
+
+    /**
      * PowerShell executable. NOT set in the bundled application.properties, so that when nobody
      * configures it the default can follow the host: powershell.exe on Windows, pwsh elsewhere
      * (powershell.exe cannot start on Linux). An explicit value always wins and is never changed.

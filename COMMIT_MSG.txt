@@ -1,26 +1,46 @@
-Spec: headless artifact and command-line control channel (H0)
+Headless H1: command-line control channel and openproteo-headless.war
 
-Spec only, no code. .claude/HEADLESS.md (r4) designs a third artifact,
-openproteo-headless.war, with no web server in it, and a CLI that drives
-the single engine through a file-based control directory: inbox, work,
-outbox. The user recorded for a CLI action is the OS owner of the request
-file, so access control becomes the server's own logon (two-factor at
-UBS) plus the ACL of the inbox.
+OpenProteo can be driven from the command line on the server through a
+control directory (.claude/HEADLESS.md, section 13). The CLI writes a
+request into inbox/, the running instance claims it by rename, executes
+it through the same engine calls as the GUI buttons, and answers in
+outbox/. One engine, so the FIFO, the audit chain and the run files keep
+a single writer. The user recorded is the OS owner of the request file;
+a different declared identity is kept as declaredUser.
 
-Decided with the author: one engine plus a file channel rather than a JVM
-per command (the engine, the run-id counter and the audit chain tail are
-all per-JVM state); reads go through the channel too; instance settings
-are saved in <workflowsDir>/openproteo-instance.json and written from the
-Platform page; personal accounts only; run variables are audited as name
-and value; a world-writable inbox switches the channel off; the engine
-lock belongs to the headless artifact only; the setup GUI may be bound to
-loopback, with a Host/Origin filter.
+Commands: ping, feeds, runs, status, log (--tail, --follow), run (--var,
+--wait), wait, stop, approve, reject, resume, reload, audit-verify. Exit
+codes: 0-9 the run, 10-19 refusals, 20-29 the channel, 30 local; code 23
+added for an instance failure.
 
-Still open, neither changes the design: Q6 (CLI client copied beside
-Tomcat) and Q7 (is a browser available on the server).
+- WorkflowEngine: start() with run variables (reserved names refused)
+  and audit extras; stop/decide/resumeHold with audit extras. The old
+  signatures delegate with nulls: GUI and cron audit lines unchanged.
+- control/: protocol, channel (lock, heartbeat, claim, 120 s expiry,
+  inbox open to everyone => channel off), engine backend, service.
+- openproteo-instance.json in the workflows dir, written from the new
+  Platform block, applied at the next start by an
+  EnvironmentPostProcessor; above application.properties, below the
+  command line, system properties and environment.
+- Third artifact openproteo-headless.war: second repackage without
+  org.apache.tomcat.embed, Start-Class HeadlessApplication; in H1 it
+  runs the client only. tools/openproteo.cmd and .sh wrappers.
+- USAGE.md section "Command-line control"; CLAUDE.md: three artifacts.
 
-Verified on Linux: nothing (spec only).
-Verified on Windows: nothing (spec only).
-Not verified on either: everything; plan per batch in section 11.
+No new file-only key: orchestrator.control-dir is set from the Platform
+page and applies at restart.
+
+Verified on Linux: nothing (no Linux machine reachable).
+Verified on Windows: Windows 11, Zulu OpenJDK 1.8.0_362, artifacts from
+mvn clean package run for real: every command, refusal and exit code,
+hand-made/expired/malformed requests, owner identity and declaredUser,
+withdrawal with no instance, instance lock, open inbox => channel off,
+Platform block in the browser, .cmd wrapper. Details in section 13.3.
+Not verified on either: Linux; a second account; the Windows
+Administrators-owner policy; the plain WAR under Tomcat; a clean stop;
+scan_platform_whitelist.js (no node).
+
+Observed: two instances started on the same feed directory broke the
+audit chain at start-up (duplicate seq), the Q10 residual risk.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

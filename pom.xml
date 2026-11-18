@@ -111,6 +111,18 @@
                     <execution>
                         <goals><goal>repackage</goal></goals>
                     </execution>
+                    <!-- Third artifact (.claude/HEADLESS.md section 4.2):
+                           target/openproteo-headless.war   no embedded Tomcat, no servlet API;
+                         its own main class. In H1 it runs the command-line client only. -->
+                    <execution>
+                        <id>headless</id>
+                        <goals><goal>repackage</goal></goals>
+                        <configuration>
+                            <classifier>headless</classifier>
+                            <mainClass>com.legalarchive.orchestrator.HeadlessApplication</mainClass>
+                            <excludeGroupIds>org.apache.tomcat.embed</excludeGroupIds>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>

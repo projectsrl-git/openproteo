@@ -451,6 +451,7 @@ This is Q2.
 | 20 | no instance is serving the control directory (heartbeat older than 60 s), or the request was not picked up within 30 s. In the second case the request is cancelled (§5.1) |
 | 21 | request expired at the instance |
 | 22 | protocol mismatch |
+| 23 | the instance claimed the request and failed while executing it (added in H1, §13) |
 | 30 | local error: control directory missing or not writable, or an I/O error |
 
 * Messages go to stderr and data to stdout; `--json` gives a machine-readable form.
@@ -600,3 +601,108 @@ kept. **Still open: the second half of Q6 and the second half of Q7.** Neither c
 
 Not decided here and not blocking: a CLI `clear-history`; marking runs left RUNNING by a restart
 (existing behaviour, unchanged by this spec).
+
+## 13. H1 delivered (2026-11-18): control channel and command line
+
+Base `4851793`. The command line works against any instance whose control directory is set, beside
+the GUI. The headless instance itself is H2.
+
+### 13.1 What was built
+
+| Part | Where |
+|---|---|
+| `start` with run variables and audit extras; `stop`, `decide`, `resumeHold` with audit extras. The old signatures delegate with nulls, and with nulls the audit line is the one written before | `engine/WorkflowEngine` |
+| Protocol, exit codes, OS identity, inbox ACL check | `control/ControlProtocol`, `ExitCodes`, `OsIdentity`, `InboxAcl` |
+| The channel: lock, heartbeat, claim by rename, expiry, answers, cleanup | `control/ControlChannel` (no Spring) |
+| The commands against the engine | `control/EngineBackend` |
+| Opening and closing the channel; status for the page | `control/ControlService` |
+| `openproteo-instance.json` and the post-processor that applies it | `control/InstanceSettings`, `InstanceSettingsPostProcessor`, `META-INF/spring.factories` |
+| Platform block: state, value now, value for the next start, save | `web/ControlController`, `templates/platform.html` |
+| CLI client | `cli/OpCli`, `ControlClient`, `Printer` |
+| Third artifact, `cli` entry only | `HeadlessApplication`, `pom.xml` (second `repackage` execution, `excludeGroupIds=org.apache.tomcat.embed`) |
+| Wrappers | `tools/openproteo.cmd`, `tools/openproteo.sh` |
+| Documentation | `USAGE.md`, section *Command-line control* |
+
+### 13.2 Decided in the implementation, beyond §4-§6
+
+1. **Exit code 23**, "the instance failed while executing the request". §6.3 had no code for it, and
+   30 is a local failure.
+2. **Malformed request, id that does not match its file name, request over 64 KB, unknown
+   command**: answered with code 2. A file whose name is not a request id (`[A-Za-z0-9-]{1,64}`) is
+   deleted without an answer, and the application log names its owner.
+3. **Where the settings file sits among the property sources**: just above the first configuration
+   file, so it wins over `application.properties` (bundled or external), as the contract says.
+   The command line, Java system properties and environment variables stay above it. Whoever
+   installs the service keeps the last word, and the Platform page says when a saved value has no
+   effect. §4.4 said "above `application.properties`" and nothing about the rest; this fills the
+   gap in the conservative direction.
+4. **`inbox/` and `outbox/` are not created by the instance**: their ACL is the authorisation
+   (§5.3). `work/`, `instance.json` and `instance.lock` are created by the instance.
+5. **The channel opens at `ApplicationReadyEvent`**, so no request reaches a half-built engine.
+6. **Windows names of "everyone"**: `Everyone`, `Authenticated Users` and `Users`, in English and
+   Italian. Another language of Windows is not recognised. NIO gives names, not SIDs.
+7. **Files are read through NIO** (`Files.readAllBytes`). On Windows NIO opens with delete sharing,
+   so a reader never makes the other side's rename fail.
+8. **`audit-verify` on a broken chain** exits with 1.
+9. **The client exists only in `openproteo-headless.war`**. `OrchestratorApplication` and
+   `ServletInitializer` are untouched.
+
+### 13.3 Verification
+
+**Verified on Windows** (Windows 11 Pro, Zulu OpenJDK 1.8.0_362, Maven 3.9.12; the real artifacts
+built by `mvn clean package` and run):
+
+* all three artifacts built; `openproteo-headless.war` contains no `tomcat-embed` jar, no
+  `org/apache/catalina`, no `javax/servlet`; its `Start-Class` is `HeadlessApplication`; the
+  standalone still contains Tomcat (positive control);
+* no control directory: `/api/control` says OFF, no file created in the workflows or control
+  directory, and a run started from the GUI API writes `RUN_QUEUED` with `trigger` and `workflow`
+  only;
+* saving from the API: a relative path refused, an absolute one saved with `changedBy`; after a
+  restart the channel serves, and the page says the value comes from the settings file. Saving
+  through the page in the in-app browser, with its confirm dialog: saved, no console error;
+* every command against a real workflow with a filecopy step and a manual gate: `ping`, `feeds`,
+  `runs`, `status`, `log` (steps, tail, `--follow`, `--json`), `run` (`--var` reaching the step,
+  `--wait` exiting 3 at the gate), `approve`, `reject` (wait exits 5), `stop` of a waiting run (wait
+  exits 6), `resume` refused (12), `reload`, `audit-verify`;
+* refusals: locked 11, unknown feed 10, reserved variable 13 (`feedId`, `dir.stage`), unknown
+  option 2, already ended 12, run id `../x` 10;
+* hand-made requests: expired (mtime 5 minutes ago) answered 21, `CLI_REQUEST_EXPIRED` audited, no
+  run; malformed 2; protocol 2 answered 22; id mismatch 2; 70 KB 2; unknown command 2; a bad file
+  name deleted without an answer and logged;
+* identity: the user is the owner read by the instance (`FABHPEB845G8\fmoda`). A declared
+  `OTHERDOM\someone` is written as `declaredUser`. The same account in different case is not;
+* audit of a CLI run: the same events as a GUI run, plus `channel`, `request` and `var.pattern`;
+  the application log records command, feed, run, user and code, no variable value;
+* instance killed: a command waits 30 s, withdraws the request (`.cancelled`, then deleted), exits
+  20, and no run is started. After 60 s, `ping` exits 20 at once and names the last pid and time;
+* a second instance on the same control directory: channel OFF, naming the holder's pid; the CLI
+  is still served by the first one;
+* an inbox where `BUILTIN\Users` has write: channel OFF with that reason; a control directory on
+  the command line wins over the settings file, and the page says so;
+* `tools/openproteo.cmd` from `cmd.exe`: exit codes 0, 11 and 3 passed through;
+* `platform.html`: no `[[` / `[(`, no literal `\n` / `\r` in its JS (scanned by script, before and
+  after); its JS parsed by Nashorn (`jjs --parse-only`), with a deliberately broken copy as the
+  positive control. `node` is not installed here.
+
+**Verified on Linux:** nothing. No Linux machine is reachable from this session (no WSL).
+
+**Not verified on either:**
+
+* everything on Linux: POSIX `o+w` check, owner names, sticky `inbox`, `openproteo.sh`;
+* identity of a second, different account (only one account exists on this machine), and the
+  Windows Administrators-owner policy (§5.2);
+* the plain `openproteo.war` under an external Tomcat (only the standalone was run);
+* a clean stop writing `stopped: true` (each instance was killed; the stale-heartbeat path was
+  verified instead);
+* `tools/scan_platform_whitelist.js` (no `node`); `PlatformController` is unchanged.
+
+### 13.4 Observed: the Q10 risk, for real
+
+To test the instance lock, three standalone instances were started on the **same** workflows and
+feed directories (only one could serve the control directory). Two of them started within
+milliseconds, and both wrote `WORKFLOW_LOADED` for the same feed with `seq` 66, and again with
+`seq` 68 at the next start. The chain verifies up to line 66 and breaks at line 67, as §3.1
+predicted. No run and no CLI command was needed: starting two instances was enough. This is the
+residual risk of §4.3 (Q10), and it is today's risk for two GUI instances too. Recorded here
+because it is the first time it has been seen, not because the decision changes.

@@ -16,6 +16,11 @@ Corretto 2026-10-04 (falso dal 2026-08-03): la stessa build produce **due
 artefatti**. `openproteo.war`, per un **Tomcat esterno**; e
 `openproteo-standalone.war`, con **Tomcat embedded**, che si avvia con
 `java -jar`. Le regole di questo file valgono per entrambi.
+Dal 2026-11-18 (batch H1, `.claude/HEADLESS.md`) gli artefatti sono **tre**: il
+terzo, `openproteo-headless.war`, e' costruito **senza Tomcat embedded** e
+senza servlet API. In H1 esegue solo il client a riga di comando
+(`java -jar openproteo-headless.war cli ...`); l'istanza senza GUI arriva con H2.
+Le regole di questo file valgono anche per lui.
 
 ## Come e' organizzata la documentazione di sviluppo (dal 2026-10-04)
 
@@ -150,6 +155,9 @@ sulla stessa ultima riga. Da ora:
 │   ├── store/                         FeedLayout, RunStore, WorkflowRegistry,
 │   │                                  AssetStore, CsvService (byte-offset index)
 │   ├── ds/                            DataSource (DB2/AS400), SqlSupport, IfsSupport
+│   ├── control/                       canale di controllo della CLI (HEADLESS.md):
+│   │                                  ControlChannel, EngineBackend, InstanceSettings
+│   ├── cli/                           client a riga di comando (solo JDK + Jackson)
 │   └── web/                           PageController, ApiController
 ├── src/main/resources/
 │   ├── application.properties         defaults (override in esterno)
