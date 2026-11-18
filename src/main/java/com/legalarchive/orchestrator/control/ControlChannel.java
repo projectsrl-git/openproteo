@@ -82,22 +82,38 @@ public class ControlChannel {
     public boolean enabled() { return enabled; }
     public String reason() { return reason; }
 
+    /**
+     * The checks {@link #start()} makes before it touches anything, without taking the lock: null
+     * when the directory can serve, otherwise the reason. The headless artifact runs them before
+     * its engine exists, so a channel that cannot open stops the start instead of leaving an
+     * instance nobody can reach (HEADLESS.md 4.4, Q8).
+     */
+    public static String preflight(Path dir) {
+        try {
+            if (!dir.isAbsolute()) return "the control directory must be an absolute path: " + dir;
+            if (!Files.isDirectory(dir)) return "the control directory does not exist or is not a directory: " + dir;
+            Path inbox = ControlProtocol.inbox(dir), outbox = ControlProtocol.outbox(dir);
+            if (!Files.isDirectory(inbox) || !Files.isDirectory(outbox)) {
+                return "the control directory has no inbox/ or outbox/ folder. Create both, with the "
+                        + "permissions described in USAGE.md (section Command-line control)";
+            }
+            String open = InboxAcl.openToEveryone(inbox);
+            if (open != null) {
+                return "the inbox is open to everyone: " + open + ". The channel stays off until the inbox "
+                        + "is restricted to the operators";
+            }
+            return null;
+        } catch (Exception e) {
+            return "the control directory cannot be used: " + e;
+        }
+    }
+
     /** Opens the channel. Returns false, with {@link #reason()} saying why, when it stays off. */
     public synchronized boolean start() {
         if (enabled) return true;
         try {
-            if (!dir.isAbsolute()) return off("the control directory must be an absolute path: " + dir);
-            if (!Files.isDirectory(dir)) return off("the control directory does not exist or is not a directory: " + dir);
-            Path inbox = ControlProtocol.inbox(dir), outbox = ControlProtocol.outbox(dir);
-            if (!Files.isDirectory(inbox) || !Files.isDirectory(outbox)) {
-                return off("the control directory has no inbox/ or outbox/ folder. Create both, with the "
-                        + "permissions described in USAGE.md (section Command-line control)");
-            }
-            String open = InboxAcl.openToEveryone(inbox);
-            if (open != null) {
-                return off("the inbox is open to everyone: " + open + ". The channel stays off until the inbox "
-                        + "is restricted to the operators");
-            }
+            String why = preflight(dir);
+            if (why != null) return off(why);
             Files.createDirectories(ControlProtocol.work(dir));
             if (!takeLock()) {
                 return off("another instance serves this control directory" + holder());
@@ -364,7 +380,7 @@ public class ControlChannel {
 
     private static String now() { return OffsetDateTime.now().format(TS); }
 
-    static long pid() {
+    public static long pid() {
         try {
             String n = ManagementFactory.getRuntimeMXBean().getName();
             int at = n.indexOf('@');
@@ -374,7 +390,7 @@ public class ControlChannel {
         }
     }
 
-    static String host() {
+    public static String host() {
         try { return InetAddress.getLocalHost().getHostName(); } catch (Exception e) { return ""; }
     }
 

@@ -1,46 +1,43 @@
-Headless H1: command-line control channel and openproteo-headless.war
+Headless H2: the instance with no web server, and the loopback GUI
 
-OpenProteo can be driven from the command line on the server through a
-control directory (.claude/HEADLESS.md, section 13). The CLI writes a
-request into inbox/, the running instance claims it by rename, executes
-it through the same engine calls as the GUI buttons, and answers in
-outbox/. One engine, so the FIFO, the audit chain and the run files keep
-a single writer. The user recorded is the OS owner of the request file;
-a different declared identity is kept as declaredUser.
+java -jar openproteo-headless.war now runs the headless instance
+(.claude/HEADLESS.md, section 14): engine, cron and control channel,
+WebApplicationType.NONE, no servlet API in the artifact, no port opened.
+The only way in is to log on to the server and use the command line.
 
-Commands: ping, feeds, runs, status, log (--tail, --follow), run (--var,
---wait), wait, stop, approve, reject, resume, reload, audit-verify. Exit
-codes: 0-9 the run, 10-19 refusals, 20-29 the channel, 30 local; code 23
-added for an instance failure.
+- HeadlessConfig (outside the package the GUI artifacts scan) loads the
+  same beans minus @Controller/@ControllerAdvice, the web package and
+  OrchestratorApplication.
+- Before any bean exists: the engine lock .openproteo-engine.lock in the
+  workflows directory (headless only, Q10) and the control directory
+  checks; either failure refuses the start, exit 1, nothing written.
+  After the start, a channel that is not serving also stops it.
+- serverAddress, saved from the Platform page into
+  openproteo-instance.json, becomes server.address at the next start
+  of the standalone; an address that is not the server's own is refused
+  when saved. "No effect" is shown under an external Tomcat.
+- Loopback guard (Q11): registered only when server.address is set,
+  enabled only when it is a loopback address, acting only on requests
+  received on loopback. Refuses a foreign Host (DNS rebinding) and a
+  change whose Origin/Referer is another site; a request with neither
+  passes. Fixed 403 text; the reason goes to the log.
+- USAGE.md: the headless instance, setup-to-production procedure, the
+  loopback GUI and its limits. CLAUDE.md: artifact description, layout.
 
-- WorkflowEngine: start() with run variables (reserved names refused)
-  and audit extras; stop/decide/resumeHold with audit extras. The old
-  signatures delegate with nulls: GUI and cron audit lines unchanged.
-- control/: protocol, channel (lock, heartbeat, claim, 120 s expiry,
-  inbox open to everyone => channel off), engine backend, service.
-- openproteo-instance.json in the workflows dir, written from the new
-  Platform block, applied at the next start by an
-  EnvironmentPostProcessor; above application.properties, below the
-  command line, system properties and environment.
-- Third artifact openproteo-headless.war: second repackage without
-  org.apache.tomcat.embed, Start-Class HeadlessApplication; in H1 it
-  runs the client only. tools/openproteo.cmd and .sh wrappers.
-- USAGE.md section "Command-line control"; CLAUDE.md: three artifacts.
-
-No new file-only key: orchestrator.control-dir is set from the Platform
-page and applies at restart.
+No new file-only key: serverAddress is set from the Platform page and
+applies at restart.
 
 Verified on Linux: nothing (no Linux machine reachable).
 Verified on Windows: Windows 11, Zulu OpenJDK 1.8.0_362, artifacts from
-mvn clean package run for real: every command, refusal and exit code,
-hand-made/expired/malformed requests, owner identity and declaredUser,
-withdrawal with no instance, instance lock, open inbox => channel off,
-Platform block in the browser, .cmd wrapper. Details in section 13.3.
-Not verified on either: Linux; a second account; the Windows
-Administrators-owner policy; the plain WAR under Tomcat; a clean stop;
-scan_platform_whitelist.js (no node).
-
-Observed: two instances started on the same feed directory broke the
-audit chain at start-up (duplicate seq), the Q10 residual risk.
+mvn clean package: headless instance with no TCP/UDP socket (standalone
+as positive control); runs and approvals through it; four refused
+starts leaving nothing on disk; archive without Tomcat/servlet classes;
+mutation of the scan exclusions fails the start; loopback bind and
+off-host refusal; guard on real requests (403, no run created) and the
+pages working through it in the browser; rules harness with two
+mutations. Details in section 14.3.
+Not verified on either: Linux; a clean stop (processes were killed);
+a Windows service or systemd; the guard under an external Tomcat; an
+IPv6 loopback bind.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

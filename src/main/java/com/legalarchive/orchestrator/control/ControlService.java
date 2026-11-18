@@ -31,8 +31,15 @@ public class ControlService {
 
     private static final Logger log = LoggerFactory.getLogger(ControlService.class);
 
-    /** The mode written in the heartbeat. Every artifact of H1 has the GUI; H2 adds "headless". */
+    /** The mode written in the heartbeat. */
     public static final String MODE_GUI = "gui";
+    public static final String MODE_HEADLESS = "headless";
+    /** Set by {@code HeadlessApplication} before the context starts. */
+    public static final String HEADLESS_PROPERTY = "openproteo.headless";
+
+    public static String mode() {
+        return Boolean.getBoolean(HEADLESS_PROPERTY) ? MODE_HEADLESS : MODE_GUI;
+    }
 
     private final AppProperties props;
     private final ControlBackend backend;
@@ -52,9 +59,22 @@ public class ControlService {
         else if (!outcome.isEmpty()) log.info("instance settings {}", outcome);
         String dir = configured();
         if (dir.isEmpty()) return;
-        ControlChannel c = new ControlChannel(Paths.get(dir), backend, MODE_GUI, BuildInfo.id());
+        ControlChannel c = new ControlChannel(Paths.get(dir), backend, mode(), BuildInfo.id());
         c.start();
         channel = c;
+    }
+
+    /** True when the channel is open and serving. The headless instance refuses to run without it. */
+    public boolean serving() {
+        ControlChannel c = channel;
+        return c != null && c.enabled();
+    }
+
+    /** Why the channel is not serving, for the headless start-up message. */
+    public String reason() {
+        ControlChannel c = channel;
+        if (configured().isEmpty()) return "no control directory is set";
+        return c == null ? "the channel did not open" : c.reason();
     }
 
     @PreDestroy
@@ -87,8 +107,12 @@ public class ControlService {
         }
         Path file = settingsFile();
         m.put("settingsFile", file.toString());
+        String address = env.getProperty("server.address");
+        m.put("serverAddress", address == null ? "" : address.trim());
         try {
-            String saved = InstanceSettings.string(InstanceSettings.read(file), InstanceSettings.CONTROL_DIR);
+            Map<String, Object> settings = InstanceSettings.read(file);
+            m.put("savedServerAddress", InstanceSettings.string(settings, InstanceSettings.SERVER_ADDRESS));
+            String saved = InstanceSettings.string(settings, InstanceSettings.CONTROL_DIR);
             m.put("savedControlDir", saved);
             String winner = winningSource();
             boolean overridden = saved != null && winner != null && !InstanceSettingsPostProcessor.SOURCE_NAME.equals(winner)

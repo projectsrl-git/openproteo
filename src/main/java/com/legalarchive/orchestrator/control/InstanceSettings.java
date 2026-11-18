@@ -60,8 +60,15 @@ public final class InstanceSettings {
      * one, so a reader never sees half a file.
      */
     public static void write(Path file, String key, String value, String changedBy) throws IOException {
+        Map<String, String> one = new LinkedHashMap<String, String>();
+        one.put(key, value);
+        write(file, one, changedBy);
+    }
+
+    /** Several keys in one write, so a reader never sees one changed and the other not. */
+    public static void write(Path file, Map<String, String> values, String changedBy) throws IOException {
         Map<String, Object> m = read(file);
-        m.put(key, value == null ? "" : value);
+        for (Map.Entry<String, String> e : values.entrySet()) m.put(e.getKey(), e.getValue() == null ? "" : e.getValue());
         m.put("changedBy", changedBy == null ? "" : changedBy);
         m.put("changedAt", OffsetDateTime.now().format(TS));
         Files.createDirectories(file.getParent());

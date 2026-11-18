@@ -18,9 +18,9 @@ artefatti**. `openproteo.war`, per un **Tomcat esterno**; e
 `java -jar`. Le regole di questo file valgono per entrambi.
 Dal 2026-11-18 (batch H1, `.claude/HEADLESS.md`) gli artefatti sono **tre**: il
 terzo, `openproteo-headless.war`, e' costruito **senza Tomcat embedded** e
-senza servlet API. In H1 esegue solo il client a riga di comando
-(`java -jar openproteo-headless.war cli ...`); l'istanza senza GUI arriva con H2.
-Le regole di questo file valgono anche per lui.
+senza servlet API. Avviato con `cli` e' il client a riga di comando; senza
+argomenti e' l'**istanza senza GUI** (motore, cron, canale di controllo, nessuna
+porta aperta), dal batch H2. Le regole di questo file valgono anche per lui.
 
 ## Come e' organizzata la documentazione di sviluppo (dal 2026-10-04)
 
@@ -140,6 +140,9 @@ sulla stessa ultima riga. Da ora:
 ├── README.md                     documentazione in italiano (UI in inglese)
 ├── CLAUDE.md                     questo file
 ├── .claude/                      changelog per turno di sessione AI
+├── src/main/java/com/legalarchive/headless/HeadlessConfig.java
+│                                      config Spring dell'istanza headless: FUORI dal
+│                                      package scansionato dagli artefatti con GUI
 ├── src/main/java/com/legalarchive/orchestrator/
 │   ├── OrchestratorApplication.java   bootstrap
 │   ├── ServletInitializer.java        per il deploy WAR

@@ -706,3 +706,89 @@ milliseconds, and both wrote `WORKFLOW_LOADED` for the same feed with `seq` 66, 
 predicted. No run and no CLI command was needed: starting two instances was enough. This is the
 residual risk of §4.3 (Q10), and it is today's risk for two GUI instances too. Recorded here
 because it is the first time it has been seen, not because the decision changes.
+
+## 14. H2 delivered (2026-11-18): the headless instance, the loopback GUI
+
+Base `dbfdf3f`. With H2, `openproteo-headless.war` started without `cli` is the instance described
+in §4: engine, cron and control channel, no HTTP listener.
+
+### 14.1 What was built
+
+| Part | Where |
+|---|---|
+| The instance: `SpringApplication` on `HeadlessConfig`, `WebApplicationType.NONE`, kept alive by a latch released on `ContextClosedEvent` | `HeadlessApplication` |
+| What it loads: the same beans as the GUI artifacts, minus `@Controller`/`@ControllerAdvice` (by annotation), the whole `web` package (by package), and `OrchestratorApplication` | `com.legalarchive.headless.HeadlessConfig`, outside the package the GUI artifacts scan |
+| Before any bean exists: engine lock, then the control directory checks; either failure aborts the start, exit 1 | `HeadlessApplication.Preflight` (`ApplicationEnvironmentPreparedEvent`), `control/EngineLock`, `ControlChannel.preflight` |
+| Backstop after start: no serving channel means the context is closed, exit 1 | `HeadlessApplication`, `ControlService.serving()` |
+| `mode: headless` in the heartbeat | `ControlService.mode()` |
+| `serverAddress` saved from the Platform page, applied as `server.address` at the next start; an address that is not the server's own is refused at save time | `InstanceSettingsPostProcessor`, `ControlController.addressProblem` |
+| Host/Origin guard, registered only when `server.address` is set and enabled only when it is a loopback address | `web/LoopbackRules` (pure), `web/LoopbackGuard` |
+| Platform block: address now, saved, "no effect under an external Tomcat" | `templates/platform.html` |
+| Documentation | `USAGE.md`, "The headless instance", "The GUI only from the server" |
+
+### 14.2 Decided in the implementation, beyond §4
+
+1. **The `web` package is excluded by package as well as by annotation.** The guard filter and its
+   `@Configuration` are not controllers, and they need the servlet API that the artifact does not
+   have. The annotation rule of §4.2 still catches a controller added anywhere else.
+2. **The engine lock and the control checks run at `ApplicationEnvironmentPreparedEvent`.** That is
+   after the configuration and the instance file are known and before the registry writes its
+   first `WORKFLOW_LOADED`. A refused start has written nothing: no feed directory is created.
+3. **The guard acts only on requests that arrived on a loopback address** (`getLocalAddr`). Under an
+   external Tomcat the saved address has no effect on the connector, so remote users there are never
+   judged. The server's own browser is still guarded.
+4. **Origin must match host and port exactly.** `http://localhost:8080` against a `Host:
+   127.0.0.1:8080` is refused. A browser always sends the pair it was opened with, so this never
+   blocks the pages themselves (checked in the browser).
+5. **The 403 body is a fixed sentence.** The reason, which quotes caller-supplied headers, goes only
+   to the application log.
+6. **Clean stop.** The JVM lives until the context closes. A stop goes through Spring's shutdown
+   hook, which closes the channel with `stopped: true`.
+
+### 14.3 Verification
+
+**Verified on Windows** (Windows 11 Pro, Zulu OpenJDK 1.8.0_362, artifacts from
+`mvn clean package`):
+
+* the headless instance started for real: `mode headless`, engine lock held, channel serving. **No
+  TCP listener and no UDP endpoint** owned by its PID (`Get-NetTCPConnection` /
+  `Get-NetUDPEndpoint`). Positive control: the standalone's PID shows its listener on
+  `127.0.0.1:18090`. Checked again on the final build;
+* through the headless instance: `run --var --wait` to the gate (3), `approve`, `wait` (0), audit
+  line with `channel`, `request` and `var.pattern`;
+* refused starts, each before any feed directory existed, exit 1: a second headless instance on the
+  same workflows (holder's pid named); no control directory; an inbox where `BUILTIN\Users` may
+  write; a relative control directory;
+* the archive: no `tomcat-embed`, `org/apache/catalina` or `javax/servlet`;
+* **mutation**: `HeadlessConfig` without the annotation and package exclusions, rebuilt and
+  started. The start fails with `NoClassDefFoundError: javax/servlet/Filter` and exit 1: a web
+  class that slips through stops the instance instead of serving. Restored and rebuilt; the
+  artifact sizes match the pre-mutation build;
+* `serverAddress`: a non-local address and an unresolvable name refused at save; `127.0.0.1` saved;
+  after the restart the standalone listens on `127.0.0.1` only, the server's external address
+  refuses the connection, and loopback answers 200;
+* the guard, on that standalone: GET with foreign `Host` → 403, also on the CSV viewer endpoint;
+  POST with foreign `Origin`, foreign `Referer`, `Origin: null`, another port, `localhost` origin to
+  a `127.0.0.1` host, and foreign `Host` with a matching origin → 403, and **no run created**;
+  same-origin POST → 200 (the run started); POST with no `Origin`/`Referer` → 200. Without
+  `server.address`, a foreign `Host` gets 200, so no filter is registered. The Platform page loaded
+  and saved through the guard in the in-app browser, with no console error;
+* `LoopbackRules` against 21 cases in browser form, all passing; two **mutations**, one without the
+  Host check and one without the Origin check, each failing the cases that concern them;
+* `platform.html`: no `[[` / `[(`, no literal `\n` / `\r` in its JS; parsed by `jjs --parse-only`.
+
+**Verified on Linux:** nothing. No Linux machine is reachable from this session.
+
+**Not verified on either:**
+
+* Linux, as a whole;
+* a clean stop: every process here was killed with `Stop-Process -Force`, which runs no shutdown
+  hook, so `stopped: true` and closing the context on stop were never observed;
+* the headless instance as a Windows service (wrapper, service account), or under systemd;
+* the guard behind the external Tomcat (only the standalone ran);
+* IPv6 loopback (`::1`) as the bind address: covered by the rules harness, not run.
+
+### 14.4 Still open
+
+Q6 (the CLI client copied beside Tomcat; now also the headless instance on a Tomcat host, §4.1)
+and Q7 (is a browser available on the server; the loopback GUI needs one).

@@ -676,7 +676,7 @@ Deleting a run removes its record, its step logs and its step working directorie
 
 OpenProteo can be driven from the command line on the server, without a page and without HTTP: start a run (with variables), wait for it, read its status and step logs, stop it, approve or reject a manual gate, release a hold. The command line talks to the running instance through a **control directory**. It never starts a second engine, never reads the configuration, and never touches a feed directory or a secret. Setup stays in the GUI: the command line changes no workflow and no setting.
 
-This is the first half of headless operation (`.claude/HEADLESS.md`). The second half, an artifact that runs the engine with no web server at all, comes with batch H2. Until then the command line works beside the GUI, against the same engine.
+The command line works against any instance whose control directory is set: beside the GUI during setup, and against the **headless instance** in production (below). The design is in `.claude/HEADLESS.md`.
 
 ### Who may use it, and how they are recorded
 
@@ -695,7 +695,7 @@ If administrators of a Windows server create the requests, check the local polic
    Do not expose the disk through a file share (including `C$`): a share lets someone write into the inbox without logging on to the server.
 3. On the **Platform** page, under *Command-line control*, enter the absolute path and save. The value goes into `openproteo-instance.json` in the workflows directory and **applies at the next start**. A value given on the command line, as a Java system property or as an environment variable wins over it, and the page says so. One instance per control directory: a second one finds it taken, leaves it alone and says which instance holds it.
 4. Restart OpenProteo. The Platform page shows *serving*.
-5. On the server, put `openproteo-headless.war` and `tools/openproteo.cmd` (Windows) or `tools/openproteo.sh` (Linux) of the **same build** in one folder, and set `OPENPROTEO_CONTROL` to the control directory. On a Tomcat server too: the plain `openproteo.war` cannot run a command.
+5. On the server, put `openproteo-headless.war` and `tools/openproteo.cmd` (Windows) or `tools/openproteo.sh` (Linux) of the **same build** in one folder, and set `OPENPROTEO_CONTROL` to the control directory. On a Tomcat server too: the plain `openproteo.war` cannot run a command. The wrappers always pass `cli`, so they never start an instance.
 
 ### Commands
 
@@ -744,6 +744,39 @@ A scheduler script can branch on the range: 0-9 is the run, 10-19 a refusal, 20-
 A run started from the command line is the run the Run button would have started: same queue, same parallel limit, same files, same audit events. The audit lines of a command-line request carry three more details: `channel=cli`, `request=<id>` and, on `RUN_QUEUED`, `var.<name>`. Lines written from the GUI are unchanged. Step-by-step tests stay in the GUI.
 
 The instance has to be running: between restarts nothing answers, and the command line says so. The application log records each request (command, workflow, run, user, exit code), never variable values.
+
+### The headless instance: no pages at all
+
+`openproteo-headless.war` is the third artifact of the build. It contains **no web server**: no embedded Tomcat, no servlet API, no page. Started without arguments, it runs the engine, the cron schedules and the control channel, and opens **no network port**. Nothing in OpenProteo can then be reached over HTTP: the only way in is to log on to the server and use the command line.
+
+```
+java -jar openproteo-headless.war --spring.config.additional-location=file:/path/to/application.properties
+```
+
+It reads the same configuration as the GUI artifacts, including `openproteo-instance.json` in the workflows directory, so the control directory saved on the Platform page during setup is the one it serves. Stop it as any Java service (Ctrl-C, SIGTERM, the service manager).
+
+It **refuses to start**, before running anything, when:
+
+* another headless instance already runs on the same workflows directory (it holds `.openproteo-engine.lock` there, and `.openproteo-engine.json` names it);
+* no control directory is set, or it is not an absolute path, lacks `inbox` / `outbox`, or its inbox is open to everyone. An instance nobody can reach is not left running.
+
+The refused start exits with code 1 and says why.
+
+**Moving from setup to production, and back.** Stop the GUI instance, then start the headless one; to change the setup, stop the headless one, then start the GUI. **Never run both on the same workflows directory.** Nothing prevents it, and two engines on the same feeds break the audit hash chains: it was seen happening when two instances merely started at the same time. The engine lock is taken by the headless artifact only, by decision, so a GUI instance cannot see that a headless one is running.
+
+On a Tomcat server, headless means: undeploy `openproteo.war` and run `openproteo-headless.war` as a service on the same configuration.
+
+### The GUI only from the server (setup)
+
+During setup, the standalone GUI can be bound to the loopback address: on the Platform page set **Address of these pages** to `127.0.0.1` and restart. The pages are then reachable only from a browser running on the server itself, so only after logging on to it. The setting applies to `openproteo-standalone.war` only: under an external Tomcat, set the `address` of the connector in `server.xml`. An address that is not one of the server's own is refused when you save it, so a typo cannot lock you out. If the GUI still cannot start, delete `serverAddress` from `openproteo-instance.json`.
+
+With a loopback address, every request is also checked, so that a web page opened in that same browser cannot use the GUI:
+
+* a request whose `Host` is not `127.0.0.1`, `localhost` or `[::1]` is refused (this defeats DNS rebinding);
+* a change (anything but GET) whose `Origin` or `Referer` names another site is refused (this defeats cross-site forms);
+* a request with neither header is accepted, as `curl` and some older browsers send none.
+
+A refused request gets a plain 403, and the application log says why. Limits that remain: anyone who can log on to the server reaches the GUI, with no sign-in, and every GUI action is recorded as `operator@127.0.0.1`. The command line records the person.
 
 ## Platform diagnostics
 
