@@ -1,38 +1,25 @@
-Headless H3b: console, start and shutdown for the RHEL8 scenario
+Headless H3a: move the loopback GUI from main to feature/loopback-gui
 
-The author's scenario (.claude/HEADLESS.md section 15): no HTTP on the
-server, people reach OpenProteo only by SSH, one instance started from
-the shell, then a console inside the program.
+The RHEL8 scenario (.claude/HEADLESS.md section 15) runs only the
+headless instance on the server, so the loopback GUI of H2 (bind address
+serverAddress and the Host/Origin guard) is not used. Decision D1: keep
+it on the branch feature/loopback-gui (at 20a9198, pushed) and remove it
+from main with a forward commit; history is not rewritten.
 
-- openproteo start: starts the headless instance in the background from
-  OPENPROTEO_HOME (setsid on Linux, output to logs/console.out), refuses
-  when an instance already serves (exit 12), waits for its heartbeat and
-  prints a refused start's reason.
-- openproteo connect: interactive console. help, feeds, use, runs,
-  status, log, run name=value, follow, approve, reject, resume, stop,
-  reload, audit-verify, ping, exit, shutdown. "last" and list numbers
-  for runs and feeds. run/approve/reject/resume follow the run with its
-  step logs; Ctrl-C returns to the prompt (sun.misc.Signal).
-- shutdown: headless only, refused with QUEUED/RUNNING runs unless
-  --force, INSTANCE_SHUTDOWN audited in every feed, then a clean stop
-  (heartbeat stopped, lock released, exit 0). One-shot form for scripts.
-- Inbox polled every 250 ms. Wrappers default OPENPROTEO_HOME to their
-  own folder. tools/openproteo.service systemd template.
-- Spec: Q12 (no import), Q14 confirmed, rlwrap is in EPEL,
-  KillUserProcesses=yes needs the systemd unit; H3a (loopback GUI to a
-  branch) moved after the demo. USAGE: install, start, connect.
+- Removed web/LoopbackRules and web/LoopbackGuard; the serverAddress
+  mapping, constant and status fields.
+- ControlController and platform.html back to their H1 version (only
+  H2 had touched them since).
+- USAGE.md: "The GUI only from the server" removed. Spec: notes at Q7,
+  Q11 and section 14, delivery in section 15.15.
+- A saved serverAddress is not rewritten (Default conservativi): it is
+  ignored.
 
-No new runtime key: OPENPROTEO_HOME and OPENPROTEO_JAVA_OPTS are
-installation environment.
-
-Verified on Linux: nothing yet (first run: the demo on a Linux server).
-Verified on Windows: Windows 11, Zulu OpenJDK 1.8.0_362, Maven
-artifacts: start and refused second start; a scripted console session
-through run, gate, approve, logs, errors and exit; shutdown refused with
-a running run, then forced, with a clean stop (stopped flag, process
-gone, audited, chains verifying after restart); one-shot shutdown.
-Not verified on either: setsid and surviving SSH logout; Ctrl-C while
-following (no interactive terminal); the systemd unit; start under
-sudo; two operators.
+Verified on Linux: nothing (no Linux machine reachable).
+Verified on Windows: Zulu OpenJDK 1.8.0_362, Maven artifacts: a
+standalone with a saved serverAddress 127.0.0.1 binds every interface
+and accepts a foreign Host; the file is not rewritten; the headless
+artifact still starts, lists feeds and stops; template scans clean.
+Not verified on either: nothing specific to this change beyond that.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

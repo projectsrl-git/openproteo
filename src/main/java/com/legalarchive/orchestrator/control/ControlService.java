@@ -107,11 +107,8 @@ public class ControlService {
         }
         Path file = settingsFile();
         m.put("settingsFile", file.toString());
-        String address = env.getProperty("server.address");
-        m.put("serverAddress", address == null ? "" : address.trim());
         try {
             Map<String, Object> settings = InstanceSettings.read(file);
-            m.put("savedServerAddress", InstanceSettings.string(settings, InstanceSettings.SERVER_ADDRESS));
             String saved = InstanceSettings.string(settings, InstanceSettings.CONTROL_DIR);
             m.put("savedControlDir", saved);
             String winner = winningSource();

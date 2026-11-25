@@ -589,7 +589,7 @@ kept. **Still open: the second half of Q6 and the second half of Q7.** Neither c
 7. ~~**Narrow the setup window** with a GUI bound to `127.0.0.1`?~~ **Answered 2026-11-12: yes.**
    "If no HTTP service is exposed, you have to access the server to get in." Designed in §4.4,
    including what loopback does not protect against. Still open: is a browser available in the
-   server session?
+   server session? **Moved to `feature/loopback-gui` on 2026-11-25 (D1, §15.9); moot for the RHEL8 scenario.**
 8. ~~**A world-writable inbox switches the channel off** (§5.3). Recommended: otherwise any local
    account can run feeds. The alternative is a warning only.~~ **Answered 2026-11-18: yes, the
    channel goes off.** On the headless artifact that means it refuses to start, because the
@@ -606,7 +606,7 @@ kept. **Still open: the second half of Q6 and the second half of Q7.** Neither c
 
 11. ~~**Host and Origin check on the loopback GUI** (§4.4). Recommended. It is the price of the
     answer to Q7: without it, a page opened in a browser on the server can drive the GUI from
-    outside.~~ **Answered 2026-11-13: yes.** It is part of H2 (§11).
+    outside.~~ **Answered 2026-11-13: yes.** It is part of H2 (§11). **Moved to `feature/loopback-gui` on 2026-11-25 (D1, §15.9).**
 
 Not decided here and not blocking: a CLI `clear-history`; marking runs left RUNNING by a restart
 (existing behaviour, unchanged by this spec).
@@ -718,6 +718,10 @@ because it is the first time it has been seen, not because the decision changes.
 
 ## 14. H2 delivered (2026-11-18): the headless instance, the loopback GUI
 
+> **2026-11-25 (D1, §15.9):** the loopback GUI of this batch (`serverAddress`, `LoopbackRules`,
+> `LoopbackGuard`, the address field) moved to the branch `feature/loopback-gui` and was removed
+> from `main`. The rows below that describe it are kept as the record of what was built.
+
 Base `dbfdf3f`. With H2, `openproteo-headless.war` started without `cli` is the instance described
 in §4: engine, cron and control channel, no HTTP listener.
 
@@ -802,7 +806,7 @@ in §4: engine, cron and control channel, no HTTP listener.
 Q6 (the CLI client copied beside Tomcat; now also the headless instance on a Tomcat host, §4.1)
 and Q7 (is a browser available on the server; the loopback GUI needs one).
 
-## 15. H3 — the console, start and shutdown (H3b delivered 2026-11-25, §15.14; H3a pending)
+## 15. H3 — the console, start and shutdown (H3b delivered 2026-11-25, §15.14; H3a §15.15)
 
 Written 2026-11-25 on base `20a9198`.
 
@@ -1160,3 +1164,27 @@ an `OPENPROTEO_HOME` laid out as §15.8, the `.cmd` wrapper):
 * the systemd unit;
 * `start` under `sudo -u`;
 * two operators.
+
+### 15.15 H3a delivered (2026-11-25): the loopback GUI off `main`
+
+* Branch `feature/loopback-gui` created at `20a9198` and pushed: it holds H2 as delivered, guard
+  included.
+* Removed from `main`: `web/LoopbackRules`, `web/LoopbackGuard`; the `serverAddress` mapping in
+  `InstanceSettingsPostProcessor` and the constant in `InstanceSettings`; the address in
+  `ControlService.status`. `ControlController` and `platform.html` are restored to their H1 version
+  (`dbfdf3f`); only H2 had touched them since. The `USAGE.md` subsection "The GUI only from the
+  server" is removed.
+* Kept: everything else of H2 and all of H3b.
+
+**Verified on Windows** (Zulu OpenJDK 1.8.0_362, artifacts from `mvn clean package`):
+
+* a standalone whose `openproteo-instance.json` still holds `serverAddress: 127.0.0.1` now listens
+  on every interface (`::`, port 18090), answers on the external address, and accepts a foreign
+  `Host` (200);
+* `/api/control` no longer reports an address;
+* the file is not rewritten: it still holds the key, as §15.9 decided;
+* the headless artifact still starts, lists feeds, stops by one-shot `shutdown`, and `ping` then
+  exits 20;
+* the template scans are clean.
+
+**Verified on Linux:** nothing (no Linux machine reachable).

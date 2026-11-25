@@ -800,18 +800,6 @@ The output of the instance goes to `logs/console.out`; the application log to th
 
 On Windows the same commands work with `openproteo.cmd`. The instance started by `start` may end with a remote session that closes its processes: for a lasting instance on Windows, run it as a service.
 
-### The GUI only from the server (setup)
-
-During setup, the standalone GUI can be bound to the loopback address: on the Platform page set **Address of these pages** to `127.0.0.1` and restart. The pages are then reachable only from a browser running on the server itself, so only after logging on to it. The setting applies to `openproteo-standalone.war` only: under an external Tomcat, set the `address` of the connector in `server.xml`. An address that is not one of the server's own is refused when you save it, so a typo cannot lock you out. If the GUI still cannot start, delete `serverAddress` from `openproteo-instance.json`.
-
-With a loopback address, every request is also checked, so that a web page opened in that same browser cannot use the GUI:
-
-* a request whose `Host` is not `127.0.0.1`, `localhost` or `[::1]` is refused (this defeats DNS rebinding);
-* a change (anything but GET) whose `Origin` or `Referer` names another site is refused (this defeats cross-site forms);
-* a request with neither header is accepted, as `curl` and some older browsers send none.
-
-A refused request gets a plain 403, and the application log says why. Limits that remain: anyone who can log on to the server reaches the GUI, with no sign-in, and every GUI action is recorded as `operator@127.0.0.1`. The command line records the person.
-
 ## Platform diagnostics
 
 The **Platform** page (button on the dashboard, after Docs) shows what this instance thinks its host is: the operating system and the Java runtime, where the configured paths really point, which interpreters it can find, and whether file names are case-sensitive in the feed base directory.

@@ -21,8 +21,9 @@ import org.springframework.core.env.PropertySource;
  * {@link #lastOutcome()} for the control service to log once logging exists (this runs before
  * the logging system is initialised).
  *
- * <p>{@code controlDir} becomes {@code orchestrator.control-dir} (H1); a non-empty
- * {@code serverAddress} becomes {@code server.address} (H2).
+ * <p>{@code controlDir} becomes {@code orchestrator.control-dir} (H1). A {@code serverAddress} left in
+ * the file by a build of 2026-11-18 is ignored: the loopback GUI moved to the branch
+ * {@code feature/loopback-gui} (HEADLESS.md 15.9).
  */
 public class InstanceSettingsPostProcessor implements EnvironmentPostProcessor {
 
@@ -39,10 +40,6 @@ public class InstanceSettingsPostProcessor implements EnvironmentPostProcessor {
             Map<String, Object> props = new LinkedHashMap<String, Object>();
             String controlDir = InstanceSettings.string(s, InstanceSettings.CONTROL_DIR);
             if (controlDir != null) props.put("orchestrator.control-dir", controlDir);
-            // H2: the bind address of the standalone GUI. Empty = all interfaces, as without the file.
-            // Ignored by an external Tomcat (container configuration) and by the headless artifact (no server).
-            String address = InstanceSettings.string(s, InstanceSettings.SERVER_ADDRESS);
-            if (address != null && !address.isEmpty()) props.put("server.address", address);
             if (props.isEmpty()) { outcome = "read " + file + ": no setting this build applies"; return; }
             place(env.getPropertySources(), new MapPropertySource(SOURCE_NAME, props));
             outcome = "read " + file + ": " + props.keySet();

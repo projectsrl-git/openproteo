@@ -29,7 +29,6 @@ public final class InstanceSettings {
 
     public static final String FILE_NAME = "openproteo-instance.json";
     public static final String CONTROL_DIR = "controlDir";
-    public static final String SERVER_ADDRESS = "serverAddress";
 
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX");
 

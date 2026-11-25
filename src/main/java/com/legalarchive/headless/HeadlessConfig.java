@@ -20,8 +20,7 @@ import com.legalarchive.orchestrator.config.AppProperties;
  * <ul>
  *   <li>every {@code @Controller} (and so every {@code @RestController}) and {@code @ControllerAdvice},
  *       by annotation, so a controller added later is left out without anyone editing this file;</li>
- *   <li>the whole {@code web} package, which also holds the servlet filter of the loopback GUI and
- *       its configuration;</li>
+ *   <li>the whole {@code web} package, whose classes all serve HTTP;</li>
  *   <li>{@link OrchestratorApplication} itself, whose own component scan would bring the controllers back.</li>
  * </ul>
  * The servlet API is not in the artifact at all, so a class that slipped through would fail the

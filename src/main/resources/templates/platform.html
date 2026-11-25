@@ -32,19 +32,13 @@
         and logs, without a page and without HTTP. Whoever may create files in its <span class="mono">inbox</span>
         folder may do all of that, and is recorded in the audit under their own Windows or Linux account. The folder is
         not created here: create it with <span class="mono">inbox</span> and <span class="mono">outbox</span> inside and
-        the permissions described in the documentation. Here you also choose the <b>address these pages answer on</b>
-        (standalone only): with <span class="mono">127.0.0.1</span> they can be opened only from a session on this
-        server. A saved value applies at the <b>next start</b>.</p>
+        the permissions described in the documentation. A saved value applies at the <b>next start</b>.</p>
     <div class="panel">
         <table id="ctlTable"></table>
         <div class="form-row">
             <div class="field wide">
                 <label for="ctlDir">Control directory (absolute path; empty = no command line)</label>
                 <input id="ctlDir" type="text" spellcheck="false">
-            </div>
-            <div class="field wide">
-                <label for="ctlAddr">Address of these pages (standalone only; 127.0.0.1 = only from this server; empty = every interface)</label>
-                <input id="ctlAddr" type="text" spellcheck="false">
             </div>
         </div>
         <div style="padding:0 16px 14px 16px">
@@ -253,20 +247,11 @@
         if (d.overriddenBy) next += ' <span class="dim" id="ctlOverridden">Has no effect: the ' + esc(d.overriddenBy) + ' sets the value, and wins.</span>';
         else if (d.restartNeeded === true) next += ' ' + chip('ON_HOLD', 'restart needed');
         h += kv('Saved for the next start', next);
-        var addrNow = d.serverAddress ? mono(d.serverAddress) : '<span class="dim">every interface</span>';
-        if (d.embeddedServer === false) addrNow += ' <span class="dim" id="ctlAddrNoEffect">No effect here: under an external Tomcat the address is set on the connector, in server.xml.</span>';
-        else if (d.serverAddress === '127.0.0.1' || d.serverAddress === 'localhost' || d.serverAddress === '::1') addrNow += ' <span class="dim">only from this server; requests naming another host, and changes asked by another site, are refused</span>';
-        h += kv('Address of these pages now', addrNow);
-        var sa = d.savedServerAddress;
-        h += kv('Address saved for the next start', sa === null || sa === undefined ? '<span class="dim">nothing saved here</span>'
-            : (sa === '' ? '<span class="dim">empty: every interface</span>' : mono(sa)));
         if (d.settingsError) h += kv('Settings file error', chip('FAILED', 'unreadable') + ' <span class="dim">' + esc(d.settingsError) + '</span>');
         h += kv('Settings file', mono(d.settingsFile || ''));
         t.innerHTML = h;
         var inp = document.getElementById('ctlDir');
         if (document.activeElement !== inp) inp.value = saved !== null && saved !== undefined ? saved : (d.controlDir || '');
-        var ain = document.getElementById('ctlAddr');
-        if (document.activeElement !== ain) ain.value = sa !== null && sa !== undefined ? sa : (d.serverAddress || '');
     }
     function loadControl() {
         fetch(CTX + 'api/control', { credentials: 'same-origin' })
@@ -276,22 +261,16 @@
     }
     function saveControl() {
         var v = document.getElementById('ctlDir').value.trim();
-        var a = document.getElementById('ctlAddr').value.trim();
         var msg = document.getElementById('ctlMsg');
-        var text = (v === ''
-            ? 'An empty control directory: from the next start the command line will not be available.'
-            : 'Control directory ' + v + ': anyone who may create files in its inbox folder will be able to run, stop and approve every workflow.')
-            + ' ' + (a === ''
-            ? 'These pages will answer on every interface.'
-            : 'These pages will answer only on ' + a + (a === '127.0.0.1' || a === 'localhost' || a === '::1'
-                ? ': only from a session on this server. A browser elsewhere will no longer reach them.' : '.'))
-            + ' Both apply at the next start of OpenProteo. Save?';
+        var text = v === ''
+            ? 'Save an empty control directory? From the next start the command line will not be available.'
+            : 'Save ' + v + ' as the control directory? It applies at the next start of OpenProteo. Anyone who may create files in its inbox folder will be able to run, stop and approve every workflow.';
         opConfirm(text, function () {
             msg.textContent = 'Saving...';
             fetch(CTX + 'api/control/settings', {
                 method: 'POST', credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ controlDir: v, serverAddress: a })
+                body: JSON.stringify({ controlDir: v })
             })
                 .then(function (r) { return r.json(); })
                 .then(function (d) {
@@ -299,7 +278,7 @@
                     if (d && d.ok === true) renderControl(d);
                 })
                 .catch(function (e) { msg.textContent = 'Not saved: ' + (e && e.message ? e.message : e); });
-        }, { title: 'Command line and address of these pages', okText: 'Save', danger: true });
+        }, { title: 'Command-line control', okText: 'Save', danger: true });
     }
     loadControl();
 
