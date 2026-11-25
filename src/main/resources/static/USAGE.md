@@ -766,6 +766,40 @@ The refused start exits with code 1 and says why.
 
 On a Tomcat server, headless means: undeploy `openproteo.war` and run `openproteo-headless.war` as a service on the same configuration.
 
+### On a Linux server: install, start, connect
+
+Design the workflows on your PC with the standalone GUI, then copy the files to the server. On the server only the headless instance runs, and people work in its console over SSH.
+
+**Install** in one folder, `OPENPROTEO_HOME` (for example `/opt/openproteo`, owned by a functional account such as `openproteo`):
+
+```
+/opt/openproteo/
+  openproteo-headless.war
+  openproteo                       tools/openproteo.sh, made executable (chmod +x)
+  config/application.properties    paths (workflows, feeds, scripts...), masking secret, log file
+  workflows/  feeds/  scripts/  shared/  logs/
+  control/inbox  control/outbox    permissions as in "Setting it up" above
+```
+
+Copy from the PC: the workflow XML files (and `openproteo-instance.json` with them), each feed's `dataschema.json` / `displayschema.json` into `feeds/<feedId>/`, the scripts, `datasources.json` (it holds passwords: readable by the functional account only), `ftp-targets.json` and the files it names, and the global variables file. A workflow whose `baseDir` is a Windows path cannot run on Linux: fix it in the designer.
+
+**Start, connect, stop.** These are the only shell commands; everything else is typed in the console.
+
+```
+sudo -u openproteo /opt/openproteo/openproteo start      start in the background; refused if already running
+/opt/openproteo/openproteo connect                        the console (each person under their own account)
+```
+
+In the console: `help`, `feeds`, `use <feed or number>`, `runs`, `status last`, `log last <step>`, `run name=value`, `follow last`, `approve last --note "..."`, `reject`, `resume`, `stop`, `reload`, `audit-verify`, `ping`. `run`, `approve`, `reject` and `resume` follow the run with its step logs; Ctrl-C goes back to the prompt and the run goes on. `exit` leaves the console and OpenProteo keeps running with its cron schedules. `shutdown` stops it after a confirmation, and is refused while runs are queued or running unless `shutdown --force`.
+
+For history of typed commands, `rlwrap openproteo connect`; `rlwrap` comes from EPEL.
+
+**Surviving logout.** `start` runs the instance under `setsid`, so the end of the SSH session does not stop it. A hardened server can still end every process at logout (`KillUserProcesses=yes` in `/etc/systemd/logind.conf`): there use the systemd unit, `tools/openproteo.service`, adjusted to the installation folder. The unit and `start` are exclusive: whichever comes second is refused.
+
+The output of the instance goes to `logs/console.out`; the application log to the file set in `config/application.properties`.
+
+On Windows the same commands work with `openproteo.cmd`. The instance started by `start` may end with a remote session that closes its processes: for a lasting instance on Windows, run it as a service.
+
 ### The GUI only from the server (setup)
 
 During setup, the standalone GUI can be bound to the loopback address: on the Platform page set **Address of these pages** to `127.0.0.1` and restart. The pages are then reachable only from a browser running on the server itself, so only after logging on to it. The setting applies to `openproteo-standalone.war` only: under an external Tomcat, set the `address` of the connector in `server.xml`. An address that is not one of the server's own is refused when you save it, so a typo cannot lock you out. If the GUI still cannot start, delete `serverAddress` from `openproteo-instance.json`.

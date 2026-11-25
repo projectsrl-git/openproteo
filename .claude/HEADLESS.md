@@ -16,6 +16,12 @@ Revisions:
 * **r4, 2026-11-18.** Q1, Q2, Q3, Q4, Q5, Q8 and Q10 answered (§12). The only change to the design is
   Q10: the engine lock is now **headless-only**, and the residual risk that follows is written in
   §4.3.
+* **r5, 2026-11-25. The scenario, restated by the author** (§15). Production runs on RHEL8, and
+  operators reach the server by SSH. Setup is done on the operator's own PC with the standalone
+  GUI, and the files are copied to the server. The server runs **only** the headless instance,
+  started from the shell. An interactive **console** connects to that instance; all work happens
+  inside the console. H0-H2 are kept, except the loopback GUI (§4.4, Q7, Q11), which this
+  scenario does not use: it moves to a branch (§15.9). Batch H3 is specified in §15.
 
 ## 1. What it is, and why
 
@@ -575,8 +581,11 @@ kept. **Still open: the second half of Q6 and the second half of Q7.** Neither c
    (§6.4). `USAGE.md` states the rule that run variables are configuration, never personal data.
    The application log keeps names only (§10).
 6. ~~**Tomcat hosts**: headless under Tomcat or the standalone?~~ **Moot in r2**: headless is
-   standalone only (§4.1). The second half remains: on a Tomcat host, the CLI client comes from the
-   headless artifact of the same build, copied beside it. Confirm.
+   standalone only (§4.1). ~~The second half remains: on a Tomcat host, the CLI client comes from the
+   headless artifact of the same build, copied beside it. Confirm.~~ **Answered 2026-11-18: a server
+   that runs the headless instance never also has OpenProteo deployed on Tomcat.** So the CLI never
+   has to sit beside a Tomcat deployment in production, and on a headless server the setup GUI is the
+   standalone artifact (stopped before the headless one starts, §4.3).
 7. ~~**Narrow the setup window** with a GUI bound to `127.0.0.1`?~~ **Answered 2026-11-12: yes.**
    "If no HTTP service is exposed, you have to access the server to get in." Designed in §4.4,
    including what loopback does not protect against. Still open: is a browser available in the
@@ -792,3 +801,362 @@ in §4: engine, cron and control channel, no HTTP listener.
 
 Q6 (the CLI client copied beside Tomcat; now also the headless instance on a Tomcat host, §4.1)
 and Q7 (is a browser available on the server; the loopback GUI needs one).
+
+## 15. H3 — the console, start and shutdown (H3b delivered 2026-11-25, §15.14; H3a pending)
+
+Written 2026-11-25 on base `20a9198`.
+
+### 15.1 The scenario, in the author's words, and what it changes
+
+> "The installation will be on Linux RHEL8. They will connect by SSH to a shell. If I installed the
+> standalone version on 8080, every user would connect once the address is known. With the command
+> line, only those with SSH access reach the application. [...] If the instance is already started,
+> the CLI connects to the existing instance with a dedicated command. The CLI must be identical on
+> Linux and Windows. [...] I am inside the program, so these are not PowerShell or bash commands:
+> the shell command is used only to start the instance and then to connect. [...] A person runs
+> the standalone locally to configure and design the workflows, then copies the files to the server
+> and works from the command line."
+
+Read against H0-H2:
+
+| The author's requirement | Where it stands |
+|---|---|
+| No HTTP on the server | **Done** (H2): `openproteo-headless.war` has no web server; no socket was observed |
+| Only SSH users reach the application | **Done** (H1): the control directory, authorised by its ACL; each request recorded under the person's OS account |
+| A second start refused while one runs | **Done** (H2): the engine lock |
+| "Connect" to the running instance | **Partly**: H1 sends one command per shell invocation. H3 adds the **console**, §15.3 |
+| Commands typed inside the program | **New** (H3), §15.3 |
+| Start from the shell | **New** (H3): `openproteo start`, §15.5. Today it is `java -jar`, which stays in the foreground |
+| Stop | **New** (H3): `shutdown` inside the console, §15.6 |
+| Identical on Linux and Windows | The commands and the console are identical. Detaching `start` from the session is OS-specific, §15.5 |
+| Setup on the PC, then copy to the server | Partly a procedure, §15.7 |
+
+So H3 is a client feature on top of H1-H2. It adds one command to the channel (`shutdown`). The
+engine, the audit and the run files do not change.
+
+### 15.2 Decisions taken with the author (2026-11-25, "ok a tutte le proposte")
+
+| # | Decision |
+|---|---|
+| D1 | The loopback GUI (address setting and Host/Origin guard) moves to a branch `feature/loopback-gui` and is removed from `main` with a forward commit. History is not rewritten. §15.9 |
+| D2 | `openproteo start` starts the instance **in the background**, detached from the SSH session, with its log in a file, and returns. A **systemd unit** is documented as the robust alternative on RHEL |
+| D3 | The instance runs as a **functional account** (e.g. `openproteo`). Operators start it with `sudo -u openproteo`. They connect as **themselves**, so the audit names the person (§5.2) |
+| D4 | `exit` leaves the console and the instance keeps running. `shutdown` stops the instance, after a confirmation |
+| D5 | The console is line-based: no arrow-key history, no new dependency. `rlwrap openproteo connect` gives history on Linux |
+| D6 | A "fancier" GUI may come later. Not in H3 |
+
+### 15.3 The console
+
+`openproteo connect` opens it. The preview the author accepted (shown in the conversation of
+2026-11-25) is the reference for the output.
+
+**Prompt.** `openproteo> `, or `openproteo [FEED]> ` once a feed is chosen.
+
+**Commands.** The names are those of §6.2, so a command learnt in one place works in the other.
+
+| Command | What it does | Same as |
+|---|---|---|
+| `help [command]` | the list, or one command's syntax | - |
+| `feeds` | numbered list: feed, last run, status, cron, flags (PROD, LOCKED, ACTIVE, PATH?) | §6.2 `feeds` |
+| `use <feed or number>` | sets the current feed; `use` alone shows it, `use -` clears it | - |
+| `runs [feed] [--limit N]` | numbered list of the runs, newest first | `runs` |
+| `status [feed] <run or last>` | a run and its steps | `status` |
+| `log [feed] <run or last> [step] [--tail N]` | a step log; without a step, the steps that have one | `log` |
+| `run [feed] [name=value]...` | starts a run, then **follows** it (§15.4) | `run --wait` |
+| `follow [feed] <run or last>` | follows a run already started | `wait`, with the log |
+| `approve` / `reject [feed] <run or last> [--note text]` | decides the waiting gate, then follows | `approve`, `reject` |
+| `resume [feed] <run or last>` | releases a hold, then follows | `resume` |
+| `stop [feed] <run or last>` | stops a run; a second `stop` force-stops it | `stop` |
+| `reload` | rereads the workflow files and replans the cron | `reload` |
+| `audit-verify [feed]` | verifies the feed's audit chain | `audit-verify` |
+| `ping` | the instance, and who you are recorded as | `ping` |
+| `exit` (also `quit`, end of input) | leaves the console; the instance keeps running | - |
+| `shutdown [--force]` | stops the instance (§15.6) | - |
+
+**Arguments.**
+
+* `[feed]` may be left out when a current feed is set.
+* `last` is the newest run of the feed that is not a step-by-step test.
+* A run may also be given by the number `runs` printed. That number is valid until the next `runs`.
+* In the console, variables are written `name=value`, not `--var name=value`.
+
+**Intersection, decided by name: `name=value` × a feed id containing `=`.** Feed ids cannot contain
+`=` (`WorkflowXmlParser`: letters, digits, `.`, `_`, `-`), so the first token with `=` is a
+variable.
+
+**Quoting.** Double quotes group words (`--note "checked counts"`). There are no escapes: a quote
+inside a quoted value is not supported, which `help` states.
+
+**Errors.** A refused command prints the instance's message and stays in the console. Every
+command is still one request on the channel (§5): the console adds no new trust, and each line
+typed is recorded under the person who typed it.
+
+**What the console never does**, as §6.2: it changes no definition and no setting, uploads nothing,
+and runs no step-by-step test.
+
+**One-shot commands stay.** `openproteo <command> ...` from the shell (H1) keeps working, unchanged:
+it is what an OS scheduler or a script calls. The console is for people.
+
+### 15.4 Following a run
+
+`run`, `follow`, `approve`, `reject` and `resume` follow the run until it ends or pauses:
+
+* one line per change of status or running step: `HH:MM:SS  STATUS  step <id>`;
+* the new lines of the running step's log, prefixed with `|`;
+* at the end, `SUCCESS in 21m 59s`, `FAILED: <message>`, or "waits for a decision: approve or
+  reject" / "is on hold: resume to go on".
+
+**Ctrl-C while following** returns to the prompt. The run goes on, and the console says so. On Java
+8 this needs `sun.misc.Signal`: it is present in HotSpot (Oracle, OpenJDK, Temurin, Zulu, the RHEL8
+`java-1.8.0-openjdk` package) and is used through reflection. Where it is absent, Ctrl-C ends the
+console. The run is unaffected either way, because the run lives in the instance.
+
+**Speed.** Following polls the instance every 2 s. The instance polls the inbox **every 250 ms**
+instead of every 1 s (H1), so a typed command answers in well under a second. The cost is listing
+an empty folder four times a second. With nothing in the inbox, nothing else changes.
+
+### 15.5 `openproteo start`
+
+What it does, in order:
+
+1. Reads the installation (§15.8) from `OPENPROTEO_HOME`.
+2. **Refuses at once if an instance runs** on these workflows: it probes the engine lock (§4.3).
+   The message names the holder from `.openproteo-engine.json`. Exit 12, nothing started.
+3. Starts `java <OPENPROTEO_JAVA_OPTS> -jar openproteo-headless.war`, with the configuration of
+   §15.8, its output to `logs/console.out` and its input closed:
+   * **Linux:** under `setsid`, so it survives the end of the SSH session (SIGHUP). `ProcessTree`
+     already detects `setsid`; without it, `start` refuses and points to the systemd unit.
+   * **Windows:** a child process of the shell, with no console of its own. It survives the end of
+     the `openproteo start` command, **but not necessarily the end of a remote session** that
+     closes its processes, as Windows OpenSSH does. For a lasting instance on Windows the answer is
+     a service, which is installation and out of scope. `USAGE.md` states the difference. It is the
+     one place where the two OSes behave differently, because the hosts themselves do.
+4. **Waits** until the heartbeat says `mode headless` with the new pid (at most 90 s), then prints
+   the pid, the paths and "connect with: openproteo connect". If the process ends first, it prints
+   the refusal from `console.out` and exits 1, as a refused start does (§14).
+
+**systemd (D2).** `tools/openproteo.service`, a documented template:
+
+* `User=openproteo`, `ExecStart=... -jar openproteo-headless.war`, `Restart=on-failure`;
+* `SuccessExitStatus=143`, so a normal stop is not counted as a failure;
+* with it, start and stop are `systemctl start|stop openproteo`, and `shutdown` from the console
+  still works.
+
+**Intersection, decided by name: `openproteo start` × systemd.** If the unit is in use, `start` is
+refused while the unit's instance runs: it is the same engine lock. The reverse holds too:
+`systemctl start` fails when `openproteo start` already started one, and the journal shows the
+reason. There is one rule, the lock; there are two ways in.
+
+### 15.6 `shutdown`
+
+A new channel command, handled by the backend like the others.
+
+* It is **refused while a run is QUEUED or RUNNING**, naming them, unless `--force` is given. A
+  forced stop interrupts them as a Tomcat stop does today: their run files stay RUNNING (existing
+  behaviour, §12 "not decided here"). Runs WAITING_APPROVAL or ON_HOLD do not block, because a
+  decision or a release still works after the next start (§2).
+* The console asks `[yes/no]` and sends the request only after `yes`.
+* The instance answers first, then closes its context on a separate thread. The heartbeat gets
+  `stopped: true`, the lock is released, and the JVM exits 0. This is the clean stop §14.3 could
+  not observe; H3 verifies it.
+* Audited **in every feed's audit** as `INSTANCE_SHUTDOWN`, with the user, `force`, and the
+  interrupted runs if any. Every feed, because a shutdown stops every feed's schedule and the
+  audit is per feed. One line per feed, so the volume stays small.
+* The application log records it too.
+
+**Intersection, decided by name: `shutdown` × "the CLI never changes a setting" (§6.2).** Stopping
+the instance changes no definition and no setting. It is an operation, like `stop` on a run, and
+the console is where operators operate.
+
+### 15.7 From the PC to the server
+
+The author's procedure: design on the PC, copy the files, work on the server.
+
+**Which files.** Copying `workflows/` alone is not enough. What a workflow needs on the server:
+
+| What | Where it lives | On the server |
+|---|---|---|
+| workflow XML | `workflows/` | copied |
+| `openproteo-instance.json` | `workflows/` | travels with it; its `controlDir` is overridden by `start` (§15.8) |
+| dataschema / displayschema | each feed's directory | copied with the feed directory, or taken from the dashboard's export ZIP (`schemas/`) |
+| scripts | `scripts-dir` | copied |
+| datasources | `datasources.json` | copied; passwords are in it, so the file is readable by the functional account only |
+| FTPS targets, truststores | `ftp-targets.json`, the files they name | copied; the paths inside must exist on the server |
+| global variables | the global variables file | copied |
+| masking secret, paths, interpreters | the server's `application.properties` | written once at installation |
+
+**Host-specific paths.** A workflow with `baseDir="D:/feeds"` cannot run on Linux.
+**Intersection, decided by name: "copy the workflows as they are" × "a workflow must run on the
+server".** The copy is kept as it is, and the check is moved to the server. `openproteo start`
+logs, and the console's `feeds` marks (`PATH?`), every workflow whose `baseDir` is absolute and
+does not exist on the host. Nothing is rewritten (Default conservativi). The designer is where the
+author fixes it.
+
+**`import` of the export ZIP:** asked on 2026-11-25 and not yet answered. **Not in H3** (Q12).
+
+### 15.8 The installation on the server
+
+`OPENPROTEO_HOME`, with a fixed layout. Choosing the folder is installation, which the contract
+puts out of scope:
+
+```
+$OPENPROTEO_HOME/
+  openproteo-headless.war
+  openproteo            (tools/openproteo.sh)      openproteo.cmd on Windows
+  config/application.properties    paths, masking secret, interpreters
+  workflows/   feeds/   scripts/   shared/
+  control/inbox  control/outbox    permissions as in USAGE.md
+  logs/
+```
+
+* `start` and `connect` both derive the control directory as `$OPENPROTEO_HOME/control`, and
+  `start` passes it on the command line. Since H1 the command line wins over the instance file
+  (§13.2 item 3), so a `controlDir` saved on the PC never points the server at a Windows path.
+* `start` passes `--spring.config.additional-location=$OPENPROTEO_HOME/config/`.
+* `OPENPROTEO_CONTROL` and `--control` still work when given (H1), and win over the derived value.
+
+**Intersection, decided by name: «Configurabilità integrale da GUI» × the server has no GUI.** On
+the server every runtime parameter comes from `config/application.properties` and from the files
+copied from the PC, where the GUI wrote them. The rule is met where a GUI exists, the PC. On the
+server the configuration is installation, and the GUI-written files are its source. No new runtime
+key is added: `OPENPROTEO_HOME` and `OPENPROTEO_JAVA_OPTS` are environment of the installation (JVM
+parameters and location, out of scope by the contract).
+
+### 15.9 Moving the loopback GUI off `main` (D1)
+
+On `main`, after branching `feature/loopback-gui` at `20a9198`:
+
+* removed: `web/LoopbackRules`, `web/LoopbackGuard`; the `serverAddress` mapping in
+  `InstanceSettingsPostProcessor`; the address field, its validation and `embeddedServer` in
+  `ControlController` and `platform.html`; the `USAGE.md` subsection "The GUI only from the
+  server";
+* kept: everything else of H2, which the scenario needs;
+* the spec is not edited back. §4.4 (address part), Q7, Q11 and the §14 rows about the guard get a
+  note: "moved to `feature/loopback-gui` on 2026-11-25 (D1)". The branch keeps those parts; it is
+  not a pending merge.
+
+**Intersection, decided by name: removing a setting × a saved value.** An
+`openproteo-instance.json` that already holds `serverAddress` (only test installations, since H2
+is a week old) keeps the key: it is not rewritten (Default conservativi). It is ignored, and the
+Platform page no longer shows it.
+
+### 15.10 Linux and Windows
+
+| | Linux (RHEL8, the target) | Windows |
+|---|---|---|
+| console, one-shot commands, channel | same code | same code |
+| `start` detaching | `setsid`, survives SSH logout | child process; a remote session may end it (§15.5) |
+| Ctrl-C while following | `sun.misc.Signal` (HotSpot) | same |
+| wrappers | `openproteo` (sh) | `openproteo.cmd` |
+| systemd unit | yes | n/a (a service is installation) |
+
+### 15.11 Verification plan
+
+**Here (Windows, Java 8, real Maven build):**
+
+* the console against a real instance, driven by a script on its standard input: every command of
+  §15.3 and its refusals, `use`, `last`, numbers, quoting, `exit`;
+* following a run to a gate and through `approve`, with the log lines shown;
+* Ctrl-C while following (`GenerateConsoleCtrlEvent` from a helper), with a positive control: the
+  console survives and the run continues;
+* `start`: refusal while an instance runs, a successful start and wait, a start refused for a
+  missing control directory with the reason shown;
+* `shutdown`: refused with a RUNNING run, accepted with `--force`, accepted with no run. Then the
+  heartbeat shows `stopped`, the lock is free, the JVM exit code is 0, and `INSTANCE_SHUTDOWN` is in
+  every feed's audit with the chain still verifying;
+* the loopback removal: the standalone with a `serverAddress` in its instance file starts on all
+  interfaces, and no guard bean exists. Build and template scans as usual.
+
+**On RHEL8 (left to the author, unless a machine is made reachable, Q13):**
+
+* `start` from an SSH session, logout, login, `connect`: the instance must have survived;
+* two users in the operators group: each recorded under their own name;
+* sticky `1730` inbox: one user cannot withdraw another's request;
+* the systemd unit;
+* `rlwrap`.
+
+### 15.12 Gate H3: before any code
+
+Answered: D1-D6. Still open:
+
+* **Q12.** A console or shell command `import <export.zip>`, which installs the dashboard's export
+  on the server (XML, schemas, scripts, datasources without passwords, globals): yes or no?
+  Recommended: **not now**, the copy is manual (§15.7). Reconsider after the first real transfer.
+* **Q13.** Can a RHEL8 test machine be made reachable from the development session? Without it,
+  everything Linux-specific in §15.11 is left to the author.
+* **Q14.** `shutdown` refused while runs are active unless `--force` (§15.6): confirm. The
+  alternative is to wait for them, which could take hours with the console open.
+
+Batches, each confirmed before the next:
+
+* **H3a:** the loopback GUI to its branch (§15.9). Small, and independent of the rest.
+* **H3b:** `shutdown`, the 250 ms poll, the console, `start`, the wrappers, the systemd template
+  and `USAGE.md`.
+
+### 15.13 Answers and findings of 2026-11-25, before H3b
+
+* **Q12 answered: no `import` in H3.** The copy stays manual (§15.7).
+* **Q14 answered: confirmed.** `shutdown` is refused while runs are QUEUED or RUNNING, unless
+  `--force`.
+* **Q13: no test machine before the author's demo.** The first Linux run is the demo on a Linux
+  server. A side session listed free options (notes folder, `rhel8-test-options.md`): a local
+  Hyper-V VM with RHEL 8.10 or AlmaLinux 8, AlmaLinux 8 under KVM in GitHub Actions, or a cloud VM.
+* **D5 corrected: `rlwrap` is in EPEL, not in the RHEL repositories.** History of typed commands is
+  therefore "where EPEL is allowed". The console does not depend on it.
+* **§15.5 completed: `KillUserProcesses=yes`.** On a hardened server whose logind has
+  `KillUserProcesses=yes`, logout ends every process of the session, including one under `setsid`.
+  There the systemd unit is the only way to keep the instance running after logout. It must be
+  checked on the target server (`loginctl show-session`, `/etc/systemd/logind.conf`).
+* **Noted for production planning, not for H3:** OpenJDK 8 on RHEL leaves full support on
+  2026-11-30. Extended life-cycle support (paid) runs to 2032.
+* **Order changed for the demo:** H3b first, H3a (the loopback GUI to its branch) after. Until then
+  the guard stays on `main`, inert unless `serverAddress` is set.
+
+### 15.14 H3b delivered (2026-11-25)
+
+| Part | Where |
+|---|---|
+| `shutdown` on the channel: headless only, refused with active runs unless `force`, `INSTANCE_SHUTDOWN` in every feed, then context closed and JVM exit 0 | `control/EngineBackend`, `ControlProtocol.Request.force` |
+| Inbox polled every 250 ms | `control/ControlChannel` |
+| The console: every command of §15.3, `use`, `last`, numbers, quoting, follow with step logs, Ctrl-C via `sun.misc.Signal` | `cli/OpConsole` |
+| `start`: refusal when an instance serves, `setsid` on Linux, background with `logs/console.out`, wait for the heartbeat, refusal reason printed | `cli/Starter` |
+| `connect`, `start`, one-shot `shutdown [--force]`; control directory defaults to `OPENPROTEO_HOME/control` | `cli/OpCli`, `ControlClient.lastPid` |
+| Wrappers set `OPENPROTEO_HOME` to their own folder when it is not set | `tools/openproteo.sh`, `tools/openproteo.cmd` |
+| systemd template | `tools/openproteo.service` |
+
+Decided in the implementation:
+
+1. `shutdown` is refused on an instance with the GUI. A container or a service stops it; closing
+   the context of a WAR under Tomcat would leave a dead webapp.
+2. `start` spots a running instance by its heartbeat, so it needs no access to the workflows
+   directory. The engine lock in the new instance stays the final word.
+3. Following a run compares the steps with their statuses before the action (`run`, `approve`,
+   `reject`, `resume`). So a step that starts and ends between two polls still shows its log, and
+   steps that ran before the action are not shown again.
+4. One-shot `shutdown` asks no confirmation: it is for scripts. The console asks `[yes/no]`.
+
+**Verified on Windows** (Windows 11, Zulu OpenJDK 1.8.0_362, artifacts from `mvn clean package`,
+an `OPENPROTEO_HOME` laid out as §15.8, the `.cmd` wrapper):
+
+* `start` in 5 s; a second `start` refused with 12;
+* a console session driven from standard input: `help`, `feeds`, `use 1`, `run pattern=*.txt`
+  (followed to the gate with the step log), `status last`, `log last stage --tail 3`,
+  `approve last --note "..."` (followed to SUCCESS with the next step's log), `runs`, `log 1`,
+  unknown command, `use 9`, a malformed variable, missing arguments, `exit`;
+* `shutdown` refused with a RUNNING run (a 40 s cmd step), then `shutdown --force` and `yes`. The
+  heartbeat shows `stopped: true`, the process is gone, `INSTANCE_SHUTDOWN` is in both feeds'
+  audits with the interrupted run named, no child process is left, and the interrupted run file
+  stays RUNNING (existing behaviour, §15.6). Both audit chains verify after the restart;
+* `start` again after a clean stop; one-shot `shutdown` with no runs (exit 0); `ping` after it
+  exits 20 at once, naming the stop time.
+
+**Verified on Linux:** nothing yet. The first run is the author's demo on a Linux server.
+
+**Not verified on either:**
+
+* `setsid` and survival after SSH logout;
+* Ctrl-C while following, on any OS: it needs an interactive terminal, and every console test
+  here was driven from standard input;
+* the systemd unit;
+* `start` under `sudo -u`;
+* two operators.

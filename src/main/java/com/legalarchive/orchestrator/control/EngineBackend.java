@@ -10,7 +10,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.stereotype.Component;
+
+import com.legalarchive.orchestrator.model.run.RunStatus;
 
 import com.legalarchive.orchestrator.audit.AuditLogger;
 import com.legalarchive.orchestrator.engine.WorkflowEngine;
@@ -39,14 +45,17 @@ public class EngineBackend implements ControlBackend {
     private final RunStore store;
     private final AuditLogger audit;
     private final WorkflowScheduler scheduler;
+    private final ApplicationContext context;
+    private static final Logger log = LoggerFactory.getLogger(EngineBackend.class);
 
     public EngineBackend(WorkflowEngine engine, WorkflowRegistry registry, RunStore store,
-                         AuditLogger audit, WorkflowScheduler scheduler) {
+                         AuditLogger audit, WorkflowScheduler scheduler, ApplicationContext context) {
         this.engine = engine;
         this.registry = registry;
         this.store = store;
         this.audit = audit;
         this.scheduler = scheduler;
+        this.context = context;
     }
 
     @Override
@@ -65,6 +74,7 @@ public class EngineBackend implements ControlBackend {
             case "resume": return resume(r, user, extra);
             case "reload": return reload();
             case "audit-verify": return auditVerify(r);
+            case "shutdown": return shutdown(r, user, extra);
             default: return ControlProtocol.Response.refused(ExitCodes.USAGE, "unknown command '" + c + "'");
         }
     }
@@ -291,6 +301,50 @@ public class EngineBackend implements ControlBackend {
         Map<String, Object> d = new LinkedHashMap<String, Object>();
         d.put("workflows", registry.all().size());
         d.put("errors", registry.errors());
+        return ControlProtocol.Response.ok(d);
+    }
+
+    /**
+     * Stops the headless instance (HEADLESS.md 15.6). Refused on a GUI instance, which a container
+     * or a service stops; refused while runs are QUEUED or RUNNING unless {@code force}. Audited in
+     * every feed, then the context is closed on another thread, after the answer is published.
+     */
+    private ControlProtocol.Response shutdown(ControlProtocol.Request r, String user, Map<String, String> extra) {
+        if (!ControlService.MODE_HEADLESS.equals(ControlService.mode())) {
+            return ControlProtocol.Response.refused(ExitCodes.CONFLICT,
+                    "This instance has the GUI: stop it from its container or service, not from the command line");
+        }
+        List<String> busy = new ArrayList<String>();
+        for (WorkflowRun run : engine.liveRuns()) {
+            if (run.status == RunStatus.QUEUED || run.status == RunStatus.RUNNING) busy.add(run.runId + " " + run.status);
+        }
+        boolean force = Boolean.TRUE.equals(r.force);
+        if (!busy.isEmpty() && !force) {
+            return ControlProtocol.Response.refused(ExitCodes.CONFLICT, busy.size() + " run(s) active: " + busy
+                    + ". Wait for them to end, or use shutdown --force to interrupt them");
+        }
+        for (WorkflowDef def : registry.all()) {
+            FeedLayout layout = registry.layout(def.feedId);
+            if (layout == null) continue;
+            Map<String, String> d = new LinkedHashMap<String, String>();
+            d.put("force", String.valueOf(force));
+            if (!busy.isEmpty()) d.put("interrupted", busy.toString());
+            d.putAll(extra);
+            audit.log(layout.auditFile(), def.feedId, null, null, "INSTANCE_SHUTDOWN", user, d);
+        }
+        log.info("headless: shutdown requested by {} (force={}, active runs {})", user, force, busy);
+        Thread t = new Thread(new Runnable() {
+            @Override public void run() {
+                try { Thread.sleep(1000); } catch (InterruptedException ignored) { }   // let the answer be published
+                try { ((ConfigurableApplicationContext) context).close(); } catch (Throwable e) { log.error("shutdown: {}", e.toString()); }
+                System.exit(0);
+            }
+        }, "op-shutdown");
+        t.setDaemon(false);
+        t.start();
+        Map<String, Object> d = new LinkedHashMap<String, Object>();
+        d.put("pid", ControlChannel.pid());
+        d.put("interrupted", busy);
         return ControlProtocol.Response.ok(d);
     }
 

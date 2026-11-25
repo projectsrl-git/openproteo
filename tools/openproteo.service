@@ -1,0 +1,27 @@
+# OpenProteo headless instance as a systemd service (.claude/HEADLESS.md section 15.5).
+# Template: adjust the paths, then
+#   sudo cp openproteo.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now openproteo
+# Start and stop with systemctl; "shutdown" from the console also works (the unit then stays
+# stopped: Restart=on-failure does not restart a clean exit).
+# The engine lock makes "openproteo start" and this unit exclusive: whichever starts second refuses.
+
+[Unit]
+Description=OpenProteo headless instance
+After=network.target
+
+[Service]
+Type=simple
+User=openproteo
+Group=openproteo
+WorkingDirectory=/opt/openproteo
+Environment=OPENPROTEO_HOME=/opt/openproteo
+ExecStart=/usr/bin/java -jar /opt/openproteo/openproteo-headless.war \
+  --spring.config.additional-location=optional:file:/opt/openproteo/config/ \
+  --orchestrator.control-dir=/opt/openproteo/control
+Restart=on-failure
+SuccessExitStatus=143
+UMask=0007
+
+[Install]
+WantedBy=multi-user.target

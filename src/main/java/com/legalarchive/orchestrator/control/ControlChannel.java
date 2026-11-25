@@ -124,7 +124,8 @@ public class ControlChannel {
                 t.setDaemon(true);
                 return t;
             });
-            exec.scheduleWithFixedDelay(this::pollSafely, 1, 1, TimeUnit.SECONDS);
+            // 250 ms (H3, HEADLESS.md 15.4): a command typed in the console answers in well under a second
+            exec.scheduleWithFixedDelay(this::pollSafely, 250, 250, TimeUnit.MILLISECONDS);
             exec.scheduleWithFixedDelay(this::heartbeatSafely, 10, 10, TimeUnit.SECONDS);
             exec.scheduleWithFixedDelay(this::cleanupSafely, 5, 60, TimeUnit.SECONDS);
             enabled = true;

@@ -86,6 +86,15 @@ final class ControlClient {
         return i;
     }
 
+    /** The pid in the heartbeat file, whatever its age; -1 when there is none. For {@code start}. */
+    long lastPid() {
+        try {
+            return mapper.readValue(Files.readAllBytes(dir.resolve(ControlProtocol.INSTANCE_FILE)), ControlProtocol.Instance.class).pid;
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
     /** Sends one request and waits for its answer. */
     ControlProtocol.Response call(ControlProtocol.Request req) throws Failure {
         instance();

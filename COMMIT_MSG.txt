@@ -1,43 +1,38 @@
-Headless H2: the instance with no web server, and the loopback GUI
+Headless H3b: console, start and shutdown for the RHEL8 scenario
 
-java -jar openproteo-headless.war now runs the headless instance
-(.claude/HEADLESS.md, section 14): engine, cron and control channel,
-WebApplicationType.NONE, no servlet API in the artifact, no port opened.
-The only way in is to log on to the server and use the command line.
+The author's scenario (.claude/HEADLESS.md section 15): no HTTP on the
+server, people reach OpenProteo only by SSH, one instance started from
+the shell, then a console inside the program.
 
-- HeadlessConfig (outside the package the GUI artifacts scan) loads the
-  same beans minus @Controller/@ControllerAdvice, the web package and
-  OrchestratorApplication.
-- Before any bean exists: the engine lock .openproteo-engine.lock in the
-  workflows directory (headless only, Q10) and the control directory
-  checks; either failure refuses the start, exit 1, nothing written.
-  After the start, a channel that is not serving also stops it.
-- serverAddress, saved from the Platform page into
-  openproteo-instance.json, becomes server.address at the next start
-  of the standalone; an address that is not the server's own is refused
-  when saved. "No effect" is shown under an external Tomcat.
-- Loopback guard (Q11): registered only when server.address is set,
-  enabled only when it is a loopback address, acting only on requests
-  received on loopback. Refuses a foreign Host (DNS rebinding) and a
-  change whose Origin/Referer is another site; a request with neither
-  passes. Fixed 403 text; the reason goes to the log.
-- USAGE.md: the headless instance, setup-to-production procedure, the
-  loopback GUI and its limits. CLAUDE.md: artifact description, layout.
+- openproteo start: starts the headless instance in the background from
+  OPENPROTEO_HOME (setsid on Linux, output to logs/console.out), refuses
+  when an instance already serves (exit 12), waits for its heartbeat and
+  prints a refused start's reason.
+- openproteo connect: interactive console. help, feeds, use, runs,
+  status, log, run name=value, follow, approve, reject, resume, stop,
+  reload, audit-verify, ping, exit, shutdown. "last" and list numbers
+  for runs and feeds. run/approve/reject/resume follow the run with its
+  step logs; Ctrl-C returns to the prompt (sun.misc.Signal).
+- shutdown: headless only, refused with QUEUED/RUNNING runs unless
+  --force, INSTANCE_SHUTDOWN audited in every feed, then a clean stop
+  (heartbeat stopped, lock released, exit 0). One-shot form for scripts.
+- Inbox polled every 250 ms. Wrappers default OPENPROTEO_HOME to their
+  own folder. tools/openproteo.service systemd template.
+- Spec: Q12 (no import), Q14 confirmed, rlwrap is in EPEL,
+  KillUserProcesses=yes needs the systemd unit; H3a (loopback GUI to a
+  branch) moved after the demo. USAGE: install, start, connect.
 
-No new file-only key: serverAddress is set from the Platform page and
-applies at restart.
+No new runtime key: OPENPROTEO_HOME and OPENPROTEO_JAVA_OPTS are
+installation environment.
 
-Verified on Linux: nothing (no Linux machine reachable).
-Verified on Windows: Windows 11, Zulu OpenJDK 1.8.0_362, artifacts from
-mvn clean package: headless instance with no TCP/UDP socket (standalone
-as positive control); runs and approvals through it; four refused
-starts leaving nothing on disk; archive without Tomcat/servlet classes;
-mutation of the scan exclusions fails the start; loopback bind and
-off-host refusal; guard on real requests (403, no run created) and the
-pages working through it in the browser; rules harness with two
-mutations. Details in section 14.3.
-Not verified on either: Linux; a clean stop (processes were killed);
-a Windows service or systemd; the guard under an external Tomcat; an
-IPv6 loopback bind.
+Verified on Linux: nothing yet (first run: the demo on a Linux server).
+Verified on Windows: Windows 11, Zulu OpenJDK 1.8.0_362, Maven
+artifacts: start and refused second start; a scripted console session
+through run, gate, approve, logs, errors and exit; shutdown refused with
+a running run, then forced, with a clean stop (stopped flag, process
+gone, audited, chains verifying after restart); one-shot shutdown.
+Not verified on either: setsid and surviving SSH logout; Ctrl-C while
+following (no interactive terminal); the systemd unit; start under
+sudo; two operators.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

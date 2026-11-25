@@ -25,6 +25,10 @@ public final class OpCli {
     static final String USAGE =
             "Usage: openproteo [--control <dir>] [--json] <command> [arguments]%n"
             + "%n"
+            + "  start                                     start OpenProteo in the background (from OPENPROTEO_HOME)%n"
+            + "  connect                                   open the console of the running instance%n"
+            + "  shutdown [--force]                        stop the running instance (no confirmation: for scripts)%n"
+            + "%n"
             + "  ping                                      is an instance serving the control directory?%n"
             + "  feeds                                     workflows, last run, cron%n"
             + "  runs <feedId> [--limit N]                 runs of a workflow, newest first%n"
@@ -40,7 +44,7 @@ public final class OpCli {
             + "  reload                                    reread the workflow files%n"
             + "  audit-verify <feedId>                     verify the audit hash chain%n"
             + "%n"
-            + "The control directory comes from --control, else from OPENPROTEO_CONTROL.%n"
+            + "The control directory comes from --control, else OPENPROTEO_CONTROL, else OPENPROTEO_HOME/control.%n"
             + "Exit codes: 0 done / run SUCCESS, 1 FAILED, 2 usage, 3 waiting approval, 4 on hold,%n"
             + "5 REJECTED, 6 ABORTED, 7 SKIPPED, 10 unknown, 11 locked, 12 conflict, 13 bad variable,%n"
             + "20 no instance, 21 expired, 22 protocol, 23 instance error, 30 local error.%n";
@@ -67,7 +71,7 @@ public final class OpCli {
 
     static final class Args {
         String control;
-        boolean json, waitFlag, follow, help;
+        boolean json, waitFlag, follow, help, force;
         Integer limit, tail;
         String note;
         final Map<String, String> vars = new LinkedHashMap<String, String>();
@@ -82,6 +86,7 @@ public final class OpCli {
             else if ("--json".equals(s)) r.json = true;
             else if ("--wait".equals(s)) r.waitFlag = true;
             else if ("--follow".equals(s)) r.follow = true;
+            else if ("--force".equals(s)) r.force = true;
             else if ("--help".equals(s) || "-h".equals(s)) r.help = true;
             else if ("--limit".equals(s)) r.limit = number(value(a, ++i, s), s);
             else if ("--tail".equals(s)) r.tail = number(value(a, ++i, s), s);
@@ -133,13 +138,29 @@ public final class OpCli {
             }
             if (!a.vars.isEmpty() && !"run".equals(cmd)) throw new ControlClient.Failure(ExitCodes.USAGE, "--var is for run only");
 
+            String home = env.get("OPENPROTEO_HOME");
+            boolean hasHome = home != null && !home.trim().isEmpty();
             String dir = a.control != null ? a.control : env.get("OPENPROTEO_CONTROL");
+            if ((dir == null || dir.trim().isEmpty()) && hasHome) dir = Paths.get(home.trim()).resolve("control").toString();
             if (dir == null || dir.trim().isEmpty()) {
-                throw new ControlClient.Failure(ExitCodes.USAGE, "no control directory: pass --control <dir> or set OPENPROTEO_CONTROL");
+                throw new ControlClient.Failure(ExitCodes.USAGE, "no control directory: pass --control <dir>, or set OPENPROTEO_CONTROL or OPENPROTEO_HOME");
             }
-            ControlClient client = new ControlClient(Paths.get(dir.trim()).toAbsolutePath().normalize(), err);
+            java.nio.file.Path controlDir = Paths.get(dir.trim()).toAbsolutePath().normalize();
+            ControlClient client = new ControlClient(controlDir, err);
 
             switch (cmd) {
+                case "start":
+                    if (!hasHome) throw new ControlClient.Failure(ExitCodes.USAGE, "start needs OPENPROTEO_HOME, the installation folder (the wrappers set it)");
+                    return Starter.start(Paths.get(home.trim()).toAbsolutePath().normalize(), controlDir, env, out, err);
+                case "connect": return OpConsole.run(client, out);
+                case "shutdown": {
+                    ControlProtocol.Request q = request("shutdown", new ArrayList<String>(), a);
+                    q.force = a.force;
+                    ControlProtocol.Response r = client.call(q);
+                    if (!r.ok) return refused(r);
+                    out.println("shutdown accepted: pid " + r.data.get("pid") + " is stopping");
+                    return ExitCodes.OK;
+                }
                 case "ping": return ping(client, a);
                 case "run": return runCommand(client, a, p.get(0));
                 case "wait": return waitFor(client, a, p.get(0), p.get(1));
@@ -158,7 +179,7 @@ public final class OpCli {
     /** Positional arguments each command takes after its name; -1 for an unknown command. */
     static int arity(String cmd) {
         switch (cmd) {
-            case "ping": case "feeds": case "reload": return 0;
+            case "ping": case "feeds": case "reload": case "start": case "connect": case "shutdown": return 0;
             case "runs": case "run": case "audit-verify": return 1;
             case "status": case "wait": case "stop": case "approve": case "reject": case "resume": case "log": return 2;
             default: return -1;

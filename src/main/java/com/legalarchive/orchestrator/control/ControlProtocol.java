@@ -72,6 +72,8 @@ public final class ControlProtocol {
         public Long offset;
         public Integer tail;
         public Integer limit;
+        /** shutdown: stop even with runs QUEUED or RUNNING (H3, HEADLESS.md 15.6). */
+        public Boolean force;
         /** Identity of the CLI process, read from its token. Evidence only, never the user. */
         public String declaredUser;
         public String cliBuild;
